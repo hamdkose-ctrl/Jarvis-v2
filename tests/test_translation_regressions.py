@@ -102,6 +102,34 @@ class TranslationTests(unittest.TestCase):
             finally:translated.close()
             self.assertEqual(source.read_bytes(),original)
 
+    def test_successful_excel_translation_refuses_existing_output(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'source.xlsx';target=Path(folder)/'translated.xlsx'
+            wb=Workbook();wb.active['A1']='English';wb.save(source)
+            target.write_bytes(b'another user output')
+            with patch.object(tr.output,'choose_excel_translation_path',return_value=str(target)), \
+                 patch.object(tr,'ask',return_value=json.dumps([{'id':0,'translation':'Türkçe'}])):
+                with self.assertRaises(FileExistsError):
+                    tr.translate_excel_document(str(source),'Türkçe')
+            self.assertEqual(target.read_bytes(),b'another user output')
+            self.assertFalse(list(Path(folder).glob('.jarvis-translate-*')))
+
+    def test_excel_translation_does_not_clobber_target_created_during_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'source.xlsx';target=Path(folder)/'translated.xlsx'
+            wb=Workbook();wb.active['A1']='English';wb.save(source)
+            original_link=tr.os.link
+            def race(source_path, destination_path):
+                target.write_bytes(b'racing output')
+                return original_link(source_path, destination_path)
+            with patch.object(tr.output,'choose_excel_translation_path',return_value=str(target)), \
+                 patch.object(tr,'ask',return_value=json.dumps([{'id':0,'translation':'Türkçe'}])), \
+                 patch.object(tr.os,'link',side_effect=race):
+                with self.assertRaises(FileExistsError):
+                    tr.translate_excel_document(str(source),'Türkçe')
+            self.assertEqual(target.read_bytes(),b'racing output')
+            self.assertFalse(list(Path(folder).glob('.jarvis-translate-*')))
+
     def test_missing_excel_results_leave_output_untouched(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/'source.xlsx';target=Path(folder)/'translated.xlsx'

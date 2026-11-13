@@ -69,6 +69,81 @@ class OriginalPageTests(unittest.TestCase):
             self.assertIn('Yalnız seçili kırpılmış alanı', model.call_args.args[1])
         study.remove(self.profile, 1); self.assertFalse(saved.exists())
 
+    def test_study_source_id_collision_never_overwrites_existing_artifacts(self):
+        with patch.object(study, '_read_isolated',
+                          return_value='Verified source text.\\fSecond page text.'):
+            item = study.add(self.profile, str(self.path))
+            original = {
+                p.name: p.read_bytes()
+                for p in study._dir(self.profile).glob('1.*')
+            }
+            with self.assertRaises(FileExistsError):
+                study.add(self.profile, str(self.path))
+        self.assertEqual(
+            {p.name: p.read_bytes() for p in study._dir(self.profile).glob('1.*')},
+            original,
+        )
+        self.assertEqual(len(self.profile.data['study']['docs']), 1)
+        self.assertEqual(item['id'], 1)
+        self.assertFalse(list(study._dir(self.profile).glob('.jarvis-study-*')))
+
+    def test_study_profile_save_failure_rolls_back_new_files(self):
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('disk full'))
+        with patch.object(study, '_read_isolated',
+                          return_value='Verified source text.\\fSecond page text.'):
+            with self.assertRaises(OSError):
+                study.add(self.profile, str(self.path))
+        self.assertEqual(self.profile.data['study']['docs'], [])
+        self.assertEqual(list(study._dir(self.profile).glob('1.*')), [])
+        self.assertEqual(list(study._dir(self.profile).glob('.jarvis-study-*')), [])
+
+    def test_study_remove_fails_before_catalog_change_if_source_claim_busy(self):
+        from modules import file_resource_guard, resource_leases
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Original study text', encoding='utf8')
+        # An existing reader protects the immutable text snapshot.
+        with file_resource_guard.claim_paths(source):
+            with self.assertRaises(resource_leases.LeaseConflict):
+                study.remove(self.profile, item['id'])
+        self.assertIn(item, self.profile.data['study']['docs'])
+        self.assertEqual(source.read_text(encoding='utf8'), 'Original study text')
+
+    def test_study_clear_never_unlinks_file_with_active_source_claim(self):
+        from modules import file_resource_guard
+        self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Active reader still owns this', encoding='utf8')
+        with file_resource_guard.claim_paths(source):
+            study.clear(self.profile)
+            self.assertTrue(source.exists())
+        self.assertEqual(self.profile.data['study']['docs'], [])
+        self.assertEqual(self.profile.data['study']['source_generation'], 1)
+
+    def test_study_remove_failed_catalog_save_does_not_destroy_source(self):
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Keep this source on disk', encoding='utf8')
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('catalog fsync failure'))
+        with self.assertRaises(OSError):
+            study.remove(self.profile, item['id'])
+        self.assertEqual(source.read_text(encoding='utf8'), 'Keep this source on disk')
+        self.assertIn(item, self.profile.data['study']['docs'])
+
+    def test_study_clear_failed_catalog_save_preserves_sources_and_generation(self):
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Do not erase before catalog commit', encoding='utf8')
+        before = self.profile.data['study'].copy()
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('catalog fsync failure'))
+        with self.assertRaises(OSError):
+            study.clear(self.profile)
+        self.assertEqual(source.read_text(encoding='utf8'),
+                         'Do not erase before catalog commit')
+        self.assertIn(item, self.profile.data['study']['docs'])
+        self.assertEqual(self.profile.data['study'].get('source_generation'),
+                         before.get('source_generation'))
+
     def test_bad_page_stale_key_and_foreign_profile_do_not_reach_model(self):
         with patch.object(mt.llm, 'ask_image', return_value=self.reply): mt.solve(self.profile, '', str(self.path))
         view = mt.preview(self.profile, 1)
@@ -135,6 +210,29 @@ class OriginalPageTests(unittest.TestCase):
         with patch.object(sp, 'pdf_page', side_effect=changed), self.assertRaises(ValueError):
             sp.restore_original(self.profile, 1, str(self.path))
         self.assertFalse((study._dir(self.profile)/'1.source.pdf').exists())
+
+    def test_restore_existing_original_never_overwrites_a_foreign_file(self):
+        import hashlib
+        self.legacy_source(source_hash=hashlib.sha256(self.original).hexdigest())
+        target = study._dir(self.profile)/'1.source.pdf'
+        target.write_bytes(b'foreign existing original')
+        with self.assertRaises(FileExistsError):
+            sp.restore_original(self.profile, 1, str(self.path))
+        self.assertEqual(target.read_bytes(), b'foreign existing original')
+        self.assertFalse(self.profile.data['study']['docs'][0].get('original_pdf'))
+        self.assertFalse(list(target.parent.glob('.jarvis-original-*')))
+
+    def test_restore_failed_metadata_save_rolls_back_only_new_original(self):
+        import hashlib
+        item = self.legacy_source(source_hash=hashlib.sha256(self.original).hexdigest())
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('disk full'))
+        target = study._dir(self.profile)/'1.source.pdf'
+        with self.assertRaises(OSError):
+            sp.restore_original(self.profile, 1, str(self.path))
+        self.assertFalse(target.exists())
+        self.assertNotIn('original_pdf', item)
+        self.assertEqual(item['source_hash'], hashlib.sha256(self.original).hexdigest())
+        self.assertFalse(list(target.parent.glob('.jarvis-original-*')))
 
     def test_unreadable_original_keeps_text_and_restore_action(self):
         self.legacy_source()

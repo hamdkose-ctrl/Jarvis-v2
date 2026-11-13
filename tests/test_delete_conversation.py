@@ -19,6 +19,28 @@ class DeleteConversationTests(unittest.TestCase):
         self.path=history._path('alice')
         self.path.write_text(''.join(json.dumps(row)+'\n' for row in self.rows),encoding='utf-8')
 
+    def test_history_append_uses_real_jsonl_lines_and_survives_trim(self):
+        with patch.object(history, '_MAX_BYTES', 256):
+            for index in range(12):
+                row = history.append('alice', 'user', 'new row ' + str(index))
+                self.assertIsNotNone(row)
+        raw = self.path.read_bytes()
+        self.assertTrue(raw.endswith(b'\n'))
+        self.assertNotIn(b'\\n', raw)
+        for line in raw.splitlines():
+            self.assertIsInstance(json.loads(line), dict)
+        self.assertFalse(list(self.path.parent.glob('.history-trim-*')))
+
+    def test_busy_history_is_not_deleted_or_reported_as_appended(self):
+        from modules import file_resource_guard, resource_leases
+        before = self.path.read_bytes()
+        with file_resource_guard.claim_paths(self.path):
+            with self.assertRaises(resource_leases.LeaseConflict):
+                history.delete_day('alice', '2026-10-07')
+            self.assertIsNone(history.append('alice', 'user', 'must not claim save'))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(list(self.path.parent.glob('.history-delete-*')))
+
     def test_only_selected_day_and_user_are_deleted(self):
         other=history._path('bob');other.write_bytes(self.path.read_bytes());before=other.read_bytes()
         self.assertEqual(history.delete_day('alice','2026-10-07'),1)
@@ -38,6 +60,16 @@ class DeleteConversationTests(unittest.TestCase):
             with self.assertRaises(OSError):history.delete_day('alice','2026-10-07')
         self.assertEqual(self.path.read_bytes(),before)
         self.assertFalse(list(Path(self.temp.name).glob('.history-delete-*')))
+
+    def test_failed_delete_does_not_publish_deleted_ids_to_ui(self):
+        before = self.path.read_bytes()
+        selected = set()
+        with patch.object(history.os, 'replace',
+                          side_effect=OSError('durable replace failed')):
+            with self.assertRaises(OSError):
+                history.delete_day('alice', '2026-10-07', selected)
+        self.assertEqual(selected, set())
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_deleted_rows_do_not_return_from_live_log(self):
         owner=SimpleNamespace(slug='alice',name='Alice');state=SimpleNamespace(last_doc='cached')

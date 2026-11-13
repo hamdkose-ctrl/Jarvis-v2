@@ -81,6 +81,40 @@ class ConversionTests(unittest.TestCase):
             with self.assertRaises(ValueError):conversion.save_text('text',target,'rapor')
         self.assertEqual(target.read_bytes(),b'previous output')
 
+    def test_successful_conversion_must_not_replace_existing_target(self):
+        source = self.root/'source.docx'
+        Document().save(source)
+        target = self.root/'already.docx'
+        target.write_bytes(b'foreign owner data')
+        with self.assertRaises(FileExistsError):
+            conversion.convert(source, target)
+        self.assertEqual(target.read_bytes(), b'foreign owner data')
+        self.assertFalse(list(self.root.glob('.jarvis-convert-*')))
+
+    def test_successful_text_export_must_not_replace_existing_target(self):
+        target = self.root/'already.docx'
+        target.write_bytes(b'foreign owner data')
+        with self.assertRaises(FileExistsError):
+            conversion.save_text('safe content', target, 'rapor')
+        self.assertEqual(target.read_bytes(), b'foreign owner data')
+        self.assertFalse(list(self.root.glob('.jarvis-convert-*')))
+
+    def test_destination_created_during_conversion_never_clobbered(self):
+        source = self.root/'source.docx'
+        Document().save(source)
+        target = self.root/'raced.docx'
+        publish = conversion._publish_new
+
+        def race(temp, destination):
+            target.write_bytes(b'new file from another process')
+            return publish(temp, destination)
+
+        with patch.object(conversion, '_publish_new', side_effect=race):
+            with self.assertRaises(FileExistsError):
+                conversion.convert(source, target)
+        self.assertEqual(target.read_bytes(), b'new file from another process')
+        self.assertFalse(list(self.root.glob('.jarvis-convert-*')))
+
     def test_formula_like_source_remains_text(self):
         target=self.root/'result.xlsx';conversion.save_text('=HYPERLINK("https://invalid")',target,'rapor')
         wb=load_workbook(target)
