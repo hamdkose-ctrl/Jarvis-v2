@@ -248,7 +248,8 @@ class DomainOwnerRegressionTests(_Pr3c2Harness):
         self.assertEqual(feedback.reason_code, "BRAIN_MODEL_UNAVAILABLE")
         self.assertIn("model", str(out).casefold())
         self.ctx._extra_commands.assert_not_called()
-        self.seams["modules.finance_alert_commands.matches"].assert_not_called()
+        from modules import finance_alert_commands
+        self.assertFalse(hasattr(finance_alert_commands, "matches"))
 
     def test_a_pending_confirmation_is_still_consumed(self):
         self.reset()
