@@ -192,7 +192,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             requests_state.check()
             events = runtime.profile.data["events"]
             operation = a["operation"]
-            if operation == "snooze" and a["title"] is None:
+            if operation in {"snooze", "reschedule"} and a["title"] is None:
                 now = runtime.datetime.now()
                 recently_fired = []
                 for event in events:
@@ -258,6 +258,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 "minutes": a.get("minutes"),
                 "weekday": a.get("weekday"),
                 "period": a.get("period"),
+                "daypart": a.get("daypart"),
                 "owner": runtime.profile.slug,
                 "event_id": event["id"],
                 "title": event["title"],
@@ -271,6 +272,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             intent_text = ("silmemi" if operation == "delete" else
                            "sıradaki tekrarını atlamamı" if operation == "skip" else
                            "seçtiğin haftanın gününe kaydırmamı" if operation == "move" else
+                           "yarın sabah 09:00'a kaydırmamı" if operation == "reschedule" else
+                           "akşam 18:00'e ertelememi" if a.get("daypart") == "evening" else
                            f"{a['minutes']} dakika sonraya ertelememi")
             return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
