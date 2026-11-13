@@ -38,6 +38,23 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 utterance, model_understanding=True)
         return entry, output, feedback
 
+    def test_calendar_week_plan_is_model_selected_core_read_only(self):
+        # Real prepare/handoff/Core; the model transport is stubbed only at its
+        # proposal boundary. No legacy week regex or raw planner gets authority.
+        from modules import main_planner
+        for period, utterance in (("this", "Bu haftam nasıl?"),
+                                  ("next", "Haftaya ne var?"),
+                                  ("seven", "Önümüzdeki yedi gün planı")):
+            with self.subTest(period=period), \\
+                 patch.object(main_planner, "_week_plan", return_value="WEEK RESULT") as week:
+                entry, output, feedback = self.typed(
+                    utterance, "calendar.read", {"view": "week_plan", "period": period})
+                self.assertEqual(brain_entry.core_plan(entry),
+                                 ("agenda_read", {"view": "week_plan", "period": period}))
+                self.assertEqual(output, "WEEK RESULT")
+                self.assertEqual(feedback.result_status, "handled")
+                week.assert_called_once_with(self.ctx, period)
+
     def test_screen_text_read_is_typed_and_read_only(self):
         with patch.object(self.ctx, "_screen_ocr", return_value="Satır bir\nSatır iki") as ocr, \
              patch.object(self.ctx, "_copy_text",
