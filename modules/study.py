@@ -6,7 +6,7 @@ soru tipi önceliğini belirler. Her profilin kaynakları ve ilerlemesi ayrıdı
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
-import json, logging, math, os, re, shutil, tempfile, threading, time, hashlib, uuid
+import copy, json, logging, math, os, re, shutil, tempfile, threading, time, hashlib, uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -313,9 +313,9 @@ def add_exam(profile, path, year, period="", session=""):
 
 def remove(profile, doc_id):
     from modules import file_resource_guard
-    # Owner state and physical files must be owned together. If another
-    # worker/process holds even one related file, reject before changing
-    # the study catalog; never delete a PDF while another writer reads it.
+    # Lock all physical source names before changing owner catalog. Commit
+    # durable catalog removal FIRST: failed profile.save must not destroy
+    # bytes or leave stale in-memory metadata behind.
     doc_id = int(doc_id)
     with _jobs_lock:
         directory = _dir(profile)
@@ -326,6 +326,7 @@ def remove(profile, doc_id):
         ]
         with file_resource_guard.claim_paths(*files):
             s = _state(profile)
+            before_state = copy.deepcopy(s)
             before = next(
                 (d for d in s.get("docs", [])
                  if int(d.get("id", -1)) == doc_id), None,
@@ -336,30 +337,48 @@ def remove(profile, doc_id):
             ]
             if before and before.get('kind') == 'exam':
                 s.pop('exam_analysis', None)
-            for path in files:
-                path.unlink(missing_ok=True)
             if s.get('active_doc') == doc_id:
                 s.pop('active_doc', None)
             if (s.get('source_session') or {}).get('doc_id') == doc_id:
                 s.pop('source_session', None)
-            profile.save()
+            try:
+                profile.save()
+            except Exception:
+                _record_failure('modules/study.py:remove:profile_save')
+                s.clear()
+                s.update(before_state)
+                raise
+            # Once catalog commit succeeds, cleanup is best-effort. Leftover
+            # orphan bytes are safer than a catalog pointing at deleted data.
+            for path in files:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    _record_failure('modules/study.py:remove:file_cleanup')
 
 
 def clear(profile):
     from modules import file_resource_guard, resource_leases
     with _jobs_lock:
         s = _state(profile)
+        before_state = copy.deepcopy(s)
         s['source_generation'] = s.get('source_generation', 0) + 1
         s['docs'] = []
         for key in ('exam_analysis', 'active_doc', 'last_topic',
                     'lesson_context', 'quiz_attempt', 'mock_session',
                     'topics', 'courses', 'source_session', 'math_turns'):
             s.pop(key, None)
+        try:
+            profile.save()
+        except Exception:
+            _record_failure('modules/study.py:clear:profile_save')
+            s.clear()
+            s.update(before_state)
+            raise
         _LAST_TOPIC.pop(profile.slug, None)
-        # A cancellation/revision fence is committed before removal. Only
-        # file snapshots not held by a concurrent physical owner are cleaned.
-        # A locked file is intentionally left for a later cleanup, not
-        # unlinked behind an active task's source claim.
+        # The new generation is durably fenced before any destructive step.
+        # A physical owner may still be using the file; leave that file
+        # orphaned rather than deleting its live source underneath it.
         for path in _dir(profile).iterdir():
             try:
                 if path.is_file():
@@ -367,7 +386,7 @@ def clear(profile):
                         path.unlink(missing_ok=True)
             except (OSError, resource_leases.LeaseConflict):
                 _record_failure('modules/study.py:clear:busy_file')
-        profile.save()
+
 
 def _words(s):
     s = s.replace("I", "ı").replace("İ", "i").lower()
