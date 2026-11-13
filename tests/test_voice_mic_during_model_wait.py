@@ -1,0 +1,438 @@
+"""VOICE P3: a bounded provider wait must not keep the microphone deaf.
+
+Real chain, read from the code before writing this file:
+  `engine_loop.main` drains `runtime.events` on one thread and runs the turn inside
+  `runtime.as_user(...)` (which holds `runtime._execution_lock`) while `submit_voice`
+  holds `runtime.pause_listening`.  `canonical_goal_flow._try_create_planned` asks the
+  planner through `model_wait.ask(..., seconds=60)`, and that call blocks the loop
+  thread.  `listen_for_wake_word` refuses to capture while `pause_listening` is set, so
+  Jarvis was provably deaf for the whole turn even though the planner's own answer
+  invites the user to keep talking.
+
+The fix re-opens only the wait window.  These tests pin both halves: the microphone
+comes back while the provider is answering, and the identity lock, the owner's queue,
+the "sus"/"dur" scopes, the deadline and the late-answer fence are unchanged.
+"""
+import contextlib
+import os
+import sys
+import threading
+import time
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from modules import engine_loop, engine_voice, llm, model_wait, requests_state
+from modules.engine_voice import VoiceSession
+
+
+def _session(runtime, lane=None, manual=False, listening=True):
+    """A VoiceSession carrying only the fields the microphone gate really reads."""
+    session = VoiceSession.__new__(VoiceSession)
+    session.runtime = runtime
+    session.listening_enabled = listening
+    session.manual_local_stt = manual
+    session.voice_lane = lane
+    session.state = {"awake_until": 0.0}
+    return session
+
+
+class ForegroundSeam(unittest.TestCase):
+    """`model_wait` may hand the interaction layer back while it waits, nothing else."""
+
+    def setUp(self):
+        self.token = llm._key_context.set('voice-p3-tests')
+        self.addCleanup(llm._key_context.reset, self.token)
+        model_wait._PENDING.pop('voice-p3-tests', None)   # an earlier test's worker is not this one's fence
+        failures = patch.object(model_wait, '_record_failure')
+        self.failures = failures.start()
+        self.addCleanup(failures.stop)
+
+    def _drain(self):
+        deadline = time.monotonic() + 2
+        while model_wait._PENDING.get('voice-p3-tests') and time.monotonic() < deadline:
+            time.sleep(.001)
+
+    def test_the_foreground_window_holds_the_answer_wait_and_closes_after_it(self):
+        answered = threading.Event()
+        log = []
+
+        class Scope:
+            def __enter__(self):
+                log.append(('enter', answered.is_set()))
+                return self
+
+            def __exit__(self, *exc):
+                log.append(('exit', answered.is_set()))
+                return False
+
+        def model(*args, **kwargs):
+            time.sleep(.05)
+            answered.set()
+            return 'answer'
+
+        with patch.object(llm, 'ask', side_effect=model), model_wait.foreground(lambda: Scope()):
+            self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
+        self.assertEqual([entry[0] for entry in log], ['enter', 'exit'])
+        self.assertFalse(log[0][1], 'the window opened after the provider had already answered')
+        self.assertTrue(log[1][1], 'the window closed before the provider answered')
+        self.failures.assert_not_called()
+        self.assertIsNone(model_wait._FOREGROUND.get())
+
+    def test_without_a_foreground_hook_the_wait_result_and_contracts_are_unchanged(self):
+        with patch.object(llm, 'ask', return_value='answer') as model:
+            self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
+        model.assert_called_once_with('question', system='', max_tokens=2000)
+        self.failures.assert_not_called()
+
+    def test_a_foreground_hook_never_reaches_the_provider_thread(self):
+        seen = []
+
+        def model(*args, **kwargs):
+            seen.append(model_wait._FOREGROUND.get())
+            return 'answer'
+
+        with patch.object(llm, 'ask', side_effect=model), \
+                model_wait.foreground(lambda: contextlib.nullcontext()):
+            self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
+        self.assertEqual(seen, [None], 'a provider thread must never own the caller microphone')
+
+    def test_a_failing_foreground_factory_cannot_change_the_provider_answer(self):
+        def factory():
+            raise RuntimeError('broken hook')
+
+        with patch.object(llm, 'ask', return_value='answer'), model_wait.foreground(factory):
+            self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
+        self.failures.assert_called_once_with('modules/model_wait.py:foreground')
+
+    def test_a_failing_foreground_exit_cannot_change_the_provider_answer(self):
+        class BrokenExit:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                raise RuntimeError('exit failed')
+
+        with patch.object(llm, 'ask', return_value='answer'), \
+                model_wait.foreground(lambda: BrokenExit()):
+            self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
+        self.failures.assert_called_once_with('modules/model_wait.py:foreground_exit')
+
+    def test_the_window_closes_when_the_model_wait_times_out(self):
+        release = threading.Event()
+        stopped = threading.Event()
+
+        def model(*args, **kwargs):
+            try:
+                release.wait(2)
+                return 'late answer'
+            finally:
+                stopped.set()
+
+        depth = {'now': 0, 'max': 0}
+
+        class Scope:
+            def __enter__(self):
+                depth['now'] += 1
+                depth['max'] = max(depth['max'], depth['now'])
+                return self
+
+            def __exit__(self, *exc):
+                depth['now'] -= 1
+                return False
+
+        try:
+            with patch.object(llm, 'ask', side_effect=model), model_wait.foreground(lambda: Scope()):
+                with self.assertRaisesRegex(model_wait.ModelWaitTimeout, 'yanıt vermedi'):
+                    model_wait.ask('question', seconds=.05)
+            self.assertEqual(depth, {'now': 0, 'max': 1})
+            with self.assertRaisesRegex(RuntimeError, 'henüz kapanmadı'):
+                model_wait.ask('second', seconds=.05)
+        finally:
+            release.set()
+            self.assertTrue(stopped.wait(2), 'the provider worker never unwound')
+            self._drain()
+        self.assertIsNone(model_wait._PENDING.get('voice-p3-tests'))
+
+    def test_the_window_closes_when_the_turn_is_cancelled(self):
+        started = threading.Event()
+        release = threading.Event()
+        stopped = threading.Event()
+
+        def model(*args, **kwargs):
+            started.set()
+            try:
+                release.wait(2)
+                return 'late answer'
+            finally:
+                stopped.set()
+
+        polls = []
+
+        def check():
+            if len(polls) > 1:
+                raise requests_state.Cancelled('iptal')
+            polls.append(1)
+
+        closed = []
+
+        class Scope:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                closed.append(True)
+                return False
+
+        try:
+            with patch.object(llm, 'ask', side_effect=model), model_wait.foreground(lambda: Scope()):
+                with self.assertRaises(requests_state.Cancelled):
+                    model_wait.ask('question', seconds=5, check=check)
+            self.assertEqual(closed, [True], 'a cancelled turn left the microphone window open')
+            self.assertTrue(started.is_set(), 'the provider call was not in flight when the turn cancelled')
+            self.assertFalse(stopped.is_set(), 'the cancelled provider had already finished')
+        finally:
+            release.set()
+            self.assertTrue(stopped.wait(2), 'the provider worker never unwound')
+            self._drain()
+        self.assertIsNone(model_wait._PENDING.get('voice-p3-tests'))
+
+
+class MicrophoneGate(unittest.TestCase):
+    """Which windows are allowed to re-open the existing `pause_listening` switch."""
+
+    def setUp(self):
+        self.pause = threading.Event()
+        self.pause.set()                     # an engine turn owns the microphone
+        self.runtime = SimpleNamespace(flags={'mic': True}, pause_listening=self.pause,
+                                       emit=Mock(), log=Mock())
+        settings = patch('config.load_settings', return_value={})
+        settings.start()
+        self.addCleanup(settings.stop)
+
+    def test_the_microphone_reopens_only_inside_the_wait_window(self):
+        session = _session(self.runtime)
+        with session.mic_open_during_model_wait():
+            self.assertFalse(self.pause.is_set())
+        self.assertTrue(self.pause.is_set())
+
+    def test_a_turn_that_never_paused_the_microphone_is_left_as_it_was(self):
+        self.pause.clear()
+        session = _session(self.runtime)
+        with session.mic_open_during_model_wait():
+            self.assertFalse(self.pause.is_set())
+        self.assertFalse(self.pause.is_set(), 'a text/web turn got its microphone claim revoked')
+
+    def test_the_gate_is_restored_when_the_wait_raises(self):
+        session = _session(self.runtime)
+        with self.assertRaises(RuntimeError):
+            with session.mic_open_during_model_wait():
+                raise RuntimeError('provider failed')
+        self.assertTrue(self.pause.is_set())
+
+    def test_the_setting_off_keeps_the_previous_behaviour(self):
+        with patch('config.load_settings', return_value={'voice_mic_during_model_wait': False}):
+            session = _session(self.runtime)
+            with session.mic_open_during_model_wait():
+                self.assertTrue(self.pause.is_set())
+        self.assertTrue(self.pause.is_set())
+
+    def test_playback_manual_stt_text_mode_and_muted_mic_never_reopen_the_gate(self):
+        for name, kwargs, lane in [
+            ('speaker busy', {}, SimpleNamespace(is_busy=lambda: True)),
+            ('local stt', {'manual': True}, None),
+            ('text mode', {'listening': False}, None),
+            ('mic flag off', {}, None),
+        ]:
+            with self.subTest(case=name):
+                runtime = self.runtime
+                if name == 'mic flag off':
+                    runtime = SimpleNamespace(flags={'mic': False}, pause_listening=self.pause,
+                                              emit=Mock(), log=Mock())
+                session = _session(runtime, lane=lane, **kwargs)
+                with session.mic_open_during_model_wait():
+                    self.assertTrue(self.pause.is_set())
+
+
+class TurnWiring(unittest.TestCase):
+    """The seam is installed by the engine turn, not by a test helper."""
+
+    def test_the_turn_installs_the_session_gate_around_the_handoff(self):
+        session = _session(SimpleNamespace(flags={'mic': True}, pause_listening=threading.Event(),
+                                           emit=Mock(), log=Mock()))
+        seen = {}
+
+        def handoff():
+            seen['hook'] = model_wait._FOREGROUND.get()
+            return ('out', None, None)
+
+        result = engine_loop._turn_with_listening_foreground(None, session, handoff)
+        self.assertEqual(result, ('out', None, None))
+        self.assertIs(seen['hook'].__func__, VoiceSession.mic_open_during_model_wait)
+        self.assertIsNone(model_wait._FOREGROUND.get())
+
+    def test_the_seam_takes_no_lock_and_no_second_owner(self):
+        import inspect
+        source = inspect.getsource(engine_loop._turn_with_listening_foreground)
+        for forbidden in ('Lock', 'acquire', 'Thread', 'submit'):
+            self.assertNotIn(forbidden, source, f'the seam must not touch {forbidden}')
+
+    def test_the_loop_routes_the_brain_handoff_and_only_that_through_the_seam(self):
+        import inspect
+        source = inspect.getsource(engine_loop.main)
+        self.assertEqual(source.count('_turn_with_listening_foreground'), 1)
+        self.assertIn('brain_entry.handoff', source)
+        self.assertIn('runtime.as_user', source)          # identity still wraps the turn
+
+
+class LongJobStaysHeard(unittest.TestCase):
+    """The user-visible contract: the planner keeps working, the microphone keeps listening."""
+
+    def setUp(self):
+        wanted = patch('modules.wakeword.wanted', return_value=False)   # Google path, no offline wake
+        wanted.start()
+        self.addCleanup(wanted.stop)
+        self.token = llm._key_context.set('voice-p3-tests')
+        self.addCleanup(llm._key_context.reset, self.token)
+
+    def _runtime(self):
+        runtime = SimpleNamespace(
+            stop_event=threading.Event(), pause_listening=threading.Event(),
+            flags={'mic': True}, audio_lock=threading.RLock(), time=time, log=Mock(),
+            emit=Mock(), _record_failure=Mock(), WAKE_WORD='Jarvis',
+            mic_cancel=threading.Event(), _AnyAbort=lambda *events: object(),
+            _execution_lock=threading.RLock())
+        captured = []
+
+        def listen(timeout=0, **kwargs):
+            captured.append(time.monotonic())
+            return ''                      # nothing recognisable: the loop keeps listening
+
+        runtime.voice = SimpleNamespace(listen=listen, last_noise=1)
+        runtime.captured = captured
+        return runtime
+
+    def _planner_turn(self, runtime, session, release, blocking):
+        """The production turn seam around the bounded wait the canonical planner really uses."""
+        def model(*args, **kwargs):
+            blocking.set()
+            release.wait(5)
+            return '{"operations": []}'
+
+        def turn():
+            # `runtime.as_user` holds `_execution_lock` for the whole engine turn; the
+            # test reproduces that claim so the microphone cannot be bought by dropping it.
+            with runtime._execution_lock:
+                return engine_loop._turn_with_listening_foreground(
+                    runtime, session, lambda: model_wait.ask('plan', seconds=5))
+
+        with patch.object(llm, 'ask', side_effect=model):
+            thread = threading.Thread(target=turn, daemon=True, name='planner-turn')
+            thread.start()
+            self.assertTrue(blocking.wait(2), 'the planner never reached the provider call')
+        return thread
+
+    def _listener(self, session):
+        runtime = session.runtime
+        listener = threading.Thread(target=session.listen_for_wake_word, daemon=True, name='wake-listener')
+        listener.start()
+        self.addCleanup(lambda: (runtime.stop_event.set(), listener.join(2)))
+        return listener
+
+    def test_a_spoken_follow_up_is_captured_while_the_planner_waits(self):
+        runtime = self._runtime()
+        session = _session(runtime)
+        runtime.pause_listening.set()          # `submit_voice` holds it for the whole turn
+        self._listener(session)
+        release, blocking = threading.Event(), threading.Event()
+        thread = self._planner_turn(runtime, session, release, blocking)
+        try:
+            deadline = time.monotonic() + 2
+            while not runtime.captured and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(runtime.captured,
+                            'the wake-word loop stayed deaf while the planner was only waiting')
+            self.assertFalse(runtime.pause_listening.is_set())
+            self.assertTrue(blocking.is_set(), 'the planner answer had already arrived')
+            acquired = runtime._execution_lock.acquire(blocking=False)
+            if acquired:
+                runtime._execution_lock.release()
+            self.assertFalse(acquired, 'the microphone was opened by dropping the identity lock')
+        finally:
+            release.set()
+            thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(runtime.pause_listening.is_set(), 'the turn lost its microphone claim')
+
+    def test_a_disabled_setting_keeps_the_old_deaf_behaviour(self):
+        runtime = self._runtime()
+        session = _session(runtime)
+        runtime.pause_listening.set()
+        self._listener(session)
+        release, blocking = threading.Event(), threading.Event()
+        with patch('config.load_settings', return_value={'voice_mic_during_model_wait': False}):
+            thread = self._planner_turn(runtime, session, release, blocking)
+            try:
+                time.sleep(.4)
+                self.assertEqual(runtime.captured, [], 'the opt-out did not keep the previous behaviour')
+                self.assertTrue(runtime.pause_listening.is_set())
+            finally:
+                release.set()
+                thread.join(3)
+
+    def test_the_follow_up_reaches_the_queue_without_waiting_for_the_planner(self):
+        """`engine_queue.submit` runs on the caller thread, so a new utterance is accepted."""
+        from modules import engine_queue
+        self.queued = []
+        runtime = self._runtime()
+        runtime.events = SimpleNamespace(put=self.queued.append)
+        runtime.requests_state = SimpleNamespace(register=lambda owner, rid: True,
+                                                 cancel=lambda owner: None)
+        runtime.slugify = lambda name: name
+        runtime.pc_profile = lambda: SimpleNamespace(name='Hamdi')
+        runtime.secrets = SimpleNamespace(token_hex=lambda n: 'rid')
+        runtime._tr_lower = lambda text: text.lower()
+        session = _session(runtime)
+        runtime.pause_listening.set()
+        release, blocking = threading.Event(), threading.Event()
+        thread = self._planner_turn(runtime, session, release, blocking)
+        result = {}
+        try:
+            with patch('modules.brain_entry.fast_lane', return_value=None):
+                caller = threading.Thread(
+                    target=lambda: result.update(
+                        accepted=engine_queue.submit(runtime, 'hava durumu', 'ses')),
+                    daemon=True)
+                caller.start()
+                caller.join(2)
+            self.assertFalse(caller.is_alive(), 'queueing a follow-up waited for the planner')
+            self.assertTrue(result['accepted'])
+            self.assertEqual(self.queued[0][0], 'command')
+            self.assertEqual([event[1] for event in self.queued], ['hava durumu'])
+            self.assertEqual(self.queued[0][2], 'ses')
+        finally:
+            release.set()
+            thread.join(3)
+
+    def test_sus_still_mutes_immediately_while_the_planner_waits(self):
+        from modules import engine_queue
+        runtime = self._runtime()
+        runtime.voice = SimpleNamespace(listen=lambda **k: '', last_noise=1, stop_speaking=Mock())
+        runtime._tr_lower = lambda text: text.lower()
+        session = _session(runtime)
+        runtime.pause_listening.set()
+        release, blocking = threading.Event(), threading.Event()
+        thread = self._planner_turn(runtime, session, release, blocking)
+        try:
+            self.assertFalse(engine_queue.submit(runtime, 'sus', 'ses'))
+            runtime.voice.stop_speaking.assert_called_once_with()
+            self.assertTrue(blocking.is_set(), 'the planner was interrupted by the mute word')
+            self.assertTrue(runtime.pause_listening.is_set(), '"sus" changed the turn microphone claim')
+        finally:
+            release.set()
+            thread.join(3)
+
+
+if __name__ == '__main__':
+    unittest.main()

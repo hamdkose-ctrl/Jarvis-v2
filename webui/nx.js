@@ -2070,7 +2070,8 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
   const sw1=(k,on)=>`<button class="sw ${on?'on':''}" data-act="sflag" data-k="${k}" data-v="${on?0:1}"></button>`;
   return sbox('mic','Mikrofon','Jarvis’in seni dinleyeceği cihaz ve dinleme anahtarı.',
       srow('mic','Mikrofon','“Hey Jarvis” dinlemesi',sw1('mic',f.mic))+
-      field('Mikrofon cihazı',sel('micdev',[['','Windows varsayılanı'],...devs.map(d=>[d.name,d.name])],st.input_device||''),'Değişiklik için Jarvis’i yeniden başlat.')+save)
+      field('Mikrofon cihazı',sel('micdev',[['','Windows varsayılanı'],...devs.map(d=>[d.name,d.name])],st.input_device||''),'Değişiklik için Jarvis’i yeniden başlat.')+
+      field('Uzun iş beklerken dinleme',sel('mmic',[[1,'Açık · model beklerken dinle (varsayılan)'],[0,'Kapalı · yanıt bitene dek dinleme']],st.voice_mic_during_model_wait===false?0:1),'Model beklemesi mikrofonu kapatmaz; konuşma sırası, “sus” ve “dur” değişmez. Kapatırsan yanıt bitene dek dinlemez.')+save)
    +sbox('bell','Uyanma','“Hey Jarvis” ile uyanma.',
       srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('wake_beep',u.wake_beep))+
       field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+save)
@@ -2209,6 +2210,7 @@ async function drawSettings(){
       field('Yanlış duyulanlar',inp('sfix','city mall=steam',st.stt_fixes),'“yanlış=doğru”, virgülle ayır.')+
       field('Özel kelimeler',inp('swords','Nevzat Bey, EAE',st.stt_words),'Sık söylediğin adlar/terimler, virgülle.')+
       field('Mikrofon cihazı',sel('micdev',[['','Windows varsayılanı'],...devs.map(d=>[d.name,d.name])],st.input_device||''),'Değişiklik için Jarvis’i yeniden başlat.')+
+      field('Uzun iş beklerken dinleme',sel('mmic',[[1,'Açık · model beklerken dinle (varsayılan)'],[0,'Kapalı · yanıt bitene dek dinleme']],st.voice_mic_during_model_wait===false?0:1),'Model beklemesi mikrofonu kapatmaz; konuşma sırası, “sus” ve “dur” değişmez. Kapatırsan yanıt bitene dek dinlemez.')+
       '</details>'+
       pad18(`<button class="btn pri" data-act="vsave">${ic('check')} Kaydet</button> <span class="mut">${esc(SX.v||'')}</span>`))}
   else if(k==='hafiza'){const pf=sn.pending_facts||[];
@@ -2358,7 +2360,7 @@ ACT.gprodopen=async()=>{const r=await tryApi('google_oauth_console');SX.g=msgOf(
 ACT.gprodok=async ()=>{if(!await ask('Google Cloud’da OAuth yayın durumunu gerçekten “In production” yaptın mı?'))return;const r=await tryApi('google_oauth_production',true);SX.g=msgOf(r);drawSettings()};
 ACT.hoplace=el=>sAfter(api('handoff_place',el.dataset.v));
 ACT.hoconn=async()=>{SX.ho='Tarayıcıda Google izin ekranı açılıyor…';drawSettings();SX.ho=msgOf(await tryApi('handoff_connect'));sAfter(0)};
-ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
+ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value,voice_mic_during_model_wait:$('#mmic').value==='1'});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
 ACT.pmode=el=>sAfter(api('privacy_set',{mode:el.dataset.k}));
 ACT.ptog=el=>sAfter(api('privacy_set',{[el.dataset.k]:el.dataset.v==='1'}));
 ACT.odata=()=>api('open_folder','data');
