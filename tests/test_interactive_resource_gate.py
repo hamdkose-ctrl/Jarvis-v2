@@ -47,6 +47,23 @@ class InteractiveResourcesTests(TestCase):
                 self.assertTrue(leases.occupied("output_device:default"))
             self.assertFalse(leases.occupied("output_device:default"))
 
+    def test_expired_table_ticket_cannot_release_live_physical_claim(self):
+        from modules import goal_executor
+        now = [10.0]
+        leases = resource_leases.LeaseTable(clock=lambda: now[0])
+        with TemporaryDirectory() as directory, \
+                patch.object(goal_executor, "_RESOURCE_LEASES", leases), \
+                patch.object(Path, "home", return_value=Path(directory)):
+            with interactive_resource_gate.claim("stt", owner="device", operation_id="old"):
+                now[0] = 320.0   # old soft ticket expired; OS stream is still open
+                self.assertFalse(leases.occupied("stt:microphone"))
+                # A fresh table ticket alone cannot pass the physical OS claim.
+                with self.assertRaises(resource_leases.LeaseConflict):
+                    with interactive_resource_gate.claim("stt", owner="device", operation_id="new"):
+                        self.fail("Physical capture overlapped a still-live stream")
+            with interactive_resource_gate.claim("stt", owner="device", operation_id="new"):
+                self.assertTrue(leases.occupied("stt:microphone"))
+
     def test_stt_and_output_are_separate_resources(self):
         from modules import goal_executor
         leases = resource_leases.LeaseTable()
