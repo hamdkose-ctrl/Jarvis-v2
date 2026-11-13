@@ -90,6 +90,40 @@ class FinanceWatchlistTests(unittest.TestCase):
         self.assertEqual(watchlist.list_items('alice'), [{'kind': 'doviz', 'symbol': 'EUR'}])
         self.assertEqual(backup.read_text(encoding='utf-8'), '[{"kind":')
 
+    def test_busy_owner_watchlist_does_not_lose_concurrent_updates(self):
+        from modules import file_resource_guard, resource_leases
+        watchlist.add('alice', 'doviz', 'USD')
+        path = self.root / 'alice.json'
+        before = path.read_bytes()
+        with file_resource_guard.claim_paths(path):
+            for operation in (
+                lambda: watchlist.add('alice', 'kripto', 'BTC'),
+                lambda: watchlist.remove('alice', 'doviz', 'USD'),
+                lambda: watchlist.list_items('alice'),
+                lambda: watchlist.clear('alice'),
+            ):
+                with self.subTest(operation=operation), self.assertRaises(
+                        resource_leases.LeaseConflict):
+                    operation()
+            # A distinct owner remains independent, rather than sharing
+            # a fake global finance resource.
+            self.assertEqual(watchlist.add('bob', 'kripto', 'BTC')['symbol'], 'BTC')
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(watchlist.list_items('alice'),
+                         [{'kind': 'doviz', 'symbol': 'USD'}])
+
+    def test_corrupt_list_backup_is_create_only(self):
+        self.root.mkdir()
+        path = self.root / 'alice.json'
+        path.write_text('[{"kind":')
+        backup = self.root / 'alice.bozuk'
+        backup.write_bytes(b'foreign previous backup')
+        self.assertEqual(watchlist.list_items('alice'), [])
+        self.assertEqual(backup.read_bytes(), b'foreign previous backup')
+        self.assertEqual((self.root / 'alice.1.bozuk').read_bytes(),
+                         b'[{"kind":')
+        self.assertFalse(path.exists())
+
     def test_path_traversal_is_rejected_by_every_entry_point(self):
         for owner in ['../x', '..\\x', 'C:\\x', '/x', '', '.', 'Alice', 'a/b']:
             calls = [
