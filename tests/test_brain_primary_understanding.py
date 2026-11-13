@@ -161,7 +161,7 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
             provenance={"text": "market listesi süt", "title": "market listesi"},
         )
         utterance = "market notunu sil"
-        current = deterministic(utterance, references=(note,))
+        current = deterministic(utterance, candidates=(note,), references=(note,))
         captured = []
         def transport(owner, prompt, send, **kwargs):
             captured.append(prompt)
