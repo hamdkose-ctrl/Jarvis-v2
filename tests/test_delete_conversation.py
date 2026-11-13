@@ -20,14 +20,13 @@ class DeleteConversationTests(unittest.TestCase):
         self.path.write_text(''.join(json.dumps(row)+'\n' for row in self.rows),encoding='utf-8')
 
     def test_history_append_uses_real_jsonl_lines_and_survives_trim(self):
-        previous = history._MAX_BYTES
         with patch.object(history, '_MAX_BYTES', 256):
             for index in range(12):
                 row = history.append('alice', 'user', 'new row ' + str(index))
                 self.assertIsNotNone(row)
         raw = self.path.read_bytes()
         self.assertTrue(raw.endswith(b'\n'))
-        self.assertNotIn(b'\\\n', raw)
+        self.assertNotIn(b'\\n', raw)
         for line in raw.splitlines():
             self.assertIsInstance(json.loads(line), dict)
         self.assertFalse(list(self.path.parent.glob('.history-trim-*')))
