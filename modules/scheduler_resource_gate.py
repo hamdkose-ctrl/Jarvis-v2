@@ -32,6 +32,24 @@ class ReadOnlyAdmissionError(ValueError):
 _ACCOUNT_CLAIM_ROOT = Path.home() / '.jarvis' / 'provider-read-claims'
 
 
+def _stop_renewal_without_voice_block(stop, thread, started, lock, holder, leases):
+    """Bound heartbeat cleanup; never release an ambiguous still-renewing lease.
+
+    A hung heartbeat must not pin the Scheduler/voice lane through an
+    unbounded join. If the daemon did not exit within the short grace, leave
+    the old lease to expire instead of claiming it safely released.
+    """
+    stop.set()
+    if started:
+        thread.join(timeout=1.0)
+        if thread.is_alive():
+            return False
+    with lock:
+        if leases.validate(holder[0]):
+            leases.release(holder[0])
+    return True
+
+
 def _account_claim_root() -> Path:
     root = _ACCOUNT_CLAIM_ROOT
     if root.is_symlink() or root.parent.is_symlink():
@@ -300,13 +318,9 @@ def account_read_worker(leases: resource_leases.LeaseTable,
             started = True
             yield commit_checked
     finally:
-        stop.set()
-        if started:
-            thread.join()
-        with lock:
-            # Expired/taken-over lease already has no ownership to release.
-            if leases.validate(holder[0]):
-                leases.release(holder[0])
+        _stop_renewal_without_voice_block(
+            stop, thread, started, lock, holder, leases,
+        )
 
 
 def require_account_result_lease(accepted: dict) -> None:
@@ -535,12 +549,9 @@ def dependent_research_worker(
             started = True
             yield commit_checked
     finally:
-        stop.set()
-        if started:
-            thread.join()
-        with lock:
-            if leases.validate(holder[0]):
-                leases.release(holder[0])
+        _stop_renewal_without_voice_block(
+            stop, thread, started, lock, holder, leases,
+        )
 
 
 @contextmanager
