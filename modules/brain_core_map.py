@@ -891,6 +891,17 @@ def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"source": source}
 
 
+def _meeting_prepare_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only an optional user-grounded meeting name; never mail source, ID or action."""
+    if set(arguments) - {"original_text", "hint"}:
+        return None
+    hint = arguments.get("hint", "")
+    if (not isinstance(hint, str) or len(hint) > 120
+            or any(ord(ch) < 32 for ch in hint)):
+        return None
+    return {"hint": hint.strip()}
+
+
 def _outlook_draft_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """One Outlook unread reply-text draft; model may not select mail effects.
 
@@ -1388,6 +1399,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
     "mail.read": ("mail_read", _mail_read_args),
+    "meeting.prepare": ("meeting_prepare", _meeting_prepare_args),
     "mail.draft": ("outlook_draft", _outlook_draft_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),
