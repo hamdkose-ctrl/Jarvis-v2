@@ -445,10 +445,10 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 return json.dumps(effectful)
             return json.dumps(research_tasks('first'))
 
-        def observed(*args):
+        def observed(*args, **kwargs):
             if entered.is_set():
                 second_entered.set()
-            return original_try(*args)
+            return original_try(*args, **kwargs)
 
         with patch.object(model_wait, 'ask', side_effect=planned), \
                 patch.object(canonical_goal_flow, 'try_create', side_effect=observed):
@@ -2015,3 +2015,37 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.owner, job_id, sink,
         ))
         sink.assert_called_once()
+
+    def test_first_legacy_safe_plan_is_forwarded_without_second_model_plan(self):
+        """A read-only/replay-safe but non-canonical worker stays permissioned.
+
+        Its first model plan is passed to legacy once. No parallel canonical
+        job exists, and a repeated request ID never runs that worker again.
+        """
+        proposal = {'tasks': [{
+            'id': 'report', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Produce summary', 'filename': 'report.md'},
+        }]}
+        rid = 'safe-first-legacy-handoff'
+        with patch.object(model_wait, 'ask', return_value=json.dumps(proposal)) as model:
+            _, _, feedback, job_id = self.typed_turn(
+                'Kaynakları kullanıp rapor oluştur.', rid=rid,
+            )
+        self.assertIsNone(job_id)
+        self.assertEqual(feedback.reason_code, 'GOAL_CREATE')
+        model.assert_called_once()
+        self.run_goal.assert_called_once()
+        forwarded = self.run_goal.call_args.kwargs.get('initial_legacy_call')
+        self.assertIsInstance(forwarded, dict)
+        self.assertEqual(forwarded.get('action'), 'legacy_plan')
+        self.assertEqual(forwarded.get('tasks'), proposal['tasks'])
+        # Claim is durable before any legacy worker can run.
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('duplicate model decision')):
+            _, _, duplicate, _ = self.typed_turn(
+                'Kaynakları kullanıp rapor oluştur.', rid=rid,
+            )
+        self.assertEqual(duplicate.reason_code,
+                         'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
+        self.run_goal.assert_called_once()
+
