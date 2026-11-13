@@ -455,7 +455,9 @@ def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(row, Mapping) or set(row) - {"title", "when", "repeat"}:
         return None
     title, when, repeat = row.get("title"), row.get("when"), row.get("repeat")
-    if not reminder_parse.valid_args(title, when, repeat):
+    # reminder_parse uses "unknown" as an unsupported-recursion sentinel,
+    # never as a runnable repeat rule. Do not turn it into a one-off alarm.
+    if repeat == "unknown" or not reminder_parse.valid_args(title, when, repeat):
         return None
     return {"title": title, "when": when, "repeat": repeat}
 
