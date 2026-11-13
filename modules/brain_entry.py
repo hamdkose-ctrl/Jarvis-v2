@@ -1101,7 +1101,7 @@ def _use_existing_handler(entry: EntryResult) -> bool:
         # camera/share/note/extra parsers. If the model was unavailable or
         # rejected, no marker exists and established fallback is preserved.
         # Bounded pending answers keep their State owner above this branch.
-        if "MODEL_CHAT_DECIDED" in semantic.reason_codes:
+        if "MODEL_DECIDED" in semantic.reason_codes or "MODEL_CHAT_DECIDED" in semantic.reason_codes:
             return False
         return not _pending_owns_turn(entry)
     return False
@@ -1116,7 +1116,7 @@ def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: 
     """
     semantic = entry.understanding
     if (semantic is None or semantic.request_kind is not RequestKind.CHAT
-            or "MODEL_CHAT_DECIDED" not in semantic.reason_codes):
+            or not ({"MODEL_DECIDED", "MODEL_CHAT_DECIDED"} & set(semantic.reason_codes))):
         return False
     from modules import brain_precedence
     if (brain_precedence.explicit_desktop_owner_protocol(command)
