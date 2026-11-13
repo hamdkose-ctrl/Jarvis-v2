@@ -169,59 +169,51 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
             )
         return entry, rid
 
-    def test_photo_analyze_plan_survives_a_chat_proposal(self):
+    def test_model_chat_does_not_launch_a_photo_effect(self):
         entry, _rid = self.prepare_photo("Bunu analiz et", transport=photo_envelope())
-        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
-        self.assertEqual(entry.understanding.capability_hint, PHOTO_CAPABILITY)
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.executor.assert_not_called()
+
+    def test_model_selected_photo_action_binds_owner_artifact_and_executes_once(self):
+        raw = photo_envelope(
+            "direct_action", confidence="HIGH",
+            actions=[photo_action({"operation": "analyze"})])
+        entry, _rid = self.prepare_photo("Bunu analiz et", transport=raw)
         plan = brain_entry.core_plan(entry)
-        self.assertIsNotNone(plan)
         self.assertEqual(plan[0], "photo_action")
         self.assertEqual(plan[1]["photo"], PHOTO)
-
-    def test_photo_analyze_still_executes_the_typed_executor_with_the_envelope(self):
-        entry, _rid = self.prepare_photo("Bunu analiz et", transport=photo_envelope())
         output, result, job_id = self.run_core(entry)
         self.assertEqual(output, "PHOTO OK")
         self.assertIsNone(job_id)
-        self.assertEqual(self.executor.call_count, 1)
+        self.executor.assert_called_once()
+        self.assertEqual(self.executor.call_args.args[1:3], (PHOTO, "analyze"))
         self.assertEqual(result.result_status, "handled")
 
     def test_model_cannot_point_a_photo_operation_at_another_file(self):
-        entry, _rid = self.prepare_photo(
-            "Bunu analiz et",
-            transport=photo_envelope("direct_action", confidence="HIGH",
-                                    actions=[photo_action({"operation": "analyze",
-                                                            "photo": EVIL})]))
-        plan = brain_entry.core_plan(entry)
-        self.assertIsNotNone(plan)
-        self.assertEqual(plan[0], "photo_action")
-        self.assertEqual(plan[1]["photo"], PHOTO)
-        self.assertNotIn(EVIL, json.dumps(dict(plan[1])))
-        output, result, _job = self.run_core(entry)
-        self.assertEqual(output, "PHOTO OK")
-        self.assertEqual(result.result_status, "handled")
+        raw = photo_envelope(
+            "direct_action", confidence="HIGH",
+            actions=[photo_action({"operation": "analyze", "photo": EVIL})])
+        entry, _rid = self.prepare_photo("Bunu analiz et", transport=raw)
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.executor.assert_not_called()
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
 
-    def test_model_photo_action_without_arguments_keeps_the_deterministic_payload(self):
-        entry, _rid = self.prepare_photo(
-            "Bunu analiz et",
-            transport=photo_envelope("direct_action", confidence="HIGH",
-                                    actions=[photo_action({})]))
-        plan = brain_entry.core_plan(entry)
-        self.assertIsNotNone(plan)
-        self.assertEqual((plan[0], plan[1]["photo"], plan[1]["operation"]),
-                         ("photo_action", PHOTO, "analyze"))
+    def test_photo_action_without_operation_cannot_inherit_old_regex_guess(self):
+        raw = photo_envelope(
+            "direct_action", confidence="HIGH", actions=[photo_action({})])
+        entry, _rid = self.prepare_photo("Bunu analiz et", transport=raw)
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.executor.assert_not_called()
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
 
-    def test_quota_exhaustion_keeps_the_deterministic_photo_decision(self):
+    def test_quota_exhaustion_fails_closed_without_photo_execution(self):
         error = failure_policy.ProviderExhaustedError(
             "Uygun ücretsiz model yanıt vermedi. HTTP 429 kota. Ücretli modele geçilmedi.")
         entry, _rid = self.prepare_photo("Bunu analiz et", exc=error)
-        self.assertEqual(entry.understanding.capability_hint, PHOTO_CAPABILITY)
-        plan = brain_entry.core_plan(entry)
-        self.assertIsNotNone(plan)
-        self.assertEqual(plan[0], "photo_action")
-        output, result, _job = self.run_core(entry)
-        self.assertEqual(output, "PHOTO OK")
-        self.assertEqual(result.result_status, "handled")
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.executor.assert_not_called()
 
     def test_user_cancellation_in_the_photo_envelope_is_not_becoming_chat(self):
         with self.assertRaises(requests_state.Cancelled):
@@ -242,7 +234,9 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
                 source="telefon", artifact=artifact, model_understanding=True,
             )
         run.assert_not_called()
-        self.assertEqual(brain_entry.core_plan(entry)[0], "photo_action")
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.executor.assert_not_called()
 
 
 class PhotoEnvelopeAuthorityTests(unittest.TestCase):
@@ -281,21 +275,27 @@ class PhotoEnvelopeAuthorityTests(unittest.TestCase):
             return model.propose(owner=self.OWNER, text="Bunu analiz et",
                                  current=self.photo_result(),
                                  arguments=self.photo_result().arguments,
-                                 protected_relation=True)
+                                 protected_relation=True,
+                                 photo_path=PHOTO)
 
     def test_a_model_supplied_photo_target_is_not_a_valid_proposal(self):
         self.assertIsNone(self.ask(photo_envelope(
             "direct_action", confidence="HIGH",
             actions=[photo_action({"operation": "analyze", "photo": EVIL})])))
 
-    def test_a_photo_proposal_without_arguments_keeps_the_canonical_artifact(self):
+    def test_model_action_binds_the_canonical_photo_without_a_model_path(self):
         proposal = self.ask(photo_envelope(
-            "direct_action", confidence="HIGH", actions=[photo_action({})]))
+            "direct_action", confidence="HIGH",
+            actions=[photo_action({"operation": "analyze"})]))
         self.assertIsNotNone(proposal)
         self.assertEqual(dict(proposal.actions[0].arguments)["photo"], PHOTO)
+        self.assertEqual(dict(proposal.actions[0].arguments)["operation"], "analyze")
 
-    def test_chat_cannot_take_over_a_continuation_photo_turn(self):
-        self.assertIsNone(self.ask(photo_envelope("chat", confidence="HIGH")))
+    def test_chat_is_non_executing_and_does_not_reclassify_an_image(self):
+        proposal = self.ask(photo_envelope("chat", confidence="HIGH"))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.operation, "chat")
+        self.assertEqual(proposal.actions, ())
 
 
 if __name__ == "__main__":
