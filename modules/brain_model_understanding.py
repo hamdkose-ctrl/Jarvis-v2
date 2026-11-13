@@ -372,12 +372,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "period": ["today", "tomorrow", "this", "next", "seven", None],
                 "constraint": "view=agenda/day_plan requires today/tomorrow; week_plan requires this/next/seven; upcoming requires null"}
     if capability_id == "reminders.manage":
-        return {"operation": ["delete", "postpone", "skip", "snooze"],
+        return {"operation": ["delete", "postpone", "skip", "snooze", "move"],
                 "title": "verbatim unique existing reminder title; may be null ONLY for snooze of one uniquely recent fired reminder",
-                "duration": "verbatim spoken delay e.g. 10 dakika, 1 saat, 2 gün, yarına; for postpone/snooze only; snooze with no delay means 10 minutes",
-                "argument_sources": ["title", "duration"],
+                "duration": "verbatim spoken delay e.g. 10 dakika, yarım saat, 1 saat, 2 gün, yarına; for postpone/snooze only; snooze with no delay means 10 minutes",
+                "weekday": ["pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar"],
+                "argument_sources": ["title", "duration", "weekday"],
                 "constraint": "single exact named reminder for delete/postpone/skip, or unique recently fired reminder for snooze. "
-                              "Every mutation requires user yes confirmation. Do not invent title, delay, event ID or a prior notification."}
+                              "For move, use only one spoken weekday, no duration; resolve its date in Core/worker. "
+                              "Every mutation requires user yes confirmation. Do not invent title, delay, weekday, event ID or a prior notification."}
     if capability_id == "study.read":
         return {"view": ["plan", "focus"]}
     if capability_id == "workbench.followup":
@@ -511,7 +513,7 @@ _CAPABILITY_PURPOSES = {
         "read the user's today/tomorrow agenda, daily plan, weekly plan, or upcoming reminders",
         "read-only; no write to Google Calendar or browser navigation"),
     "reminders.manage": (
-        "delete, postpone or skip one exact named Jarvis reminder, or snooze the uniquely recently fired reminder",
+        "delete, postpone, skip or move one exact named Jarvis reminder, or snooze a uniquely recently fired reminder",
         "Core bounds grounded title/duration, domain resolves one owner-local target and requires State yes/no approval; "
         "no bulk/fuzzy mutation or guessed past notification, Google untouched"),
     "study.read": (
