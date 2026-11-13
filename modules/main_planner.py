@@ -505,6 +505,25 @@ _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için ekleme
 # Brain flow: Core-validated reminder arguments authorize CREATION, not raw text editing/deletion.
 # Existing pending answers and explicit note-add syntax retain their owner, but the typed creation
 # is consumed before legacy reminder edit/snooze and agenda branches.
+def note_snapshot_digest(note) -> str | None:
+    """Hash only a known note's identity and persisted fields, never model text.
+
+    A model-resolved note edit/delete is a proposal about the observed version
+    of one record; it must not overwrite a newer version of that same ID.
+    """
+    if not isinstance(note, dict) or not isinstance(note.get("text"), str):
+        return None
+    ident = note.get("id")
+    if isinstance(ident, bool) or not isinstance(ident, (str, int)):
+        return None
+    fields = (str(ident), note["text"], note.get("title"),
+              note.get("ts"), note.get("photo"))
+    if any(value is not None and not isinstance(value, str) for value in fields):
+        return None
+    raw = json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _notes_snapshot_digest(runtime) -> str:
     """A stable owner-local snapshot; the pending confirmation never stores note bodies."""
     rows = [(row.get("id"), row.get("text"))
