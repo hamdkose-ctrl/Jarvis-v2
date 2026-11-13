@@ -7,10 +7,9 @@ def _file_command(runtime, command: str) -> str | None:
     from modules import nxapi, workbench
     m = runtime._FILE_CMD.match(command.strip())
     if not m:
-        try:   # "şu sütunu ekle", "tabloyu Word'de ver": son tablonun yeni sürümü
-            return workbench.followup(runtime.profile.slug, command)
-        except ValueError as e:
-            return str(e)
+        # Natural-language revisions are exclusively model-proposed and
+        # Core-bound to the owner/revision digest via workbench_followup.
+        return None
     raw_paths = runtime.re.findall(r'"([^"]{4,400})"', m.group(1))
     paths = [nxapi.allowed(r) for r in raw_paths]
     if len(paths) == 1 and paths[0] is not None and paths[0].is_dir() and not paths[0].is_file():   # '"…\\Proje" klasörünü incele'
