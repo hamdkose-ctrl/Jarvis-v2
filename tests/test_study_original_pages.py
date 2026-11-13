@@ -97,6 +97,29 @@ class OriginalPageTests(unittest.TestCase):
         self.assertEqual(list(study._dir(self.profile).glob('1.*')), [])
         self.assertEqual(list(study._dir(self.profile).glob('.jarvis-study-*')), [])
 
+    def test_study_remove_fails_before_catalog_change_if_source_claim_busy(self):
+        from modules import file_resource_guard, resource_leases
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Original study text', encoding='utf8')
+        # An existing reader protects the immutable text snapshot.
+        with file_resource_guard.claim_paths(source):
+            with self.assertRaises(resource_leases.LeaseConflict):
+                study.remove(self.profile, item['id'])
+        self.assertIn(item, self.profile.data['study']['docs'])
+        self.assertEqual(source.read_text(encoding='utf8'), 'Original study text')
+
+    def test_study_clear_never_unlinks_file_with_active_source_claim(self):
+        from modules import file_resource_guard
+        self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Active reader still owns this', encoding='utf8')
+        with file_resource_guard.claim_paths(source):
+            study.clear(self.profile)
+            self.assertTrue(source.exists())
+        self.assertEqual(self.profile.data['study']['docs'], [])
+        self.assertEqual(self.profile.data['study']['source_generation'], 1)
+
     def test_bad_page_stale_key_and_foreign_profile_do_not_reach_model(self):
         with patch.object(mt.llm, 'ask_image', return_value=self.reply): mt.solve(self.profile, '', str(self.path))
         view = mt.preview(self.profile, 1)
