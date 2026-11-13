@@ -236,12 +236,19 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_capability_requires_independent_core_argument_validation(self):
         self.assertIsNone(self.ask(direct("files.read"), args={"execute": True}))
 
-    def test_model_chat_confidence_does_not_override_pending_ownership(self):
+    def test_independent_model_chat_preserves_pending_owner_without_consume(self):
+        # Protected relation is not a universal veto of NEW_REQUEST chat.
+        # It must leave the old pending owner untouched and perform no action.
         self.assertIsNotNone(self.ask(answer(confidence="HIGH")))
-
         pending = current(conversation_relation=ConversationRelation.ANSWER_TO_PENDING)
-        self.assertIsNone(self.ask(answer(conversation_relation="NEW_REQUEST"),
-                                   active=pending, args=pending.arguments, protected_relation=True))
+        proposal = self.ask(answer(conversation_relation="NEW_REQUEST"),
+                            active=pending, args=pending.arguments,
+                            protected_relation=True)
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.operation, "chat")
+        self.assertEqual(proposal.actions, ())
+        self.assertEqual(pending.conversation_relation,
+                         ConversationRelation.ANSWER_TO_PENDING)
 
     def test_malformed_json_fails_closed(self):
         self.assertIsNone(self.ask("not json"))
