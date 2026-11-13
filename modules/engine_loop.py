@@ -18,6 +18,12 @@ def _speech_blocks_mic(voice_session):
                              and lane.stop_unconfirmed())))
 
 
+def _emit_idle_if_silent(runtime, voice_session):
+    """Emit truthful idle only after the single speaker's physical stop proof."""
+    if not _speech_blocks_mic(voice_session):
+        runtime.emit("state", "idle")
+
+
 def _prepare_manual_listen(runtime, voice_session):
     """Fail closed on unverified speaker stop; do not start microphone capture."""
     if not _speech_blocks_mic(voice_session):
@@ -296,8 +302,7 @@ def main(runtime, ui=None):
                     runtime.pause_listening.clear()
                     # The same device proof protects every idle claim and
                     # manual microphone handoff, not just queued notifications.
-                    if not _speech_blocks_mic(voice_session):
-                        runtime.emit("state", "idle")
+                    _emit_idle_if_silent(runtime, voice_session)
                 continue
 
             if kind == "listen" and not runtime.flags.get("mic", True):
@@ -551,8 +556,7 @@ def main(runtime, ui=None):
                             voice_session.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS
                         runtime.time.sleep(0.3)
                         runtime.pause_listening.clear()
-                        if not _speech_blocks_mic(voice_session):
-                            runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
             except runtime.requests_state.Cancelled:
                 runtime._cur_source = ""
                 runtime._cur_rid = None
