@@ -76,7 +76,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
-- **BRAIN-03 tek üretim kararı (#613):** `prepare(model_understanding=True)` nötr veriyle tek birincil model önerisi alır; Core doğrular, mevcut worker uygular. Accepted CHAT veya model hatası ham domain fallback'i başlatmaz. Tam State/Fast/UI/makro/PC/workflow/admin protokolleri korunur. Eski `understand` yalnız `model_understanding=False` izolasyon/karakterizasyon yüzeyidir; ürün girişleri ve iç adımlar bunu kullanamaz.
+- **BRAIN-03 tek üretim kararı (#613):** `prepare(model_understanding=True)` nötr veriyle tek birincil model önerisi alır; Core doğrular, mevcut worker uygular. Accepted CHAT veya model hatası ham domain fallback'i başlatmaz. Tam State/Fast/UI/makro/PC/workflow/admin protokolleri korunur. Eski `understand`, `model_understanding=False` karakterizasyon yüzeyidir; talimatsız fotoğrafın yalnız “ne yapayım?” bekleme metadatası da modelsizdir. Serbest kullanıcı talimatı ve iç adımlar bu yoldan etki seçemez.
 - **BRAIN-03 devam/parite:** Model kataloğundaki her Core yeteneğinin alan sözleşmesi olmalı; `freeform` eksik tarif kabul edilmez. Gerçek dosya/not/konuşma kimlikleri ve saat Core gözleminden bağlanır. Hatırlatma değişimi exact snapshot + State onayı ister; çalan tekrarın snooze'u sonraki normal tekrarı bozmaz, eski ses kuyruğu geçersizleşir. Masaüstü soru cevabı aynı job/soru ve aktif PC sahibine bağlıdır. Ayrıntı ilgili alan dosyaları ve final envanterdedir; canlı kabul ayrı ve açıktır.
 
 ## Testler

@@ -48,7 +48,7 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 - Hatırlatma değişikliği Profile kilidi içinde exact snapshot onayıyla yapılır; sıradaki tekrar, base saati ve fired snooze ayrılır, değişen olayın eski ses kuyruğu geçersizleşir.
 - Desktop açık soru cevabı exact native job/soru/aktif PC sahibine bağlanır. Goal açık soru cevabı model ilişkisinden aynı hedefin mevcut resolver/control çitine gider; canonical Scheduler yerine ikinci run açılmaz.
 - Eski testler raw fallback yerine açık model önerisiyle gerçek prepare/handoff/Core/domain hattını sürer. Bounded `boşver` hedef yokken `job.empty_cancel` no-op olarak ölçülür; eski baseline sonuçları yeniden yazılmaz.
-- Saf eski `understand` fonksiyonu yalnız `model_understanding=False` izolasyon/karakterizasyon içindir. Üretim text/live ve iç adımlar bu yolu kullanmaz; kaynak/caller guard'ları bu sınırı denetler.
+- Saf eski `understand` fonksiyonu `model_understanding=False` karakterizasyon yüzeyinde kalır. Talimatsız fotoğrafın “ne yapayım?” meta bekleme turu da model çağırmaz; burada kullanıcı komutu yürütülmez. Serbest talimat içeren üretim text/live/photo ve iç adımlar birincil modele gider; kaynak/caller guard'ları bu sınırı denetler.
 
 ## Gerçek test/kanıt kapıları
 
