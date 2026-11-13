@@ -583,23 +583,26 @@ class MultiStepAuthorityTests(_RawDoorHarness):
                          if "_split_steps" in path.read_text(encoding="utf-8"))
         self.assertEqual(surface, [])
 
-    def test_the_plan_is_bound_to_this_turns_own_sentence(self):
-        # Kanonical karar bağlı request'in kendi cümlesine aittir: tur dışı bir metin için
-        # (ör. düzeltilmiş ikinci geçiş görüşü) adım planı doğmaz.
+    def test_the_bound_turn_does_not_expose_a_second_raw_step_planner(self):
+        # The model/Core action_batch owns ordered steps. The former
+        # brain_entry.step_plan(text) was a second raw sentence classifier and
+        # has been removed; a handler sees only its current bound request.
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
         seen = {}
 
         def probe(command):
-            seen["other"] = brain_entry.step_plan("önce maili oku sonra raporu yaz")
-            seen["own"] = brain_entry.step_plan(command)
+            entry = brain_entry.current()
+            seen["text"] = entry.text
+            seen["command"] = command
+            seen["request_id"] = entry.request_id
+            self.assertIsNone(brain_entry.core_plan(entry))
             return "PROBE"
 
-        # "selam" legacy handler'a düşen bir sohbet turudur; plan kendi cümlesinden doğar.
-        self.turn("selam", handler=probe)
-        self.assertEqual(seen["other"], ())
-        self.assertEqual(seen["own"], ())
-        self.turn("önce sesi kıs sonra parlaklığı 40 yap", handler=probe)
-        self.assertEqual(seen["other"], ())
-        self.assertEqual(seen["own"], ("sesi kıs", "parlaklığı 40 yap"))
+        entry, output, _handler, _feedback = self.turn("selam", handler=probe)
+        self.assertEqual(output, "PROBE")
+        self.assertEqual(seen, {"text": "selam", "command": "selam",
+                                "request_id": entry.request_id})
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
 
     def test_two_steps_run_their_own_typed_effect_once_each(self):
         entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
