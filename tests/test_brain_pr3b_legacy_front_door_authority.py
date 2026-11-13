@@ -472,7 +472,7 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
     LESSON = {"topic": "Türev", "active": 1, "done": False,
               "steps": [{"title": "Giriş", "goal": "kavram"},
                         {"title": "Uygulama", "goal": "soru çözümü"}],
-              "pending": {"step": 1, "question": "Türevin tanımını söylesene."}}
+              "pending": {"step": 1, "question": "Türevin tanımını söylesene.", "answer": "Eğim"}}
 
     def seed(self):
         self.ctx.profile.data["hoca"] = {"lesson": dict(self.LESSON)}
@@ -516,8 +516,8 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
         # Ölçülen: bu cümlelerde çit ateşlenmiyor (state/fast/pend/hint ya da EXPLANATION değil)
         # ve Hoca kapısının yanıtı kullanıcıya görünen sonuç.
         self.ctx._study_intent = Mock(return_value="HOCA YANITI")
-        for text in ("hoca modu: hücre", "hücre konusunu öğret", "zayıf konularım", "cevap: eğim",
-                     "bilmiyorum", "bugün ne çalışayım", "hangi konuya çalışmalıyım", "çalışmaya başla"):
+        for text in ("hoca modu: hücre", "hücre konusunu öğret", "zayıf konularım",
+                     "bugün ne çalışayım", "hangi konuya çalışmalıyım", "çalışmaya başla"):
             with self.subTest(text=text):
                 self.assertFalse(self.fence_of(text), "Hoca kapısının cümlesi açıklama turu sayılamaz")
                 self.ctx._study_intent.reset_mock()
@@ -525,6 +525,24 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
                 self.assertEqual(out, "HOCA YANITI")
                 self.assertEqual(self.ctx._study_intent.call_args_list, [((text,), {})],
                                  "kapı kendi ham cümlesiyle çağrılır")
+
+    def test_active_hoca_pending_answers_are_typed_state_not_raw_chat(self):
+        from modules import hoca
+        self.ctx._study_intent = Mock(return_value="RAW HOCA MUST NOT RUN")
+        with patch.object(hoca, "grade", return_value={
+                    "correct": False, "feedback": "Yanlış", "expected": "Eğim"}) as grade, \
+             patch.object(hoca, "give_up", return_value="Eğim") as give_up:
+            answer = self.with_fence("cevap: eğim")
+            self.assertIn("Doğrusu: Eğim", answer)
+            self.ctx._study_intent.assert_not_called()
+            grade.assert_called_once_with(self.ctx.profile, "eğim")
+            give_up.assert_not_called()
+            grade.reset_mock()
+            skipped = self.with_fence("bilmiyorum")
+            self.assertIn("Doğrusu: Eğim", skipped)
+            self.ctx._study_intent.assert_not_called()
+            give_up.assert_called_once_with(self.ctx.profile)
+            grade.assert_not_called()
 
     def test_hoca_control_phrases_are_owned_by_the_canonical_state_gate(self):
         for text in ("sonraki adıma geç", "dersi bitir"):
@@ -1031,6 +1049,10 @@ class CascadeReachabilityTests(_RawDoorHarness):
         self.seams["modules.handoff.handle"].assert_called_once()
 
     def test_a_shortcut_answer_stops_the_cascade_behind_it(self):
+        self.ctx.profile.data.setdefault("macros", {})[
+            self.ctx._macro_key("deneme kısayolunu çalıştır")] = {
+                "title": "Deneme", "actions": ["saat kaç"],
+            }
         self.ctx._macro_run = Mock(return_value="KISAYOL ÇALIŞTI")
         self.seams["modules.handoff.handle"].return_value = "DEVRAL"
         _entry, out, _handle, _ = self.turn("deneme kısayolunu çalıştır")
