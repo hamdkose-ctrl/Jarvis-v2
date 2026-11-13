@@ -15,7 +15,7 @@ import threading
 import time
 
 from config import DATA_DIR
-from modules import service_store
+from modules import file_resource_guard, service_store
 
 ROOT = Path(os.environ.get('JARVIS_HOME') or DATA_DIR) / 'permission_grants'
 _LOCK = threading.RLock()
@@ -122,56 +122,65 @@ def _prune(data, now):
 
 
 def load(user):
-    """Yalnız geçerli izinleri döndürür; eksik/bozuk dosya boş, temizlik hatası fail-closed."""
+    """Read a stable permission snapshot; conflicting physical writers fail closed.
+
+    Returning an empty policy on a busy resource would erase apps_never bans
+    for this decision. The caller must treat LeaseConflict as no permission,
+    not as an empty allowed policy.
+    """
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        if _prune(data, _now(None)):
-            try:
-                _write(path, data)
-            except OSError:
-                pass  # Diskte temizlenemese bile dolmuş izin asla sonuçta bulunmaz.
-        return copy.deepcopy(data)
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            if _prune(data, _now(None)):
+                try:
+                    _write(path, data)
+                except OSError:
+                    pass  # Expired grants are never returned, even if write fails.
+            return copy.deepcopy(data)
 
 
 def grant_message(user, target, seconds, now=None):
-    """En fazla 24 saatlik kesin hedef iznini atomik saklar; dolu depoda yenileme mümkündür."""
+    """Atomically update an exact-target grant across Jarvis processes."""
     target, seconds, moment = _target(target), _number(seconds), _now(now)
     if not 0 < seconds <= _MAX_SECONDS:
         raise ValueError('İzin süresi 0 ile 24 saat arasında olmalı.')
     expiry = _number(moment + seconds)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        _prune(data, moment)
-        if target not in data['message_out'] and len(data['message_out']) >= _LIMIT:
-            raise ValueError('İzin listesi dolu (en fazla 50).')
-        data['message_out'][target] = expiry
-        _write(path, data)
-        return copy.deepcopy(data)
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            _prune(data, moment)
+            if target not in data['message_out'] and len(data['message_out']) >= _LIMIT:
+                raise ValueError('İzin listesi dolu (en fazla 50).')
+            data['message_out'][target] = expiry
+            _write(path, data)
+            return copy.deepcopy(data)
 
 
 def revoke(user, target):
-    """Bir kesin hedefin iznini kaldırır; kaldırılmışsa True döndürür."""
+    """Do not allow a concurrent process's stale grant to resurrect a revoke."""
     target = _target(target)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        if target not in data['message_out']:
-            return False
-        del data['message_out'][target]
-        _prune(data, _now(None))
-        _write(path, data)
-        return True
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            if target not in data['message_out']:
+                return False
+            del data['message_out'][target]
+            _prune(data, _now(None))
+            _write(path, data)
+            return True
 
 
 def purge(user, now=None):
-    """Süresi dolan mesaj kayıtlarını siler ve silinen sayıyı döndürür."""
+    """Prune under the same OS-level lock as grants, revokes and permission reads."""
     moment = _now(now)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        removed = _prune(data, moment)
-        if removed:
-            _write(path, data)
-        return removed
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            removed = _prune(data, moment)
+            if removed:
+                _write(path, data)
+            return removed
