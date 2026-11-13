@@ -359,7 +359,10 @@ class TurnWiring(unittest.TestCase):
         source = inspect.getsource(engine_loop.main)
         # Both primary semantic interpretation and the later Core handoff may
         # block on the model. Neither may close the microphone just for a wait.
-        self.assertEqual(source.count('_turn_with_listening_foreground'), 2)
+        # Primary semantic understanding, normal Core handoff, and the
+        # user-authorized exact-ID legacy foreground continuation share this
+        # SAME microphone hook. None creates a second execution owner.
+        self.assertEqual(source.count('_turn_with_listening_foreground'), 3)
         self.assertIn('brain_entry.prepare', source)
         self.assertIn('brain_entry.handoff', source)
         self.assertIn('runtime.as_user', source)          # identity still wraps the turn
