@@ -508,10 +508,18 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime._session().pending_level = None   # yeni açık istek eski "ses mi parlaklık mı?" sorusunu geçersiz kılar
             level = max(0, min(100, int(a["level"])))
             if a["property"] == "volume":
-                if runtime.system_control.set_volume(level):
+                if not runtime.system_control.set_volume(level):
+                    return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
+                # An accepted Windows API write is NOT proof of the resulting
+                # system state. Only a fresh endpoint readback may authorize
+                # the success claim or the next-turn level context.
+                measured = runtime.system_control.current_volume()
+                if type(measured) is int and measured == level:
                     _remember(runtime, "volume")
                     return ActionOutcome(f"Ses seviyesini yüzde {level} yaptım.", True)
-                return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
+                return ActionOutcome(
+                    "Ses ayarı gönderildi ancak gerçek seviyeyi doğrulayamadım; "
+                    "işlemi başarılı saymıyorum.", False)
             if runtime.system_control.set_brightness_verified(level):
                 _remember(runtime, "brightness")
                 return ActionOutcome(f"Ekran parlaklığını yüzde {level} olarak ayarladım.", True)
