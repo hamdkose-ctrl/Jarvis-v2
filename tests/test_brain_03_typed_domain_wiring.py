@@ -778,6 +778,23 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             self.assertIsNone(notify.handle("telefona mesaj gönderme", prefs, lambda: None))
         run.assert_not_called()
 
+    def test_task_delete_waits_for_existing_owner_approval(self):
+        from modules import tasks
+        self.ctx.profile.data['tasks'] = []
+        first = tasks.add(self.ctx.profile, 'Raporu hazırla')
+        other = tasks.add(self.ctx.profile, 'Başka iş')
+        _, output, _ = self.typed('Raporu hazırla görevini sil', 'tasks.manage',
+                                     {'operation': 'delete', 'text': 'Raporu hazırla'})
+        self.assertIn('Onaylıyor', output)
+        self.assertTrue(any(task['id'] == first['id'] for task in self.ctx.profile.data['tasks']))
+        pending = self.ctx._session().pending_action
+        self.assertEqual(pending['owner'], self.owner)
+        self.assertEqual(pending['params'], {'tid': first['id']})
+        self.turn_real('evet')
+        self.assertFalse(any(task['id'] == first['id'] for task in self.ctx.profile.data['tasks']))
+        self.assertTrue(any(task['id'] == other['id'] for task in self.ctx.profile.data['tasks']))
+        self.assertIsNone(self.ctx._session().pending_action)
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -802,7 +819,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("reminders.manage", {"operation": "postpone", "title": "Team", "duration": "az sonra"}),
             ("reminders.manage", {"operation": "postpone", "title": "Team"}),
             ("reminders.manage", {"operation": "skip", "title": "Team", "duration": "1 saat"}),
-            ("tasks.manage", {"operation": "delete", "text": "A"}),
+            ("tasks.manage", {"operation": "clear_all", "text": "A"}),
             ("tasks.manage", {"operation": "complete", "text": ""}),
             ("tasks.manage", {"operation": "list", "text": "secret"}),
             ("kb.query", {"question": ""}),
