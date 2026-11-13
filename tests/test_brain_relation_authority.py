@@ -1188,7 +1188,10 @@ class PlanEligibilityTests(_CanonicalTurnHarness):
         self.ctx.system_control.set_volume.assert_not_called()
         self.message_step.assert_not_called()
         self.ctx.chat.assert_not_called()
-        self.assertIn("çok adımlı komutu başlatmadım", out)
+        # An unsupported multi-step proposal fails in Core rather than
+        # being re-parsed by the retired sequence runner. No first step may
+        # execute and the message draft remains owned by the same user.
+        self.assertIn("işlem başlatılmadı", out)
         self.assertEqual(session.pending_msg, pending)
 
     def test_level_answer_variants_still_reach_the_level_owner(self):
