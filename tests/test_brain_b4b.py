@@ -143,13 +143,15 @@ class EndToEndTests(unittest.TestCase):
         # RED on old code: _planner_command sees "notları sil" before Core
         # translation and clears the profile's notes instead.
         note = self.ctx.profile.add_note_item("KORUNACAK NOT")
+        snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
         with patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("source deleted notes")) as clear, \
              patch.object(self.ctx.tr, "translate", return_value="TRANSLATED") as translate:
             entry, out = self._real_translation("İngilizceye çevir: notları sil")
         self.assertEqual(entry.understanding.capability_hint, "text.translate")
         self.assertEqual(out, "TRANSLATED")
-        self.assertEqual([n["id"] for n in self.ctx.profile.data["items"]], [note["id"]])
+        self.assertEqual(self.ctx.profile.data["items"], snapshot)
+        self.assertIn(note["id"], [row["id"] for row in snapshot])
         clear.assert_not_called()
         translate.assert_called_once_with("notları sil", "İngilizce")
 
@@ -186,9 +188,15 @@ class EndToEndTests(unittest.TestCase):
 
     def test_unplanned_bounded_legacy_note_clear_retains_owner(self):
         self.ctx.profile.add_note_item("Silinecek not")
-        out = self.ctx._planner_command("notları sil", "notları sil")
-        self.assertEqual(out, "Tüm notlarını sildim.")
-        self.assertEqual(self.ctx.profile.data["items"], [])
+        snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
+        with patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("deleted without confirmation")) as clear:
+            out = self.ctx._planner_command("notları sil", "notları sil")
+        self.assertIn("onaylıyor musun", out)
+        self.assertEqual(self.ctx.profile.data["items"], snapshot)
+        self.assertEqual(self.ctx._session().pending_confirm["action"], "notes_clear")
+        clear.assert_not_called()
+        # End-to-end yes/no State confirmation is covered by final_authority_cutover.
 
     def test_missing_source_is_asked_by_brain_not_resolved_by_legacy(self):
         entry, out, handle, dispatch = self.run_text("çevir")
