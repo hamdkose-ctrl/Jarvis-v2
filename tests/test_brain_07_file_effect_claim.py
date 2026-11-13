@@ -205,6 +205,33 @@ class FileEffectClaimTests(unittest.TestCase):
                 task_agents.worker('alice', task, {})
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_studio_final_publish_failure_leaves_no_partial_video(self):
+        """A failed final copy is never a successful video artifact."""
+        from modules import media_studio
+        output = self.base / 'studio'
+        output.mkdir()
+        data = {'scenes': [{'caption': 'Hello', 'duration': 1}]}
+
+        def fake_ffmpeg(command, **kwargs):
+            # A real ffmpeg process would produce these temporary media files.
+            Path(command[-1]).write_bytes(b'synthetic temporary video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        def failed_copy(source, target, *args, **kwargs):
+            target.write(b'partial')
+            raise OSError('simulated interrupted final copy')
+
+        with patch.object(media_studio, '_frame',
+                          side_effect=lambda scene, size, path: path.write_bytes(b'frame')), \
+             patch.object(media_studio.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_studio.media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}), \
+             patch('shutil.copyfileobj', side_effect=failed_copy):
+            with self.assertRaises(OSError):
+                media_studio.run('alice', data, 'ffmpeg', output)
+        self.assertEqual(list(output.iterdir()), [], 'Partial studio video survived')
+
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
         target.write_text('original', encoding='utf-8')
