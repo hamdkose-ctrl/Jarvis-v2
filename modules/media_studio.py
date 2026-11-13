@@ -119,20 +119,32 @@ def run(owner,data,ffmpeg,output):
         with file_resource_guard.claim_paths(final):
             if final.exists() or final.is_symlink():
                 raise resource_leases.LeaseConflict('Studio output already exists.')
-            # A failed copy, fsync or digest must not leave a partial final
-            # video that the next invocation could mistake for a completed
-            # artifact. Keep cleanup under the exact same physical-file claim.
-            created = False
+            # Stage complete bytes on the SAME filesystem before publishing
+            # the final name via an atomic, no-overwrite hard link. A power
+            # loss during copy can leave only a private temp file, never a
+            # misleading partial public video. Keep this inside the existing
+            # OS-account physical-file claim (not a new scheduler).
+            staged = None
+            published = False
             try:
-                with completed.open('rb') as src, final.open('xb') as dst:
-                    created = True
-                    __import__('shutil').copyfileobj(src, dst)
+                with tempfile.NamedTemporaryFile(
+                    dir=output, prefix='.jarvis-studio-', suffix='.mp4',
+                    delete=False,
+                ) as dst:
+                    staged = Path(dst.name)
+                    with completed.open('rb') as src:
+                        __import__('shutil').copyfileobj(src, dst)
                     dst.flush()
                     os.fsync(dst.fileno())
+                os.link(staged, final)
+                published = True
                 digest = task_results.file_digest(final)
                 return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
                         'file':str(final),'sha256':digest,'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
             except BaseException:
-                if created:
+                if published:
                     final.unlink(missing_ok=True)
                 raise
+            finally:
+                if staged is not None:
+                    staged.unlink(missing_ok=True)
