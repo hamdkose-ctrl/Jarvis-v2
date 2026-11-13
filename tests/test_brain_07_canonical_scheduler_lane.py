@@ -159,9 +159,9 @@ class SchedulerOfferTests(unittest.TestCase):
                 raise PermissionError('Windows sharing violation')
             return actual_write(path, data)
 
-        with patch.object(canonical_output_projection, '_WINDOWS', True), \\
+        with patch.object(canonical_output_projection, '_WINDOWS', True), \
              patch.object(canonical_output_projection, '_PROJECTION_RETRY_DELAYS',
-                          (0.0, 0.0)), \\
+                          (0.0, 0.0)), \
              patch.object(release_guard, 'atomic', side_effect=transient):
             self.assertTrue(canonical_output_projection.project_accepted(
                 OWNER, JOB, 'left', output,
@@ -181,9 +181,9 @@ class SchedulerOfferTests(unittest.TestCase):
         release_guard.atomic(self.record_path, execution_record.encode(job))
         output = self.accept('left')
         prior = goal_state_store.load(self.path)
-        with patch.object(canonical_output_projection, '_WINDOWS', True), \\
+        with patch.object(canonical_output_projection, '_WINDOWS', True), \
              patch.object(canonical_output_projection, '_PROJECTION_RETRY_DELAYS',
-                          (0.0, 0.0)), \\
+                          (0.0, 0.0)), \
              patch.object(release_guard, 'atomic',
                           side_effect=PermissionError('permanent deny')) as write:
             with self.assertRaises(PermissionError):
