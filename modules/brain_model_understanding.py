@@ -292,8 +292,13 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id == "media.search":
         return {"service": ["youtube", "spotify", "music_home", "youtube_home"],
                 "query": "verbatim music/video title supplied by user, except for home",
+                "browser": ["default", "chrome", "firefox"],
                 "argument_sources": ["query"],
-                "constraint": "opens user's media service search; not a claim that playback succeeded"}
+                "constraint": "For a request to OPEN the YouTube WEBSITE with no video query, "
+                              "choose youtube_home; browser only permitted with youtube_home. "
+                              "A named Chrome/Firefox browser is a preference, not the target. "
+                              "Opening the Chrome APPLICATION itself uses app.open; explicitly "
+                              "opening a YouTube app uses app.open. Do not report page load as verified."}
     if capability_id == "mail.draft":
         return {"operation": ["reply"],
                 "index": "integer 1..20 Outlook unread mail position; select 1 for the first/unspecified item, omit when sender supplied",
@@ -462,8 +467,8 @@ _CAPABILITY_PURPOSES = {
         "summarize an explicitly supplied public web page through the existing safe browser reader",
         "HTTP(S) URL must be grounded, Core disallows private host / credentials, public_sources revalidates DNS and redirects and web privacy"),
     "media.search": (
-        "open user-requested YouTube/Spotify content search or default music service",
-        "Core validates only service and spoken query; existing media worker opens search/results, never reports verified playback"),
+        "open the YouTube WEBSITE (optionally in Chrome or Firefox), search YouTube/Spotify content, or open music home",
+        "The browser is an optional preference only for youtube_home; Core validates the closed service and browser; this does not launch a Windows app or claim page-load/playback success"),
     "hoca.lesson.start": (
         "begin a new plain-topic teaching lesson with the existing Hoca lesson-plan and teaching worker",
         "requires grounded topic and optional grounded level; enabled-setting checked in worker; existing active lesson pending/answer flow keeps ownership"),
