@@ -1057,28 +1057,42 @@ def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Core checks one grounded exact-title reminder change; no arbitrary ids or bulk."""
+    """Model selects an operation; Core bounds the title and delay.
+
+    The target record is resolved by the existing owner-local reminder worker,
+    not by IDs invented by the model. Every mutation still requires the
+    snapshot-bound State confirmation.
+    """
     if set(arguments) - {"original_text", "operation", "title", "duration"}:
         return None
     operation = arguments.get("operation")
-    if type(operation) is not str or operation not in {"delete", "postpone", "skip"}:
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze"}:
         return None
     title = arguments.get("title")
-    if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
+    if operation == "snooze" and title is None:
+        checked_title = None  # only the unique recently fired event is eligible
+    elif isinstance(title, str) and title.strip() and len(title) <= 200 and "\x00" not in title:
+        checked_title = title.strip()
+    else:
         return None
     if operation in {"delete", "skip"}:
-        return {"operation": operation, "title": title.strip()} if arguments.get("duration") is None else None
+        return {"operation": operation, "title": checked_title} if (
+            checked_title is not None and arguments.get("duration") is None) else None
     duration = arguments.get("duration")
+    if operation == "snooze" and duration is None:
+        return {"operation": operation, "title": checked_title, "minutes": 10}
     if not isinstance(duration, str) or len(duration) > 40:
         return None
-    if duration in {"yarına", "yarin", "yarına kadar"}:
-        return {"operation": operation, "title": title.strip(), "minutes": 1440}
+    if duration in {"yarına", "yarin", "yarına kadar"} and operation == "postpone":
+        return {"operation": operation, "title": checked_title, "minutes": 1440}
     parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
     if parsed is None:
         return None
     count, unit = int(parsed.group(1)), parsed.group(2)
     minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
-    return {"operation": operation, "title": title.strip(), "minutes": minutes} if 1 <= minutes <= 10080 else None
+    if not 1 <= minutes <= (1440 if operation == "snooze" else 10080):
+        return None
+    return {"operation": operation, "title": checked_title, "minutes": minutes}
 
 
 def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
