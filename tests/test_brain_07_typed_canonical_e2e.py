@@ -1725,6 +1725,138 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
         self.run_goal.assert_not_called()
 
+    def test_verify_child_survives_unrelated_root_acceptance_without_replay(self):
+        """A verified dependent may overlap a distinct, still-running root.
+
+        Real Scheduler/worker/CAS/projection are used; only transport is
+        mocked. The dependent starts from an accepted Gmail predecessor,
+        independent research commits while verify is in flight, then verify
+        must still commit exactly once without accepting any nonworker edit.
+        """
+        from modules import worker_result_hook
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread',
+                       'limit': 5}},
+            {'id': 'other', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article',
+                       'question': 'independent'}},
+            {'id': 'joined', 'agent': 'verify',
+             'depends': ['unread'], 'input': {}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'E-postamı doğrula ve bağımsız araştırmayı tamamla.',
+            )
+        self.assertEqual(feedback.reason_code,
+                         'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        other_started = threading.Event()
+        other_release = threading.Event()
+        verify_started = threading.Event()
+        verify_release = threading.Event()
+        results, errors, threads = {}, [], []
+
+        def worker(owner, task, predecessors):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(predecessors, {})
+            if task['id'] == 'other':
+                other_started.set()
+                self.assertTrue(other_release.wait(15),
+                                'Independent root never released')
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Independent verified research',
+                    'source': 'https://example.test/article', 'source_chars': 200,
+                })
+            self.assertEqual(task['id'], 'unread')
+            snapshot = {
+                'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                'limit': 5,
+                'items': [{'id': 'mail-001', 'from': 'source@example.test',
+                           'subject': 'Verified subject'}],
+                'query': 'is:unread in:inbox', 'fetched_at': time.time(),
+                'has_more': False,
+            }
+            return task_results.seal('account', {
+                'state': 'done', 'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
+            })
+
+        original_hook = worker_result_hook.execute
+
+        def hold_verify(*args, **kwargs):
+            output = original_hook(*args, **kwargs)
+            if args[1] == 'verify':
+                verify_started.set()
+                self.assertTrue(verify_release.wait(15),
+                                'Verify worker never released')
+            return output
+
+        def dispatch(offer):
+            try:
+                results[offer.selection.node_id] = (
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner), offer,
+                    )
+                )
+            except Exception as exc:
+                errors.append(repr(exc))
+
+        def offer_for(node_id):
+            return next(
+                candidate for candidate in
+                canonical_scheduler_dispatch.discover(self.owner, max_offers=3)
+                if candidate.selection.node_id == node_id
+            )
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \
+             patch.object(worker_result_hook, 'execute',
+                          side_effect=hold_verify), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            try:
+                # First persist the real Gmail root using the canonical CAS.
+                self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=self.owner), offer_for('unread'),
+                ))
+                research_thread = threading.Thread(
+                    target=dispatch, args=(offer_for('other'),),
+                )
+                threads.append(research_thread)
+                research_thread.start()
+                self.assertTrue(other_started.wait(10))
+                dependent_thread = threading.Thread(
+                    target=dispatch, args=(offer_for('joined'),),
+                )
+                threads.append(dependent_thread)
+                dependent_thread.start()
+                self.assertTrue(verify_started.wait(10))
+                other_release.set()
+                research_thread.join(15)
+                self.assertFalse(research_thread.is_alive())
+                self.assertTrue(results.get('other'), repr(errors))
+                verify_release.set()
+                dependent_thread.join(15)
+                self.assertFalse(dependent_thread.is_alive())
+                self.assertTrue(results.get('joined'), repr(errors))
+                self.assertEqual(errors, [])
+            finally:
+                other_release.set()
+                verify_release.set()
+                for thread in threads:
+                    thread.join(15)
+                    self.assertFalse(thread.is_alive(),
+                                     'Worker still owns canonical command claim')
+        state, journal = self.persisted(job_id)
+        self.assertEqual(
+            {row['step_id'] for row in state['evidence']
+             if row.get('kind') == 'worker_result'
+             and row.get('status') == 'succeeded'},
+            {'unread', 'other', 'joined'},
+        )
+        self.assertEqual(journal['outputs']['joined']['checks'],
+                         {'unread': True})
+        self.assertTrue(all(row['state'] == 'done'
+                            for row in journal['steps']))
+
     def test_real_scheduler_verify_joins_research_and_gmail_without_writer(self):
         """Two concurrent roots → verified join → one Core completion.
 
