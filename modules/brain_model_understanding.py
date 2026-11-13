@@ -702,13 +702,10 @@ def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple
     operation = supplied.get("operation")
     if operation not in _FILE_OPERATIONS:
         return None
-    current_operation = current.arguments.get("operation")
-    if current_operation is None and resolving_file_ambiguity:
-        current_operation = file_operation_hint
-    if current.capability_hint == "files.read" and current_operation != operation:
-        return None
+    # The model chooses the typed operation. Do not require an identical
+    # operation from the retired lexical Understanding hypothesis.
     if operation == "list":
-        if slots or current.capability_hint != "files.read":
+        if slots:
             return None
         return {"original_text": text, "operation": "list"}, ()
     if operation == "compare":
@@ -726,29 +723,21 @@ def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple
     if "paths" in arguments and any(not isinstance(value, str) or not value.strip()
                                     for value in arguments["paths"]):
         return None
-    # Deterministik kanıt zaten bir hedef çözümlediyse model onu değiştiremez.
-    if current.capability_hint == "files.read":
-        current_path = current.arguments.get("path")
-        current_paths = current.arguments.get("paths")
-        if current_path is not None and arguments.get("path") != current_path:
+    selected = tuple(by_slot[slot] for slot in slots)
+    if any(ref.owner != owner for ref in selected):
+        return None
+    # Multiple observed files are not permission to guess "this one".
+    # A single-file operation must name one candidate unambiguously.
+    if len(file_refs) > 1 and operation != "compare":
+        if len(selected) != 1 or not _selected_file_candidate_is_grounded(text, selected[0], file_refs):
             return None
-        if current_paths is not None and arguments.get("paths") != list(current_paths):
+    # A compare operation also requires each selected file to be explicitly
+    # grounded when there are more candidates than the requested set.
+    if operation == "compare" and len(file_refs) > len(selected):
+        if any(not _selected_file_candidate_is_grounded(text, ref, file_refs)
+               for ref in selected):
             return None
-    if not resolving_file_ambiguity:
-        return arguments, ()
-    if operation != file_operation_hint or len(slots) != 1:
-        return None
-    selected_label = slot_labels.get(slots[0])
-    if selected_label is None or not selected_label[0]:
-        return None
-    if sum(1 for label in slot_labels.values() if label == selected_label) != 1:
-        return None
-    selected = by_slot[slots[0]]
-    if selected.owner != owner:
-        return None
-    if not _selected_file_candidate_is_grounded(text, selected, file_refs):
-        return None
-    return arguments, (selected,)
+    return arguments, selected
 
 
 # Dayanak kıyaslaması kelime/sayı SINIRI ölçer, alt dize değil. Katlama Türkçe İ/I kasımı ve
