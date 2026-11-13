@@ -136,7 +136,7 @@ _MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"
 # exact permission, Core validation or effect authority. It is deliberately
 # enumerated, not an open-ended "trust every model action" bypass.
 _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
-    "screen.text", "device.share", "voice.rate", "brief.read",
+    "screen.text", "device.share", "voice.rate", "voice.select", "brief.read",
     "workbench.followup", "study.read",
     "notes.add", "notes.manage", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
@@ -329,13 +329,16 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
         return {"operation": ["revise"], "format": ["excel", "word", "pdf", None],
                 "argument_sources": ["format"],
                 "target": "owner-scoped last_workbench artifact only"}
-    if capability_id in {"screen.text", "device.share", "voice.rate", "brief.read"}:
+    if capability_id in {"screen.text", "device.share", "voice.rate", "voice.select", "brief.read"}:
         if capability_id == "screen.text":
             return {"operation": ["read", "copy", "error_note"]}
         if capability_id == "device.share":
             return {"action": ["screen", "camera", "stop"]}
         if capability_id == "voice.rate":
             return {"direction": ["faster", "slower"]}
+        if capability_id == "voice.select":
+            return {"key": ["tr_erkek", "tr_kadin", "ml_erkek", "ml_kadin", "ml_erkek2", "ml_kadin2"],
+                    "constraint": "choose one installed catalogue identity explicitly named or unambiguously requested; otherwise clarify"}
         return {"arguments": {}}
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
@@ -464,6 +467,9 @@ _CAPABILITY_PURPOSES = {
     "voice.rate": (
         "change speech speed for the selected voice, faster or slower",
         "do not switch voice identity; the single existing voice preference writer and installed-voice checks remain authoritative"),
+    "voice.select": (
+        "select one voice identity from the existing installed voice catalogue",
+        "do not guess a voice when several installed voices fit; Core verifies the closed identity key and the existing profile/voice writer applies it"),
     "brief.read": (
         "give the current user's daily briefing with their events, weather and available status",
         "read-only briefing; never schedule, delete or share data as a side effect"),
