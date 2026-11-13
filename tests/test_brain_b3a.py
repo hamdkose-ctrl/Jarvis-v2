@@ -231,8 +231,11 @@ class FrontGatePrecedenceTests(_Pipeline):
             self.assertEqual(
                 brain_precedence.claim(self.ctx, "sabah rutini"),
                 ("macro_run", "MAKRO"))
-            self.assertIsNone(
-                brain_precedence.claim(self.ctx, "sabah rutininin açıklamasını yap"))
+            for mention in ("sabah rutininin açıklamasını yap",
+                            "sabah rutini?", '"sabah rutini"',
+                            "sabah-rutini", "sabah rutini, neden?"):
+                with self.subTest(mention=mention):
+                    self.assertIsNone(brain_precedence.claim(self.ctx, mention))
         worker.assert_called_once_with("sabah rutini")
 
     def test_fast_and_state_gates_never_require_raw_precedence(self):
