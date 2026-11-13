@@ -388,6 +388,19 @@ def _screen_text_fallback_operation(normalized: str) -> str | None:
     return None
 
 
+_DAILY_BRIEF_FALLBACK = frozenset({
+    "günlük özet", "günlük özet ver", "bugünün özeti", "bugünün özetini ver",
+    "sabah özeti", "günümü özetle", "brifing", "gün özeti",
+    "bugün neler oldu", "bugün neler var", "bugün ne var", "neler var bugün",
+    "günüm nasıl", "bugünkü durum", "bugün ne yapıyoruz",
+})
+
+
+def _daily_brief_fallback_request(normalized: str) -> bool:
+    """Exact model-outage protocol, not a substring classifier over user data."""
+    return isinstance(normalized, str) and normalized.strip(" .!?") in _DAILY_BRIEF_FALLBACK
+
+
 def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     """Domain cascade'inin tek sırası; §0 envanteri koldan kaleme sınıflandırıldı.
 
@@ -447,8 +460,7 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     web = runtime.browser.handle(cmd_lower)
     if web:
         return web
-    if runtime.re.search(r"günlük özet|bugünün özeti|sabah özeti|günümü özetle|brifing|gün özeti|bugün neler (?:oldu|var)|"
-                 r"bugün ne var|neler var bugün|günüm nasıl|bugünkü durum|bugün ne yapıyoruz", cmd_lower):
+    if _daily_brief_fallback_request(cmd_lower):
         return runtime._daily_briefing()
     # Ekrandaki metni kopyala / oku / hatayı nota ekle
     tasks_reply = runtime.tasks.handle(cmd_lower, runtime.profile)     # görev listesi komutu
