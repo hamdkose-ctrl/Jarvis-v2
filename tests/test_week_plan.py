@@ -1,14 +1,16 @@
-"""Modelsiz ileriye dönük haftalık plan (18 Ekim 2026): "bu haftam nasıl", "haftaya ne var".
+"""Typed calendar.read -> Core -> existing week-plan worker regression tests.
 
-Gerçek profil JSON'u ve gerçek EngineContext.handle; Google taklit, model çağrılırsa test düşer.
-Gerçek Google Takvim ve PC'de denenmedi.
+The semantic model owns Turkish natural-language phrasing; no old keyword
+router or unstubbed cloud model is used to select the week in this suite.
+Real Profile storage and calendar effects are exercised; Google is stubbed.
+This is NOT a live-model or PC acceptance test.
 """
 import unittest
 from datetime import date, datetime, timezone
 from unittest.mock import patch
 
-from modules import main_planner
-from test_mail_calendar_fixes import ProfileCase, _runtime, say
+from modules import brain_core_map, engine_intents
+from test_mail_calendar_fixes import ProfileCase, _runtime
 
 TZ = datetime.now().astimezone().tzinfo
 
@@ -57,9 +59,16 @@ class WeekPlanTests(ProfileCase):
     GOOGLE = [g('2026-10-19', '10:15', 'Müşteri görüşmesi'), g('2026-10-22', None, 'Bayram'),
               g('2026-10-18', '14:30', 'Sunum')]               # sonuncusu Jarvis kaydıyla aynı: tek görünür
 
+    def week(self, rt, period):
+        """Drive the real validated Core calendar intent, never a legacy text parser."""
+        fields = {"view": "week_plan", "period": period}
+        plan = brain_core_map.core_plan("calendar.read", fields)
+        self.assertEqual(plan, ("agenda_read", fields))
+        return engine_intents.dispatch(rt, plan[0], plan[1], "", "")
+
     def test_next_week_plan(self):
         rt = self.rt(self.GOOGLE)
-        reply = say(rt, 'haftaya ne var')
+        reply = self.week(rt, 'next')
         self.assertEqual(rt._calls, [(2, 7)])
         self.assertIn('Gelecek hafta planı (19–25 Ekim)', reply)
         self.assertIn('Pazartesi 19 Ekim: 08:00 İlaç; 10:00 Ekip toplantısı; 10:15 Müşteri görüşmesi', reply)
@@ -73,39 +82,45 @@ class WeekPlanTests(ProfileCase):
         self.assertNotIn('Dişçi', reply)
 
     def test_this_week_runs_from_today_to_sunday(self):
-        reply = say(self.rt(self.GOOGLE), 'bu haftam nasıl')
+        reply = self.week(self.rt(self.GOOGLE), 'this')
         self.assertIn('Bu hafta planı (17–18 Ekim, bugünden pazara)', reply)
         self.assertIn('Cumartesi 17 Ekim: 09:00 Dişçi (geçti)', reply)
         self.assertIn('Pazar 18 Ekim: 14:30 Sunum', reply)
         self.assertEqual(reply.count('Sunum'), 1)               # Jarvis ve Google aynı kaydı iki kez göstermez
         self.assertNotIn('Ekip toplantısı', reply)
 
-    def test_phrasings_ascii_and_typos(self):
-        for text in ('bu haftanın planı', 'bu haftanin plani', 'haftalık planım', 'haftalik planim', 'bu hafta ne var',
-                     'bu haftam nasil gecer', 'Bu haftam nasıl?', 'bu haftaki programım', 'haftamı söyle'):
-            with self.subTest(text=text):
-                self.assertIn('Bu hafta planı', say(self.rt(), text))
-        for text in ('haftaya ne var', 'gelecek haftanın planı', 'gelecek hafta ne var', 'önümüzdeki hafta neler var',
-                     'onumuzdeki hafta plani', 'haftaya neler var', 'haftaya ne yapıyoruz'):
-            with self.subTest(text=text):
-                self.assertIn('Gelecek hafta planı', say(self.rt(), text))
-        reply = say(self.rt(), 'önümüzdeki 7 gün')
-        self.assertIn('Önümüzdeki 7 gün planı (17–23 Ekim)', reply)
+    def test_closed_calendar_contract_rejects_untrusted_periods(self):
+        # Phrase recognition belongs to the model, not this old keyword test.
+        for period in ("tomorrow", "last", "next week", "", None, 1):
+            with self.subTest(period=period):
+                self.assertIsNone(brain_core_map.core_plan(
+                    "calendar.read", {"view": "week_plan", "period": period}))
+        for period, heading in (("this", "Bu hafta planı"),
+                                ("next", "Gelecek hafta planı"),
+                                ("seven", "Önümüzdeki 7 gün planı")):
+            with self.subTest(period=period):
+                self.assertIn(heading, self.week(self.rt(), period))
+        self.assertIn("Önümüzdeki 7 gün planı (17–23 Ekim)",
+                      self.week(self.rt(), "seven"))
 
-    def test_other_requests_are_not_hijacked(self):
-        for text in ('haftalık özet', 'bu hafta neler oldu', 'haftalık plan yap', 'haftaya toplantı hatırlat',
-                     'yarın planım ne', 'bugünün planı', 'haftaya kadar bitir', 'bu hafta sonu hava nasıl'):
-            with self.subTest(text=text):
-                self.assertIsNone(main_planner._week_range(main_planner._fold(text)))
+    def test_other_calendar_views_are_not_week_effects(self):
+        for view, period in (("agenda", "today"), ("day_plan", "tomorrow"),
+                             ("upcoming", None)):
+            with self.subTest(view=view):
+                plan = brain_core_map.core_plan(
+                    "calendar.read", {"view": view, "period": period})
+                self.assertIsNotNone(plan)
+                self.assertEqual(plan[0], "agenda_read")
+                self.assertNotEqual(plan[1]["view"], "week_plan")
 
     def test_google_failure_still_shows_local_items_and_says_so(self):
-        reply = say(self.rt(fail=True), 'haftaya ne var')
+        reply = self.week(self.rt(fail=True), 'next')
         self.assertIn('Ekip toplantısı', reply)
         self.assertIn("Google Takvim'e bakamadım", reply)
 
     def test_not_connected_does_not_call_google_or_complain(self):
         rt = self.rt(connected=False)
-        reply = say(rt, 'haftaya ne var')
+        reply = self.week(rt, 'next')
         self.assertEqual(rt._calls, [])
         self.assertNotIn('bakamadım', reply)
         self.assertIn('Ekip toplantısı', reply)
@@ -113,7 +128,7 @@ class WeekPlanTests(ProfileCase):
     def test_empty_days_are_listed_compactly(self):
         self.profile.data['events'] = [e for e in self.profile.data['events'] if e['title'] != 'İlaç']
         self.profile.save()
-        reply = say(self.rt(), 'haftaya ne var')
+        reply = self.week(self.rt(), 'next')
         self.assertIn('Boş günler: Salı, Perşembe, Cuma, Cumartesi, Pazar', reply)
 
     def test_expired_google_permission_gets_reconnect_help(self):
@@ -121,7 +136,7 @@ class WeekPlanTests(ProfileCase):
         def boom(offset, days):
             raise PermissionError('izin yok')
         rt.google_api.range_events = boom
-        reply = say(rt, 'haftaya ne var')
+        reply = self.week(rt, 'next')
         self.assertIn('Bağlan', reply)
 
 
