@@ -114,6 +114,42 @@ class PermissionGrantsTests(unittest.TestCase):
         result['message_out'].clear()
         self.assertEqual(self.store.load('alice'), before)
 
+    def test_busy_physical_grants_cannot_resurrect_or_leak_permissions(self):
+        from modules import file_resource_guard, resource_leases
+        self.store.grant_message('alice', 'chat', 60, now=100)
+        path = self.root / 'alice.json'
+        before = path.read_bytes()
+        with file_resource_guard.claim_paths(path):
+            for operation in (
+                lambda: self.store.load('alice'),
+                lambda: self.store.grant_message('alice', 'other', 60, now=100),
+                lambda: self.store.revoke('alice', 'chat'),
+                lambda: self.store.purge('alice', now=160),
+            ):
+                with self.subTest(operation=operation), self.assertRaises(
+                        resource_leases.LeaseConflict):
+                    operation()
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(self.store.load('alice')['message_out'], {'chat': 160})
+
+    def test_distinct_users_have_distinct_physical_permission_resources(self):
+        from modules import file_resource_guard
+        self.store.grant_message('alice', 'chat', 60, now=100)
+        with file_resource_guard.claim_paths(self.root / 'alice.json'):
+            # Use a properly switched owner instead of bypassing identity.
+            token = self.llm._key_context.set('bob')
+            try:
+                result = self.store.grant_message('bob', 'other', 60, now=100)
+                self.assertEqual(result['message_out'], {'other': 160})
+            finally:
+                self.llm._key_context.reset(token)
+        self.assertEqual(self.store.load('alice')['message_out'], {'chat': 160})
+        token = self.llm._key_context.set('bob')
+        try:
+            self.assertEqual(self.store.load('bob')['message_out'], {'other': 160})
+        finally:
+            self.llm._key_context.reset(token)
+
     def test_atomic_replace_failure_preserves_previous_and_cleans_temp(self):
         self.store.grant_message('alice', 'chat', 60, now=100)
         before = (self.root / 'alice.json').read_bytes()
