@@ -1158,6 +1158,126 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 worker.join(10)
 
 
+    def test_real_scheduler_clarification_answer_completes_without_worker_replay(self):
+        """One actual Scheduler for question→answer→Core completion.
+
+        The model and external provider are mocked. The existing on-disk
+        Scheduler/GoalState/CAS/projected evidence and callback lanes are live.
+        """
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn(
+                request='Compare these sources and ask if anything is unclear.',
+            )
+        stop = RapidStop()
+        question_seen = threading.Event()
+        completion_seen = threading.Event()
+        calls = []
+        errors = []
+        provider_calls = []
+        lock = threading.Lock()
+
+        def worker(owner, task, dependencies):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(dependencies, {})
+            with lock:
+                provider_calls.append(task['id'])
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified source for comparison',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+
+        def semantic(owner, journal, nodes):
+            self.assertEqual(nodes, ('first',))
+            dialog = journal.get('_canonical_dialog')
+            if dialog is None:
+                return {'action': 'ask', 'question': 'Which period should be compared?'}
+            self.assertEqual(dialog.get('state'), 'answered')
+            self.assertEqual(dialog.get('answer'), '2024 and 2025')
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        def sink(owner, ident, message):
+            self.assertEqual((owner, ident), (self.owner, job_id))
+            with lock:
+                calls.append(message)
+            if 'hedef cevap ' + job_id in message:
+                question_seen.set()
+            else:
+                completion_seen.set()
+            return {'ui': 'delivered'}
+
+        def on_completion(owner, ident):
+            try:
+                canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+            except Exception as exc:
+                with lock:
+                    errors.append(repr(exc))
+                raise
+
+        with ExitStack() as patches:
+            for module, name, replacement in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+                (canonical_goal_flow, '_semantic_proposal', semantic),
+            ):
+                patches.enter_context(patch.object(module, name, replacement))
+            def close_scheduler():
+                stop.set()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(10)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    thread.join(10)
+                    self.assertFalse(thread.is_alive())
+            patches.callback(close_scheduler)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=on_completion,
+            )
+            self.assertTrue(question_seen.wait(25), 'Scheduler did not ask')
+            # Notification may precede the final durable ack write.
+            until = time.monotonic() + 12
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                dialog = journal.get('_canonical_dialog')
+                if isinstance(dialog, dict) and dialog.get('delivery') == 'ui_accepted':
+                    break
+                time.sleep(.025)
+            self.assertEqual(dialog['state'], 'waiting')
+            self.assertEqual(dialog['delivery'], 'ui_accepted')
+            self.assertEqual(state['state'], 'pending')
+            self.assertEqual(provider_calls, ['first'])
+            self.assertFalse(completion_seen.is_set())
+            explicit = canonical_goal_flow.read_result_command(
+                self.owner, 'hedef cevap ' + job_id + ' 2024 and 2025',
+            )
+            self.assertIn('Yanıt bu hedefe kaydedildi', explicit)
+            self.assertTrue(completion_seen.wait(25), 'Scheduler did not resume answer')
+            until = time.monotonic() + 12
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                if journal.get('_canonical_delivery') == 'delivered':
+                    break
+                time.sleep(.025)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal['_canonical_delivery'], 'delivered')
+            self.assertEqual(journal['_canonical_ui_receipt']['event_id'],
+                             'canonical:' + job_id)
+            self.assertEqual(provider_calls, ['first'], 'Worker was replayed')
+            self.assertEqual(len(calls), 2, 'Question/result delivered twice')
+            self.assertEqual(errors, [])
+            self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+                self.owner), ())
+
     def test_scheduler_restart_resumes_verified_completion_without_worker_replay(self):
         # A process may die after the last accepted output projection but
         # before its one-shot completion callback. No worker may be repeated.

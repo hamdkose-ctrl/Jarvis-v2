@@ -1434,7 +1434,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.assertFalse(task_queue._THREAD.is_alive())
 
     def test_registered_canonical_owner_gets_fair_next_slot(self):
-        """An unserved fourth owner must beat a repeatedly runnable first owner.
+        """An unserved fifth owner must beat a repeatedly runnable first owner.
 
         Workers and the tick clock are synthetic; actual Scheduler thread
         admission and owner ordering are exercised without provider calls.
@@ -1458,15 +1458,15 @@ class SchedulerOfferTests(unittest.TestCase):
         stop = RapidStop()
         release_first = threading.Event()
         first_finished = threading.Event()
-        fourth_polled = threading.Event()
-        fourth_admitted = threading.Event()
+        fifth_polled = threading.Event()
+        fifth_admitted = threading.Event()
         started = []
         lock = threading.Lock()
         first_owner_runs = [0]
 
         def resolver(owner):
-            if owner == 'donna':
-                fourth_polled.set()
+            if owner == 'ella':
+                fifth_polled.set()
             return SimpleNamespace(slug=owner)
 
         def discover(owner, **_):
@@ -1495,8 +1495,8 @@ class SchedulerOfferTests(unittest.TestCase):
                 release_first.wait(10)
                 first_finished.set()
                 return True
-            if owner == 'donna':
-                fourth_admitted.set()
+            if owner == 'ella':
+                fifth_admitted.set()
             stop.event.wait(10)
             return True
 
@@ -1515,21 +1515,21 @@ class SchedulerOfferTests(unittest.TestCase):
                 stack.enter_context(patch.object(module, name, replacement))
             task_queue.start(
                 stop,
-                allowed_owners=lambda: {'alice', 'bob', 'charlie', 'donna'},
+                allowed_owners=lambda: {'alice', 'bob', 'charlie', 'donna', 'ella'},
                 canonical_profile_resolver=resolver,
             )
             try:
-                self.assertTrue(fourth_polled.wait(10), 'Fourth owner not polled')
-                # Three blocked workers filled the global pool on first poll.
-                self.assertFalse(fourth_admitted.is_set())
+                self.assertTrue(fifth_polled.wait(10), 'Fifth owner not polled')
+                # Four blocked workers filled the global pool on first poll.
+                self.assertFalse(fifth_admitted.is_set())
                 release_first.set()
                 self.assertTrue(first_finished.wait(10), 'First slot not released')
                 self.assertTrue(
-                    fourth_admitted.wait(10),
+                    fifth_admitted.wait(10),
                     'Repeated first owner starved an unserved owner',
                 )
                 with lock:
-                    self.assertIn('donna', started)
+                    self.assertIn('ella', started)
             finally:
                 stop.set()
                 release_first.set()
