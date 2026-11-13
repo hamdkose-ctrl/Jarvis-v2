@@ -34,7 +34,7 @@ CAPABILITY_OWNERS = {
     'open_app': ('modules.command_execution', 'open_app'),
     'close_app': ('modules.system_control', 'close_application'),
     'open_url': ('modules.browser', 'handle'),
-    'mail': ('modules.engine_tools', '_mail_handle'),
+    'mail': ('modules.engine_tools', 'mail_read_typed'),
     'media': ('modules.media', 'handle'),
     'note': ('modules.engine_tools', '_add_note'),
     'handoff': ('modules.handoff', 'handle'),
@@ -123,27 +123,30 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
     def runtime(self, google):
         return SimpleNamespace(google_api=google, ask=None, profile=SimpleNamespace(slug='hamdi'))
 
-    def test_generic_mail_check_goes_to_the_gmail_owner(self):
-        from modules import engine_tools, meeting_prep, outlook
-        google = SimpleNamespace(handle=Mock(return_value='3 okunmamış e-postan var.'),
-                                 _MAIL_CHECK=re.compile(r'mail'))
-        with patch.object(meeting_prep, 'asked', return_value=False), \
-             patch.object(outlook, 'draft_handle', return_value=None), \
-             patch.object(outlook, 'handle', return_value=None), \
-             patch.object(outlook, 'installed', return_value=False):
-            out = engine_tools._mail_handle(self.runtime(google), 'maillerimi kontrol et')
-        self.assertEqual(out, '3 okunmamış e-postan var.')
-        google.handle.assert_called_once_with('maillerimi kontrol et')
+    def test_generic_mail_read_goes_to_existing_gmail_worker(self):
+        from modules import google_api
+        runtime = self.runtime(SimpleNamespace())
+        with patch("modules.requests_state.check"), \
+             patch.object(google_api, "unread_mail",
+                          return_value="3 okunmamış e-postan var.") as gmail:
+            output = run_owner_intent("mail_read", {"source": "inbox"}, runtime,
+                                      "maillerimi kontrol et")
+        self.assertEqual(output, "3 okunmamış e-postan var.")
+        gmail.assert_called_once_with()
 
-    def test_business_mail_check_goes_to_the_outlook_owner(self):
-        from modules import engine_tools, meeting_prep, outlook
-        google = SimpleNamespace(handle=Mock(side_effect=AssertionError('gmail okunmaz')), _MAIL_CHECK=re.compile(r'mail'))
-        with patch.object(meeting_prep, 'asked', return_value=False), \
-             patch.object(outlook, 'draft_handle', return_value=None), \
-             patch.object(outlook, 'handle', return_value='İş: 2 okunmamış e-postan var.'), \
-             patch.object(outlook, 'installed', return_value=True):
-            out = engine_tools._mail_handle(self.runtime(google), 'iş maillerimi kontrol et')
-        self.assertEqual(out, 'İş: 2 okunmamış e-postan var.')
+    def test_business_mail_read_goes_to_existing_outlook_worker(self):
+        from modules import outlook, google_api
+        runtime = self.runtime(SimpleNamespace())
+        with patch("modules.requests_state.check"), \
+             patch.object(outlook, "unread_mail",
+                          return_value="İş: 2 okunmamış e-postan var.") as work, \
+             patch.object(google_api, "unread_mail",
+                          side_effect=AssertionError("Gmail must not read")) as gmail:
+            output = run_owner_intent("mail_read", {"source": "work"}, runtime,
+                                      "iş maillerimi kontrol et")
+        self.assertEqual(output, "İş: 2 okunmamış e-postan var.")
+        work.assert_called_once_with()
+        gmail.assert_not_called()
 
     def test_media_owner_presses_the_transport_keys(self):
         from modules import media
