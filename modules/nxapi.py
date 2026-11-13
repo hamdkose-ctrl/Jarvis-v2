@@ -445,7 +445,7 @@ def save_upload_stream(name: str, source) -> Path:
     """
     import shutil
     import tempfile
-    from modules import file_resource_guard
+    from modules import file_resource_guard, resource_leases
 
     if FILES_DIR.is_symlink():
         raise ValueError('Yükleme klasörü sembolik bağ olamaz.')
@@ -464,12 +464,16 @@ def save_upload_stream(name: str, source) -> Path:
         while n < 10000:
             dest = FILES_DIR / (name if n == 0 else
                                 f"{Path(name).stem}_{n}{Path(name).suffix}")
-            with file_resource_guard.claim_paths(dest):
-                try:
+            try:
+                with file_resource_guard.claim_paths(dest):
                     os.link(staged, dest)
                     return dest
-                except FileExistsError:
-                    n += 1
+            except (FileExistsError, resource_leases.LeaseConflict):
+                # Concurrent uploads must choose another filename instead of
+                # failing because a different thread owns this candidate.
+                # A busy filename is not a license to overwrite or retry that
+                # filename without its physical OS claim.
+                n += 1
         raise FileExistsError('Yükleme için benzersiz dosya adı bulunamadı.')
     finally:
         if staged is not None:
