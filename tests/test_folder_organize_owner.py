@@ -17,6 +17,62 @@ class FolderOrganizeOwnerTests(unittest.TestCase):
         stub.start()
         self.addCleanup(stub.stop)
 
+    def test_crash_between_move_and_receipt_commit_keeps_unknown_intent(self):
+        from modules import files
+        import release_guard
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'record.txt'
+            source.parent.mkdir()
+            source.write_text('durable', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'record.txt'
+            original = release_guard.atomic
+            attempts = []
+
+            def fail_second_receipt(path, payload):
+                attempts.append(payload)
+                if len(attempts) == 2:
+                    raise OSError('simulated crash immediately after physical move')
+                return original(path, payload)
+
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                with patch.object(release_guard, 'atomic',
+                                  side_effect=fail_second_receipt):
+                    with self.assertRaises(OSError):
+                        files.apply_organize([(source, target)], 'alice')
+                self.assertTrue(target.is_file())
+                receipt = files._undo_file('alice')
+                unknown = json.loads(receipt.read_text(encoding='utf-8'))
+                self.assertEqual(unknown[0][3], 'intent')
+                self.assertEqual(files.undo_organize('alice'), 0)
+                self.assertTrue(target.is_file())
+                with self.assertRaises(ValueError):
+                    files.apply_organize([(target, source)], 'alice')
+
+    def test_unconfirmed_legacy_or_write_ahead_receipt_is_never_replayed(self):
+        from modules import files
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            target.parent.mkdir(parents=True)
+            target.write_text('private', encoding='utf-8')
+            entry = [
+                str(target), str(source),
+                hashlib.sha256(target.read_bytes()).hexdigest(),
+                'intent',
+            ]
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                receipt = files._undo_file('alice')
+                receipt.parent.mkdir()
+                receipt.write_text(json.dumps([entry]), encoding='utf-8')
+                self.assertEqual(files.undo_organize('alice'), 0)
+                self.assertTrue(target.is_file())
+                self.assertFalse(source.exists())
+                self.assertEqual(json.loads(receipt.read_text(encoding='utf-8')),
+                                 [entry])
+
     def test_bulk_organize_conflicts_with_existing_file_op_claim(self):
         from modules import files, file_resource_guard
         with tempfile.TemporaryDirectory() as temp:
