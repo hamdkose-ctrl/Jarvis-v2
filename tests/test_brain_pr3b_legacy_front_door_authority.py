@@ -1059,6 +1059,34 @@ class CascadeReachabilityTests(_RawDoorHarness):
         self.assertIn("KISAYOL ÇALIŞTI", str(out))
         self.seams["modules.handoff.handle"].assert_not_called()
 
+    def test_model_outage_ocr_exact_fallback_uses_same_privacy_checked_executor(self):
+        from modules import engine_intents
+        self.ctx._screen_ocr = Mock(return_value="GERÇEK EKRAN METNİ")
+        with patch.object(engine_intents, "execute_screen_text",
+                          wraps=engine_intents.execute_screen_text) as executor:
+            _entry, out, _handle, _ = self.turn("ekrandaki metni oku")
+        self.assertEqual(out, "GERÇEK EKRAN METNİ")
+        executor.assert_called_once_with(self.ctx, "read")
+        self.ctx._screen_ocr.assert_called_once()
+        self.ctx.privacy.blocked.assert_any_call("screen")
+
+    def test_model_outage_ocr_quoted_negated_and_explanatory_phrases_do_nothing(self):
+        from modules import engine_tools
+        for phrase in (
+                "ekrandaki metni okuma", "ekrandaki hatayı not alma",
+                "ekrandaki metni oku demedim",
+                "Ali'ye 'ekrandaki metni oku' mesaj at",
+                "ekrandaki metni oku ne demek",
+                "ekrandaki metni kopyala, notları sil"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(engine_tools._screen_text_fallback_operation(phrase))
+        for phrase, operation in (
+                ("ekrandaki metni oku", "read"),
+                ("ekrandaki yazıyı kopyala", "copy"),
+                ("ekrandaki hatayı not al", "error_note")):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(engine_tools._screen_text_fallback_operation(phrase), operation)
+
     def test_an_explicit_mail_request_still_reaches_the_mail_owner(self):
         # Provider/account kararları domain'de kalır (§12): kanonical mail capability yokken
         # cümle aynı sahibine gider; PR3B bunu sökmez, yalnız tek kapıya indirir.
