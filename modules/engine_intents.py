@@ -214,6 +214,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 matched = [ev for at, ev in recently_fired if at == latest]
                 if len(matched) != 1:
                     return "Birden fazla hatırlatma son çalmış; hangisini ertelememi istiyorsun?"
+            elif operation == "skip" and a.get("title") is None:
+                today = runtime.datetime.now().date().isoformat()
+                matched = [event for event in events
+                           if isinstance(event, dict) and event.get("repeat")
+                           and str(event.get("when", ""))[:10] == today]
             else:
                 title = a.get("title")
                 wanted = lower(title) if isinstance(title, str) else ""
@@ -230,6 +235,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
             if operation == "skip" and not event.get("repeat"):
                 return "Bu tek seferlik bir hatırlatma; sonraki tekrar atlanamaz."
+            if operation == "skip" and a.get("period") is not None:
+                target = runtime.datetime.now().date() + timedelta(
+                    days=0 if a["period"] == "today" else 1)
+                if str(event.get("when", ""))[:10] != target.isoformat():
+                    label = "Bugün" if a["period"] == "today" else "Yarın"
+                    return f"{label} için bu hatırlatmanın sıradaki tekrarı yok; atlamadım."
             if operation == "snooze":
                 fired = (event.get("fired") if event.get("repeat")
                          else event.get("when") if event.get("notified") else None)
@@ -246,6 +257,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 "operation": operation,
                 "minutes": a.get("minutes"),
                 "weekday": a.get("weekday"),
+                "period": a.get("period"),
                 "owner": runtime.profile.slug,
                 "event_id": event["id"],
                 "title": event["title"],
