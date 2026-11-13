@@ -42,7 +42,7 @@ def run_checks(root=None, *, python=None):
             return False, 'Zorunlu test dosyaları eksik; doğrulama tamamlanmadı.'
         commands = [
             ('Architecture Guard', [executable, '-X', 'utf8', '-m', 'modules.architecture_guard']),
-            ('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-q']),
+            ('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-v']),
         ]
         commands += [(str(f.relative_to(root)), [node, '--check', str(f)]) for f in sorted((root / 'webui').rglob('*.js'))]
         commands += [(n, [node, 'tests/' + n + '.js']) for n in JS_GROUPS]
@@ -68,7 +68,18 @@ def run_checks(root=None, *, python=None):
                     if not count or int(count[1]) == 0:
                         return False, 'Python testleri çalışmadı; doğrulama tamamlanmadı.\n' + output
         return True, '\n'.join(logs)[-16000:]
-    except (OSError, SyntaxError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        # The old -q + discarded captured output concealed the offending test:
+        # CI showed only "timed out after 600 seconds". Verbose unittest names
+        # and the last printed test are diagnostic evidence, not a test PASS.
+        def decoded(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8", "replace")
+            return value or ""
+        partial = decoded(exc.stdout) + decoded(exc.stderr)
+        return False, ('\n'.join(logs)[-3500:] + "\nLast test output before timeout:\n"
+                       + partial[-10000:] + "\nDoğrulama tamamlanmadı: " + str(exc))
+    except (OSError, SyntaxError) as exc:
         return False, '\n'.join(logs)[-12000:] + '\nDoğrulama tamamlanmadı: ' + str(exc)
 
 if __name__ == '__main__':
