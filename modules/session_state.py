@@ -38,6 +38,16 @@ def remember_property(state, name):
         state.last_property_at = time.time()
 
 
+def clear_property(state):
+    """Retire a previous confirmed level target when the conversation changes.
+
+    Only a verified level-setting result may open this one-turn follow-up
+    context again; it is never a general-purpose natural-language classifier.
+    """
+    state.last_property = None
+    state.last_property_at = 0.0
+
+
 def fresh_property(state, now=None):
     """Return 'volume'/'brightness' only while valid and fresh, else None."""
     name = getattr(state, "last_property", None)
