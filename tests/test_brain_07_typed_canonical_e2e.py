@@ -1725,6 +1725,168 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
         self.run_goal.assert_not_called()
 
+    def test_real_scheduler_verify_joins_research_and_gmail_without_writer(self):
+        """Two concurrent roots → verified join → one Core completion.
+
+        Real Scheduler, on-disk journals, OS resource leases, worker adapters,
+        Core WorkerResult CAS, projection, completion and delivery. The
+        external research/Gmail transport and the semantic model are mocked.
+        """
+        tasks = {'tasks': [
+            {'id': 'research', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article',
+                       'question': 'compare'}},
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread',
+                       'limit': 5}},
+            {'id': 'joined', 'agent': 'verify',
+             'depends': ['research', 'unread'], 'input': {}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'Araştırma ve Gmail verisini doğrula, özetle.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertEqual(
+            {o.selection.node_id for o in canonical_scheduler_dispatch.discover(
+                self.owner, max_offers=3,
+            )}, {'research', 'unread'},
+        )
+        stop = RapidStop()
+        provider_barrier = threading.Barrier(2, timeout=20)
+        completed = threading.Event()
+        calls = []
+        sink_calls = []
+        errors = []
+        lock = threading.Lock()
+
+        def worker(owner, task, predecessors):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(predecessors, {})
+            with lock:
+                calls.append(task['id'])
+            provider_barrier.wait()
+            if task['agent'] == 'research':
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Verified public research',
+                    'source': 'https://example.test/article', 'source_chars': 200,
+                })
+            self.assertEqual(task['agent'], 'account')
+            snapshot = {
+                'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                'limit': 5,
+                'items': [{'id': 'mail-001', 'from': 'source@example.test',
+                           'subject': 'Verified subject'}],
+                'query': 'is:unread in:inbox', 'fetched_at': time.time(),
+                'has_more': False,
+            }
+            return task_results.seal('account', {
+                'state': 'done',
+                'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot,
+                'sha256': account_tools.digest(snapshot),
+            })
+
+        def notify(owner, ident, text):
+            self.assertEqual((owner, ident), (self.owner, job_id))
+            with lock:
+                sink_calls.append(text)
+            completed.set()
+            return {'ui': 'delivered'}
+
+        def on_complete(owner, ident):
+            try:
+                return canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            except Exception as exc:
+                with lock:
+                    errors.append(repr(exc))
+                raise
+
+        with ExitStack() as patches:
+            for obj, attr, value in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+                (model_wait, 'ask', lambda *a, **kw: json.dumps({
+                    'action': 'complete', 'goal': 0,
+                    'evidence': ['research', 'unread', 'joined'],
+                })),
+            ):
+                patches.enter_context(patch.object(obj, attr, value))
+
+            def close():
+                stop.set()
+                provider_barrier.abort()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(12)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+                for running in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    running.join(12)
+                    self.assertFalse(running.is_alive())
+            patches.callback(close)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=on_complete,
+            )
+            self.assertTrue(completed.wait(35),
+                            'Verified DAG join did not deliver via real Scheduler')
+            until = time.monotonic() + 10
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                if journal.get('_canonical_delivery') == 'delivered':
+                    break
+                time.sleep(.03)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal['_canonical_delivery'], 'delivered')
+            self.assertEqual(journal['_canonical_delivery_receipt']['channel'], 'ui')
+            self.assertEqual(
+                {row['step_id'] for row in state['evidence']
+                 if row.get('kind') == 'worker_result'},
+                {'research', 'unread', 'joined'},
+            )
+            self.assertEqual(journal['outputs']['joined']['checks'],
+                             {'research': True, 'unread': True})
+            self.assertEqual({row['id']: row['state'] for row in journal['steps']},
+                             {'research': 'done', 'unread': 'done', 'joined': 'done'})
+            self.assertEqual(set(calls), {'research', 'unread'})
+            self.assertEqual(len(calls), 2,
+                             'No second provider call or synthetic verify worker')
+            self.assertEqual(len(sink_calls), 1)
+            self.assertEqual(errors, [])
+
+    def test_verify_only_joins_read_only_parents_and_never_grants_writer(self):
+        base = {'id': 'source', 'agent': 'research', 'depends': [],
+                'input': {'url': 'https://example.test/article'}}
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                {'id': 'verify', 'agent': 'verify', 'depends': [], 'input': {}},
+            ])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                base, {'id': 'file', 'agent': 'writer', 'depends': ['source'],
+                       'input': {'instruction': 'Write a file'}},
+            ])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                base, {'id': 'verify1', 'agent': 'verify',
+                       'depends': ['source'], 'input': {}},
+                {'id': 'verify2', 'agent': 'verify',
+                 'depends': ['verify1'], 'input': {}},
+            ])
+        from modules import scheduler_resource_gate
+        with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+            scheduler_resource_gate.require_dependent_verify_result_lease({
+                'capability_id': 'task.verify',
+            })
+
     def test_real_scheduler_gmail_child_completes_before_running_research_root(self):
         """Production Scheduler: root research + Gmail list overlap, Gmail
         child commits first, then late independent research must be accepted.
