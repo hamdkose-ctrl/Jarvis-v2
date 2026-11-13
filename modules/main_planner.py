@@ -6,30 +6,12 @@ import json
 import hashlib
 import re
 import threading
-from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import datetime
 
 from modules import reminder_parse
 
 def _plain(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', text).strip(' .,:;!-')
-
-def _note_text(runtime, command: str, cmd_lower: str) -> str:
-    """Komut bir not isteğiyse notun metnini döndürür: "Not pazartesi ekip gelecek", "not ekle …", "… diye not al"."""
-    m = runtime._NOTE_HEAD.match(cmd_lower.strip())
-    if m:
-        body = m.group(1)
-        if runtime.re.match('(?:defter|listesi|lar|ları|larım)\\b', body):
-            return ''
-        text = runtime._plain(command.strip()[len(command.strip()) - len(body):])
-        if cmd_lower.startswith('hatırlatma'):
-            text = 'Hatırlatma: ' + runtime.re.sub('^(?:ve|ile|da|de)\\s+', '', text, flags=runtime.re.I)
-        return text
-    m = runtime._NOTE_TAIL.match(cmd_lower.strip())
-    if m and len(m.group(1).split()) >= 2:
-        return runtime._plain(command.strip()[:len(m.group(1))])
-    return ''
 
 def _add_note(runtime, text: str, photo: str | None=None) -> dict:
     item = runtime.profile.add_note_item(text + (' 📷' if photo else ''))
@@ -53,40 +35,6 @@ def _fix_word(runtime, text: str, right: str) -> str | None:
     new = right if not w[:1].islower() else runtime._tr_lower(right)
     words[bi] = new + (w[len(right):] if len(w) > len(right) else '')
     return ' '.join(words)
-
-def _note_fix(runtime, command: str, cmd_lower: str) -> str | None:
-    """Son notu sil / düzelt. Kısa düzeltmeler ("X olarak değiştir", "X değil Y") yalnızca nottan hemen sonra (15 dk)."""
-    items = runtime.profile.data['items']
-    if not items:
-        return None
-    last = items[-1]
-    cl = cmd_lower.strip(' .!?')
-    if runtime.re.fullmatch('son not(?:u|umu)?\\s+(?:sil|kaldır|iptal et)', cl):
-        runtime.profile.delete_note_item(last['id'])
-        return f"Son notu sildim: {last['text']}"
-    m = runtime.re.match('^son not(?:u|umu)?\\s+(?:düzelt|değiştir)\\w*\\s*[:,]?\\s+(.+)$', cl)
-    if m:
-        last['text'] = runtime._plain(command.strip()[len(command.strip()) - len(m.group(1)):])
-        runtime.profile.save()
-        return f"Son notu düzelttim: {last['text']}"
-    if runtime.time.time() - runtime._last_note.get(runtime.profile.slug, 0) > 900:
-        return None
-    m = runtime.re.match('^(?:yanlış oldu\\s+|doğrusu\\s+|hayır\\s+)?(.+?)\\s+(?:olarak|diye)\\s+(?:değiştir|düzelt)\\w*$', cl) or runtime.re.match('^(?:yanlış oldu|doğrusu|yanlış yazdın)[\\s:,]+(.+)$', cl)
-    loose = None if m else runtime.re.match('^(?:.+?)\\s+değil[\\s,]+(.+?)(?:\\s+(?:olacak|olsun|yaz))?$', cl)
-    if not (m or loose):
-        return None
-    right = (m or loose).group(1).strip()
-    if ' ' in right:
-        return None
-    new = runtime._fix_word(last['text'], right)
-    if not new and loose:
-        return None
-    if not new:
-        return f"Son notta “{right}” kelimesine benzeyen bir yer bulamadım. Not şu an: {last['text']}. “Son notu düzelt: …” diyerek tamamını yeniden yazabilirsin."
-    last['text'] = new
-    runtime.profile.save()
-    runtime._last_note[runtime.profile.slug] = runtime.time.time()
-    return f'Düzelttim: {new}'
 
 def _notes_text(runtime) -> str:
     items = runtime.profile.data['items']
@@ -505,51 +453,6 @@ def _recently_fired(ev: dict, now) -> bool:
         return False
 
 
-def _snooze_repeating(runtime, ev: dict, tr: str, now) -> str | None:
-    """Az önce çalan tekrarlayan hatırlatma: "10 dakika sonra tekrar çal". Gün/hafta/gün adı dendiyse None (sıradaki oluşum kayar)."""
-    from datetime import timedelta
-    if runtime.re.search(r"\bhaftaya\b|\byarin|" + _DAY_TO, tr):
-        return None
-    dp = _daypart_time(tr, now)
-    if dp:
-        runtime.profile.snooze_event(ev['id'], dp[0].strftime('%Y-%m-%dT%H:%M'))
-        return (f"{ev['title']} için {dp[0].strftime('%H:%M')} ({dp[1]}) yeniden hatırlatacağım. "
-                f"Sıradaki normal tekrar değişmedi: {runtime.whenmod.describe(ev['when'], now)}.")
-    mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
-    if runtime.re.search(r"yarim saat", tr):
-        n, unit = 30, 'dakika'
-    elif runtime.re.search(r"ceyrek saat", tr):
-        n, unit = 15, 'dakika'
-    elif mm:
-        n = int(mm.group(1)) if mm.group(1).isdigit() else _NUM[mm.group(1)]
-        unit = {'dakika': 'dakika', 'dk': 'dakika', 'saat': 'saat', 'gun': 'gün'}[mm.group(2)]
-    else:
-        n, unit = 10, 'dakika'
-    if unit == 'gün':
-        return None
-    if not 1 <= n <= 1000:
-        return 'Bu süreyi anlayamadım; "10 dakika" ya da "1 saat" gibi söyle.'
-    at = now + (timedelta(minutes=n) if unit == 'dakika' else timedelta(hours=n))
-    runtime.profile.snooze_event(ev['id'], at.strftime('%Y-%m-%dT%H:%M'))
-    return (f"{ev['title']} için {n} {unit} sonra yeniden hatırlatacağım ({at.strftime('%H:%M')}). "
-            f"Sıradaki normal tekrar değişmedi: {runtime.whenmod.describe(ev['when'], now)}.")
-
-
-def _drop_queued_reminder_speech(runtime, ev: dict) -> int:
-    """A reminder the user just deleted, skipped or moved must not be announced later.
-
-    The written chat result and the calendar record are the authority; only audio
-    still waiting in the speech queue is dropped, and only for this record's id, so
-    every occurrence of it goes and nothing else does. The owner is part of the
-    selector because record ids are per-profile: another user's identical record id
-    has its own queued audio, and this user's correction cannot silence it.
-    """
-    from modules import engine_background, voice_runtime
-    return voice_runtime.invalidate(
-        owner=runtime.profile.slug,
-        event_id=engine_background.reminder_speech_id(ev))
-
-
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
     """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
     from datetime import datetime
@@ -566,116 +469,6 @@ def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> s
     if new_when.date() > following.date():
         msg += ' Aradaki tekrarlar bu sefer çalmaz.'
     return msg
-
-
-def _edit_reminder(runtime, text: str, now) -> str | None:
-    """Hatırlatma silme, erteleme, kaydırma ve atlama: "ilaç hatırlatmasını sil", "toplantıyı yarına ertele",
-    "yarınki hatırlatmayı 1 saat ertele", "toplantıyı cumaya kaydır", "bugünkünü atla" (tekrarlayanda yalnız sıradaki oluşum)."""
-    from datetime import datetime, timedelta
-    tr = _say_to_postpone(_fold(text))
-    # Negated and quoted words are not legacy reminder mutation authority.
-    # This veto leaves the actual Core capability and fallback executor alone.
-    if (re.search(r"\b(?:silme|kaldirma|iptal etme|erteleme|oteleme|kaydirma|atlama)\b", tr)
-            or re.search(r"\b(?:sil|kaldir|iptal et|ertele|otele|kaydir|atla)\b\s+demedim\b", tr)
-            or re.search(r"""["“”]|'[^']{3,}'""", text)):
-        return None
-    if not _EDIT_ASK.search(tr):
-        return None
-    skip = bool(runtime.re.search(r"\batla\b|\batlar\s+misin|\batlayabilir", tr))
-    move = bool(runtime.re.search(r"\bkaydir\w*", tr))
-    postpone = bool(runtime.re.search(r"\b(?:ertele|otele)\w*", tr)) or move
-    qual = 'today' if runtime.re.search(r"\bbugunku", tr) else 'tomorrow' if runtime.re.search(r"\byarinki", tr) else ''
-    if not (postpone and not move) and not _EDIT_TOPIC.search(tr):
-        # "kaydır"/"atla" günlük konuşmada başka şeyler için de geçer: kayıt başlığı ya da bugünkü/yarınki ipucu şart
-        if not ((move or skip) and ((qual and not _hint(runtime, tr)) or _title_hits(runtime, tr))):
-            return None
-    if runtime.re.search(r"\b(?:ekle|yaz|not et)\b|\bnot(?:u|lar\w*)?\s+sil|\bnumarali\b|\b\d+\.?\s*notu?\b", tr):
-        return None
-    pool = None
-    day = None
-    if qual:
-        day = (now if qual == 'today' else now + timedelta(days=1)).strftime('%Y-%m-%d')
-        if not _hint(runtime, tr):
-            pool = [e for e in runtime.profile.data['events'] if str(e['when'])[:10] == day]
-            if not pool:
-                return f"{'Bugün' if qual == 'today' else 'Yarın'} için bir hatırlatman görünmüyor."
-    htr = _DAYPART.sub(" ", tr) if postpone else tr
-    ev, ask = _edit_target(runtime, htr, delete=not (postpone or skip), pool=pool)
-    if ev is None:
-        return ask
-    if skip:
-        if not ev.get('repeat'):
-            return f"{ev['title']} tek seferlik bir kayıt; atlamak yerine silmeyi ya da ertelemeyi söyleyebilirsin."
-        if day and str(ev['when'])[:10] != day:
-            return (f"{ev['title']} {'bugün' if qual == 'today' else 'yarın'} için görünmüyor; sıradaki tekrarı "
-                    f"{runtime.whenmod.describe(ev['when'], now)}. Hiçbir şeyi değiştirmedim.")
-        cur = datetime.strptime(str(ev['when'])[:16], '%Y-%m-%dT%H:%M')
-        base = ev.get('base') or cur.strftime('%H:%M')
-        nxt = runtime.whenmod.next_occurrence(ev['repeat'], datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time()),
-                                              int(base[:2]), int(base[3:]))
-        runtime.profile.reschedule_event(ev['id'], nxt.strftime('%Y-%m-%dT%H:%M'))
-        _drop_queued_reminder_speech(runtime, ev)
-        return (f"{ev['title']}: {runtime.whenmod.describe(ev['when'], now)} tekrarını atladım. "
-                f"Sıradaki: {runtime.whenmod.describe(nxt.strftime('%Y-%m-%dT%H:%M'), now)}.")
-    if not postpone:
-        runtime.profile.delete_event(ev['id'])
-        _drop_queued_reminder_speech(runtime, ev)
-        extra = ' (tekrarlayan kaydın bütün tekrarlarını kaldırdım)' if ev.get('repeat') else ''
-        return (f"Sildim: {ev['title']}, {runtime.whenmod.describe(ev['when'], now)}{extra}. Yalnız Jarvis kaydıdır; "
-                f"Google Takvim'e dokunmadım. Yanlışsa aynı kaydı yeniden ekleyebilirsin.")
-    verb = 'kaydırdım' if move else 'erteledim'
-    when = str(ev['when'])
-    if ev.get('repeat') and not qual and not move and _recently_fired(ev, now):
-        snooze = _snooze_repeating(runtime, ev, tr, now)
-        if snooze:
-            return snooze
-    allday = len(when) == 10
-    if day and ev.get('repeat') and when[:10] != day:
-        return (f"{ev['title']} {'bugün' if qual == 'today' else 'yarın'} için görünmüyor; sıradaki tekrarı "
-                f"{runtime.whenmod.describe(when, now)}. Hiçbir şeyi değiştirmedim.")
-    base = datetime.strptime(when[:16], '%Y-%m-%dT%H:%M') if not allday else datetime.strptime(when, '%Y-%m-%d')
-    dm = runtime.re.search(_DAY_TO, tr)
-    dpt = _daypart_time(tr, now)
-    if dpt:
-        if allday:
-            return 'Bu tüm gün kaydı; "yarına" ya da "2 gün" gibi gün olarak ertele.'
-        new, said = dpt[0], dpt[1] + ' saatine'
-    elif runtime.re.search(r"\bhaftaya\b", tr):
-        new, said = base + timedelta(days=7), 'bir hafta'
-    elif runtime.re.search(r"\byarina\b|\byarin\b", tr):
-        new, said = base + timedelta(days=1), 'bir gün'
-        if not allday and new < now and not ev.get('repeat'):
-            new = now.replace(hour=base.hour, minute=base.minute, second=0, microsecond=0) + timedelta(days=1)
-    elif dm:
-        ahead = (_DAYS_FOLD[dm.group(1)] - now.weekday()) % 7
-        new = base.replace(year=now.year, month=now.month, day=now.day) + timedelta(days=ahead)
-        if not allday and new <= now:
-            new += timedelta(days=7)
-        said = dm.group(0)
-    else:
-        mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
-        if runtime.re.search(r"yarim saat", tr):
-            n, unit = 30, 'dakika'
-        elif runtime.re.search(r"ceyrek saat", tr):
-            n, unit = 15, 'dakika'
-        elif mm:
-            n = int(mm.group(1)) if mm.group(1).isdigit() else _NUM[mm.group(1)]
-            unit = {'dakika': 'dakika', 'dk': 'dakika', 'saat': 'saat', 'gun': 'gün'}[mm.group(2)]
-        else:
-            n, unit = 10, 'dakika'        # "ertele" tek başına: 10 dakika
-        if not 1 <= n <= 1000:
-            return 'Bu süreyi anlayamadım; "10 dakika" ya da "yarına" gibi söyle.'
-        delta = {'dakika': timedelta(minutes=n), 'saat': timedelta(hours=n), 'gün': timedelta(days=n)}[unit]
-        if allday and unit != 'gün':
-            return 'Bu tüm gün kaydı; "yarına" ya da "2 gün" gibi gün olarak ertele.'
-        new = (now if base <= now and unit != 'gün' else base) + delta
-        said = f'{n} {unit}'
-    if ev.get('repeat'):
-        return _edit_repeating(runtime, ev, new, said, verb, now)
-    out = new.strftime('%Y-%m-%d') if allday else new.strftime('%Y-%m-%dT%H:%M')
-    runtime.profile.reschedule_event(ev['id'], out)
-    _drop_queued_reminder_speech(runtime, ev)
-    return f"{ev['title']} kaydını {said} {verb}: {runtime.whenmod.describe(out, now)}."
 
 
 # ------------------------------------------------------------------ eski notu arama / düzeltme / silme
@@ -792,48 +585,6 @@ def _note_ref(runtime, ref: str, f_rest: str):
     return hits[0][1], ''
 
 
-def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
-    """Notu numarayla ya da sözcükle düzeltir ("2. notu düzelt: …", "market notunu değiştir: …") ve siler.
-
-    Arama/özetleme burada kalmadı: canonical Understanding işlemi, Core tip/alan doğrulaması ve
-    ``notes_search``/``notes_summary`` domain yürütücüsü sahibidir. Model çağrısı yok; birden çok
-    not uyuyorsa hiçbir şeye dokunmaz, numaralı liste verip sorar."""
-    f0 = _fold(cmd_lower.strip())
-    f = f0.strip(' .!?')
-    if not re.search(r"\bnot\w*", f) or f.startswith(('not ', 'son not', 'not:')) or re.search(r"\bnot\s*(?:al|et|ekle|yaz)\w*|diye not", f):
-        return None
-    if re.search(r"\b(?:tum|butun|hepsini)\b", f):
-        return None
-    slug = runtime.profile.slug
-    items = runtime.profile.data['items']
-    m = _NOTE_EDIT.match(f)
-    if m:
-        note, msg = _note_ref(runtime, m.group('ref'), '')
-        if note is None and msg is None:
-            return None
-        if note is None:
-            return msg
-        start = f.index(m.group('new')) if m.group('new') else len(f)
-        new = runtime._plain(command.strip()[len(command.strip()) - (len(f0) - start):]) if m.group('new') else ''
-        if not new:
-            return f"Notun yeni metnini de söyle: “… notunu düzelt: yeni metin”. Şu an: {note['text']}"
-        note['text'] = new
-        runtime.profile.save()
-        _FOUND[slug] = (note['id'], runtime.time.time())
-        return f'Düzelttim: {new}'
-    m = _NOTE_DEL.match(f)
-    if m:
-        note, msg = _note_ref(runtime, m.group('ref'), '')
-        if note is None and msg is None:
-            return None
-        if note is None:
-            return msg
-        runtime.profile.delete_note_item(note['id'])
-        _FOUND.pop(slug, None)
-        return f"Notu sildim: {note['text']}"
-    return None
-
-
 def _note_window_by_label(label: str | None, now):
     phrase = _NOTE_WINDOW_WORDS.get(label or '')
     return _note_window(phrase, now) if phrase else None
@@ -892,18 +643,6 @@ _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için ekleme
 # Brain flow: Core-validated reminder arguments authorize CREATION, not raw text editing/deletion.
 # Existing pending answers and explicit note-add syntax retain their owner, but the typed creation
 # is consumed before legacy reminder edit/snooze and agenda branches.
-_CORE_REMINDER: ContextVar["dict | None"] = ContextVar("jarvis_core_reminder", default=None)
-
-
-@contextmanager
-def core_reminder(args: dict):
-    token = _CORE_REMINDER.set(dict(args))
-    try:
-        yield
-    finally:
-        _CORE_REMINDER.reset(token)
-
-
 def _notes_snapshot_digest(runtime) -> str:
     """A stable owner-local snapshot; the pending confirmation never stores note bodies."""
     rows = [(row.get("id"), row.get("text"))
