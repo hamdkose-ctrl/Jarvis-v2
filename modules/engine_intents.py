@@ -286,10 +286,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if not bool(load_settings().get("hoca_enabled", True)):
                 return "Hoca modu kapalı. Ayarlardan etkinleştirip tekrar dene."
             try:
-                lesson = hoca.start(runtime.profile, a["topic"], level=a.get("level", ""))
+                source = (hoca._research_source(a["topic"])
+                          if a.get("research") is True else None)
                 requests_state.check()
-                message = (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım.\n\n"
-                           + hoca._lesson_text(runtime.profile))
+                lesson = hoca.start(runtime.profile, a["topic"],
+                                    level=a.get("level", ""), source=source)
+                requests_state.check()
+                source_line = f" Kaynak: {source['url']}" if source else ""
+                message = (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım."
+                           + source_line + "\n\n" + hoca._lesson_text(runtime.profile))
                 # Preserve the existing Hoca full-speech preference after the
                 # semantic start parser was retired. The same Voice Front still
                 # owns the actual playback and selected voice identity.
