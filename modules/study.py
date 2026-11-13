@@ -383,7 +383,8 @@ def _vectors(profile, item, chunks):
         _EMB_FAIL[key] = time.time()
         return None
     if len(vecs) != len(chunks): return None
-    from modules import file_resource_guard, release_guard
+    import release_guard
+    from modules import file_resource_guard
     # Cache updates are intentional replacements, but a private partial JSON
     # must not leak to another process or overlap a deleted study source.
     with file_resource_guard.claim_paths(f):
