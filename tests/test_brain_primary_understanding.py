@@ -154,6 +154,31 @@ class OffPatternCapabilityProposalTests(unittest.TestCase):
 class Brain03TypedModelAuthorityTests(unittest.TestCase):
     """Real validated model envelope, not a forced hint in the transport stub."""
 
+    def test_model_receives_noncontradictory_note_slot_contract(self):
+        """Production prompt must not tell the model to omit notes.write's required slot."""
+        note = ContextReference(
+            id="note-1", kind="note", source="profile.items", owner=OWNER,
+            provenance={"text": "market listesi süt", "title": "market listesi"},
+        )
+        utterance = "market notunu sil"
+        current = deterministic(utterance, references=(note,))
+        captured = []
+        def transport(owner, prompt, send, **kwargs):
+            captured.append(prompt)
+            return envelope(operation="chat", actions=[])
+        p1, p2, p3, p4 = eligible()
+        with p1, p2, p3, p4, patch("modules.smart_router.run", side_effect=transport):
+            propose(owner=OWNER, text=utterance, current=current, arguments=current.arguments)
+        self.assertEqual(len(captured), 1)
+        prompt = captured[0]
+        self.assertIn("For notes.write, select EXACTLY ONE note_N slot", prompt)
+        self.assertIn("For files.read, use only file_N slots", prompt)
+        self.assertIn("For all OTHER capabilities reference_slots must be an empty array", prompt)
+        self.assertNotIn("reference_slots are only for files.read", prompt)
+        structured = json.loads(prompt.split("\\n", 1)[0])
+        self.assertEqual(structured["note_candidates"][0]["slot"], "note_0")
+        self.assertIn("notes.write", structured["allowed"]["capability_id"])
+
     def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
         utterance = "Not al: Raporu teslim et"
         raw_action = action(capability_id="notes.add",
