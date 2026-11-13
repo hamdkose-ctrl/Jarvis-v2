@@ -392,11 +392,11 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         original = canonical_goal_flow.try_create
         guard = threading.Lock()
 
-        def observe(*args):
+        def observe(*args, **kwargs):
             with guard:
                 if first_entered.is_set():
                     started_second.set()
-            return original(*args)
+            return original(*args, **kwargs)
 
         def planned(*args, **kwargs):
             with guard:
