@@ -485,6 +485,10 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     if model_understanding:
         # Exactly one bounded proposal runs after final candidate/reference enrichment.
         semantic = apply_model_understanding(semantic, text, active_context=active)
+        if "MODEL_DECIDED" not in semantic.reason_codes:
+            # Model was unavailable, invalid, or rejected. Never promote the
+            # deterministic evidence-only guess to an executable intent.
+            semantic = replace(semantic, reason_codes=semantic.reason_codes + ("MODEL_UNAVAILABLE",))
         references = semantic.references
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
@@ -1300,6 +1304,20 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
         raise ValueError("Core handoff owner eşleşmiyor.")
+    semantic = entry.understanding
+    if semantic is not None and "MODEL_UNAVAILABLE" in semantic.reason_codes:
+        # Only explicit UI-path and exact user-registered shortcut protocols
+        # survive a model outage. A synthetic non-reminder plan closes all
+        # raw front gates (planner/camera/cascade/fuzzy macro) in precedence.
+        exact = brain_precedence.claim(runtime, command, ("unsupported", {}))
+        if exact is not None:
+            row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
+            _LAST_FEEDBACK.set(row)
+            return exact[1], row, None
+        row = feedback(entry, result_status="failed", reason_code="BRAIN_MODEL_UNAVAILABLE")
+        _LAST_FEEDBACK.set(row)
+        return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
+                "güvenlik için işlem başlatmadım.", row, None)
     question = clarification(entry)
     if question is not None:
         if entry.understanding is not None:
@@ -1334,7 +1352,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         row = feedback(entry, result_status="failed", reason_code="PHOTO_TARGET_NOT_VALIDATED")
         _LAST_FEEDBACK.set(row)
         return message, row, None
-    if plan is None and lane_plan is None and _core_rejected_proposal(entry):
+    if (plan is None and lane_plan is None
+            and (_core_rejected_proposal(entry)
+                 or (semantic is not None and "MODEL_DECIDED" in semantic.reason_codes
+                     and semantic.request_kind is RequestKind.CAPABILITY))):
         # Core'un reddettiği tam tipli öneri ham cepheden ikinci kez yürütülemez: ne etki ne
         # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
         message = "Bu isteği güvenli biçimde doğrulayamadım; işlem başlatılmadı."
