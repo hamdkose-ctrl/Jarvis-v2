@@ -46,7 +46,9 @@ class ObservationParityTests(_CanonicalAuthorityHarness):
     @contextmanager
     def file_inventory(self, age):
         saved = dict(nxapi._FILE_CACHE)
-        root = Path(self.temp.name)
+        # Windows runner temp roots may use 8.3 aliases; the permission owner
+        # canonicalizes them before invoking the worker.
+        root = Path(self.temp.name).resolve()
         target = root / 'rapor.txt'
         target.write_text('Rapor metni', encoding='utf-8')
         rows = [{'path': str(target), 'name': target.name, 'mtime': target.stat().st_mtime}]
