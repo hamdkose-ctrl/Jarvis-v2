@@ -164,6 +164,43 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
                          [other["id"]])
         self.assertFalse(handler.called)
 
+    def test_note_edit_refuses_a_changed_snapshot_before_the_core_effect(self):
+        from modules import engine_intents, main_planner
+        note = self.ctx.profile.add_note_item("market listesi süt")
+        observed = main_planner.note_snapshot_digest(note)
+        self.assertEqual(len(observed), 64)
+        note["text"] = "yeni içerik"
+        self.ctx.profile.save()
+        with patch("modules.requests_state.check"):
+            outcome = engine_intents.dispatch(
+                self.ctx, "notes_write", {
+                    "operation": "delete", "id": str(note["id"]),
+                    "expected_note_digest": observed,
+                }, "market notunu sil", "market notunu sil")
+        self.assertEqual(getattr(outcome, "ok", None), False)
+        self.assertIn("değişti", outcome)
+        self.assertEqual(self.ctx.profile.data["items"][0]["text"], "yeni içerik")
+
+    def test_note_core_worker_rejects_missing_snapshot_or_forged_target(self):
+        from modules import engine_intents, main_planner
+        note = self.ctx.profile.add_note_item("market listesi süt")
+        snapshot = main_planner.note_snapshot_digest(note)
+        with patch("modules.requests_state.check"):
+            for attempt in (
+                {"operation": "delete", "id": str(note["id"])},
+                {"operation": "delete", "id": "999999",
+                 "expected_note_digest": snapshot},
+                {"operation": "update", "id": str(note["id"]),
+                 "expected_note_digest": "0" * 64, "text": "yanlış"},
+            ):
+                with self.subTest(attempt=attempt):
+                    outcome = engine_intents.dispatch(
+                        self.ctx, "notes_write", attempt,
+                        "market notunu sil", "market notunu sil")
+                    self.assertFalse(outcome.ok)
+        self.assertEqual(len(self.ctx.profile.data["items"]), 1)
+        self.assertEqual(note["text"], "market listesi süt")
+
     def test_ambiguous_or_forged_note_slot_never_mutates(self):
         first = self.ctx.profile.add_note_item("market listesi süt")
         second = self.ctx.profile.add_note_item("market listesi ekmek")
