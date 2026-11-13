@@ -74,11 +74,11 @@ def _read(path):
         with path.open('rb') as handle:
             raw = handle.read(_MAX_BYTES + 1)
         if len(raw) > _MAX_BYTES:
-            return _empty()
+            raise ValueError('İzin kaydı boyut sınırı aşıldı.')
         data = json.loads(raw.decode('utf-8'))
         if (not isinstance(data, dict) or not isinstance(data.get('apps_never'), list) or len(data['apps_never']) > 50
                 or any(not isinstance(app, str) or len(app) > 320 for app in data['apps_never'])):
-            return _empty()
+            raise ValueError('Kalıcı izin/yasak kaydı geçersiz.')
         safe = {'message_out': {}, 'apps_never': data['apps_never']}
         if (set(data) != {'message_out', 'apps_never'} or not isinstance(data.get('message_out'), dict)
                 or len(data['message_out']) > _LIMIT):
@@ -93,8 +93,13 @@ def _read(path):
             # Differently cased duplicate email keys must not extend an earlier expiry.
             messages[target] = min(expiry, messages.get(target, expiry))
         return {'message_out': messages, 'apps_never': data['apps_never']}
-    except (OSError, UnicodeError, ValueError, TypeError, RecursionError, OverflowError):
-        return _empty()
+    except FileNotFoundError:
+        return _empty()  # A genuinely missing store has no saved grants or bans.
+    except (OSError, UnicodeError, ValueError, TypeError, RecursionError, OverflowError) as exc:
+        # A damaged/unreadable existing policy is NOT an empty allowed policy.
+        # In particular, never silently erase persistent apps_never bans or
+        # overwrite an unreadable file while granting a new permission.
+        raise PermissionError('İzin kaydı güvenli okunamadı; işlem durduruldu.') from exc
 
 
 def _write(path, data):
