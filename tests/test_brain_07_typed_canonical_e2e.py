@@ -192,7 +192,11 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         control = goal_executor.control_key(
             goal_executor.read_job(self.owner, job_id),
         )
-        with patch.object(goal_executor, '_loop',
+        # This harness mocks goal_executor.run globally as GOAL_RUN. Exercise
+        # the actual direct executor seam instead of asserting against that
+        # unrelated fixture sentinel.
+        with patch.object(goal_executor, 'run', wraps=goal_executor._run), \
+             patch.object(goal_executor, '_loop',
                           side_effect=AssertionError('legacy model worker replay')):
             reply = goal_executor.handle(
                 self.ctx, f'hedef devam {job_id} {control}',
@@ -205,7 +209,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                           return_value=json.dumps(research_tasks('first'))):
             _, _, _, job_id = self.typed_turn()
         before = self.persisted(job_id)
-        with patch.object(goal_executor, '_loop',
+        with patch.object(goal_executor, 'run', wraps=goal_executor._run), \
+             patch.object(goal_executor, '_loop',
                           side_effect=AssertionError('legacy approve replay')):
             reply = goal_executor.run(
                 self.ctx, 'hedef onayla', approve=True, job_id=job_id,
