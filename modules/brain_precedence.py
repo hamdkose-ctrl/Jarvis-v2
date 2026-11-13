@@ -1,16 +1,9 @@
-"""Explicit precedence contract between legacy front gates and Brain-planned Core intents.
+"""Bounded explicit-owner protocols, not a second natural-language router.
 
-The gate order is the only owner of legacy front-door precedence. A validated
-Core plan cannot be reinterpreted as a second command by raw controls, general
-planner parsing, or the extra-command cascade. Explicit quoted-path UI commands,
-a registered exact macro trigger and the Core-bound reminder creator's existing
-note-add compatibility are bounded exceptions.
-
-This protects accepted typed proposals. It does not retire unmapped legacy
-semantic handlers; BRAIN-03 issue #545 remains open until their Core parity
-and physical removal are proven.
-
-This module decides nothing about permission or effect: it only calls the existing handlers.
+Only a validated machine-addressed file UI action and an exact stored macro
+trigger may claim a turn. General planner, camera/share, note, and cross-domain
+keyword cascades were retired by BRAIN-03; model proposals proceed to the same
+Core validators and existing workers. No permission or effect is decided here.
 """
 from __future__ import annotations
 
