@@ -263,201 +263,136 @@ class TypoSinglePassTests(_RawDoorHarness):
                                  "düzeltilmiş görünüm effekte giden bir kapıya ulaşamaz")
 
 
-class TypoReadRecoveryTests(_RawDoorHarness):
-    """Taban kazancı: ilk değerlendirme hiçbir kol almadan düştüğünde düzeltilmiş görünüm aynı
-    request içinde yalnız tam-cümle SALT-OKUMA gramerlerine gösterilir.
+class TypedReadAfterTypoTests(_RawDoorHarness):
+    """Model decides misspellings; only Core validates existing read workers.
 
-    Ölçülen taban (`ea2f0b3`, 496 satır gerçek üretim zinciri, effekte giden her sınır Mock):
-    `_TypoRetry` 47 satırda ikinci geçişi çalıştırdı, 5 satırda kullanıcıya görünen sonuç değişti ve
-    ikinci geçişte mutasyonlu effect çağıran satır YOK (0). Ölçülen üç gerçek salt-okuma kazancı
-    burada kilitlenir — not listesi, günün programı, görev listesi. Yazma/organize/tarayıcı açma
-    kollara kazanç listesinde bulunmadığı için yine yetki yoktur.
+    This is a wiring test with an explicit fake semantic proposal, not proof
+    that a live model recognizes the user's misspelling.
     """
 
-    def _instrument(self) -> dict[str, int]:
-        """State/Fast/Understanding ve kurtarma kapısı sarılır: ikinci bir geçiş sayılırsa görünür."""
-        from modules import command_manager
-        counts = {"understand": 0, "state": 0, "fast": 0, "recovery": 0}
+    def _typed(self, text, capability, arguments):
+        from dataclasses import replace
+        from modules import brain_core_map
+        plan = brain_core_map.core_plan(capability, {"original_text": text, **arguments})
+        self.assertIsNotNone(plan)
+        def model(current, command, *, active_context=None):
+            self.assertEqual(command, text)
+            return replace(
+                current, request_kind=RequestKind.CAPABILITY,
+                capability_hint=capability,
+                arguments={"original_text": command, **arguments},
+                needs_input=False, ambiguities=(), actions=(),
+            )
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+            entry, out, _handler, feedback = self.turn(text, model_understanding=True)
+        self.assertEqual(entry.understanding.capability_hint, capability)
+        self.assertEqual(feedback.result_status, "handled")
+        self.door.assert_not_called()
+        self.ctx._planner_command.assert_not_called()
+        self.ctx._extra_commands.assert_not_called()
+        return out
 
-        def wrap(target, attr, key):
-            real = getattr(target, attr)
-
-            def spy(*args, **kwargs):
-                counts[key] += 1
-                return real(*args, **kwargs)
-
-            starter = patch.object(target, attr, spy)
-            starter.start()
-            self.addCleanup(starter.stop)
-
-        wrap(brain_entry, "understand", "understand")
-        wrap(brain_entry, "exact_state_gate", "state")
-        wrap(brain_entry, "deterministic_fast_gate", "fast")
-        wrap(command_manager, "typo_read_recovery", "recovery")
-        return counts
-
-    def _spy_dispatch(self) -> list[tuple]:
-        from modules import engine_intents
-        real = engine_intents.dispatch
-        calls: list[tuple] = []
-
-        def spy(runtime, intent, a, command, cmd_lower):
-            calls.append((intent, dict(a), command, cmd_lower))
-            return real(runtime, intent, a, command, cmd_lower)
-
-        starter = patch.object(engine_intents, "dispatch", spy)
-        starter.start()
-        self.addCleanup(starter.stop)
-        return calls
-
-    def test_a_misspelled_notes_read_still_reads_the_notes_once(self):
+    def test_model_selected_notes_read_uses_existing_worker_once(self):
         self.ctx.profile.data["items"] = [{"id": 1, "text": "irsaliye tarihi perşembe"}]
-        counts, intents = self._instrument(), self._spy_dispatch()
-        entry, out, _handle, _ = self.turn("notlarımı göstr")
-        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT,
-                      "ham cümle kanonical olarak reddedildi; kurtarma ikinci pipeline değildir")
-        self.assertEqual(out, "Notların: 1) irsaliye tarihi perşembe", "tabanın kullanıcıya görünen sonucu")
-        self.assertEqual(intents, [("notes_read", {"which": "all"}, "notlarımı göstr", "notlarımı göstr")],
-                         "etki kanonical intent sahibi ve kullanıcının own cümlesiyle yürür")
-        self.assertEqual(self.turn_texts, ["notlarımı göstr"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
-        self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops",
-                                     "modules.media", "modules.notify", "modules.worktrack"), [])
-        seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
-        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
-                         "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
+        result = self._typed("notlarımı göstr", "notes.read",
+                             {"notes": {"which": "all"}})
+        self.assertIn("irsaliye tarihi perşembe", result)
 
-    def test_a_misspelled_agenda_read_still_answers_the_day_plan(self):
-        counts = self._instrument()
+    def test_model_selected_calendar_read_uses_existing_worker_once(self):
         self.ctx._agenda_text = Mock(return_value="Bugün: 09:00 ders")
-        opener = Mock()
-        starter = patch("webbrowser.open", opener)
-        starter.start()
-        self.addCleanup(starter.stop)
-        entry, out, _handle, _ = self.turn("takvimimi kotrol et")
-        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
-        self.assertEqual(out, "Bugün: 09:00 ders", "tabanın gün programı cevabı")
-        self.assertEqual(self.ctx._agenda_text.call_count, 1)
+        result = self._typed("takvimimi kotrol et", "calendar.read",
+                             {"view": "agenda", "period": "today"})
+        self.assertEqual(result, "Bugün: 09:00 ders")
+        self.ctx._agenda_text.assert_called_once()
         self.assertEqual(self.ctx._agenda_text.call_args.args[1], "Bugün")
-        opener.assert_not_called()  # tarayıcı açmak etkidi: düzeltilmiş görünüme kapalı
-        self.assertEqual(self.turn_texts, ["takvimimi kotrol et"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
 
-    def test_a_misspelled_task_list_read_still_answers_the_list(self):
-        from modules import tasks as tasks_module
-        counts = self._instrument()
-        self.ctx.tasks = tasks_module  # gerçek salt-okuma grameri, izole profil üzerinde
-        for attr in ("add", "toggle", "delete", "clear_done"):
-            starter = patch.object(tasks_module, attr, Mock(side_effect=AssertionError("görev yazma yetkisi yok")))
-            starter.start()
-            self.addCleanup(starter.stop)
-        entry, out, _handle, _ = self.turn("gorevlerimi listelee")
+    def test_model_selected_tasks_list_is_read_only(self):
+        from modules import tasks
+        with patch.object(tasks, "add",
+                          side_effect=AssertionError("unexpected task mutation")) as add:
+            result = self._typed("gorevlerimi listelee", "tasks.manage",
+                                 {"operation": "list"})
+        self.assertIn("Açık görevin yok", result)
+        add.assert_not_called()
+
+    def test_model_outage_does_not_start_a_legacy_typo_read_parser(self):
+        from modules import brain_model_understanding
+        for command in ("notlarımı göstr", "takvimimi kotrol et",
+                        "gorevlerimi listelee"):
+            with self.subTest(command=command), patch.object(
+                brain_model_understanding, "propose", return_value=None):
+                self.door.reset_mock()
+                entry, reply, _handler, feedback = self.turn(
+                    command, model_understanding=True)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                self.assertIn("model", reply.casefold())
+                self.door.assert_not_called()
+
+    def test_model_chat_must_not_be_reclassified_by_corrected_raw_text(self):
+        from dataclasses import replace
+        def model_chat(current, text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CHAT,
+                           capability_hint=None, arguments={"original_text": text},
+                           ambiguities=(), needs_input=False, actions=())
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=model_chat):
+            entry, _out, _handler, feedback = self.turn(
+                "notlarımı göstr", model_understanding=True)
         self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
-        self.assertEqual(out, "Açık görevin yok.", "tabanın görev listesi cevabı")
-        self.assertEqual(self.turn_texts, ["gorevlerimi listelee"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
+        self.assertEqual(feedback.result_status, "handled")
+        self.door.assert_not_called()
+        self.ctx._planner_command.assert_not_called()
 
-    def test_the_recovery_is_consulted_only_when_the_spelling_actually_changed(self):
-        counts = self._instrument()
-        for text in ("notlarımı göster", "saat kaç", "takvimimi kontrol et",
-                     "görevlerimi listele", "selam"):
-            with self.subTest(text=text):
-                self.door.reset_mock()
-                self.turn(text)
-        self.assertEqual(counts["recovery"], 0,
-                         "yazımı zaten doğru olan turlar kurtarmaya inmez: koşul düzeltmenin gerçekten fark üretmesi")
-
-    def test_the_corrected_view_still_earns_no_write_open_or_organize_authority(self):
-        counts = self._instrument()
-        corpus = ("rapor hazırla", "aynı isimli dosyayı bul", "silah nasıl çalışır", "olarak başla",
-                  "masaüstünü duzenle", "indirilenleri duzenle", "notlari temizle",
-                  "yarinki randevularimi soyle", "bana hetırlat")
-        gates = (self.ctx._planner_command, self.ctx._file_command, self.ctx._user_command)
-        for text in corpus:
-            with self.subTest(text=text):
-                self.door.reset_mock()
-                for gate in gates:
-                    gate.reset_mock()
-                _entry, out, _handle, _ = self.turn(text)
-                corrected = typo.fix(text.casefold())
-                seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
-                self.assertNotIn(corrected, seen, "düzeltilmiş görünüm effekte giden ham kapıya ulaşamaz")
-                if self.door.called:
-                    # Kanonical plan kendi sahibini bulduğunda legacy kapı hiç çalışmaz (PR3C-3
-                    # düzenleme); çalıştığında ise yalnız kullanıcının yazdığı cümleyi görür.
-                    self.assertEqual(self.turn_texts, [text])
-                # Aynı cümle düzeltme hiç uygulanmasa da aynı sonucu verir: kurtarma yalnız okur.
-                self.door.reset_mock()
-                identity = patch.object(self.ctx, "typo", SimpleNamespace(fix=lambda value: value))
-                identity.start()
-                self.addCleanup(identity.stop)
-                _entry2, out_identity, _handle2, _ = self.turn(text)
-                identity.stop()
-                self.assertEqual(out, out_identity)
-                self.assertLessEqual(counts["recovery"], len(corpus))
-
-    def test_a_write_intent_proposed_for_the_corrected_view_is_refused(self):
-        from modules import brain_core_map, brain_understanding
-        counts = self._instrument()
-        intents = self._spy_dispatch()
-        starter = patch.object(brain_understanding, "notes_read_view", Mock(return_value=("notes.write", {})))
-        starter.start()
-        self.addCleanup(starter.stop)
-        starter = patch.object(brain_core_map, "core_plan", Mock(return_value=("notes_write", {"operation": "delete"})))
-        starter.start()
-        self.addCleanup(starter.stop)
-        self.ctx.profile.data["items"] = [{"id": 1, "text": "silinecek not"}]
-        _entry, out, _handle, _ = self.turn("notlarımı göstr")
-        self.assertEqual(out, "CHAT", "yazma niyeti düzeltilmiş görünüm için asla yürümez")
-        self.assertEqual([row[0] for row in intents], ["chat"], "kapalı set dışındaki intent dispatch edilmez")
-        self.assertEqual(counts["recovery"], 1)
-        self.assertEqual(self.ctx.profile.data["items"], [{"id": 1, "text": "silinecek not"}],
-                         "reddedilen yazma niyeti not defterine dokunmaz")
+    def test_unobserved_note_write_cannot_be_smuggled_in_as_typo_recovery(self):
+        from dataclasses import replace
+        self.ctx.profile.data["items"] = [{"id": "note-a", "text": "silinmeyecek"}]
+        before = [dict(row) for row in self.ctx.profile.data["items"]]
+        def forged(current, text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="notes.write",
+                           arguments={"original_text": text, "notes": {
+                               "operation": "delete", "id": "note-a"}},
+                           ambiguities=(), needs_input=False, actions=())
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=forged):
+            _entry, _out, _handler, feedback = self.turn(
+                "notlarımı göstr", model_understanding=True)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertEqual(self.ctx.profile.data["items"], before)
+        self.door.assert_not_called()
 
 
-def _typo_recovery_source() -> str:
-    import ast as _ast
-    tree = _ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
-    return "\n\n".join(_ast.unparse(node) for node in tree.body
-                       if isinstance(node, _ast.FunctionDef)
-                       and node.name in {"typo_read_recovery", "typo_read_plan"})
+class RetiredTypoReadGuardTests(unittest.TestCase):
+    """No new keyword recovery selector can silently replace the old one."""
 
-
-class TypoReadRecoveryGuardTests(unittest.TestCase):
-    """Kurtarma yüzeyi kapalı ve tek çağrılıdır: yeni bir mini-router doğarsa bu test düşer."""
-
-    def test_the_surface_is_called_once_from_the_command_seam_only(self):
-        self.assertEqual(_source_calls("typo_read_recovery"), ["modules/engine_commands.py"])
-        self.assertEqual(_source_calls("typo_read_plan"), ["modules/engine_commands.py"])
-        calls = [ast.unparse(node.func) for node in ast.walk(ast.parse(ENGINE_COMMANDS_SOURCE))
-                 if isinstance(node, ast.Call)]
-        self.assertEqual(calls.count("typo_read_recovery"), 1)
-        self.assertEqual(calls.count("typo_read_plan"), 1)
-        self.assertEqual(calls.count("exact_admin_view"), 1)
-        self.assertEqual(calls.count("runtime.typo.fix"), 1)
-
-    def test_the_recovery_consults_only_named_read_grammars(self):
-        source = _typo_recovery_source()
-        self.assertTrue(source, "typo_read_recovery/typo_read_plan tanımlı değil")
-        called = {ast.unparse(node.func) for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)}
-        self.assertEqual(called, {"brain_understanding.notes_read_view", "brain_core_map.core_plan",
-                                  "main_planner.agenda_read_request", "runtime.datetime.now",
-                                  "runtime._agenda_text", "tasks.list_request", "tasks.list_text"},
-                         f"kurtarma yüzeyi kapalı okuma seti dışına çıktı: {sorted(called)}")
-
-    def test_the_recovery_itself_selects_no_effect(self):
-        # Intent yürütme yetkisi seam'de kalır: kurtarma yüzeyi dispatch çağıran yeni bir üretici değildir.
-        from test_brain_orphan_dispatch_guard import _production_sources, dispatch_call_sites
-        self.assertEqual(set(dispatch_call_sites(_production_sources())),
-                         {"modules/brain_entry.py", "modules/engine_commands.py", "modules/command_manager.py"})
-
-    def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
+    def test_legacy_read_recovery_functions_are_physically_absent(self):
         from modules import command_manager
-        self.assertEqual(command_manager._TYPO_READ_INTENTS, frozenset({"notes_read"}))
-        self.assertNotIn("notes_write", command_manager._TYPO_READ_INTENTS)
-        self.assertTrue(command_manager._TYPO_READ_INTENTS.isdisjoint(
-            {"reminder", "notes_write", "file_action", "app_open", "app_close", "task", "audio_action",
-             "media_action", "screen_capture", "shutdown_request", "photo_action"}))
+        tree = ast.parse(inspect.getsource(command_manager))
+        names = {node.name for node in ast.walk(tree)
+                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+        self.assertNotIn("typo_read_recovery", names)
+        self.assertNotIn("typo_read_plan", names)
+        self.assertFalse(hasattr(command_manager, "_TYPO_READ_INTENTS"))
+
+    def test_single_pass_engine_cannot_call_retired_read_selector(self):
+        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
+        called = {ast.unparse(node.func) for node in ast.walk(tree)
+                  if isinstance(node, ast.Call)}
+        self.assertNotIn("typo_read_recovery", called)
+        self.assertNotIn("typo_read_plan", called)
+        self.assertIn("exact_admin_view", called)
+
+    def test_existing_core_read_intents_have_closed_argument_contracts(self):
+        from modules import brain_core_map
+        for capability, good in (
+            ("notes.read", {"notes": {"which": "all"}}),
+            ("calendar.read", {"view": "agenda", "period": "today"}),
+            ("tasks.manage", {"operation": "list"}),
+        ):
+            with self.subTest(capability=capability):
+                self.assertIsNotNone(brain_core_map.core_plan(capability, good))
+                self.assertIsNone(brain_core_map.core_plan(
+                    capability, {**good, "untrusted_path": "C:/arbitrary"}))
 
 
 class ExplanationFenceOwnershipTests(_RawDoorHarness):
