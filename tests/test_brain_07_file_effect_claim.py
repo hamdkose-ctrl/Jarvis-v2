@@ -273,13 +273,17 @@ class FileEffectClaimTests(unittest.TestCase):
             Path(command[-1]).write_bytes(b'synthetic complete video')
             return SimpleNamespace(returncode=0, stdout='', stderr='')
 
-        with patch.object(media_studio, '_frame',
+        physical_claim = file_resource_guard.claim_paths
+        with patch.object(file_resource_guard, 'claim_paths', wraps=physical_claim) as claims, \
+             patch.object(media_studio, '_frame',
                           side_effect=lambda scene, size, path: path.write_bytes(b'frame')), \
              patch.object(media_studio.subprocess, 'run', side_effect=fake_ffmpeg), \
              patch.object(media_studio.media_tools, 'probe',
                           return_value={'width': 1280, 'height': 720,
                                         'duration': 1, 'has_audio': False}):
             result = media_studio.run('alice', data, 'ffmpeg', output)
+        self.assertEqual(claims.call_count, 1,
+                         'Studio reacquired one non-reentrant Windows OS claim')
         self.assertEqual(result['state'], 'done')
         self.assertEqual(Path(result['file']).read_bytes(), b'synthetic complete video')
         self.assertEqual(list(output.iterdir()), [Path(result['file'])])
