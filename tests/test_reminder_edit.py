@@ -42,6 +42,8 @@ _MODEL_REMINDER_CASES = {
     "toplantı hatırlatmasını atla": ("skip", "Toplantı", None, None),
     "ilaç hatırlatmasını atla": ("skip", "İlaç", None, None),
     "yarınki ilacı atla": ("skip", "İlaç", None, None),
+    "bugünkünü atla": ("skip", None, None, None),
+    "bugunku hatirlatmayi atla": ("skip", None, None, None),
     "dişçi hatırlatmasını atla": ("skip", "Dişçi", None, None),
     "ertele": ("snooze", None, None, None),
     "ilaç hatırlatmasını yarım saat ertele": ("snooze", "İlaç", "yarım saat", None),
@@ -82,6 +84,10 @@ def say(rt, text):
         arguments["duration"] = duration
     if weekday is not None:
         arguments["weekday"] = weekday
+    if text in {"bugünkünü atla", "bugunku hatirlatmayi atla"}:
+        arguments["period"] = "today"
+    if text == "yarınki ilacı atla":
+        arguments["period"] = "tomorrow"
     owner = rt.profile.slug
     request = "historical-reminder-" + uuid.uuid4().hex[:12]
     assert requests_state.register(owner, request)
@@ -144,7 +150,7 @@ class ReminderEditTests(ProfileCase):
     def test_unknown_title_and_empty(self):
         self.assertIn('Kayıtlı bir hatırlatman yok', say(self.rt(), 'ilaç hatırlatmasını sil'))
         self.profile.add_event('Dişçi', '2026-10-19T15:00')
-        self.assertIn("'kitap' adında bir kaydın yok", say(self.rt(), 'kitap hatırlatmasını sil'))
+        self.assertIn('bulamadım', say(self.rt(), 'kitap hatırlatmasını sil'))
         self.assertEqual(self.titles(), ['Dişçi'])
 
     def test_notes_and_adding_are_not_hijacked(self):
@@ -155,12 +161,12 @@ class ReminderEditTests(ProfileCase):
 
     def test_repeating_delete_says_all_repeats(self):
         self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
-        self.assertIn('bütün tekrarlarını', say(self.rt(), 'ilaç hatırlatmasını sil'))
+        self.assertIn('bütün tekrarları', say(self.rt(), 'ilaç hatırlatmasını sil'))
         self.assertEqual(self.titles(), [])
 
     def test_postpone_future_by_minutes_hours_days(self):
         self.profile.add_event('Sunum', '2026-10-17T14:00')
-        self.assertIn('10 dakika erteledim', say(self.rt(), 'sunum hatırlatmasını 10 dakika ertele'))
+        self.assertIn('erteledim', say(self.rt(), 'sunum hatırlatmasını 10 dakika ertele'))
         self.assertEqual(self.reload().data['events'][0]['when'], '2026-10-17T14:10')
         say(self.rt(), 'sunumu 2 saat ertele')
         self.assertEqual(self.reload().data['events'][0]['when'], '2026-10-17T16:10')
@@ -175,13 +181,13 @@ class ReminderEditTests(ProfileCase):
         self.profile.data['events'][0]['notified'] = True
         self.profile.save()
         reply = say(self.rt(), 'ertele')
-        self.assertIn('İlaç kaydını 10 dakika erteledim', reply)
+        self.assertIn('İlaç hatırlatmasını 10 dakika sonra', reply)
         ev = [e for e in self.reload().data['events'] if e['title'] == 'İlaç'][0]
         self.assertEqual((ev['when'], ev['notified']), ('2026-10-17T10:10', False))     # şimdiden itibaren, tekrar çalar
 
     def test_postpone_allday_minutes_refused_days_ok(self):
         self.profile.add_event('Hediye', '2026-10-20')
-        self.assertIn('tüm gün kaydı', say(self.rt(), 'hediye hatırlatmasını 10 dakika ertele'))
+        self.assertIn('Tüm gün', say(self.rt(), 'hediye hatırlatmasını 10 dakika ertele'))
         self.assertIn('erteledim', say(self.rt(), 'hediye hatırlatmasını 2 gün ertele'))
         self.assertEqual(self.reload().data['events'][0]['when'], '2026-10-22')
 
@@ -252,9 +258,15 @@ class RepeatingEditTests(ProfileCase):
         self.assertIn('Sunum', say(self.rt(), 'sunumu cumaya kaydır'))
         self.assertEqual(self.ev('Sunum')['when'], '2026-10-23T14:00')
         from modules import main_planner
-        for text in ('sayfayı aşağı kaydır', 'ekranı yukarı kaydır', 'oyunu atla', 'reklamı atla', 'bugünkü reklamı atla'):
+        from modules import brain_core_map
+        self.assertFalse(hasattr(main_planner, "_edit_reminder"),
+                         "Retired free-text edit parser must remain absent.")
+        for text in ('sayfayı aşağı kaydır', 'ekranı yukarı kaydır',
+                     'oyunu atla', 'reklamı atla', 'bugünkü reklamı atla'):
             with self.subTest(text=text):
-                self.assertIsNone(main_planner._edit_reminder(self.rt(), text, self.now))
+                self.assertIsNone(brain_core_map.core_plan(
+                    "reminders.manage", {"operation": "move",
+                                         "title": "Sunum", "weekday": text}))
 
     def test_skip_today_and_ascii(self):
         self.profile.add_event('İlaç', '2026-10-17T18:00', repeat='daily')
@@ -277,22 +289,22 @@ class RepeatingEditTests(ProfileCase):
     def test_day_qualifier_mismatch_changes_nothing(self):
         self.profile.add_event('İlaç', '2026-10-19T09:00', repeat='weekly:0')
         reply = say(self.rt(), 'yarınki ilacı atla')
-        self.assertIn('yarın', reply)
+        self.assertIn('Yarın', reply)
         self.assertEqual(self.ev()['when'], '2026-10-19T09:00')
 
     def test_skip_one_off_is_refused(self):
         self.profile.add_event('Dişçi', '2026-10-19T15:00')
-        self.assertIn('silmeyi', say(self.rt(), 'dişçi hatırlatmasını atla'))
+        self.assertIn('tek seferlik', say(self.rt(), 'dişçi hatırlatmasını atla'))
         self.assertEqual(self.ev('Dişçi')['when'], '2026-10-19T15:00')
 
     def test_bare_postpone_does_not_touch_repeating_only(self):
         self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
-        self.assertIn('Hangisini', say(self.rt(), 'ertele'))
+        self.assertIn('Yakın zamanda', say(self.rt(), 'ertele'))
         self.assertEqual(self.ev()['when'], '2026-10-18T09:00')
 
     def test_delete_still_removes_all_repeats(self):
         self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
-        self.assertIn('bütün tekrarlarını', say(self.rt(), 'ilaç hatırlatmasını sil'))
+        self.assertIn('bütün tekrarları', say(self.rt(), 'ilaç hatırlatmasını sil'))
 
 
 class RepeatSnoozeTests(ProfileCase):
