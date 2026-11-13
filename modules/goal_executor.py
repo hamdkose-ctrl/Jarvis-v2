@@ -586,10 +586,11 @@ def _resume_news_recovery(runtime,job,started_steps):
     return news_policy.resume_recovery(runtime,job,started_steps,_save)
 
 
-def _loop(runtime,job,answer=None,resume=False):
+def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None):
     token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
     try:
-        return _loop_steps(runtime,job,answer,resume=resume)
+        return _loop_steps(runtime,job,answer,resume=resume,
+                           initial_legacy_call=initial_legacy_call)
     except _TurnBudget as exc:
         job['state']='paused';job['blocker']=str(exc);_save(job)
         runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
@@ -598,7 +599,7 @@ def _loop(runtime,job,answer=None,resume=False):
         _TURN_DEADLINE.reset(token)
 
 
-def _loop_steps(runtime,job,answer=None,resume=False):
+def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -685,7 +686,12 @@ def _loop_steps(runtime,job,answer=None,resume=False):
         planner_pending=True
         completed_before={key for key,value in job["outputs"].items() if value.get("state")=="done"}
         try:
-            call=_planner(runtime,job,prompt,system)
+            # Consume a validated, same-request canonical handoff only once.
+            if initial_legacy_call is None:
+                call=_planner(runtime,job,prompt,system)
+            else:
+                call=initial_legacy_call
+                initial_legacy_call=None
             planner_pending=False
             model_down=None;job.pop('model_free',None)
             _ensure(runtime,job)
@@ -885,15 +891,16 @@ def _quota_wait():
         return 0
 
 
-def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
+def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None,initial_legacy_call=None):
     owner=runtime.profile.slug
     from modules import research_evidence
     # Kota beklemesi yalnız model isteyen işleri durdurur: tarihli haber işi modelsiz hattını çalıştırır.
-    if not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.publication_news_requested(request):
+    if initial_legacy_call is None and not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.publication_news_requested(request):
         return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
-                    expected_job_id=expected_job_id,expected_control=expected_control,job_id=job_id)
+                    expected_job_id=expected_job_id,expected_control=expected_control,job_id=job_id,
+                    initial_legacy_call=initial_legacy_call)
     except BaseException:
         llm.discard_success_routes()
         raise
@@ -902,10 +909,18 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
     return result
 
 
-def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
+def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None,initial_legacy_call=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     if job_id is not None and not resume and not approve:
         raise ValueError('Hedef seçimi yalnız sürdürme ve onay için geçerlidir; yeni hedef seçilerek açılmaz.')
+    if initial_legacy_call is not None:
+        if (resume or approve or not isinstance(initial_legacy_call, dict)
+                or initial_legacy_call.get('action') != 'legacy_plan'
+                or not isinstance(initial_legacy_call.get('tasks'), list)):
+            raise ValueError('İlk planın execution handoff sözleşmesi geçersiz.')
+        initial_legacy_call=_parse(json.dumps(
+            {'tasks': initial_legacy_call['tasks']}, ensure_ascii=False,
+        ))
     with _owned(runtime) as owner:
         # Seçilen hedef kendi kimliğinden okunur; `latest.json` tek hedef seçicisi değildir.
         job=read_job(owner,job_id) if job_id is not None else latest(owner)
@@ -959,7 +974,7 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
             _save(job)
         try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
-                         resume=resume)
+                         resume=resume,initial_legacy_call=initial_legacy_call)
         except requests_state.Cancelled:
             # The original cancellation might be a durable terminal decision
             # made by another process. Do not attempt a stale journal write:

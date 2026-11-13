@@ -202,13 +202,15 @@ def _legacy_duplicate_reply():
     )
 
 
-def try_create(owner: str, request_id: str, text: str):
+def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None):
     """Admit one request ID to canonical or one-shot legacy fallback.
 
     An unsupported first plan returns None only AFTER a durable single
     fallback claim. Subsequent identical attempts return a no-op reply.
     No worker is authorized by the planner or this receipt.
     """
+    if legacy_plan_sink is not None and not callable(legacy_plan_sink):
+        raise TypeError('Legacy plan sink must be callable.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
@@ -222,10 +224,12 @@ def try_create(owner: str, request_id: str, text: str):
     # The per-request planning gate is independent of Core/Scheduler locks,
     # and is held only for this request's one admission/planning window.
     with _planning_once(root, job_id):
-        return _try_create_planned(owner, request_id, text, job_id, root)
+        return _try_create_planned(owner, request_id, text, job_id, root,
+                                   legacy_plan_sink=legacy_plan_sink)
 
 
-def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root):
+def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root,
+                        *, legacy_plan_sink=None):
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
@@ -265,6 +269,17 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
             if prior is not None:
                 return prior
             _claim_legacy_once(root, owner, request_id, text, job_id)
+        # Reuse the SAME first proposal only when the legacy executor's
+        # strict parser deems it replay-safe. This transfers no permission.
+        if legacy_plan_sink is not None and isinstance(locals().get('tasks'), list):
+            try:
+                safe_call = goal_executor._parse(json.dumps(
+                    {'tasks': tasks}, ensure_ascii=False,
+                ))
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                legacy_plan_sink(copy.deepcopy(safe_call))
         return None
 
     record_path = execution_record.path_for(root, job_id)

@@ -110,9 +110,13 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
         # Only real typed-entry turns opt into the supported canonical read-only
         # background lane. Unsupported DAGs remain on the existing permissioned
         # legacy path; this is a transport boundary, not a free-text classifier.
+        legacy_plan = []
         if getattr(entry, 'source', None) in {'yazı', 'ses', 'telefon', 'canlı'}:
             from modules import canonical_goal_flow
-            queued = canonical_goal_flow.try_create(owner, str(entry.request_id), text)
+            queued = canonical_goal_flow.try_create(
+                owner, str(entry.request_id), text,
+                legacy_plan_sink=legacy_plan.append,
+            )
             if queued is not None:
                 job_id, message = queued
                 # A duplicate of an already claimed LEGACY handoff is a
@@ -125,7 +129,12 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
         # Kart modelin "yeni hedef" niyetinin taşıyıcısıdır; kalıcı hedef cümlesi ise
         # kullanıcının kendi sözüdür. Boş bir cümleyi burada yeniden yorumlamayız:
         # `goal_executor._run` "Somut hedef gerekli." ile kendisi refusal verir.
-        return _single(lambda: goal_executor.run(runtime, text), _reason(operation))
+        return _single(
+            lambda: goal_executor.run(
+                runtime, text, **({'initial_legacy_call': legacy_plan[0]}
+                                  if legacy_plan else {}),
+            ), _reason(operation),
+        )
 
     unknown = [ident for ident in targets if ident not in cards]
     if unknown:
