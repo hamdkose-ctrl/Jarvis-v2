@@ -679,6 +679,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "mail_read":
             from modules import engine_tools
             return engine_tools.mail_read_typed(runtime, a["source"])
+        case "outlook_draft":
+            from modules import outlook
+            # Mail is read-only; only the selected reply TEXT is returned.
+            # Outlook's send, save, reply and status mutation APIs are absent.
+            return outlook.draft_typed(
+                runtime.ask, index=a.get("index"), sender=a.get("sender"))
         case "finance_alert_manage":
             from modules import finance_alert_commands
             return finance_alert_commands.execute_typed(runtime.profile.slug, a)
