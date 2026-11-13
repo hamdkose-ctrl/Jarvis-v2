@@ -315,10 +315,13 @@ class TurnWiring(unittest.TestCase):
         for forbidden in ('Lock', 'acquire', 'Thread', 'submit'):
             self.assertNotIn(forbidden, source, f'the seam must not touch {forbidden}')
 
-    def test_the_loop_routes_the_brain_handoff_and_only_that_through_the_seam(self):
+    def test_the_loop_routes_primary_understanding_and_handoff_through_same_seam(self):
         import inspect
         source = inspect.getsource(engine_loop.main)
-        self.assertEqual(source.count('_turn_with_listening_foreground'), 1)
+        # Both primary semantic interpretation and the later Core handoff may
+        # block on the model. Neither may close the microphone just for a wait.
+        self.assertEqual(source.count('_turn_with_listening_foreground'), 2)
+        self.assertIn('brain_entry.prepare', source)
         self.assertIn('brain_entry.handoff', source)
         self.assertIn('runtime.as_user', source)          # identity still wraps the turn
 
