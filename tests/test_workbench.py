@@ -160,7 +160,9 @@ class DocumentTableTests(unittest.TestCase):
     def test_custom_columns_word_output_and_followup_version(self):
         reply = self.answer(["Teslim süresi", "45 gün", "sayfa 1"])
         with patch.object(workbench.docs, "read_document", return_value=self.text), \
-             patch.object(workbench.llm, "ask", return_value=reply) as ask:
+             patch.object(workbench.llm, "ask", return_value=reply) as ask, \
+             patch("modules.nxapi.allowed",
+                   side_effect=lambda path: self.pdf if path == str(self.pdf) else None):
             workbench.handle("hamdi", [str(self.pdf)], "tablo yap sütunlar: Madde, Değer")
             self.assertIn('["Madde", "Değer"]', ask.call_args.args[0])
             self.assertIsNone(workbench.followup("hamdi", "hava nasıl"))
