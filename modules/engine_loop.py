@@ -194,11 +194,28 @@ def main(runtime, ui=None):
             ),
         )
 
+    def canonical_plan_notice(owner, job_id, outcome):
+        # No worker chooses its own UI recipient or arbitrary spoken content.
+        # The engine delivers only one verified owner-bound Scheduler outcome.
+        from modules import canonical_planning_queue
+        current = canonical_planning_queue.status(owner, job_id)
+        if current is None:
+            return
+        text = (f"Arka plan planı kabul edildi. Hedef {job_id} yürütülüyor."
+                if outcome == "planned" else current)
+        event_channels.deliver(
+            runtime, owner,
+            {'source': 'canonical_plan', 'kind': outcome,
+             'payload': {'text': text, 'job_id': job_id,
+                         'event_id': 'canonical-plan:' + job_id}},
+            title='Jarvis arka plan planlaması')
+
     task_queue.start(runtime.stop_event,queue_notice,
                      lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},
                      source_notify=source_notice,
                      canonical_profile_resolver=canonical_profile,
-                     canonical_result_notify=canonical_result_notice)
+                     canonical_result_notify=canonical_result_notice,
+                     canonical_plan_notify=canonical_plan_notice)
     from modules import webhook_server
     def webhook_event(owner,event):
         event_channels.deliver(runtime,owner,event,title='Jarvis olay')
