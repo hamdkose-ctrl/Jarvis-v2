@@ -854,17 +854,33 @@ def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    if set(arguments) - {"original_text", "topic", "level"}:
+    """Typed lesson target and explicit bounded public-source request.
+
+    The model decides the subject; a research fetch additionally requires the
+    user's own explicit Hoca research syntax. It is not a second semantic
+    classifier and does not accept model-supplied URLs or source objects.
+    """
+    if set(arguments) - {"original_text", "topic", "level", "research"}:
         return None
     topic = arguments.get("topic")
     if not isinstance(topic, str) or not topic.strip() or "\x00" in topic or len(topic) > 160:
         return None
     level = arguments.get("level")
-    if level is None:
-        return {"topic": topic.strip()}
-    if type(level) is not str or level not in {"başlangıç", "orta", "ileri"}:
+    if level is not None and (type(level) is not str or level not in {"başlangıç", "orta", "ileri"}):
         return None
-    return {"topic": topic.strip(), "level": level}
+    research = arguments.get("research", False)
+    if type(research) is not bool:
+        return None
+    result: dict[str, Any] = {"topic": topic.strip()}
+    if level is not None:
+        result["level"] = level
+    if research:
+        original = arguments.get("original_text")
+        if not isinstance(original, str) or not re.fullmatch(
+                r"\s*hoca modu\s*:\s*araştır\s+.+", original.casefold()):
+            return None
+        result["research"] = True
+    return result
 
 
 def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
