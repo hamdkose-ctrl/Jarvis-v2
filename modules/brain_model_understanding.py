@@ -1131,6 +1131,14 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
     guess about request kind, confidence or missing arguments cannot overwrite
     that decision. Core still validates every capability, target and effect.
     """
+    # A model may correct/chat independently of a pending owner, but must
+    # not reinterpret a correction of that open conversation as a fresh
+    # side-effect. An explicit NEW_REQUEST still runs through normal Core
+    # authorization; an ambiguous CORRECTION action asks for a new request.
+    if (protected_relation and current.pending_owner is not None
+            and proposed.conversation_relation is ConversationRelation.CORRECTION
+            and proposed.actions):
+        return _reject("PROTECTED_CORRECTION_ACTION")
     if (protected_relation and current.pending_owner is not None
             and proposed.conversation_relation in {
                 ConversationRelation.ANSWER_TO_PENDING,
