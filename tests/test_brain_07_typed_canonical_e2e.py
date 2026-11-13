@@ -248,6 +248,30 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
         self.run_goal.assert_not_called()
 
+    def test_canonical_cancel_ignores_unrelated_legacy_active_owner(self):
+        """A legacy busy owner is not authority over another canonical job."""
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        self.assertTrue(goal_executor.canonical_scheduler_owned(self.owner, job_id))
+        other = 'unrelated-legacy-goal'
+        with patch('modules.service_store.identity', return_value=self.owner), \
+             patch.object(goal_executor, '_ACTIVE', {self.owner}), \
+             patch.object(goal_executor, '_ACTIVE_JOBS',
+                          {self.owner: other}), \
+             patch.object(goal_executor, '_CANCEL_REQUESTED', set()):
+            reply = goal_executor.cancel_job(self.owner, job_id)
+            self.assertIn('İptal kaydedildi', reply)
+            self.assertEqual(goal_executor._ACTIVE_JOBS[self.owner], other)
+            self.assertNotIn((self.owner, job_id),
+                             goal_executor._CANCEL_REQUESTED)
+            self.assertIn(self.owner, goal_executor._ACTIVE)
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['state'], 'cancelled')
+        self.assertEqual(record['state'], 'cancelled')
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
+        self.run_goal.assert_not_called()
+
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
         with patch.object(model_wait, 'ask',
                           return_value=json.dumps(research_tasks('first'))) as planner:

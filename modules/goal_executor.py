@@ -1065,7 +1065,12 @@ def cancel_job(owner,identity,*,expected_snapshot=None):
         if not job:raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
         _check_offered(job,expected_snapshot)
         if job['state'] in {'done','cancelled'}:return 'Hedef zaten kapanmış.'
-        if owner in _ACTIVE:
+        # The legacy owner-wide _ACTIVE flag only owns its own legacy goal.
+        # A DIFFERENT canonical-born Scheduler job belongs to Core and may
+        # be cancelled immediately even while unrelated legacy work runs.
+        # The canonical CAS then fences its next worker step/result, without
+        # modifying the legacy active job or its in-memory cancel request.
+        if owner in _ACTIVE and not canonical_scheduler_owned(owner,identity,root=root):
             if _ACTIVE_JOBS.get(owner)!=identity:raise ValueError('Başka bir hedef çalışıyor.')
             _CANCEL_REQUESTED.add((owner,identity))
             return 'İptal istendi; devam eden araç döndüğünde sonraki adıma geçilmeyecek.'
@@ -1170,6 +1175,20 @@ def _canonical_recovery_status(job):
     return '\n'.join(lines)
 
 
+def canonical_scheduler_owned(owner, identity, *, root=None):
+    """The single Core authority answer for a planned canonical job.
+
+    This is an owner+job-ID test, NOT an owner-global busy flag and not
+    permission to execute an unknown legacy worker.
+    """
+    from modules import goal_state
+    source = root if root is not None else _owner_root(owner)
+    state = goal_job_control.canonical(source, owner, identity)
+    return bool(state is not None
+                and goal_state.authority(state) == 'canonical'
+                and isinstance(state.get('goal_plan'), dict))
+
+
 def canonical_scheduler_status(owner, identity, job=None):
     """One read-only authority check shared by both legacy and typed entries.
 
@@ -1178,11 +1197,7 @@ def canonical_scheduler_status(owner, identity, job=None):
     tool's feature parity is proven. This checks durable owner/plan authority;
     it never mutates a GoalState or launches any worker.
     """
-    from modules import goal_state
-    root = _owner_root(owner)
-    state = goal_job_control.canonical(root, owner, identity)
-    if (state is None or goal_state.authority(state) != 'canonical'
-            or state.get('goal_plan') is None):
+    if not canonical_scheduler_owned(owner, identity):
         return None
     current = job if job is not None else read_job(owner, identity)
     if (not isinstance(current, dict)
