@@ -1063,13 +1063,13 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
     not by IDs invented by the model. Every mutation still requires the
     snapshot-bound State confirmation.
     """
-    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday", "period"}:
+    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday", "period", "daypart"}:
         return None
     operation = arguments.get("operation")
-    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move"}:
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move", "reschedule"}:
         return None
     title = arguments.get("title")
-    if ((operation == "snooze" or operation == "skip"
+    if ((operation in {"snooze", "reschedule"} or operation == "skip"
          and arguments.get("period") == "today") and title is None):
         checked_title = None  # only the unique recently fired event is eligible
     elif isinstance(title, str) and title.strip() and len(title) <= 200 and "\x00" not in title:
@@ -1077,7 +1077,10 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
     else:
         return None
     period = arguments.get("period")
+    daypart = arguments.get("daypart")
     if operation in {"delete", "skip"}:
+        if daypart is not None:
+            return None
         if arguments.get("duration") is not None or arguments.get("weekday") is not None:
             return None
         if operation == "delete":
@@ -1090,6 +1093,21 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
         return {"operation": "skip", "title": checked_title,
                 **({"period": period} if period is not None else {})}
     if period is not None:
+        return None
+    if operation == "reschedule":
+        if (daypart != "tomorrow_morning"
+                or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "reschedule", "title": checked_title,
+                "daypart": "tomorrow_morning"}
+    if operation == "snooze" and daypart is not None:
+        if (daypart != "evening" or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "snooze", "title": checked_title,
+                "daypart": "evening"}
+    if daypart is not None:
         return None
     if operation == "move":
         day = arguments.get("weekday")
