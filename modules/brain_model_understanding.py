@@ -344,6 +344,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id == "notes.add":
         return {"text": "verbatim text the user asked Jarvis to save",
                 "argument_sources": ["text"]}
+    if capability_id == "photo.action":
+        return {"operation": ["analyze", "translate", "note"],
+                "question": "optional user-provided question for analyze",
+                "target": "supported output language for translate",
+                "note_text": "user-provided note text for note",
+                "constraint": "select only if current.current_photo_available is true; "
+                              "NEVER provide photo, path or ID; Core binds the current "
+                              "photo to the request owner"}
     if capability_id == "notes.write":
         return {"operation": ["update", "delete"],
                 "text": "verbatim replacement text, required only for update",
@@ -893,7 +901,14 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
                       by_slot: Mapping[str, Any], slot_labels: Mapping[str, tuple[str, str]],
                       current: Any, resolving_file_ambiguity: bool,
                       file_operation_hint: str | None, file_refs: list[Any],
-                      owner: str) -> tuple[dict[str, Any], tuple[Any, ...]] | None:
+                      owner: str, photo_path: str | None = None) -> tuple[dict[str, Any], tuple[Any, ...]] | None:
+    if capability_id == "photo.action":
+        # The model never supplies a photo path; bind a currently observed
+        # owner/request artifact internally, and reverify it at Core dispatch.
+        if (not isinstance(photo_path, str) or not photo_path
+                or set(supplied) - {"operation", "question", "target", "note_text"}):
+            return None
+        return {"original_text": text, **dict(supplied), "photo": photo_path}, ()
     if capability_id == "files.read":
         return _file_read_arguments(
             text=text, supplied=supplied, slots=slots, by_slot=by_slot,
@@ -958,7 +973,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
            deterministic_arguments: Mapping[str, Any], protected_relation: bool,
            file_operation_hint: str | None,
            goal_candidates: tuple[Any, ...] = (),
-           last_verified_level_property: str | None = None) -> UnderstandingProposal | None:
+           last_verified_level_property: str | None = None,
+           photo_path: str | None = None) -> UnderstandingProposal | None:
     from modules.brain_core_map import CORE_INTENTS, core_plan
 
     operation = row["operation"]
@@ -1063,7 +1079,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
             slot_labels=slot_labels, current=current,
             resolving_file_ambiguity=resolving_file_ambiguity,
-            file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
+            file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner,
+            photo_path=photo_path)
         if resolved is None or core_plan(capability_id, resolved[0]) is None:
             return _reject('CORE_ARGUMENTS_INVALID')
         arguments, references = resolved
@@ -1128,7 +1145,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             session_artifacts: tuple[dict[str, str], ...] = (),
             recent_turns: tuple[dict[str, str], ...] = (),
             pending_context: tuple[str, ...] = (),
-            last_verified_level_property: str | None = None) -> UnderstandingProposal | None:
+            last_verified_level_property: str | None = None,
+            photo_path: str | None = None) -> UnderstandingProposal | None:
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
     Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
@@ -1178,6 +1196,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "last_verified_level_property": (
                     last_verified_level_property
                     if last_verified_level_property in {"volume", "brightness"} else None),
+                "current_photo_available": bool(photo_path),
             },
             "allowed": {
                 "operation": sorted(OPERATIONS),
@@ -1314,7 +1333,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             proposal = _build(_decode(raw), owner=owner, text=text, current=current,
                               deterministic_arguments=arguments, protected_relation=protected_relation,
                               file_operation_hint=file_operation_hint,
-                              last_verified_level_property=last_verified_level_property)
+                              last_verified_level_property=last_verified_level_property,
+                              photo_path=photo_path)
             if proposal is None:
                 raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
 
@@ -1347,7 +1367,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             row, owner=owner, text=text, current=current,
             deterministic_arguments=arguments, protected_relation=protected_relation,
             file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
-            last_verified_level_property=last_verified_level_property)
+            last_verified_level_property=last_verified_level_property,
+            photo_path=photo_path)
         if result is not None:
             _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
         return result
