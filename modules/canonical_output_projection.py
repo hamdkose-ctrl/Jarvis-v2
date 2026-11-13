@@ -11,6 +11,7 @@ import copy
 import hashlib
 import hmac
 import json
+import os
 import time
 
 import release_guard
@@ -18,6 +19,12 @@ from modules import (
     dependency_evidence, execution_record, goal_job_control, goal_plan_gate,
     goal_state, goal_state_store,
 )
+
+
+_WINDOWS = os.name == 'nt'
+# Atomic replacement can briefly lose to an outside Windows reader. Retry
+# ONLY the already Core-accepted journal projection, never the worker/provider.
+_PROJECTION_RETRY_DELAYS = (0.0, 0.025, 0.075, 0.125)
 
 
 class ProjectionFenceError(ValueError):
@@ -177,5 +184,38 @@ def project_accepted(owner: str, job_id: str, step_id: str, output: dict) -> boo
         outputs[step_id] = copy.deepcopy(output)
         step['state'] = 'done'
         job['updated'] = time.time()
-        release_guard.atomic(record_path, execution_record.encode(job))
-        return True
+        encoded = execution_record.encode(job)
+        original = goal_job_control.fingerprint(execution_record.load(
+            root, owner, job_id,
+        ))
+        for attempt, delay in enumerate(
+                _PROJECTION_RETRY_DELAYS if _WINDOWS else (0.0,)):
+            if delay:
+                time.sleep(delay)
+                # This is the SAME accepted result, not a new attempt. Every
+                # retry must still belong to the live canonical plan, and no
+                # foreign writer may have changed the ExecutionRecord.
+                fresh = goal_state_store.load(root / (job_id + '.goalstate.json'))
+                if (fresh['owner'] != owner or fresh['job_id'] != job_id
+                        or fresh['state'] not in ('pending', 'running')
+                        or goal_state.authority(fresh) != 'canonical'):
+                    raise ProjectionFenceError('Canonical goal changed during projection.')
+                next_node = next((
+                    item for item in fresh.get('goal_plan', {}).get('nodes', [])
+                    if item['id'] == step_id
+                ), None)
+                if next_node != node:
+                    raise ProjectionFenceError('Canonical plan changed during projection.')
+                _accepted_row(fresh, owner, job_id, next_node, output)
+                if goal_job_control.fingerprint(execution_record.load(
+                        root, owner, job_id)) != original:
+                    raise ProjectionFenceError('ExecutionRecord changed during projection.')
+            try:
+                release_guard.atomic(record_path, encoded)
+                return True
+            except PermissionError:
+                if not _WINDOWS or attempt == len(_PROJECTION_RETRY_DELAYS) - 1:
+                    # A permanent IO failure stays accepted_unprojected,
+                    # never a success receipt or an automatic worker replay.
+                    raise
+        raise AssertionError('Projection retries exhausted unexpectedly')
