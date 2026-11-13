@@ -974,29 +974,30 @@ class CascadeRetirementTests(pr3a._CanonicalAuthorityHarness):
 
 
 class FinanceAlertEntryScopeTests(unittest.TestCase):
-    """§13 ölçümü (taban): giriş küresel anlamsal seçim değil, sabit tam kalıptır.
+    """Finance alarms have no independent natural-language matcher."""
 
-    Spec `if finance_alert_commands.matches(command)` satırını "bu global semantic selection"
-    olarak sınıflıyordu. Kod gerçeği ölçüldü: tanıyıcı `fullmatch`/tam küme üyeliğidir, yani
-    cümlenin *içinde* alan aramaz; exact admin/FAST ailesindendir (B). Kalan iş, alarmın
-    kanonical öneri/Core eşlemesi (BRAIN-MIG-053 → PR3C), bu kalıbın genişletilmesi değil."""
+    def test_finance_alarm_requires_validated_core_plan(self):
+        from modules import brain_core_map, finance_alert_commands
+        self.assertFalse(hasattr(finance_alert_commands, "matches"))
+        self.assertFalse(hasattr(finance_alert_commands, "handle"))
+        self.assertEqual(
+            brain_core_map.core_plan("finance.alert.manage", {"operation": "list"}),
+            ("finance_alert_manage", {"operation": "list"}))
+        self.assertEqual(
+            brain_core_map.core_plan("finance.alert.manage", {
+                "operation": "add", "asset": "dolar", "value": "45",
+                "direction": "above"}),
+            ("finance_alert_manage", {"operation": "add", "kind": "doviz",
+                                      "symbol": "USD", "value": 45.0,
+                                      "direction": "above"}))
 
-    POSITIVE = ("dolar 45 tl üstüne çıkarsa haber ver", "altın 2500 tl'nin altına inerse haber ver",
-                "alarmi sil 3", "alarmlarim")
-    NEGATIVE = ("döviz kuru nedir?", "alarm kurmak nasıl çalışır", "bugün hava nasıl, alarmlar da var mı",
-                "iş mailimi kontrol et", "gram altın kaç tl", "")
-
-    def test_the_exact_alarm_grammar_is_recognised(self):
-        from modules import finance_alert_commands
-        for text in self.POSITIVE:
-            with self.subTest(text=text):
-                self.assertTrue(finance_alert_commands.matches(text), text)
-
-    def test_a_sentence_that_only_mentions_the_words_does_not_match(self):
-        from modules import finance_alert_commands
-        for text in self.NEGATIVE:
-            with self.subTest(text=text):
-                self.assertFalse(finance_alert_commands.matches(text), text)
+    def test_raw_alarm_mentions_cannot_bypass_model_or_core(self):
+        from modules import brain_core_map
+        for payload in ({}, {"operation": "delete", "index": "3"},
+                        {"operation": "add", "asset": "USD", "value": "0",
+                         "direction": "above"}):
+            with self.subTest(payload=payload):
+                self.assertIsNone(brain_core_map.core_plan("finance.alert.manage", payload))
 
 
 class RepoWideAuthorityGuardTests(unittest.TestCase):
