@@ -213,6 +213,27 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         add.assert_not_called()
         delete.assert_not_called()
 
+    def test_model_unavailable_multi_effect_turn_does_not_replay_raw_planner(self):
+        from modules import brain_model_understanding
+        original = self.ctx.profile.add_note_item("KORUNACAK")
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx, "_planner_command",
+                          side_effect=AssertionError("raw planner replay")) as planner, \
+             patch.object(self.ctx, "_extra_commands",
+                          side_effect=AssertionError("raw cascade replay")) as cascade, \
+             patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("note cleared")) as clear:
+            entry, output, _handler, feedback = self.turn_real(
+                "Şehrimi İzmir yap; tüm notları sil", model_understanding=True)
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertIn("işlem başlatılmadı", output)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertEqual([row["id"] for row in self.ctx.profile.data["items"]],
+                         [original["id"]])
+        planner.assert_not_called()
+        cascade.assert_not_called()
+        clear.assert_not_called()
+
     def test_note_mutation_grammar_requires_whole_imperative_not_negative(self):
         from modules.brain_understanding import _note_write_request
         for utterance in ("market notunu silme", "market notunu kaldırma",
