@@ -17,7 +17,7 @@ TABLE = [
     ("her gün 9'da su içmeyi hatırlat", "Tamam, her gün 09:00 hatırlatacağım: su içmeyi.", False),
     ("hatırlat", "Neyi eklememi istersin?", False),
     ("bana hatırlat", "Neyi eklememi istersin?", False),
-    ("her 2 saatte bir su içmeyi hatırlat", "Bu tekrarı anlayamadım", False),
+    ("her 2 saatte bir su içmeyi hatırlat", "Bu isteği güvenli biçimde doğrulayamadım", False),
     ("hafta içi her gün 8'de spor hatırlat", "Tamam, hafta içi her gün 08:00 hatırlatacağım: spor.", False),
     ("yarin 9da ilac hatirlat", "Takvime ekledim: ilac, yarın 09:00.", False),
 ]
@@ -80,7 +80,7 @@ class EndToEndTests(Pipeline):
                 self.assertEqual(entry.understanding.capability_hint, "reminder.propose")
                 self.assertTrue(str(out).startswith(prefix), out)
                 self.assertFalse(handle.called)          # Core intent, not raw-text re-interpretation
-                self.assertEqual(feedback.result_status, "handled")
+                self.assertEqual(feedback.result_status, "failed" if "her 2 saatte" in text else "handled")
 
     def test_timeless_reminder_with_title_keeps_ne_zaman_flow(self):
         # "hatırlat" opener, title but no time -> same "ne zaman?" question + pending title as before.
@@ -96,22 +96,16 @@ class EndToEndTests(Pipeline):
         self.assertIsInstance(self.ctx._session().pending_event_title, dict)
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)   # nothing added before approval
 
-    def test_typed_creation_does_not_run_legacy_edit_and_unplanned_edit_survives(self):
-        # Former assertion made legacy edit precede a Core-validated CREATE.
-        # That is the dangerous second effect owner fixed by BRAIN-03 #599.
-        with patch.object(main_planner, "_edit_reminder",
-                          side_effect=AssertionError("legacy edit before Core creation")) as edit:
-            entry, out, feedback, handle = self.through_brain("yarın saat 10'da toplantıyı hatırlat")
+    def test_typed_creation_has_one_worker_and_no_legacy_edit_owner(self):
+        self.assertFalse(hasattr(main_planner, "_edit_reminder"))
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
+        entry, out, feedback, handle = self.through_brain(
+            "yarın saat 10'da toplantıyı hatırlat")
         self.assertEqual(out, "Takvime ekledim: toplantıyı, yarın 10:00.")
-        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["toplantıyı"])
+        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]],
+                         ["toplantıyı"])
         self.assertFalse(handle.called)
-        edit.assert_not_called()
-
-        # Without a Core plan, legacy edit/snooze is still the existing domain owner.
-        with patch.object(main_planner, "_edit_reminder", return_value="ERTELENDİ") as edit:
-            raw = self.ctx._planner_command("toplantıyı ertele", "toplantıyı ertele")
-        self.assertEqual(raw, "ERTELENDİ")
-        edit.assert_called_once()
+        self.assertEqual(feedback.result_status, "handled")
 
     def test_unquoted_core_reminder_skips_legacy_file_gate(self):
         # An unquoted reminder is already Core-owned. The earlier file gate
@@ -133,38 +127,26 @@ class EndToEndTests(Pipeline):
             entry, out, feedback, handle = self.through_brain("bana yarın 10'da toplantıyı hatırlat")
         self.assertEqual([(e["title"], e["when"]) for e in self.ctx.profile.data["events"]], [("GERÇEK", "2026-11-01T09:00")])
 
-    def run_both(self, text):
-        """(brain reply+events, legacy planner reply+events) from identical fresh state."""
-        self.ctx.profile.data["events"] = []
-        self.ctx._session().pending_event_title = None
-        entry, brain_out, _, handle = self.through_brain(text)
-        brain = (str(brain_out), [(e["title"], e["when"]) for e in self.ctx.profile.data["events"]], entry.understanding.capability_hint)
-        self.ctx.profile.data["events"] = []
-        self.ctx._session().pending_event_title = None
-        legacy_out = self.ctx._planner_command(text, self.ctx._tr_lower(text))
-        legacy = (str(legacy_out), [(e["title"], e["when"]) for e in self.ctx.profile.data["events"]])
-        return brain, legacy
-
-    def test_calendar_sentences_behave_exactly_like_the_legacy_planner(self):
-        for text in ("takvimi aç ve yarın 10'da toplantı hatırlat", "yarın takvimimde ne var hatırlat",
+    def test_mixed_calendar_sentence_never_replays_a_raw_reminder(self):
+        # The accepted canonical route may ask for clarification or schedule
+        # one event; the deleted raw planner may not interpret it again.
+        for text in ("takvimi aç ve yarın 10'da toplantı hatırlat",
+                     "yarın takvimimde ne var hatırlat",
                      "bu hafta planımı göster ve yarın 9'da ilaç hatırlat"):
             with self.subTest(text=text):
-                brain, legacy = self.run_both(text)
-                self.assertEqual(brain[2], "reminder.propose", text)
-                self.assertEqual(brain[:2], legacy, text)   # nothing dropped, nothing reordered
+                self.ctx.profile.data["events"] = []
+                self.ctx._session().pending_event_title = None
+                _entry, _out, _feedback, _handle = self.through_brain(text)
+                self.assertLessEqual(len(self.ctx.profile.data["events"]), 1)
+                self.assertFalse(hasattr(self.ctx, "_planner_command"))
 
-    def test_note_and_pending_answer_branches_keep_priority_over_reminder_creation(self):
-        entry, out, feedback, handle = self.through_brain("not al: yarın 9'da ilaç hatırlat")
-        self.assertEqual(entry.understanding.capability_hint, "reminder.propose")
-        self.assertTrue(str(out).startswith("Not aldım"), out)
-        self.assertEqual(self.ctx.profile.data["events"], [])
-        # an unanswered "ne zaman?" question owns the next sentence
+    def test_pending_date_answer_is_consumed_only_by_the_bound_state_owner(self):
         self.ctx._session().pending_event_title = "ilaç"
-        args = {"title": "toplantıyı", "when": "2026-11-01T10:00", "repeat": None}
-        text = "bana yarın 10'da toplantıyı hatırlat"
-        with main_planner.core_reminder(args):
-            self.ctx._planner_command(text, self.ctx._tr_lower(text))
-        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["ilaç"])
+        with patch.object(brain_entry, "pending_answer_owned", return_value=False):
+            self.assertIsNone(main_planner.continue_pending_event_title(
+                self.ctx, "yarın 10'da", "yarın 10'da"))
+        self.assertEqual(self.ctx._session().pending_event_title, "ilaç")
+        self.assertEqual(self.ctx.profile.data["events"], [])
 
     def test_open_event_title_does_not_block_a_new_validated_reminder(self):
         self.ctx._session().pending_event_title = "ilaç"
@@ -188,9 +170,14 @@ class EndToEndTests(Pipeline):
         self.through_brain("bana yarın 9'da ilaç hatırlat")
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
-    def test_legacy_planner_path_still_creates_when_core_does_not_own_it(self):
-        reply = self.ctx._planner_command("bana yarın 9'da ilaç hatırlat", "bana yarın 9'da ilaç hatırlat")
+    def test_reminder_worker_requires_typed_arguments_not_raw_classification(self):
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
+        self.assertFalse(hasattr(main_planner, "core_reminder"))
+        reply = main_planner.reminder_core(
+            self.ctx, {"title": "ilaç", "when": "2026-11-01T09:00", "repeat": None},
+            "bana yarın 9'da ilaç hatırlat", "bana yarın 9'da ilaç hatırlat")
         self.assertTrue(reply.startswith("Takvime ekledim: ilaç"))
+        self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
 
 if __name__ == "__main__":

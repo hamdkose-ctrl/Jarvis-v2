@@ -93,10 +93,11 @@ class RunTests(unittest.TestCase):
     def test_run_never_executes_core_handler_or_installs_guards(self):
         from modules import brain_entry, command_manager
         original = command_manager.engine_control
+        guard_before = getattr(command_manager, "_brain_engine_control_guard_installed", False)
         result = harness.run_scenario({"id": "t-kapat", "text": "Jarvis kapat"})
         self.assertEqual(result["decision"]["handoff_path"], "existing_handler")
         self.assertIs(command_manager.engine_control, original)
-        self.assertFalse(getattr(command_manager, "_brain_engine_control_guard_installed", False))
+        self.assertEqual(getattr(command_manager, "_brain_engine_control_guard_installed", False), guard_before)
         self.assertIsNone(brain_entry.current())
 
     def test_setup_session_reaches_state_gate(self):

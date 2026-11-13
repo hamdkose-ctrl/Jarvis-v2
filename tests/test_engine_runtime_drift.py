@@ -137,8 +137,11 @@ class EngineRuntimeDriftTests(unittest.TestCase):
 
     def test_known_names_are_not_trivially_empty(self):
         known = context_names()
-        for name in ('handle', 'emit', 'profile', 'google_api', 'datetime', '_planner_command'):
+        for name in ('handle', 'emit', 'profile', 'google_api', 'datetime', '_set_voice'):
             self.assertIn(name, known)
+        self.assertNotIn('_planner_command', known)
+        self.assertNotIn('_user_controls', known)
+        self.assertNotIn('_extra_commands', known)
 
 
 if __name__ == '__main__':

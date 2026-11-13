@@ -131,6 +131,26 @@ class OffPatternCapabilityProposalTests(unittest.TestCase):
         self.assertEqual(result.capability_hint, "notes.read")
         self.assertEqual(core_plan(result.capability_hint, result.arguments)[0], "notes_read")
 
+    def test_model_can_replace_legacy_app_guess_with_youtube_site_browser_target(self):
+        text = "Chrome'da YouTube aç"
+        raw = envelope(actions=[action(
+            capability_id="media.search",
+            arguments={"service": "youtube_home", "browser": "chrome"})],
+            confidence="HIGH")
+        base, decided = applied(text, raw)
+        self.assertIsNot(decided, base)
+        self.assertIs(decided.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(decided.capability_hint, "media.search")
+        self.assertEqual(core_plan(decided.capability_hint, decided.arguments),
+                         ("media_search", {"service": "youtube_home", "browser": "chrome"}))
+
+    def test_youtube_home_and_explicit_app_are_different_typed_core_operations(self):
+        site = core_plan("media.search", {"service": "youtube_home"})
+        app = core_plan("app.open", {"app": "youtube"})
+        self.assertEqual(site, ("media_search", {"service": "youtube_home"}))
+        self.assertEqual(app, ("app_open", {"name": "youtube"}))
+        self.assertNotEqual(site, app)
+
     def test_app_sentence_without_any_pattern_proposes_app_open(self):
         text = "spotify çalmaya başlasın artık"
         self.assert_no_regex_capability(text)
@@ -149,6 +169,177 @@ class OffPatternCapabilityProposalTests(unittest.TestCase):
         _, result = applied(text, raw)
         self.assertEqual(result.capability_hint, "research.search")
         self.assertEqual(core_plan(result.capability_hint, result.arguments)[0], "task")
+
+
+class Brain03TypedModelAuthorityTests(unittest.TestCase):
+    """Real validated model envelope, not a forced hint in the transport stub."""
+
+    def test_model_receives_noncontradictory_note_slot_contract(self):
+        """Production prompt must not tell the model to omit notes.write's required slot."""
+        note = ContextReference(
+            id="note-1", kind="note", source="profile.items", owner=OWNER,
+            provenance={"text": "market listesi süt", "title": "market listesi"},
+        )
+        utterance = "market notunu sil"
+        current = deterministic(utterance, candidates=(note,), references=(note,))
+        captured = []
+        def transport(owner, prompt, send, **kwargs):
+            captured.append(prompt)
+            return envelope(operation="chat", actions=[])
+        p1, p2, p3, p4 = eligible()
+        with p1, p2, p3, p4, patch("modules.smart_router.run", side_effect=transport):
+            propose(owner=OWNER, text=utterance, current=current, arguments=current.arguments)
+        self.assertEqual(len(captured), 1)
+        prompt = captured[0]
+        self.assertIn("For notes.write select exactly one note_N", prompt)
+        self.assertIn("For files.read use file_N reference slots", prompt)
+        self.assertIn("All other capabilities use empty reference_slots", prompt)
+        self.assertNotIn("reference_slots are only for files.read", prompt)
+        structured = json.loads(prompt.split("\\n", 1)[0])
+        self.assertEqual(structured["note_candidates"][0]["slot"], "note_0")
+        self.assertIn("notes.write", structured["allowed"]["capability_id"])
+
+    def test_model_can_propose_grounded_outlook_reply_text_but_not_send(self):
+        utterance = "Ayşe için iş maili cevap taslağı hazırla"
+        proposal = action(capability_id="mail.draft",
+                          arguments={"operation": "reply", "sender": "Ayşe"})
+        proposal["argument_sources"] = {"sender": "Ayşe"}
+        _base, semantic = applied(
+            utterance, envelope(actions=[proposal], confidence="HIGH"))
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(semantic.capability_hint, "mail.draft")
+        self.assertEqual(core_plan(semantic.capability_hint, semantic.arguments),
+                         ("outlook_draft", {"sender": "Ayşe"}))
+
+        forged = action(capability_id="mail.draft",
+                        arguments={"operation": "reply", "sender": "Zeynep"})
+        forged["argument_sources"] = {"sender": "Ayşe"}
+        base, rejected = applied(
+            utterance, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected, base, "Forged recipient must not become a model-owned action")
+        self.assertIsNone(core_plan("mail.draft", {"operation": "send", "index": 1}))
+
+    def test_model_grounded_pc_guide_goal_is_owned_and_unquoted_goal_is_rejected(self):
+        utterance = "adım adım wifi nasıl açılır"
+        accepted = action(capability_id="pc.guide.start",
+                          arguments={"goal": "wifi nasıl açılır"})
+        accepted["argument_sources"] = {"goal": "wifi nasıl açılır"}
+        base, semantic = applied(
+            utterance, envelope(actions=[accepted], confidence="HIGH"))
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(semantic.capability_hint, "pc.guide.start")
+        self.assertEqual(core_plan(semantic.capability_hint, semantic.arguments),
+                         ("pc_guide_start", {"goal": "wifi nasıl açılır"}))
+        forged = action(capability_id="pc.guide.start",
+                        arguments={"goal": "tüm dosyaları sil"})
+        forged["argument_sources"] = {"goal": "wifi nasıl açılır"}
+        base, rejected = applied(
+            utterance, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected, base)
+
+    def test_grounded_meeting_brief_is_model_selected_not_a_raw_keyword_intent(self):
+        text = "Ayşe'yle sunuma hazırlan"
+        proposed = action(capability_id="meeting.prepare",
+                          arguments={"hint": "Ayşe"})
+        proposed["argument_sources"] = {"hint": "Ayşe"}
+        base, adopted = applied(text, envelope(actions=[proposed], confidence="HIGH"))
+        self.assertIs(adopted.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(adopted.capability_hint, "meeting.prepare")
+        self.assertEqual(core_plan(adopted.capability_hint, adopted.arguments),
+                         ("meeting_prepare", {"hint": "Ayşe"}))
+        forged = action(capability_id="meeting.prepare",
+                        arguments={"hint": "Mehmet"})
+        forged["argument_sources"] = {"hint": "Ayşe"}
+        original, rejected = applied(text, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected, original)
+        self.assertIsNone(core_plan("meeting.prepare",
+                                   {"hint": "Ayşe", "send": True}))
+
+    def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
+        utterance = "Not al: Raporu teslim et"
+        raw_action = action(capability_id="notes.add",
+                            arguments={"text": "Raporu teslim et"})
+        raw_action["argument_sources"] = {"text": "Raporu teslim et"}
+        raw = envelope(actions=[raw_action], confidence="HIGH")
+        base, adopted = applied(utterance, raw, confidence=Confidence.LOW)
+        self.assertIsNot(adopted, base)
+        self.assertEqual(adopted.capability_hint, "notes.add")
+        self.assertEqual(core_plan(adopted.capability_hint, adopted.arguments),
+                         ("notes_add", {"text": "Raporu teslim et"}))
+
+    def test_model_rejects_invented_note_body(self):
+        utterance = "Not al: Raporu teslim et"
+        raw_action = action(capability_id="notes.add",
+                            arguments={"text": "Tüm notları sil"})
+        raw_action["argument_sources"] = {"text": "Tüm notları sil"}
+        raw = envelope(actions=[raw_action], confidence="HIGH")
+        base, adopted = applied(utterance, raw, confidence=Confidence.LOW)
+        self.assertIs(adopted, base)
+
+    def test_independent_model_capability_preserves_protected_pending_owner(self):
+        from modules.brain_model_understanding import _apply_semantic_fences, ProposedAction, UnderstandingProposal
+        utterance = "Kamerayı aç"
+        base = deterministic(utterance)
+        from modules.brain_contracts import PendingOwner
+        guarded = replace(
+            base, conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
+            pending_owner=PendingOwner.MESSAGE_TEXT, confidence=Confidence.LOW)
+        proposal = UnderstandingProposal(
+            operation="direct_action", conversation_relation=ConversationRelation.NEW_REQUEST,
+            temporal_need=TemporalNeed.UNSURE, confidence=Confidence.HIGH,
+            actions=(ProposedAction(
+                action_id="a1", capability_id="device.share",
+                arguments={"action": "camera"}, reference_slots=(), depends_on=()),),
+        )
+        accepted = _apply_semantic_fences(
+            proposal, guarded, protected_relation=True,
+            resolving_file_ambiguity=False, has_grounded_reference=False)
+        # An explicitly independent NEW_REQUEST must not be hijacked by an
+        # unrelated open message draft. The model decision can proceed through
+        # normal Core permission checks without consuming the pending owner.
+        self.assertIs(accepted, proposal)
+        self.assertIs(guarded.pending_owner, PendingOwner.MESSAGE_TEXT)
+        self.assertIs(guarded.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+class Brain03FinanceAndMailModelProposalTests(unittest.TestCase):
+    """The primary model must reach typed Core without reviving raw parsers."""
+
+    def test_finance_alarm_add_has_grounded_asset_and_threshold(self):
+        text = "USD 33 TL üstüne çıkarsa haber ver"
+        row = action(capability_id="finance.alert.manage", arguments={
+            "operation": "add", "asset": "USD", "value": "33",
+            "direction": "above"})
+        row["argument_sources"] = {"asset": "USD", "value": "33"}
+        base, result = applied(text, envelope(actions=[row]))
+        self.assertIsNot(base, result)
+        self.assertEqual(result.capability_hint, "finance.alert.manage")
+        self.assertEqual(core_plan(result.capability_hint, result.arguments), (
+            "finance_alert_manage", {"operation": "add", "kind": "doviz",
+                                     "symbol": "USD", "direction": "above",
+                                     "value": 33.0}))
+
+    def test_finance_alarm_delete_requires_verbatim_user_ordinal(self):
+        row = action(capability_id="finance.alert.manage", arguments={
+            "operation": "delete", "index": 1})
+        row["argument_sources"] = {"index": "1"}
+        base, result = applied("alarmı sil 1", envelope(actions=[row]))
+        self.assertIsNot(result, base)
+        self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                         ("finance_alert_manage", {"operation": "delete", "index": 1}))
+        base, forged = applied("alarmı sil", envelope(actions=[row]))
+        self.assertIs(forged, base)
+
+    def test_mail_source_selected_by_model_is_read_only_core_intent(self):
+        base, result = applied(
+            "iş maillerimi kontrol et",
+            envelope(actions=[action(capability_id="mail.read",
+                                     arguments={"source": "work"})]))
+        self.assertIsNot(result, base)
+        self.assertEqual(result.capability_hint, "mail.read")
+        self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                         ("mail_read", {"source": "work"}))
+        self.assertIsNone(core_plan("mail.read",
+                                    {"source": "work", "send": True}))
 
 
 class NoHintPreconditionTests(unittest.TestCase):
@@ -288,6 +479,7 @@ class PreservedFencesTests(unittest.TestCase):
             result = apply_model_understanding(with_capability, text)
         self.assertIs(result.request_kind, RequestKind.CHAT)
         self.assertIsNone(result.capability_hint)
+        self.assertIn("MODEL_CHAT_DECIDED", result.reason_codes)
 
     def test_low_confidence_capability_is_not_adopted(self):
         text = "gözüm yanıyor artık ses olmasın"
@@ -311,7 +503,10 @@ class PreservedFencesTests(unittest.TestCase):
         p1, p2, p3, p4 = eligible()
         with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
             result = apply_model_understanding(ambiguous, text)
-        self.assertIs(result, ambiguous)
+        self.assertIsNot(result, ambiguous)
+        self.assertEqual(result.capability_hint, 'pc.audio.action')
+        self.assertEqual(result.references, ambiguous.references)
+        self.assertFalse(result.needs_input)
 
     def test_action_batch_preserves_every_validated_action_for_brain04_handoff(self):
         text = "müziği durdur sesi azalt"
@@ -398,9 +593,11 @@ class ProductionEntrySeamTests(unittest.TestCase):
         raw = envelope(actions=[action(capability_id="pc.level.set",
                                        arguments={"property": "brightness", "level": 20})])
         result = self.prepared(text, raw)
-        # Öneri kapıdan geçer ama sıralı isteğin tek-adım planı yoktur: veto modelden bağımsızdır.
+        # Production Core validates the adopted model action; it cannot
+        # re-split the utterance with a second lexical semantic authority.
         self.assertEqual(result.understanding.capability_hint, "pc.level.set")
-        self.assertIsNone(self.module().core_plan(result))
+        self.assertEqual(self.module().core_plan(result),
+                         ('level_set', {'property': 'brightness', 'level': 20}))
 
 
 if __name__ == "__main__":

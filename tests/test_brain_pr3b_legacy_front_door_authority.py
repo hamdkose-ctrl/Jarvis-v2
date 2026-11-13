@@ -36,7 +36,6 @@ EFFECT_SEAMS = (
     "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
-    "modules.finance_alert_commands.matches",
     "modules.media.handle", "modules.filesend.handle",
     "modules.pc_guide.handle", "modules.developer.handle", "modules.task_agents.handle",
 )
@@ -105,13 +104,15 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
         return sorted(name for name, mock in self.seams.items()
                       if any(name.startswith(p) for p in prefixes) and mock.called)
 
-    def turn(self, text, handler=None, source="yazı"):
+    def turn(self, text, handler=None, source="yazı", model_understanding=False):
         from modules import requests_state
         rid = "pr3b-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         self.rid = rid
         with requests_state.activate(self.owner, rid):
-            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source=source)
+            entry = brain_entry.prepare(
+                self.ctx, owner=self.owner, request_id=rid, text=text,
+                source=source, model_understanding=model_understanding)
             handle = handler if handler is not None else self.ctx.handle
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         self.turn_texts = [call.args[1] for call in self.door.call_args_list]
@@ -229,15 +230,15 @@ class TypoSinglePassTests(_RawDoorHarness):
         tree = ast.parse(ENGINE_COMMANDS_SOURCE)
         calls = [ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)]
         self.assertEqual(calls.count("exact_admin_view"), 1)
-        self.assertEqual(calls.count("runtime.typo.fix"), 1)
-        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+        self.assertEqual(calls.count("runtime.typo.fix"), 0)
+        self.assertEqual(_source_calls("typo.fix"), [])
 
-    def test_a_diacritic_only_misspelling_still_reaches_its_exact_admin_owner(self):
+    def test_ascii_summary_reaches_its_existing_exact_fast_owner(self):
         # Tek ölçülen kazanç sınıfı: cümlenin tek eksiği Türkçe karakter, tek farkı exact admin grameri.
         self.ctx._conversation_summary = Mock(return_value="ÖZET")
         self.door.reset_mock()
-        _entry, out, _handle, _ = self.turn("konusmayi ozetle")
-        self.assertEqual(self.turn_texts, ["konusmayi ozetle"])
+        _entry, out, _handle, _ = self.turn("konuşmayı özetle")
+        self.assertEqual(self.turn_texts, ["konuşmayı özetle"])
         self.ctx._conversation_summary.assert_called_once_with()
         self.assertEqual(out, "ÖZET")
 
@@ -262,201 +263,136 @@ class TypoSinglePassTests(_RawDoorHarness):
                                  "düzeltilmiş görünüm effekte giden bir kapıya ulaşamaz")
 
 
-class TypoReadRecoveryTests(_RawDoorHarness):
-    """Taban kazancı: ilk değerlendirme hiçbir kol almadan düştüğünde düzeltilmiş görünüm aynı
-    request içinde yalnız tam-cümle SALT-OKUMA gramerlerine gösterilir.
+class TypedReadAfterTypoTests(_RawDoorHarness):
+    """Model decides misspellings; only Core validates existing read workers.
 
-    Ölçülen taban (`ea2f0b3`, 496 satır gerçek üretim zinciri, effekte giden her sınır Mock):
-    `_TypoRetry` 47 satırda ikinci geçişi çalıştırdı, 5 satırda kullanıcıya görünen sonuç değişti ve
-    ikinci geçişte mutasyonlu effect çağıran satır YOK (0). Ölçülen üç gerçek salt-okuma kazancı
-    burada kilitlenir — not listesi, günün programı, görev listesi. Yazma/organize/tarayıcı açma
-    kollara kazanç listesinde bulunmadığı için yine yetki yoktur.
+    This is a wiring test with an explicit fake semantic proposal, not proof
+    that a live model recognizes the user's misspelling.
     """
 
-    def _instrument(self) -> dict[str, int]:
-        """State/Fast/Understanding ve kurtarma kapısı sarılır: ikinci bir geçiş sayılırsa görünür."""
-        from modules import command_manager
-        counts = {"understand": 0, "state": 0, "fast": 0, "recovery": 0}
+    def _typed(self, text, capability, arguments):
+        from dataclasses import replace
+        from modules import brain_core_map
+        plan = brain_core_map.core_plan(capability, {"original_text": text, **arguments})
+        self.assertIsNotNone(plan)
+        def model(current, command, *, active_context=None):
+            self.assertEqual(command, text)
+            return replace(
+                current, request_kind=RequestKind.CAPABILITY,
+                capability_hint=capability,
+                arguments={"original_text": command, **arguments},
+                needs_input=False, ambiguities=(), actions=(),
+            )
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+            entry, out, _handler, feedback = self.turn(text, model_understanding=True)
+        self.assertEqual(entry.understanding.capability_hint, capability)
+        self.assertEqual(feedback.result_status, "handled")
+        self.door.assert_not_called()
+        self.ctx._planner_command.assert_not_called()
+        self.ctx._extra_commands.assert_not_called()
+        return out
 
-        def wrap(target, attr, key):
-            real = getattr(target, attr)
-
-            def spy(*args, **kwargs):
-                counts[key] += 1
-                return real(*args, **kwargs)
-
-            starter = patch.object(target, attr, spy)
-            starter.start()
-            self.addCleanup(starter.stop)
-
-        wrap(brain_entry, "understand", "understand")
-        wrap(brain_entry, "exact_state_gate", "state")
-        wrap(brain_entry, "deterministic_fast_gate", "fast")
-        wrap(command_manager, "typo_read_recovery", "recovery")
-        return counts
-
-    def _spy_dispatch(self) -> list[tuple]:
-        from modules import engine_intents
-        real = engine_intents.dispatch
-        calls: list[tuple] = []
-
-        def spy(runtime, intent, a, command, cmd_lower):
-            calls.append((intent, dict(a), command, cmd_lower))
-            return real(runtime, intent, a, command, cmd_lower)
-
-        starter = patch.object(engine_intents, "dispatch", spy)
-        starter.start()
-        self.addCleanup(starter.stop)
-        return calls
-
-    def test_a_misspelled_notes_read_still_reads_the_notes_once(self):
+    def test_model_selected_notes_read_uses_existing_worker_once(self):
         self.ctx.profile.data["items"] = [{"id": 1, "text": "irsaliye tarihi perşembe"}]
-        counts, intents = self._instrument(), self._spy_dispatch()
-        entry, out, _handle, _ = self.turn("notlarımı göstr")
-        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT,
-                      "ham cümle kanonical olarak reddedildi; kurtarma ikinci pipeline değildir")
-        self.assertEqual(out, "Notların: 1) irsaliye tarihi perşembe", "tabanın kullanıcıya görünen sonucu")
-        self.assertEqual(intents, [("notes_read", {"which": "all"}, "notlarımı göstr", "notlarımı göstr")],
-                         "etki kanonical intent sahibi ve kullanıcının own cümlesiyle yürür")
-        self.assertEqual(self.turn_texts, ["notlarımı göstr"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
-        self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops",
-                                     "modules.media", "modules.notify", "modules.worktrack"), [])
-        seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
-        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
-                         "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
+        result = self._typed("notlarımı göstr", "notes.read",
+                             {"notes": {"which": "all"}})
+        self.assertIn("irsaliye tarihi perşembe", result)
 
-    def test_a_misspelled_agenda_read_still_answers_the_day_plan(self):
-        counts = self._instrument()
+    def test_model_selected_calendar_read_uses_existing_worker_once(self):
         self.ctx._agenda_text = Mock(return_value="Bugün: 09:00 ders")
-        opener = Mock()
-        starter = patch("webbrowser.open", opener)
-        starter.start()
-        self.addCleanup(starter.stop)
-        entry, out, _handle, _ = self.turn("takvimimi kotrol et")
-        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
-        self.assertEqual(out, "Bugün: 09:00 ders", "tabanın gün programı cevabı")
-        self.assertEqual(self.ctx._agenda_text.call_count, 1)
+        result = self._typed("takvimimi kotrol et", "calendar.read",
+                             {"view": "agenda", "period": "today"})
+        self.assertEqual(result, "Bugün: 09:00 ders")
+        self.ctx._agenda_text.assert_called_once()
         self.assertEqual(self.ctx._agenda_text.call_args.args[1], "Bugün")
-        opener.assert_not_called()  # tarayıcı açmak etkidi: düzeltilmiş görünüme kapalı
-        self.assertEqual(self.turn_texts, ["takvimimi kotrol et"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
 
-    def test_a_misspelled_task_list_read_still_answers_the_list(self):
-        from modules import tasks as tasks_module
-        counts = self._instrument()
-        self.ctx.tasks = tasks_module  # gerçek salt-okuma grameri, izole profil üzerinde
-        for attr in ("add", "toggle", "delete", "clear_done"):
-            starter = patch.object(tasks_module, attr, Mock(side_effect=AssertionError("görev yazma yetkisi yok")))
-            starter.start()
-            self.addCleanup(starter.stop)
-        entry, out, _handle, _ = self.turn("gorevlerimi listelee")
+    def test_model_selected_tasks_list_is_read_only(self):
+        from modules import tasks
+        with patch.object(tasks, "add",
+                          side_effect=AssertionError("unexpected task mutation")) as add:
+            result = self._typed("gorevlerimi listelee", "tasks.manage",
+                                 {"operation": "list"})
+        self.assertIn("Açık görevin yok", result)
+        add.assert_not_called()
+
+    def test_model_outage_does_not_start_a_legacy_typo_read_parser(self):
+        from modules import brain_model_understanding
+        for command in ("notlarımı göstr", "takvimimi kotrol et",
+                        "gorevlerimi listelee"):
+            with self.subTest(command=command), patch.object(
+                brain_model_understanding, "propose", return_value=None):
+                self.door.reset_mock()
+                entry, reply, _handler, feedback = self.turn(
+                    command, model_understanding=True)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                self.assertIn("model", reply.casefold())
+                self.door.assert_not_called()
+
+    def test_model_chat_must_not_be_reclassified_by_corrected_raw_text(self):
+        from dataclasses import replace
+        def model_chat(current, text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CHAT,
+                           capability_hint=None, arguments={"original_text": text},
+                           ambiguities=(), needs_input=False, actions=())
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=model_chat):
+            entry, _out, _handler, feedback = self.turn(
+                "notlarımı göstr", model_understanding=True)
         self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
-        self.assertEqual(out, "Açık görevin yok.", "tabanın görev listesi cevabı")
-        self.assertEqual(self.turn_texts, ["gorevlerimi listelee"])
-        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
+        self.assertEqual(feedback.result_status, "handled")
+        self.door.assert_not_called()
+        self.ctx._planner_command.assert_not_called()
 
-    def test_the_recovery_is_consulted_only_when_the_spelling_actually_changed(self):
-        counts = self._instrument()
-        for text in ("notlarımı göster", "saat kaç", "takvimimi kontrol et",
-                     "görevlerimi listele", "selam"):
-            with self.subTest(text=text):
-                self.door.reset_mock()
-                self.turn(text)
-        self.assertEqual(counts["recovery"], 0,
-                         "yazımı zaten doğru olan turlar kurtarmaya inmez: koşul düzeltmenin gerçekten fark üretmesi")
-
-    def test_the_corrected_view_still_earns_no_write_open_or_organize_authority(self):
-        counts = self._instrument()
-        corpus = ("rapor hazırla", "aynı isimli dosyayı bul", "silah nasıl çalışır", "olarak başla",
-                  "masaüstünü duzenle", "indirilenleri duzenle", "notlari temizle",
-                  "yarinki randevularimi soyle", "bana hetırlat")
-        gates = (self.ctx._planner_command, self.ctx._file_command, self.ctx._user_command)
-        for text in corpus:
-            with self.subTest(text=text):
-                self.door.reset_mock()
-                for gate in gates:
-                    gate.reset_mock()
-                _entry, out, _handle, _ = self.turn(text)
-                corrected = typo.fix(text.casefold())
-                seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
-                self.assertNotIn(corrected, seen, "düzeltilmiş görünüm effekte giden ham kapıya ulaşamaz")
-                if self.door.called:
-                    # Kanonical plan kendi sahibini bulduğunda legacy kapı hiç çalışmaz (PR3C-3
-                    # düzenleme); çalıştığında ise yalnız kullanıcının yazdığı cümleyi görür.
-                    self.assertEqual(self.turn_texts, [text])
-                # Aynı cümle düzeltme hiç uygulanmasa da aynı sonucu verir: kurtarma yalnız okur.
-                self.door.reset_mock()
-                identity = patch.object(self.ctx, "typo", SimpleNamespace(fix=lambda value: value))
-                identity.start()
-                self.addCleanup(identity.stop)
-                _entry2, out_identity, _handle2, _ = self.turn(text)
-                identity.stop()
-                self.assertEqual(out, out_identity)
-                self.assertLessEqual(counts["recovery"], len(corpus))
-
-    def test_a_write_intent_proposed_for_the_corrected_view_is_refused(self):
-        from modules import brain_core_map, brain_understanding
-        counts = self._instrument()
-        intents = self._spy_dispatch()
-        starter = patch.object(brain_understanding, "notes_read_view", Mock(return_value=("notes.write", {})))
-        starter.start()
-        self.addCleanup(starter.stop)
-        starter = patch.object(brain_core_map, "core_plan", Mock(return_value=("notes_write", {"operation": "delete"})))
-        starter.start()
-        self.addCleanup(starter.stop)
-        self.ctx.profile.data["items"] = [{"id": 1, "text": "silinecek not"}]
-        _entry, out, _handle, _ = self.turn("notlarımı göstr")
-        self.assertEqual(out, "CHAT", "yazma niyeti düzeltilmiş görünüm için asla yürümez")
-        self.assertEqual([row[0] for row in intents], ["chat"], "kapalı set dışındaki intent dispatch edilmez")
-        self.assertEqual(counts["recovery"], 1)
-        self.assertEqual(self.ctx.profile.data["items"], [{"id": 1, "text": "silinecek not"}],
-                         "reddedilen yazma niyeti not defterine dokunmaz")
+    def test_unobserved_note_write_cannot_be_smuggled_in_as_typo_recovery(self):
+        from dataclasses import replace
+        self.ctx.profile.data["items"] = [{"id": "note-a", "text": "silinmeyecek"}]
+        before = [dict(row) for row in self.ctx.profile.data["items"]]
+        def forged(current, text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="notes.write",
+                           arguments={"original_text": text, "notes": {
+                               "operation": "delete", "id": "note-a"}},
+                           ambiguities=(), needs_input=False, actions=())
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=forged):
+            _entry, _out, _handler, feedback = self.turn(
+                "notlarımı göstr", model_understanding=True)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertEqual(self.ctx.profile.data["items"], before)
+        self.door.assert_not_called()
 
 
-def _typo_recovery_source() -> str:
-    import ast as _ast
-    tree = _ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
-    return "\n\n".join(_ast.unparse(node) for node in tree.body
-                       if isinstance(node, _ast.FunctionDef)
-                       and node.name in {"typo_read_recovery", "typo_read_plan"})
+class RetiredTypoReadGuardTests(unittest.TestCase):
+    """No new keyword recovery selector can silently replace the old one."""
 
-
-class TypoReadRecoveryGuardTests(unittest.TestCase):
-    """Kurtarma yüzeyi kapalı ve tek çağrılıdır: yeni bir mini-router doğarsa bu test düşer."""
-
-    def test_the_surface_is_called_once_from_the_command_seam_only(self):
-        self.assertEqual(_source_calls("typo_read_recovery"), ["modules/engine_commands.py"])
-        self.assertEqual(_source_calls("typo_read_plan"), ["modules/engine_commands.py"])
-        calls = [ast.unparse(node.func) for node in ast.walk(ast.parse(ENGINE_COMMANDS_SOURCE))
-                 if isinstance(node, ast.Call)]
-        self.assertEqual(calls.count("typo_read_recovery"), 1)
-        self.assertEqual(calls.count("typo_read_plan"), 1)
-        self.assertEqual(calls.count("exact_admin_view"), 1)
-        self.assertEqual(calls.count("runtime.typo.fix"), 1)
-
-    def test_the_recovery_consults_only_named_read_grammars(self):
-        source = _typo_recovery_source()
-        self.assertTrue(source, "typo_read_recovery/typo_read_plan tanımlı değil")
-        called = {ast.unparse(node.func) for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)}
-        self.assertEqual(called, {"brain_understanding.notes_read_view", "brain_core_map.core_plan",
-                                  "main_planner.agenda_read_request", "runtime.datetime.now",
-                                  "runtime._agenda_text", "tasks.list_request", "tasks.list_text"},
-                         f"kurtarma yüzeyi kapalı okuma seti dışına çıktı: {sorted(called)}")
-
-    def test_the_recovery_itself_selects_no_effect(self):
-        # Intent yürütme yetkisi seam'de kalır: kurtarma yüzeyi dispatch çağıran yeni bir üretici değildir.
-        from test_brain_orphan_dispatch_guard import _production_sources, dispatch_call_sites
-        self.assertEqual(set(dispatch_call_sites(_production_sources())),
-                         {"modules/brain_entry.py", "modules/engine_commands.py", "modules/command_manager.py"})
-
-    def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
+    def test_legacy_read_recovery_functions_are_physically_absent(self):
         from modules import command_manager
-        self.assertEqual(command_manager._TYPO_READ_INTENTS, frozenset({"notes_read"}))
-        self.assertNotIn("notes_write", command_manager._TYPO_READ_INTENTS)
-        self.assertTrue(command_manager._TYPO_READ_INTENTS.isdisjoint(
-            {"reminder", "notes_write", "file_action", "app_open", "app_close", "task", "audio_action",
-             "media_action", "screen_capture", "shutdown_request", "photo_action"}))
+        tree = ast.parse(inspect.getsource(command_manager))
+        names = {node.name for node in ast.walk(tree)
+                 if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+        self.assertNotIn("typo_read_recovery", names)
+        self.assertNotIn("typo_read_plan", names)
+        self.assertFalse(hasattr(command_manager, "_TYPO_READ_INTENTS"))
+
+    def test_single_pass_engine_cannot_call_retired_read_selector(self):
+        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
+        called = {ast.unparse(node.func) for node in ast.walk(tree)
+                  if isinstance(node, ast.Call)}
+        self.assertNotIn("typo_read_recovery", called)
+        self.assertNotIn("typo_read_plan", called)
+        self.assertIn("exact_admin_view", called)
+
+    def test_existing_core_read_intents_have_closed_argument_contracts(self):
+        from modules import brain_core_map
+        for capability, good in (
+            ("notes.read", {"notes": {"which": "all"}}),
+            ("calendar.read", {"view": "agenda", "period": "today"}),
+            ("tasks.manage", {"operation": "list"}),
+        ):
+            with self.subTest(capability=capability):
+                self.assertIsNotNone(brain_core_map.core_plan(capability, good))
+                self.assertIsNone(brain_core_map.core_plan(
+                    capability, {**good, "untrusted_path": "C:/arbitrary"}))
 
 
 class ExplanationFenceOwnershipTests(_RawDoorHarness):
@@ -472,7 +408,7 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
     LESSON = {"topic": "Türev", "active": 1, "done": False,
               "steps": [{"title": "Giriş", "goal": "kavram"},
                         {"title": "Uygulama", "goal": "soru çözümü"}],
-              "pending": {"step": 1, "question": "Türevin tanımını söylesene."}}
+              "pending": {"step": 1, "question": "Türevin tanımını söylesene.", "answer": "Eğim"}}
 
     def seed(self):
         self.ctx.profile.data["hoca"] = {"lesson": dict(self.LESSON)}
@@ -512,33 +448,55 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
                 getattr(self.ctx, gate).reset_mock()
         return self.turn(text)[1]
 
-    def test_hoca_owning_sentences_stay_with_the_hoca_door(self):
-        # Ölçülen: bu cümlelerde çit ateşlenmiyor (state/fast/pend/hint ya da EXPLANATION değil)
-        # ve Hoca kapısının yanıtı kullanıcıya görünen sonuç.
-        self.ctx._study_intent = Mock(return_value="HOCA YANITI")
-        for text in ("hoca modu: hücre", "hücre konusunu öğret", "zayıf konularım", "cevap: eğim",
-                     "bilmiyorum", "bugün ne çalışayım", "hangi konuya çalışmalıyım", "çalışmaya başla"):
-            with self.subTest(text=text):
-                self.assertFalse(self.fence_of(text), "Hoca kapısının cümlesi açıklama turu sayılamaz")
+    def test_free_hoca_requests_never_reenter_retired_raw_study_parser(self):
+        # Hoca lesson.start is a model-selected typed capability. The old
+        # _study_intent is no longer an independent semantic authority.
+        from modules import brain_model_understanding
+        self.ctx._study_intent = Mock(
+            side_effect=AssertionError("retired Hoca parser executed"))
+        for text in ("hoca modu: hücre", "hücre konusunu öğret",
+                     "zayıf konularım", "bugün ne çalışayım"):
+            with self.subTest(text=text), \
+                 patch.object(brain_model_understanding, "propose", return_value=None):
                 self.ctx._study_intent.reset_mock()
-                out = self.with_fence(text)
-                self.assertEqual(out, "HOCA YANITI")
-                self.assertEqual(self.ctx._study_intent.call_args_list, [((text,), {})],
-                                 "kapı kendi ham cümlesiyle çağrılır")
+                entry, response, _handler, feedback = self.turn_real(
+                    text, model_understanding=True)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                self.ctx._study_intent.assert_not_called()
+
+    def test_active_hoca_pending_answers_are_typed_state_not_raw_chat(self):
+        from modules import hoca
+        self.ctx._study_intent = Mock(return_value="RAW HOCA MUST NOT RUN")
+        with patch.object(hoca, "grade", return_value={
+                    "correct": False, "feedback": "Yanlış", "expected": "Eğim"}) as grade, \
+             patch.object(hoca, "give_up", return_value="Eğim") as give_up:
+            answer = self.with_fence("cevap: eğim")
+            self.assertIn("Doğrusu: Eğim", answer)
+            self.ctx._study_intent.assert_not_called()
+            grade.assert_called_once_with(self.ctx.profile, "eğim")
+            give_up.assert_not_called()
+            grade.reset_mock()
+            skipped = self.with_fence("bilmiyorum")
+            self.assertIn("Doğrusu: Eğim", skipped)
+            self.ctx._study_intent.assert_not_called()
+            give_up.assert_called_once_with(self.ctx.profile)
+            grade.assert_not_called()
 
     def test_hoca_control_phrases_are_owned_by_the_canonical_state_gate(self):
         for text in ("sonraki adıma geç", "dersi bitir"):
             with self.subTest(text=text):
                 self.assertFalse(self.fence_of(text), "bounded state protokolü turu zaten aldı")
 
-    def test_the_domain_doors_still_receive_their_questions(self):
+    def test_unowned_questions_do_not_enter_retired_domain_doors(self):
         for seam, text in (("modules.pc_guide.handle", "ekrandaki klasör ne işe yarar?"),
                            ("modules.developer.handle", "bu hata neden oluyor?")):
             with self.subTest(text=text):
                 self.assertFalse(self.fence_of(text))
                 self.seams[seam].return_value = "KAPIT YANITI"
                 self.addCleanup(setattr, self.seams[seam], "return_value", None)
-                self.assertEqual(self.with_fence(text), "KAPIT YANITI")
+                self.with_fence(text)
+                self.seams[seam].assert_not_called()
 
     def test_an_active_lesson_question_loses_nothing_to_the_fence(self):
         # Ölçülen kapının hükmü: aktif derste serbest açıklama sorusuna Hoca yanıt üretmiyor
@@ -590,6 +548,34 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
                          "çit açıkken ham kapılar soruya hiç bakmaz")
         self.assertEqual(self.ctx._study_intent.call_args_list, [])
 
+    def test_model_chat_questions_never_reenter_old_domain_language_doors(self):
+        from dataclasses import replace
+        for seam, text in (("modules.pc_guide.handle", "ekrandaki klasör ne işe yarar?"),
+                           ("modules.developer.handle", "bu hata neden oluyor?")):
+            with self.subTest(text=text):
+                self.seams[seam].reset_mock()
+                def choose(current, utterance, *, active_context=None):
+                    self.assertEqual(utterance, text)
+                    return replace(
+                        current, request_kind=RequestKind.CHAT,
+                        capability_hint=None,
+                        arguments={"original_text": utterance},
+                        needs_input=False, ambiguities=(), actions=(),
+                        reason_codes=current.reason_codes + ("MODEL_DECIDED",
+                                                              "MODEL_CHAT_DECIDED"),
+                    )
+                with patch.object(brain_entry, "apply_model_understanding",
+                                  side_effect=choose):
+                    entry, out, _handler, feedback = self.turn(
+                        text, model_understanding=True)
+                self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+                self.assertEqual(out, "CHAT")
+                self.assertEqual(feedback.result_status, "handled")
+                self.seams[seam].assert_not_called()
+                self.door.assert_not_called()
+
+
+
 
 class MultiStepAuthorityTests(_RawDoorHarness):
     """Sıra semantiği kanonical katmanda doğar; ham yüzey adım seçmez (BRAIN-MIG-017)."""
@@ -604,7 +590,7 @@ class MultiStepAuthorityTests(_RawDoorHarness):
         # Bölme grameri yüzeyde hiç duramaz: ne fonksiyon çağrısı ne de runtime regex'i.
         self.assertTrue({"_split_steps"}.isdisjoint(calls | names))
         self.assertNotIn("_STEP_SPLIT", attrs)
-        self.assertIn("step_plan", calls)
+        self.assertNotIn("step_plan", calls)
 
     def test_the_segmentation_owner_is_the_canonical_understanding_layer(self):
         # Tek sahip: gramer brain_understanding'de doğar, entry yalnız bağlı tur için okur.
@@ -626,36 +612,47 @@ class MultiStepAuthorityTests(_RawDoorHarness):
                          if "_split_steps" in path.read_text(encoding="utf-8"))
         self.assertEqual(surface, [])
 
-    def test_the_plan_is_bound_to_this_turns_own_sentence(self):
-        # Kanonical karar bağlı request'in kendi cümlesine aittir: tur dışı bir metin için
-        # (ör. düzeltilmiş ikinci geçiş görüşü) adım planı doğmaz.
+    def test_the_bound_turn_does_not_expose_a_second_raw_step_planner(self):
+        # The model/Core action_batch owns ordered steps. The former
+        # brain_entry.step_plan(text) was a second raw sentence classifier and
+        # has been removed; a handler sees only its current bound request.
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
         seen = {}
 
         def probe(command):
-            seen["other"] = brain_entry.step_plan("önce maili oku sonra raporu yaz")
-            seen["own"] = brain_entry.step_plan(command)
+            entry = brain_entry.current()
+            seen["text"] = entry.text
+            seen["command"] = command
+            seen["request_id"] = entry.request_id
+            self.assertIsNone(brain_entry.core_plan(entry))
             return "PROBE"
 
-        # "selam" legacy handler'a düşen bir sohbet turudur; plan kendi cümlesinden doğar.
-        self.turn("selam", handler=probe)
-        self.assertEqual(seen["other"], ())
-        self.assertEqual(seen["own"], ())
-        self.turn("önce sesi kıs sonra parlaklığı 40 yap", handler=probe)
-        self.assertEqual(seen["other"], ())
-        self.assertEqual(seen["own"], ("sesi kıs", "parlaklığı 40 yap"))
+        entry, output, _handler, _feedback = self.turn("selam", handler=probe)
+        self.assertEqual(output, "PROBE")
+        self.assertEqual(seen, {"text": "selam", "command": "selam",
+                                "request_id": entry.request_id})
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
 
     def test_two_steps_run_their_own_typed_effect_once_each(self):
-        entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.assertEqual(self.rid, entry.request_id)
         self.ctx._volume_step.assert_called_once_with(-10, "kıstım")
         self.ctx.system_control.media_control.assert_called_once_with("next")
-        self.assertIn("1.", out)
-        self.assertIn("2.", out)
+        self.assertIn("a1:", out)
+        self.assertIn("a2:", out)
 
     def test_an_open_pending_still_blocks_a_new_sequence(self):
         # Bounded state invariant'ı yüzeyde kalır: adım planı açıksa bile kısmi yürütme yok.
         self.ctx._session().pending_confirm = ("silinsin mi?", "not")
-        _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.assertIn("Açık bir mesaj/onay/düzenleme akışı varken", str(out))
         self.ctx._volume_step.assert_not_called()
         self.ctx.system_control.media_control.assert_not_called()
@@ -682,9 +679,26 @@ class DispatchArmFenceTests(_RawDoorHarness):
         self.assertNotIn("Kullanım:", str(out))
 
     def test_advisory_guidance_keeps_its_canonical_owner(self):
-        # PR3B soru-fencesi rehberlik kolunu kapatmaz: "adım adım" kanonical advisory isteğidir.
-        self.turn("adım adım wifi nasıl açılır")
-        self.assertTrue(self.seams["modules.pc_guide.handle"].called)
+        # A model proposal, not the retired raw "adım adım" keyword
+        # classifier, owns the single existing PC-guide worker effect.
+        from dataclasses import replace
+        text = "adım adım wifi nasıl açılır"
+        def selected(current, utterance, *, active_context=None):
+            self.assertEqual(utterance, text)
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="pc.guide.start",
+                           arguments={"original_text": text, "goal": "wifi nasıl açılır"},
+                           needs_input=False, ambiguities=(), actions=())
+        self.seams["modules.pc_guide.handle"].return_value = "GUIDANCE"
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=selected):
+            entry, reply, _handler, feedback = self.turn(
+                text, model_understanding=True)
+        self.assertEqual(reply, "GUIDANCE")
+        self.assertEqual(feedback.result_status, "handled")
+        self.seams["modules.pc_guide.handle"].assert_called_once_with(
+            self.ctx.profile, "PC yardımı: wifi nasıl açılır")
+        self.door.assert_not_called()
 
     def test_an_explicit_task_still_reaches_its_current_owner(self):
         _entry, out, _handle, _ = self.turn("görev: raporu özetle")
@@ -903,172 +917,93 @@ def _source_calls(marker: str) -> list[str]:
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else None)
             dotted = ast.unparse(func) if "." in marker else None
-            if name == marker or (dotted and dotted.split(".")[-2:] == marker.split(".")):
+            # A dynamic lookup can become a call after assignment:
+            # handler = getattr(runtime, "_extra_commands"); handler(text).
+            # Count it conservatively as a possible caller; do not certify
+            # caller-zero just because ast.Call.func is the name "getattr".
+            dynamic = False
+            if (name == "getattr" and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                field = node.args[1].value
+                dynamic = field == marker if "." not in marker else (
+                    (ast.unparse(node.args[0]) + "." + field).split(".")[-2:]
+                    == marker.split(".")
+                )
+            if dynamic or name == marker or (dotted and dotted.split(".")[-2:] == marker.split(".")):
                 found.append(path.relative_to(ROOT).as_posix())
                 break
     return found
 
 
-class CascadeOrderContractTests(unittest.TestCase):
-    """§11/§25 B: cascade'in kökü tek sıra sözleşmesidir; yüzey kendi mini-router'ını taşımaz.
+class CascadeRetirementTests(pr3a._CanonicalAuthorityHarness):
+    """The retired raw cascade has no production caller or hidden fallback."""
 
-    Ölçülen taban (base `ea2f0b3` üzerinden bu committen önce): `engine_commands.handle` dört
-    ham handler'ı (`_macro_teach/_macro_manage/_macro_run/_extra_commands`) bir tuple döngüsünde
-    sırayla yokluyordu. Aynı sıra `brain_precedence.FRONT_GATES`'te ikinci kez tanımlıydı, yani
-    sıranın iki sahibi vardı ve yüzeyde plan-fencesi yoktu. Kök çözüm: kuyruk aralığı tek
-    sahibinden çağrılır; yüzey gate adlarını hiç anmaz. (Sahiplik envanteri BRAIN-MIG-052 → PR3C;
-    buradaki kilitten sonra bile cascade'in üretim çağıranı yalnız sıralık sözleşmedir.)"""
+    def test_legacy_cascade_and_front_gates_are_physically_absent(self):
+        from modules import brain_precedence, engine_tools, engine_runtime
+        self.assertFalse(hasattr(brain_precedence, "claim_tail"))
+        self.assertFalse(hasattr(brain_precedence, "TAIL_GATES"))
+        self.assertFalse(hasattr(engine_tools, "_extra_commands"))
+        self.assertFalse(hasattr(engine_tools, "_planner_command"))
+        self.assertNotIn("_extra_commands", engine_runtime._HANDLERS["engine_tools"])
+        self.assertNotIn("_planner_command", engine_runtime._HANDLERS["engine_tools"])
+        self.assertEqual(_source_calls("_extra_commands"), [])
+        self.assertEqual(_source_calls("_mail_handle"), [])
 
-    def test_the_tail_is_the_end_of_the_single_order_contract(self):
+    def test_unavailable_model_cannot_execute_unowned_domain_request(self):
+        from modules import brain_model_understanding
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("raw file command")) as file_worker, \
+             patch.object(self.ctx, "_macro_run",
+                          side_effect=AssertionError("raw shortcut")) as macro, \
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, out, _handler, feedback = self.turn_real(
+                "maillerimi kontrol et", model_understanding=True)
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertIn("model", out.casefold())
+        raw_handler.assert_not_called()
+        file_worker.assert_not_called()
+        macro.assert_not_called()
+
+    def test_exact_registered_macro_stays_machine_addressed_not_free_text(self):
         from modules import brain_precedence
-        self.assertEqual(brain_precedence.TAIL_GATES,
-                         brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
-        self.assertEqual(brain_precedence.TAIL_GATES,
-                         ("macro_run", "extra_commands"))
-
-    def _runtime(self, answers=None):
-        from types import SimpleNamespace
-        answers = answers or {}
-        calls: list[tuple[str, tuple]] = []
-
-        def gate(name):
-            def run(*args):
-                calls.append((name, args))
-                return answers.get(name)
-            return run
-
-        return SimpleNamespace(
-            calls=calls, _tr_lower=lambda text: text.casefold(),
-            _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
-            _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
-            _file_command=gate("file_command"), _user_command=gate("user_command"),
-            _user_controls=gate("user_controls"),
-            _planner_command=gate("planner_command"),
-            system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
-            emit=gate("emit"))
-
-    def test_each_tail_gate_is_consulted_once_in_contract_order(self):
-        from modules import brain_precedence
-        runtime = self._runtime()
-        self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
-        self.assertEqual([name for name, _ in runtime.calls],
-                         ["macro_run", "extra_commands"])
-        self.assertEqual([args for _, args in runtime.calls],
-                         [("raporumu telefona gönder",),
-                          ("Raporumu telefona gönder", "raporumu telefona gönder")])
-
-    def test_the_first_answering_gate_stops_the_tail(self):
-        from modules import brain_precedence
-        runtime = self._runtime({"macro_run": "KISAYOL"})
-        self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
-        self.assertEqual([name for name, _ in runtime.calls], ["macro_run"])
-
-    def test_the_tail_never_replays_an_earlier_effect_gate(self):
-        # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini
-        # ikinci kez çalıştıramaz (ikinci taşıma/silme/yayın riski).
-        from modules import brain_precedence
-        runtime = self._runtime()
-        brain_precedence.claim_tail(runtime, "bugün neler var")
-        replayed = {name for name, _ in runtime.calls}
-        self.assertTrue(replayed.isdisjoint({"file_command", "windows_settings", "user_command",
-                                             "planner_command", "emit"}))
-
-    def test_the_full_contract_still_runs_every_gate_from_the_front(self):
-        from modules import brain_precedence
-        runtime = self._runtime()
-        self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
-        self.assertEqual([name for name, _ in runtime.calls],
-                         list(brain_precedence.FRONT_GATES))
-
-
-class CascadeRootTests(_RawDoorHarness):
-    """§25 B ve D: ham anlamsal aday döngüsü yüzeyden kalkar, cascade'in tek üretim çağıranı kalır."""
-
-    def _handle_body(self):
-        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
-        return next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "handle")
-
-    def test_the_surface_carries_no_raw_semantic_candidate_loop(self):
-        handle = self._handle_body()
-        loops = [node for node in ast.walk(handle)
-                 if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.iter, (ast.Tuple, ast.List))]
-        self.assertEqual(loops, [], "engine_commands.handle çoklu ham anlamsal aday döngüsü taşıyamaz (§25 B)")
-
-    def test_the_surface_names_no_cascade_gate(self):
-        handle = self._handle_body()
-        attrs = {node.attr for node in ast.walk(handle) if isinstance(node, ast.Attribute)}
-        self.assertTrue(attrs.isdisjoint({"_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"}),
-                        "sıranın tek sahibi brain_precedence; yüzey gate adlarını tekrar listeleyemez")
-        self.assertIn("claim_tail", attrs)
-
-    def test_the_cascade_has_one_production_call_owner(self):
-        # §25 D'nin PR3B'de ölçülebilir hâli: normal kullanıcı üretim yolunda cascade'i çağıran
-        # tek yer sıra sözleşmesidir. BRAIN-MIG-052'de kollar kanonical parity kazanınca bu son
-        # çağıran da silinir; o gün bu satır [] bekler — başka modüle izin yoktur.
-        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
-
-    def test_the_mail_owner_is_reached_only_from_the_cascade(self):
-        # BRAIN-MIG-051: "bu cümle mail mi?" hükmü yalnız tek cascade kolundadır, yüzeylerde değil.
-        self.assertEqual(_source_calls("_mail_handle"), ["modules/engine_tools.py"])
-
-
-class CascadeReachabilityTests(_RawDoorHarness):
-    """Fence kör değildir: kuyruk devri sonrası eşleşmemiş kometler aynı sahibine ulaşıyor."""
-
-    def setUp(self):
-        super().setUp()
-        from functools import partial
-
-        from modules import engine_tools
-        self.ctx._extra_commands = partial(engine_tools._extra_commands, self.ctx)
-
-    def test_an_unmapped_handoff_request_still_reaches_its_cascade_owner(self):
-        # PR3C-4'ten sonra klasör kapısı cascade'te değil; sıra sözleşmesi hâlâ eşlenmemiş bir
-        # domain kolunu buluyor: "işte neler var" yalnız `_extra_commands` sırasında sahibine varır.
-        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
-        _entry, out, _handle, _ = self.turn("yarın işte neler var")
-        self.assertIn("DEVRAL", str(out))
-        self.seams["modules.handoff.handle"].assert_called_once()
-
-    def test_a_shortcut_answer_stops_the_cascade_behind_it(self):
-        self.ctx._macro_run = Mock(return_value="KISAYOL ÇALIŞTI")
-        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
-        _entry, out, _handle, _ = self.turn("deneme kısayolunu çalıştır")
-        self.assertIn("KISAYOL ÇALIŞTI", str(out))
-        self.seams["modules.handoff.handle"].assert_not_called()
-
-    def test_an_explicit_mail_request_still_reaches_the_mail_owner(self):
-        # Provider/account kararları domain'de kalır (§12): kanonical mail capability yokken
-        # cümle aynı sahibine gider; PR3B bunu sökmez, yalnız tek kapıya indirir.
-        self.ctx._mail_handle = Mock(return_value="MAİL")
-        _entry, out, _handle, _ = self.turn("maillerimi kontrol et")
-        self.assertIn("MAİL", str(out))
+        self.ctx.profile.data["macros"] = {
+            self.ctx._macro_key("sabah rutini"): {"actions": ["saat kaç"]}}
+        with patch.object(self.ctx, "_macro_run", return_value="KISAYOL") as macro:
+            self.assertEqual(brain_precedence.claim(self.ctx, "sabah rutini"),
+                             ("macro_run", "KISAYOL"))
+            self.assertIsNone(brain_precedence.claim(
+                self.ctx, '"sabah rutini" ne işe yarar?'))
+        macro.assert_called_once_with("sabah rutini")
 
 
 class FinanceAlertEntryScopeTests(unittest.TestCase):
-    """§13 ölçümü (taban): giriş küresel anlamsal seçim değil, sabit tam kalıptır.
+    """Finance alarms have no independent natural-language matcher."""
 
-    Spec `if finance_alert_commands.matches(command)` satırını "bu global semantic selection"
-    olarak sınıflıyordu. Kod gerçeği ölçüldü: tanıyıcı `fullmatch`/tam küme üyeliğidir, yani
-    cümlenin *içinde* alan aramaz; exact admin/FAST ailesindendir (B). Kalan iş, alarmın
-    kanonical öneri/Core eşlemesi (BRAIN-MIG-053 → PR3C), bu kalıbın genişletilmesi değil."""
+    def test_finance_alarm_requires_validated_core_plan(self):
+        from modules import brain_core_map, finance_alert_commands
+        self.assertFalse(hasattr(finance_alert_commands, "matches"))
+        self.assertFalse(hasattr(finance_alert_commands, "handle"))
+        self.assertEqual(
+            brain_core_map.core_plan("finance.alert.manage", {"operation": "list"}),
+            ("finance_alert_manage", {"operation": "list"}))
+        self.assertEqual(
+            brain_core_map.core_plan("finance.alert.manage", {
+                "operation": "add", "asset": "dolar", "value": "45",
+                "direction": "above"}),
+            ("finance_alert_manage", {"operation": "add", "kind": "doviz",
+                                      "symbol": "USD", "value": 45.0,
+                                      "direction": "above"}))
 
-    POSITIVE = ("dolar 45 tl üstüne çıkarsa haber ver", "altın 2500 tl'nin altına inerse haber ver",
-                "alarmi sil 3", "alarmlarim")
-    NEGATIVE = ("döviz kuru nedir?", "alarm kurmak nasıl çalışır", "bugün hava nasıl, alarmlar da var mı",
-                "iş mailimi kontrol et", "gram altın kaç tl", "")
-
-    def test_the_exact_alarm_grammar_is_recognised(self):
-        from modules import finance_alert_commands
-        for text in self.POSITIVE:
-            with self.subTest(text=text):
-                self.assertTrue(finance_alert_commands.matches(text), text)
-
-    def test_a_sentence_that_only_mentions_the_words_does_not_match(self):
-        from modules import finance_alert_commands
-        for text in self.NEGATIVE:
-            with self.subTest(text=text):
-                self.assertFalse(finance_alert_commands.matches(text), text)
+    def test_raw_alarm_mentions_cannot_bypass_model_or_core(self):
+        from modules import brain_core_map
+        for payload in ({}, {"operation": "delete", "index": "3"},
+                        {"operation": "add", "asset": "USD", "value": "0",
+                         "direction": "above"}):
+            with self.subTest(payload=payload):
+                self.assertIsNone(brain_core_map.core_plan("finance.alert.manage", payload))
 
 
 class RepoWideAuthorityGuardTests(unittest.TestCase):
@@ -1109,11 +1044,11 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     def test_the_cascade_helper_is_called_only_from_the_order_contract(self):
         # §25 D: `_extra_commands` bir compat yardımcısı olarak yüzeye geri bağlanamaz; tek
         # çağıran `brain_precedence` sırası sözleşmesidir. Söküm BRAIN-MIG-052 (PR3C) satırıdır.
-        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
+        self.assertEqual(_source_calls("_extra_commands"), [])
 
     def test_the_typo_rewriter_is_consulted_from_exactly_one_production_site(self):
         # §25 A'nın repo geneli yarısı: düzeltilmiş görünümü başka bir modül de okuyamaz.
-        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+        self.assertEqual(_source_calls("typo.fix"), [])
 
     def test_every_capability_hint_understanding_can_emit_is_core_mapped(self):
         """Yeni hint yalnız Core eşlemesiyle doğar: §24 fence'inin ön koşulu burada kilitlidir."""

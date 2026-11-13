@@ -24,6 +24,8 @@ for _name in ("edge_tts", "pyttsx3", "sounddevice", "speech_recognition"):
 
 from modules import engine_context, engine_output, llm, stt_guard, voice
 from modules.session_state import SessionState
+from modules.brain_contracts import Confidence, ConversationRelation, TemporalNeed
+from modules.brain_model_understanding import UnderstandingProposal
 
 
 class GuardTests(unittest.TestCase):
@@ -91,14 +93,23 @@ class GuardTests(unittest.TestCase):
 
 
 class ShareAndClarifyTests(unittest.TestCase):
-    def test_share_stop_phrases_route_to_existing_close(self):
-        control = Mock(return_value='kapatma sonucu')
-        runtime = SimpleNamespace(re=re, set_share=control, _session=lambda: SessionState())
-        for text in ('paylaşımı kapat', 'paylaşımı durdur', 'paylaşımı bitir', 'paylasimi kapat', 'paylaşımı kapatır mısın',
+    def test_share_stop_uses_typed_core_and_one_existing_executor(self):
+        # The removed _user_controls() parser is not an execution interface.
+        # These phrasings are evaluated by the semantic model in production;
+        # this test verifies the one permitted Core/effect contract.
+        from modules import brain_core_map, engine_intents
+        plan = brain_core_map.core_plan("device.share", {"action": "stop"})
+        self.assertEqual(plan, ("share_control", {"action": "stop"}))
+        control = Mock(return_value="kapatma sonucu")
+        runtime = SimpleNamespace(set_share=control)
+        for text in ('paylaşımı kapat', 'paylaşımı durdur', 'paylaşımı bitir',
+                     'paylasimi kapat', 'paylaşımı kapatır mısın',
                      'paylaşmayı durdur'):
-            control.reset_mock()
-            self.assertEqual(engine_context._user_command(runtime, text, text), 'kapatma sonucu', text)
-            control.assert_called_once_with(None)
+            with self.subTest(text=text):
+                control.reset_mock()
+                result = engine_intents.dispatch(runtime, plan[0], plan[1], text, text.casefold())
+                self.assertEqual(result, "kapatma sonucu")
+                control.assert_called_once_with(None)
 
     def test_set_share_reports_real_result(self):
         def runtime(mode):
@@ -212,7 +223,13 @@ class EngineClarifyTests(unittest.TestCase):
         voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, state={}, speak=Mock())
         with patch('modules.engine_voice.VoiceSession', return_value=voice), patch('instance.take_over', return_value=False), \
                 patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'), \
-                patch('modules.brain_entry._install_core_guards'):
+                patch('modules.brain_entry._install_core_guards'), \
+                patch('modules.brain_model_understanding.propose', return_value=UnderstandingProposal(
+                        operation='clarify', conversation_relation=ConversationRelation.NEW_REQUEST,
+                        temporal_need=TemporalNeed.STATIC,
+                        confidence=Confidence.HIGH,
+                        clarification_required=True, clarification_question='Neyi kapatmamı istiyorsun?',
+                        clarification_reason_code='APP_TARGET_MISSING')):
             context.main(ui=Mock())
 
         self.assertEqual(

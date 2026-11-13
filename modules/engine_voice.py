@@ -1,6 +1,7 @@
 """engine voice; all mutable dependencies are supplied by EngineContext."""
 from __future__ import annotations
 import contextlib
+import threading
 
 def _pc_context(runtime, fn):
     from functools import wraps

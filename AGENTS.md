@@ -31,18 +31,18 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
-- `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (15 bölüm)
+- `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (16 bölüm)
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
-- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (23 bölüm)
+- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (24 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (25 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (26 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (11 bölüm)
-- `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
+- `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (10 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (17 bölüm)
-- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (5 bölüm)
+- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (6 bölüm)
 - `docs/agents/gorsel-komutlar.md`: Görsel üretimi ve Brain/Core sınırı (7 bölüm)
 
 ## Klasör haritası
@@ -76,7 +76,10 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
-- **BRAIN-03 hatırlatma sınırı:** Doğrulanmış `reminder` planı yalnız oluşturur; alıntıdaki not/etkinlik silme veya erteleme sözleri mevcut kayıtları değiştirmez. Plansız eski komutlar, açık `not al:` ve pending cevapları korunur. Ayrıntı: `docs/agents/mail-takvim.md`; test: `tests/test_brain_03_reminder_core_fence.py`.
+- **BRAIN-03 tek üretim kararı (#613):** `prepare(model_understanding=True)` nötr veriyle tek birincil model önerisi alır; Core doğrular, mevcut worker uygular. Accepted CHAT veya model hatası ham domain fallback'i başlatmaz. Tam State/Fast/UI/makro/PC/workflow/admin protokolleri korunur. Eski `understand`, `model_understanding=False` karakterizasyon yüzeyidir; talimatsız fotoğrafın yalnız “ne yapayım?” bekleme metadatası da modelsizdir. Serbest kullanıcı talimatı ve iç adımlar bu yoldan etki seçemez.
+- **BRAIN-03 geliştirme alanı:** `development.manage` şifreli UI sahibine typed request/control verir; request hiçbir zaman apply/undo komutu olarak yorumlanmaz. Kontrolün özgün metni Core entry'den gelir, ek yolları owner file slotlarından bağlanır. Görev silme mevcut State onayını, tema mevcut UI ayar sahibini kullanır.
+- **BRAIN-03 parite/bağlam:** Model kataloğundaki her Core yeteneğinin alan sözleşmesi olmalı; `freeform` eksik tarif kabul edilmez. Gerçek dosya/not/konuşma kimlikleri ve saat Core gözleminden bağlanır. Hatırlatma değişimi exact snapshot + State onayı ister; çalan tekrarın snooze'u sonraki normal tekrarı bozmaz, eski ses kuyruğu geçersizleşir. Masaüstü soru cevabı aynı job/soru ve aktif PC sahibine bağlıdır. Ayrıntı ilgili alan dosyaları ve final envanterdedir; canlı kabul ayrı ve açıktır.
+- **Not sıra numarası:** `N numaralı`, `N.`, sıra sözcüğü ve `son not` güncel Profile liste konumudur; ortak kayıt kimliği değildir. `#ID`/`id: ID` kimlik gösterir. Sıra metadata'sı eski ActiveContext'ten taşınmaz; bütçe yüzünden gözlenmeyen hedef tahmin edilmez. Operasyonu yine tek model/Core seçer.
 
 ## Testler
 
@@ -104,10 +107,10 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Masaüstü pencere düzeltmesi: DWM tarafından gizlenmiş UWP pencereleri listelenmez. Aynı adlı birden çok gerçek pencerede yalnız hedefe uyan öndeki pencere seçilir; işlem seçilmiş HWND içindeki gerçek UIA kontrolüne gider. Önde hedef yoksa kullanıcı hedefi öne getirip devam eder. `PC görevi hesap makinesi 12 ile 7'yi topla` sesli biçimi `:` ve `|` olmadan tanınır; diğer doğal ifadeler bağlamlı yönlendiriciye bırakılır.
 - Görev yaşam döngüsü: yeni açık `PC görevi: …` yarım kalmış (blocked/waiting/paused/question/approval) eski görevin yerine geçer, elle iptal gerekmez; gerçekten çalışan görev varsa (`_BUSY`) ikinci görev başlamaz. Sesli yanıt (`desktop_agent.spoken`) görevin gerçek durumunu söyler; başarısız görev için "sohbet ekranında hazır" denmez.
 - UIA hızı: `desktop_uia._call` tek uzun ömürlü PowerShell sürecini kullanır (`desktop_uia.ps1` satır satır JSON okur/yazar); okuma ~0,55 sn'den ~0,2 sn'ye indi. Zaman aşımı, iptal veya hata olursa süreç öldürülür ve sonraki çağrıda yeniden başlar; tazelik, kimlik ve sonuç doğrulama kontrolleri değişmedi.
-- Uygulama izinleri (Hamdi'nin kararı: Jarvis'in alanı genişler ama kontrol kullanıcıda kalır): Hesap Makinesi/Not Defteri dışındaki bir uygulamada ilk görevde işlem yapılmaz; görev `consent` durumuna geçer ve "PC izin ver" / "PC izin verme" (ya da sözlü evet/hayır) beklenir. İzin kullanıcıya özel `~/.jarvis/desktop_tasks/<kullanıcı>/apps.json` içinde süreç adıyla saklanır; "PC izinleri" listeler, "PC izni kaldır <uygulama>" geri alır. `desktop_agent._NEVER_APPS` (terminal, kod editörü, tarayıcı, şifre yöneticisi, uzaktan erişim, sistem yönetimi, genel `applicationframehost`) ve Jarvis/kaynak dosyası başlıklı pencereler hiçbir izinle açılmaz; izin dosyasında yazsa bile yok sayılır. İzinli uygulamalarda da şifre/ödeme/gönderme kapalı, silme/kaydetme gibi riskli adlar, adsız kontroller, dolu alanı ezme ve sistem ayarı anahtarları (`_SYSTEM_APPS`) onaylıdır; sıradan uygulamadaki araç/seçenek anahtarı (Paint'te kalem seçmek) geri alınabilir olduğu için sormadan yürür (Hamdi: sürekli onay bıkkınlık yapar). Her işlem ekran kanıtlıdır. UWP uygulamalarda (Ayarlar vb.) `desktop_uia.ps1` yalnız tek bir host-dışı süreç kontrol sahibiyse gerçek uygulama sürecini seçer. Model çağrısı `llm.ask` üzerinden gider (Gemini→Groq→Ollama yedeği ve Otomatik Model Seçimi geçerlidir); ekrandaki adsız/değersiz/işlemsiz kontroller modele gönderilmez. Paint'te gerçek PC'de denendi (Çizgi kalemi toggle, onaylı, Off→On doğrulandı); Dosya Gezgini ve Ayarlar henüz denenmedi.
+- Masaüstü uygulama izinleri ve kapsamı: bkz. `docs/agents/pc-masaustu.md` (onay, engelli uygulamalar, UIA güvenliği).
 - Windows/Jarvis sayfaları model önerisi → Core kapalı allowlist → mevcut adapter yolundan açılır. `selfctl.execute` typed eylem alır; eski doğal dil page selector sahibi değildir.
 - Windows Ayarlar yalnız `system_control.open_windows_settings` ve sabit `ms-settings:` kimlikleriyle açılır; pencere doğrulanmadan başarı iddiası yoktur. Yerel Jarvis ayarı Core şemasıyla kontrol edilir.
-- Tek dosya işlemleri (`modules/file_ops.py`): kanonikal yürütme `files.mutate` → `engine_intents` → `file_ops.execute_typed`; kalan ham dil yolu `engine_commands._file_command` → `main_documents` (BRAIN-03 borcu). `engine_tools._extra_commands` artık `file_ops.handle` çağırmıyor. Yalnız Masaüstü, İndirilenler, Belgeler, Resimler ve Jarvis Dosyaları üst düzeyinde çalışır; silme ve üzerine yazma yoktur, eksik/belirsiz dosya sorulur, geri alma kullanıcıya özeldir; ayrıntı `docs/agents/dosya-belge.md`. Sembolik bağ ve `.lnk` işlenmez.
+- Tek dosya işlemleri (`modules/file_ops.py`): kanonikal yürütme `files.mutate` → `engine_intents` → `file_ops.execute_typed`; tırnaklı tam dosya UI protokolü `engine_commands._file_command` → `main_documents`; genel ham dil fallback yolu emeklidir. `engine_tools._extra_commands` artık `file_ops.handle` çağırmıyor. Yalnız Masaüstü, İndirilenler, Belgeler, Resimler ve Jarvis Dosyaları üst düzeyinde çalışır; silme ve üzerine yazma yoktur, eksik/belirsiz dosya sorulur, geri alma kullanıcıya özeldir; ayrıntı `docs/agents/dosya-belge.md`. Sembolik bağ ve `.lnk` işlenmez.
 - Jarvis çalışırken kod değişirse yeni sesli yönlendirmeler ancak Jarvis yeniden başlatılınca devreye girer (çalışan süreç eski kodu bellekte tutar).
 - Not Defteri yerel aracı yalnız belge metni alanına `fill` uygular; dosya adı/diyalog/menü ve açma/kaydetme adımları bu araçta çalışmaz. Kullanıcı düz metni kendisi kaydeder; kaynak değişikliği şifreli geliştirme yolunda kalır.
 

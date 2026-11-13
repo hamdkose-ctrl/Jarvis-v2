@@ -12,13 +12,18 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 from config import load_settings, save_settings
 
 _last_os: dict = {"os": "ios"}                  # son bulunan telefonun işletim sistemi (mesaj için)
-_pending: dict = {"t": 0.0, "files": []}       # birden fazla eşleşme olunca "hangisi?" seçimi
+# BRAIN-03: no global "last four files" across profiles. Only opaque
+# owner-scoped, short-lived file observations; selection belongs to State Gate.
+_pending_lock = threading.RLock()
+_pending_by_owner: dict[str, dict] = {}
+_PENDING_TTL = 180.0
 _EXT_HINT = {"pdf": {".pdf"}, "fotograf": {".jpg", ".jpeg", ".png", ".heic"}, "resim": {".jpg", ".jpeg", ".png"},
              "cizim": {".dwg", ".pdf", ".dxf"}, "excel": {".xlsx", ".xls"}, "word": {".docx", ".doc"}}
 _SKIP_EXT = {".tmp", ".crdownload", ".part", ".ini", ".lnk", ".url"}
@@ -91,6 +96,8 @@ def send(path: Path) -> str:
     if not path.is_file():
         return f"{path.name} dosyasını bulamadım."
     ip, name = tgt
+    from modules import requests_state
+    requests_state.check()
     mb = path.stat().st_size / 1_048_576
     try:
         r = subprocess.run([exe, "file", "cp", str(path), f"{ip}:"], capture_output=True, text=True,
@@ -210,10 +217,18 @@ def _latest_download() -> Path | None:
 
 
 def _screenshot() -> Path:
+    """Create a unique private screenshot, not a predictable global filename."""
     import pyautogui
-    p = Path(tempfile.gettempdir()) / f"ekran_{time.strftime('%Y%m%d_%H%M%S')}.png"
-    pyautogui.screenshot(str(p))
-    return p
+    from modules import requests_state
+    requests_state.check()
+    with tempfile.NamedTemporaryFile(prefix="jarvis-taildrop-", suffix=".png", delete=False) as fd:
+        p = Path(fd.name)
+    try:
+        pyautogui.screenshot(str(p))
+        return p
+    except BaseException:
+        p.unlink(missing_ok=True)
+        raise
 
 
 def _ago(p: Path) -> str:
@@ -222,54 +237,147 @@ def _ago(p: Path) -> str:
 
 
 # ------------------------------------------------------------------ komutlar
-_TO_PHONE = re.compile(r"(.*?)\s*(?:'?[yn]?[ıiuü]\s+)?telefon(?:um)?[ay]?\s*(?:gönder|at|yolla|aktar|ilet)\w*", re.I)
+# A trailing \w* turned "gönderme" (do NOT send) into "gönder".
+# Only affirmative exact transfer verbs remain in the legacy fallback.
+_TO_PHONE = re.compile(
+    r"(.*?)\s*(?:'?[yn]?[ıiuü]\s+)?telefon(?:um)?[ay]?\s*"
+    r"(?:gönder|at|yolla|aktar|ilet|gönderir misin|gönderebilir misin|atar mısın)"
+    r"(?:\s+(?:lütfen|lutfen))?", re.I)
 
 
-def handle(cmd_lower: str) -> str | None:
+def _file_proof(path: Path) -> tuple | None:
+    """Capture a confined, non-symlink candidate; never expose paths to Brain."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        resolved = path.resolve(strict=True)
+        roots = [root.resolve(strict=True) for root in _folders()]
+        if not any(resolved.is_relative_to(root) for root in roots):
+            return None
+        stat = path.stat()
+        return (str(resolved), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    except (OSError, ValueError):
+        return None
+
+
+def remember_pending(owner: str, candidates: list[Path]) -> bool:
+    """Open a bounded owner-local selection, never a global active user slot."""
+    if not isinstance(owner, str) or not owner.strip():
+        return False
+    rows = []
+    for path in candidates[:4]:
+        proof = _file_proof(path)
+        if proof is not None:
+            rows.append((path, proof))
+    with _pending_lock:
+        _pending_by_owner.pop(owner, None)
+        if len(rows) < 2:
+            return False
+        _pending_by_owner[owner] = {"expires": time.time() + _PENDING_TTL, "rows": rows}
+    return True
+
+
+def pending_choices(owner: str) -> tuple[tuple[str, ...], float] | None:
+    """Read-only observation used by Brain's State Gate; no path/phone address."""
+    with _pending_lock:
+        state = _pending_by_owner.get(owner)
+        if not state:
+            return None
+        if time.time() >= state["expires"]:
+            _pending_by_owner.pop(owner, None)
+            return None
+        return (tuple(path.name for path, _ in state["rows"]), state["expires"])
+
+
+def cancel_pending(owner: str) -> str:
+    with _pending_lock:
+        _pending_by_owner.pop(owner, None)
+    return "Tamam, dosyayı göndermiyorum."
+
+
+def select_pending(owner: str, index: int) -> str:
+    """State-confirmed index only. Pop first: one request cannot replay/send twice."""
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(owner, str) or not owner or type(index) is not int:
+        return "Dosya seçimini doğrulayamadım; göndermedim."
+    with _pending_lock:
+        state = _pending_by_owner.pop(owner, None)
+    if not state or time.time() >= state["expires"]:
+        return "Dosya seçiminin süresi doldu; hiçbir dosya göndermedim."
+    rows = state["rows"]
+    if not 1 <= index <= len(rows):
+        return "Geçersiz dosya numarası; hiçbir dosya göndermedim."
+    path, expected = rows[index - 1]
+    if _file_proof(path) != expected:
+        return "Dosya değişmiş veya izinli klasör dışında; göndermedim."
+    requests_state.check()
+    return send(path)
+
+
+def transfer_typed(owner: str, operation: str, query: str = "") -> str:
+    """Core-selected transfer. No raw intent or arbitrary model path/phone."""
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(owner, str) or not owner.strip():
+        return "Dosya gönderim sahibini doğrulayamadım; göndermedim."
+    cancel_pending(owner)
+    if operation == "screenshot":
+        from modules import privacy
+        if (blocked := privacy.blocked("screen")):
+            return blocked
+        requests_state.check()
+        path = _screenshot()
+        try:
+            return send(path).replace(path.name, "Ekran görüntüsü")
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    if operation == "latest":
+        path = _latest_download()
+        if path is None:
+            return "İndirilenler klasöründe dosya bulamadım."
+        if _file_proof(path) is None:
+            return "İndirilen dosyanın izinli ve değişmemiş bir dosya olduğunu doğrulayamadım; göndermedim."
+        requests_state.check()
+        return send(path)
+    if operation != "search" or not isinstance(query, str) or not query.strip() or len(query) > 200:
+        return "Dosyanın adını söyle; bu istek doğrulanamadı."
+    found = find(query)
+    if not found:
+        return f"“{query}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
+    if len(found) == 1 or _score_gap(query, found):
+        if _file_proof(found[0]) is None:
+            return "Dosya izinli klasörün dışında veya sembolik bağlantı; göndermedim."
+        requests_state.check()
+        return send(found[0])
+    if not remember_pending(owner, found):
+        return "Birkaç dosya eşleşiyor ama güvenli seçim açamadım. Dosyanın tam adını söyle."
+    choices = pending_choices(owner)
+    if choices is None:
+        return "Dosya seçim kaydını doğrulayamadım; göndermedim."
+    listed = "; ".join(f"{i}) {name}" for i, name in enumerate(choices[0], 1))
+    return f"{len(choices[0])} dosya buldum, hangisini göndereyim? {listed}. Numarasını söylemen yeterli."
+
+
+def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
+    """Model-unavailable initial utterance adapter, not an effect owner."""
     t = cmd_lower.strip(" .!?")
-    # "hangisi?" sorusuna cevap: "1", "ikincisi", "2. olanı"
-    if _pending["files"] and time.time() - _pending["t"] < 180:
-        order = {"bir": 1, "birinci": 1, "ilk": 1, "iki": 2, "ikinci": 2, "üç": 3, "üçüncü": 3, "dört": 4, "dördüncü": 4,
-                 "beş": 5, "beşinci": 5}
-        m = re.fullmatch(r"(\d)\s*\.?\s*\w*|(\w+?)(?:si|sı|cisi|cısı|ncisi|ncısı)?(?:\s+olan\w*)?", t)
-        k = None
-        if m and m.group(1):
-            k = int(m.group(1))
-        elif m and m.group(2):
-            k = order.get(m.group(2)) or order.get(t.split()[0])
-        if k and 1 <= k <= len(_pending["files"]):
-            p = _pending["files"][k - 1]
-            _pending["files"] = []
-            return send(p)
-        if re.fullmatch(r"(?:vazgeç|iptal|hiçbiri)\w*", t):
-            _pending["files"] = []
-            return "Tamam, göndermiyorum."
     m = _TO_PHONE.fullmatch(t)
     if not m or not re.search(r"telefon", t):
         return None
+    if not owner:
+        return "Dosya gönderimi için kullanıcı doğrulanamadı; göndermedim."
     what = m.group(1).strip()
-    if re.search(r"ekran\s*görüntü|ekranı", what):
-        p = _screenshot()
-        res = send(p)
-        try:
-            p.unlink()
-        except OSError:
-            pass
-        return res.replace(p.name, "Ekran görüntüsü")
-    if re.search(r"son indir|indirdiğim|son dosya", what):
-        p = _latest_download()
-        return send(p) if p else "İndirilenler klasöründe dosya bulamadım."
     if not what or _VAGUE.fullmatch(what):
-        return ASK                    # "telefona dosya gönder": hangi dosya olduğu belli değil, rastgele seçme
-    found = find(what)
-    if not found:
-        return f"“{what}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
-    if len(found) == 1 or _score_gap(what, found):
-        return send(found[0])
-    _pending.update(t=time.time(), files=found[:4])
-    lst = "; ".join(f"{i}) {p.name} ({_ago(p)})" for i, p in enumerate(found[:4], 1))
-    return f"{len(found[:4])} dosya buldum, hangisini göndereyim? {lst}. Numarasını söylemen yeterli."
-
+        return ASK
+    if re.search(r"ekran\s*görüntü|ekranı", what):
+        return transfer_typed(owner, "screenshot")
+    if re.search(r"son indir|indirdiğim|son dosya", what):
+        return transfer_typed(owner, "latest")
+    return transfer_typed(owner, "search", what)
 
 def set_target(name: str) -> None:
     save_settings(send_target=name)

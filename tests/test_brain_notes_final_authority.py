@@ -4,10 +4,11 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401
-from modules import brain_entry, engine_runtime, requests_state
+from modules import brain_core_map, brain_entry, engine_intents, engine_runtime, requests_state
 from modules.brain_contracts import RequestKind
 
 
@@ -31,10 +32,10 @@ class NotesFinalAuthorityTests(unittest.TestCase):
         rid = "notes-final-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         handler = Mock(wraps=self.ctx.handle)
-        real_lookup = __import__("modules.main_planner", fromlist=["_note_lookup"])._note_lookup
-        cm = (patch("modules.main_planner._note_lookup", side_effect=AssertionError("canonical not hedefi legacy resolver'a dönmemeli"))
-              if forbid_legacy_lookup else patch("modules.main_planner._note_lookup", wraps=real_lookup))
-        with requests_state.activate(self.owner, rid), cm:
+        from modules import main_planner
+        if forbid_legacy_lookup:
+            self.assertFalse(hasattr(main_planner, "_note_lookup"))
+        with requests_state.activate(self.owner, rid), nullcontext():
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, text)
         return entry, out, feedback, handler
@@ -145,9 +146,13 @@ class NotesFinalAuthorityTests(unittest.TestCase):
         self.assertFalse(handler.called)
         share.assert_not_called()
 
-    def test_unplanned_screen_share_retains_existing_raw_control_owner(self):
-        with patch.object(self.ctx, "set_share", return_value="PAYLASIM") as share:
-            reply = self.ctx._user_controls("ekranı paylaş", "ekranı paylaş")
+    def test_typed_screen_share_uses_existing_single_worker(self):
+        plan = brain_core_map.core_plan("device.share", {"action": "screen"})
+        self.assertEqual(plan, ("share_control", {"action": "screen"}))
+        self.assertFalse(hasattr(self.ctx, "_user_controls"))
+        with patch.object(self.ctx, "set_share", return_value="PAYLASIM") as share, \
+             patch("modules.requests_state.check"):
+            reply = engine_intents.dispatch(self.ctx, *plan, "ekranı paylaş", "ekranı paylaş")
         self.assertEqual(reply, "PAYLASIM")
         share.assert_called_once_with("screen")
 
@@ -168,13 +173,13 @@ class NotesFinalAuthorityTests(unittest.TestCase):
         self.assertFalse(handler.called)
         raw.assert_not_called()
 
-    def test_unplanned_table_followup_keeps_legacy_file_owner(self):
+    def test_unplanned_table_followup_does_not_reenter_raw_file_owner(self):
         from modules import brain_precedence
         with patch.object(self.ctx, "_file_command",
-                          return_value="WORKBENCH FOLLOWUP") as raw:
+                          side_effect=AssertionError("raw table followup executed")) as raw:
             claimed = brain_precedence.claim(self.ctx, "tabloyu Word'de ver")
-        self.assertEqual(claimed, ("file_command", "WORKBENCH FOLLOWUP"))
-        raw.assert_called_once_with("tabloyu Word'de ver")
+        self.assertIsNone(claimed)
+        raw.assert_not_called()
 
     def test_explicit_quoted_path_ui_file_command_stays_authoritative(self):
         from modules import brain_precedence

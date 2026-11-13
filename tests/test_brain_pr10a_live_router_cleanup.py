@@ -124,6 +124,12 @@ class CanonicalRequestTests(unittest.TestCase):
         return self.real_build_context(**kwargs)
 
     def guards(self, stack):
+        from dataclasses import replace
+        from modules.brain_contracts import RequestKind
+        def model(current, text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint='weather.read', arguments={'location': 'ankara'})
+        stack.enter_context(patch.object(brain_entry, 'apply_model_understanding', side_effect=model))
         for target in (patch.object(brain_entry.brain_context, "build_active_context",
                                     lambda **kwargs: self.context(**kwargs)),
                        patch("modules.job_front.observe", lambda owner: None),
@@ -136,7 +142,7 @@ class CanonicalRequestTests(unittest.TestCase):
         with contextlib.ExitStack() as stack:
             self.guards(stack)
             dispatch = stack.enter_context(patch("modules.engine_intents.dispatch", return_value="<<core>>"))
-            entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı")
+            entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı", model_understanding=True)
             output, _feedback, _job = brain_entry.handoff(self.runtime, entry, handler, text)
         return entry, output, dispatch
 

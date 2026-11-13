@@ -293,9 +293,7 @@ class MessageModelAuthorityTests(_ZarfHarness):
         payload, _end = json.JSONDecoder().raw_decode(
             captured["payload"][captured["payload"].index("{"):])
         advertised = set(payload["allowed"]["capability_id"])
-        self.assertEqual(set(model._MODEL_DENIED_CAPABILITIES),
-                         {understanding.WEATHER_CITY_SET_CAPABILITY,
-                          understanding.WEATHER_CITY_RESET_CAPABILITY})
+        self.assertEqual(set(model._MODEL_DENIED_CAPABILITIES), set())
         self.assertIn(_MESSAGE, advertised)
         self.assertIn(_CONTACTS, advertised)
         self.assertEqual(advertised & set(model._MODEL_DENIED_CAPABILITIES), set())
@@ -686,10 +684,13 @@ class MessageTurnTests(_MessageTurnHarness):
         self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
                                              "Ahmet Demir": "905321110002"}
         self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        pending = dict(self.ctx._session().pending_msg)
         _entry, out, _handle, _ = self._threaded_turn("Zeynep")
-        self.assertIn("rehber", str(out).casefold())
+        # The offered recipient set contains no Zeynep; independent model CHAT
+        # cannot consume that State owner or silently replace its recipient.
+        self.assertEqual(out, "CHAT")
         self.send.assert_not_called()
-        self.assertIsNone(self.ctx._session().pending_msg)
+        self.assertEqual(self.ctx._session().pending_msg, pending)
 
     def test_a_missing_body_is_asked_by_the_session_not_invented(self):
         _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e mesaj gönder")
@@ -806,6 +807,32 @@ class MessageTurnTests(_MessageTurnHarness):
         self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
         _entry, out, _handle, _ = self._threaded_turn("Ahmet Demir")
         self.assertIn("geçerli değil", str(out).casefold())
+        self.send.assert_not_called()
+
+    def test_open_recipient_question_accepts_only_exact_owner_contact_without_model(self):
+        # "Ahmet Yılmaz" is an exact selection of an offered contact, not a
+        # new natural-language intent. The State Gate owns this follow-up and
+        # the canonical sender must still verify the saved phone number.
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {
+            "Ahmet Yılmaz": "905321110001", "Ahmet Demir": "905321110002"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        model_count = len(self.model_calls)
+        entry, response, _handle, feedback = self._threaded_turn("Ahmet Yılmaz")
+        self.assertEqual(entry.stage, "state")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
+        self.assertEqual(len(self.model_calls), model_count,
+                         "bounded recipient selection must not invoke semantic model")
+        self.assertNotIn(CONFIRM_QUESTION, str(response))
+        self.send.assert_called_once_with("Ahmet Yılmaz", "selam", "905321110001")
+
+    def test_recipient_selection_rejects_normalized_duplicate_without_side_effect(self):
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {
+            "Ahmet Yılmaz": "905321110001", "AHMET YILMAZ": "905321110002"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        entry, _reply, _handle, _feedback = self._threaded_turn("Ahmet Yılmaz")
+        self.assertNotEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
         self.send.assert_not_called()
 
     def test_approval_off_selecting_the_valid_candidate_sends_without_asking(self):

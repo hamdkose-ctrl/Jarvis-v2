@@ -190,66 +190,58 @@ class PhotoFeedbackTests(unittest.TestCase):
 
 
 class FrontGatePrecedenceTests(_Pipeline):
-    def spy_dispatch(self):
-        return patch("modules.engine_intents.dispatch", return_value="CORE")
+    """Retired raw domain gates cannot steal an accepted typed Core action."""
 
-    def test_contract_names_match_engine_commands_order(self):
+    def test_only_exact_protocol_gates_are_exposed(self):
         source = inspect.getsource(engine_commands.handle)
-        markers = {
-            "file_command": "runtime._file_command(",
-            "user_controls": "runtime._user_controls(",
-            "planner_command": "runtime._planner_command(",
-        }
-        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:-len(brain_precedence.TAIL_GATES)]]
-        positions.append(source.index("brain_precedence.claim_tail("))
-        self.assertEqual(positions, sorted(positions))
-        # Kuyruk aralığı yüzeyde ikinci kez listelenmez: kısayollar ve cascade tek sahibinden gelir.
-        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):]))
-        for gate in ("_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"):
-            self.assertNotIn(gate, source)
+        self.assertEqual(brain_precedence.FRONT_GATES, ("file_command", "macro_run"))
+        self.assertNotIn("runtime._planner_command(", source)
+        self.assertNotIn("runtime._user_controls(", source)
+        self.assertNotIn("runtime._extra_commands(", source)
+        self.assertNotIn("brain_precedence.claim_tail(", source)
+        self.assertFalse(hasattr(brain_precedence, "_gates"))
+        self.assertFalse(hasattr(brain_precedence, "TAIL_GATES"))
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
+        self.assertFalse(hasattr(self.ctx, "_user_controls"))
+        self.assertFalse(hasattr(self.ctx, "_extra_commands"))
 
-    def test_each_front_gate_beats_core_weather(self):
-        for gate in brain_precedence.FRONT_GATES:
-            with self.subTest(gate=gate), self.spy_dispatch() as dispatch:
-                reply = f"{gate}-reply"
-                with patch.object(brain_precedence, "_gates", side_effect=lambda r, c, l, p=None, g=gate: {
-                        n: (lambda n=n: reply if n == g else None) for n in brain_precedence.FRONT_GATES}):
-                    entry, out, feedback, handle = self.through_brain("hava nasıl")
-                self.assertEqual(out, reply)
-                dispatch.assert_not_called()
+    def test_explicit_ui_file_command_is_a_bounded_owner_protocol(self):
+        command = '"C:\\Temp\\report.pdf" özetle'
+        self.assertIsNotNone(self.ctx._FILE_CMD.match(command))
+        with patch.object(self.ctx, "_file_command", return_value="UI FILE") as file_worker:
+            self.assertEqual(
+                brain_precedence.claim(self.ctx, command, ("weather", {})),
+                ("file_command", "UI FILE"))
+        file_worker.assert_called_once_with(command)
 
-    def test_core_level_also_yields_to_front_gates(self):
-        with self.spy_dispatch() as dispatch, patch.object(brain_precedence, "claim", return_value=("macro_run", "MAKRO")):
-            entry, out, feedback, handle = self.through_brain("sesi 70 yap")
-        self.assertEqual(out, "MAKRO")
-        dispatch.assert_not_called()
+    def test_unregistered_free_language_never_calls_file_or_macro_worker(self):
+        self.ctx.profile.data["macros"] = {}
+        with patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("raw file classification")) as file_worker, \
+             patch.object(self.ctx, "_macro_run",
+                          side_effect=AssertionError("unregistered shortcut")) as macro:
+            self.assertIsNone(brain_precedence.claim(self.ctx, "hava nasıl"))
+        file_worker.assert_not_called()
+        macro.assert_not_called()
 
-    def test_gate_order_is_first_match_wins(self):
-        seen = []
-        table = {n: (lambda n=n: seen.append(n)) for n in brain_precedence.FRONT_GATES}
-        table["user_controls"] = lambda: (seen.append("user_controls"), "S")[1]
-        with patch.object(brain_precedence, "_gates", return_value=table):
-            self.assertEqual(brain_precedence.claim(self.ctx, "x"), ("user_controls", "S"))
-        self.assertEqual(seen, ["file_command", "user_controls"])
+    def test_registered_exact_macro_does_not_match_free_text_variants(self):
+        trigger = self.ctx._macro_key("sabah rutini")
+        self.ctx.profile.data["macros"] = {trigger: {"actions": ["hava nasıl"]}}
+        with patch.object(self.ctx, "_macro_run", return_value="MAKRO") as worker:
+            self.assertEqual(
+                brain_precedence.claim(self.ctx, "sabah rutini"),
+                ("macro_run", "MAKRO"))
+            for mention in ("sabah rutininin açıklamasını yap",
+                            "sabah rutini?", '"sabah rutini"',
+                            "sabah-rutini", "sabah rutini, neden?"):
+                with self.subTest(mention=mention):
+                    self.assertIsNone(brain_precedence.claim(self.ctx, mention))
+        worker.assert_called_once_with("sabah rutini")
 
-    def test_retired_windows_settings_gate_cannot_shadow_core(self):
-        self.ctx.system_control.windows_settings.return_value = "YASAK HAM YANIT"
-        with self.spy_dispatch() as dispatch:
-            entry, out, feedback, handle = self.through_brain("hava nasıl")
-        self.assertEqual(out, "CORE")
-        dispatch.assert_called_once()
-        self.ctx.system_control.windows_settings.assert_not_called()
-
-    def test_no_gate_claims_core_runs(self):
-        with self.spy_dispatch() as dispatch, patch.object(brain_precedence, "claim", return_value=None):
-            entry, out, feedback, handle = self.through_brain("hava nasıl")
-        self.assertEqual(out, "CORE")
-        dispatch.assert_called_once()
-        self.assertEqual(dispatch.call_args[0][1], "weather")
-
-    def test_fast_and_state_gates_still_precede_precedence(self):
-        with patch.object(brain_precedence, "claim", side_effect=AssertionError("claim yalnız Core planı için")):
-            entry, out, feedback, handle = self.through_brain("hedef durumu")
+    def test_fast_and_state_gates_never_require_raw_precedence(self):
+        with patch.object(brain_precedence, "claim",
+                          side_effect=AssertionError("Fast cannot run raw claimant")):
+            entry, _out, _feedback, _handler = self.through_brain("hedef durumu")
         self.assertTrue(entry.fast_gate is not None and entry.fast_gate.matched)
 
 

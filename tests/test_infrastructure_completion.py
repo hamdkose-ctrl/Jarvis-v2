@@ -22,17 +22,15 @@ class InfrastructureTests(unittest.TestCase):
         self.assertTrue(alice.edit_fact(0,'Yeni bilgi',None));self.assertEqual(alice.data['facts'],[])
 
     def test_screen_share_spelling_routes_to_existing_share_control(self):
-        import re
         from types import SimpleNamespace
-        from modules import engine_context
-        from modules.session_state import SessionState
+        from modules import brain_core_map, engine_intents, engine_context
         control=Mock(return_value='paylaşım sonucu')
-        runtime=SimpleNamespace(re=re,set_share=control,_session=lambda:SessionState())
-        for text in ('ekran paylaşımını aç','ekran paylasımını aç','ekran paylasimini aç'):
-            self.assertEqual(engine_context._user_command(runtime,text,text),'paylaşım sonucu')
-            control.assert_called_with('screen')
-        engine_context._user_command(runtime,'ekran paylasimini kapat','ekran paylasimini kapat')
-        control.assert_called_with(None)
+        runtime=SimpleNamespace(set_share=control)
+        self.assertFalse(hasattr(engine_context, '_user_controls'))
+        for action, expected in (('screen', 'screen'), ('stop', None)):
+            plan=brain_core_map.core_plan('device.share', {'action': action})
+            self.assertEqual(engine_intents.dispatch(runtime, plan[0], plan[1], '', ''), 'paylaşım sonucu')
+            control.assert_called_with(expected)
 
     def test_queue_status_uses_human_schedule_and_named_action(self):
         from modules import task_queue

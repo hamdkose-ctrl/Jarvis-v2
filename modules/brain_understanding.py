@@ -562,8 +562,10 @@ def _research_arguments(original: str, normalized: str) -> dict[str, object]:
 _NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
 _NOTES_SINGULAR = ("not", "notu", "notunu", "notum", "notumu")
 _NOTES_READ_VERBS = ("göster", "goster", "oku", "say", "listele")
+# Match only complete imperative verbs: Turkish negative -me/-ma (silme, kaldırma)
+# must never be promoted to a note mutation by the old model fallback.
 _NOTES_WRITE_RE = re.compile(
-    r"^(?P<target>.+?)\s+not\w*\s+(?P<verb>sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
+    r"^(?P<target>.+?)\s+not\w*\s+(?P<verb>sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)"
     r"(?:\s*[:,]\s*(?P<new>.*))?$"
 )
 _NOTES_WRITE_STOP = frozenset({
@@ -2677,6 +2679,47 @@ def understand(
     )
 
 
+def _observed_pending_owner(active_context: ActiveContext | None, owner: str) -> PendingOwner | None:
+    """Read one actual owner-local session slot, never infer intent from words.
+
+    The model chooses ANSWER_TO_PENDING; this observation only binds that
+    decision to the one existing slot. Multiple open answer slots stay
+    unresolved rather than guessing which mutable session to consume.
+    """
+    if active_context is None:
+        return None
+    observed: set[PendingOwner] = set()
+    for ref in active_context.pending_references:
+        if ref.owner != owner:
+            continue
+        if ref.source == "desktop_agent" and ref.provenance.get("status") == "question":
+            observed.add(PendingOwner.DESKTOP_REPLY)
+            continue
+        if ref.source != "session_state":
+            continue
+        field = ref.provenance.get("field") or ref.id
+        if field == "pending_weather_location":
+            observed.add(PendingOwner.WEATHER_LOCATION)
+        elif field == "pending_msg":
+            state = ref.provenance.get("value")
+            stage = state.get("stage") if isinstance(state, Mapping) else None
+            if stage == "to":
+                observed.add(PendingOwner.MESSAGE_TO)
+            elif stage == "text":
+                observed.add(PendingOwner.MESSAGE_TEXT)
+        elif field == "pending_action":
+            state = ref.provenance.get("value")
+            if isinstance(state, Mapping) and state.get("stage") == "clarify":
+                observed.add(PendingOwner.APP_CLARIFY)
+        elif field == "pending_app":
+            observed.add(PendingOwner.APP_SELECTION)
+        elif field == "pending_event_title" and isinstance(ref.provenance.get("value"), str):
+            observed.add(PendingOwner.EVENT_TIME)
+        elif field == "pending_desktop":
+            observed.add(PendingOwner.DESKTOP_REPLY)
+    return next(iter(observed)) if len(observed) == 1 else None
+
+
 def apply_model_understanding(result: UnderstandingResult, text: str, *,
                               active_context: ActiveContext | None = None) -> UnderstandingResult:
     """Birincil model zarfını kanonikal anlama sonucuna işler.
@@ -2690,6 +2733,25 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
     """
     try:
         from modules.brain_model_understanding import REQUEST_KIND_BY_OPERATION, propose
+        # An existing photo is evidence, not a semantic decision. The
+        # model must NEVER supply a path; the current request's immutable
+        # owner-scoped photo artifact is bound internally and Core verifies it
+        # again before any effect. A non-unique observation stays unresolved.
+        photo_rows = tuple(
+            ref for ref in (() if active_context is None else active_context.active_artifacts)
+            if ref.owner == result.owner and ref.kind == "photo"
+            and ref.source == "engine_queue.photo"
+            and isinstance(ref.provenance.get("path"), str)
+            and ref.provenance.get("path")
+        )
+        current_photo = tuple(
+            ref for ref in photo_rows
+            if ref.provenance.get("origin_request_id") == result.request_id
+        )
+        photo_pool = current_photo if current_photo else photo_rows
+        photo_path = (photo_pool[0].provenance["path"]
+                      if len({ref.provenance["path"] for ref in photo_pool}) == 1
+                      else None)
         proposal = propose(
             owner=result.owner,
             text=text,
@@ -2698,8 +2760,10 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             protected_relation=(
                 result.pending_owner is not None
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
+                or bool(active_context is not None and active_context.pending_references)
             ),
-            file_operation_hint=_file_operation(_norm(text)),
+            file_operation_hint=None,
+            photo_path=photo_path,
             # BRAIN-05: modelin adresleyebileceği tek hedef kümesi, Core'un bu tur için
             # owner'ın kendi kayıtlarından gözlemlediği açık kartlardır; resolver aynı
             # ActiveContext alanını sonradan yeniden doğrular.
@@ -2707,21 +2771,66 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 ref for ref in (() if active_context is None else active_context.goal_candidates)
                 if ref.owner == result.owner
             ),
+            # A successful Core readback records the one fresh owner-bound
+            # level target. Offer that factual observation to the model so
+            # a bare "50" can refer to the previous verified volume/brightness
+            # adjustment without feeding it a legacy regex classification.
+            last_verified_level_property=next(
+                (ref.provenance.get("value")
+                 for ref in (() if active_context is None else active_context.recent_references)
+                 if ref.owner == result.owner and ref.source == "session_state"
+                 and ref.id == "last_property"
+                 and ref.provenance.get("value") in {"volume", "brightness"}),
+                None,
+            ),
+            # Recent turns are owner-bound observations, not instructions to
+            # the model. Keep the latest eight, short and role-labelled; never
+            # ship the full history or credentials through this context path.
+            recent_turns=tuple(
+                {"id": str(ref.id), "role": str(ref.provenance.get("role")), "text": ref.provenance["text"][:350]}
+                for ref in (() if active_context is None else active_context.recent_references)
+                if ref.owner == result.owner and ref.kind == "conversation_turn"
+                and ref.source == "history"
+                and ref.provenance.get("role") in {"user", "assistant"}
+                and isinstance(ref.provenance.get("text"), str)
+            )[-8:],
+            turn_candidates=tuple(
+                ref for ref in (() if active_context is None else active_context.recent_references)
+                if ref.owner == result.owner and ref.kind == "conversation_turn"
+                and ref.source == "history" and ref.provenance.get("role") in {"user", "assistant"}
+                and isinstance(ref.provenance.get("text"), str)
+            )[-8:],
+            current_time=active_context.current_time if active_context is not None else None,
+            development_active=active_context.development_active if active_context is not None else False,
+            pending_context=tuple(
+                str(ref.provenance.get("field") or ref.id)
+                + (
+                    ":" + str(ref.provenance["value"].get("stage"))
+                    if isinstance(ref.provenance.get("value"), Mapping)
+                    and isinstance(ref.provenance["value"].get("stage"), str)
+                    else ":question:" + str(ref.provenance["question"])[:600]
+                    if ref.source == "desktop_agent" and isinstance(ref.provenance.get("question"), str)
+                    else ""
+                )
+                for ref in (() if active_context is None else active_context.pending_references)
+                if ref.owner == result.owner and ref.kind == "pending_state"
+            )[:8],
             session_artifacts=tuple(
                 {"slot": "last_doc", "label": str(ref.provenance.get("label") or "")[:120]}
                 for ref in (() if active_context is None else active_context.active_artifacts)
                 if ref.owner == result.owner and ref.id == "last_doc"
                 and ref.source == "session_state" and ref.provenance.get("document_digest")
+            ) + tuple(
+                {"slot": "last_workbench", "label": "recent document table"}
+                for ref in (() if active_context is None else active_context.active_artifacts)
+                if ref.owner == result.owner and ref.id == "last_workbench"
+                and ref.source == "workbench" and ref.provenance.get("digest")
             ),
         )
         if proposal is None:
             return result
         request_kind = REQUEST_KIND_BY_OPERATION[proposal.operation]
         goal_control = request_kind is RequestKind.GOAL_CONTROL
-        # Typed bir görsel isteği ürün niyetidir: model bağlamı yorumlayabilir ama onu
-        # istenen resmi sohbete çeviremez.
-        if result.capability_hint == VISUAL_CAPABILITY and request_kind is not RequestKind.CAPABILITY:
-            return result
         action = proposal.actions[0] if proposal.actions else None
         batch = proposal.operation == "action_batch"
         # A batch never collapses into its first action: Core receives every validated action,
@@ -2734,23 +2843,35 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         next_hint = None if batch or action is None else action.capability_id
         next_arguments = {"original_text": text} if batch else (
             dict(action.arguments) if action is not None else {"original_text": text})
-        next_preview = result.preview
+        next_preview = None
         next_references = proposal.references if proposal.references else result.references
-        next_ambiguities = result.ambiguities
-        next_reason_codes = result.reason_codes
-        next_needs_input = result.needs_input
+        # A valid model decision replaces the old lexical guess. Its ambiguity
+        # is not inherited; only an explicit model clarify or missing Core
+        # target may ask another question.
+        next_ambiguities = ()
+        # Only an accepted, schema-validated model proposal may authorize free
+        # language. Deterministic Understanding is evidence, never the fallback
+        # decision maker when the model does not produce a valid proposal.
+        next_reason_codes = result.reason_codes + ("MODEL_DECIDED",)
+        # BRAIN-03: distinguish an accepted model CHAT decision from a model
+        # failure returning the deterministic fallback. Otherwise the old raw
+        # handler may turn a negative/quoted chat utterance into an effect.
+        # This marker carries no model text, permission or effect authority.
+        if proposal.operation == "chat":
+            next_reason_codes = next_reason_codes + ("MODEL_CHAT_DECIDED",)
+        next_needs_input = False
 
         if request_kind is RequestKind.CLARIFY:
             next_arguments = {"original_text":text, "question":proposal.clarification_question}
-            next_ambiguities = result.ambiguities or ("MODEL_CLARIFICATION_REQUIRED",)
-            next_reason_codes = result.reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
+            next_ambiguities = ("MODEL_CLARIFICATION_REQUIRED",)
+            next_reason_codes = next_reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
             next_needs_input = True
 
         if proposal.references and request_kind is not RequestKind.CLARIFY:
             next_ambiguities = ()
             next_needs_input = False
             next_reason_codes = tuple(
-                code for code in result.reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
+                code for code in next_reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
             ) + ("MODEL_REFERENCE_RESOLVED",)
         if request_kind is RequestKind.CAPABILITY and not next_ambiguities:
             next_preview = _preview_text(next_hint, next_arguments, next_references)
@@ -2759,10 +2880,22 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             # kimlikler ve (yalnız create) kart etiketi. Yürütme yetkisi burada değil,
             # goal_resolver'ın Core'dan yeniden doğruladığı yerde.
             next_reason_codes = next_reason_codes + (MODEL_GOAL_OPERATION,)
+        model_pending_owner = None
+        if proposal.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+            model_pending_owner = _observed_pending_owner(active_context, result.owner)
+            photo_answer = next_hint == PHOTO_CAPABILITY and photo_path is not None
+            if (model_pending_owner is None and not photo_answer
+                    and request_kind not in {RequestKind.GOAL_CONTROL, RequestKind.CLARIFY}):
+                next_needs_input = True
+                next_ambiguities = ("MODEL_CLARIFICATION_REQUIRED",)
+                next_arguments = {"original_text": text,
+                                  "question": "Hangi bekleyen soruya cevap verdiğini netleştirir misin?"}
+                next_reason_codes += ("MODEL_CLARIFICATION_REQUIRED", "PENDING_OWNER_NOT_UNIQUE")
         return replace(
             result,
             request_kind=request_kind,
             conversation_relation=proposal.conversation_relation,
+            pending_owner=model_pending_owner,
             temporal_need=proposal.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,

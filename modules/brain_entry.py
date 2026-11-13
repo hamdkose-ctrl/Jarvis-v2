@@ -31,10 +31,11 @@ from modules.brain_contracts import (
     ConversationRelation,
     PendingOwner,
     RequestKind,
+    UnderstandingResult,
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import apply_model_understanding, is_sequenced, sequence_steps, understand
+from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -131,18 +132,7 @@ def _append_artifact(active: ActiveContext, artifact: ContextReference | None) -
     artifacts = active.active_artifacts
     if not any(row is artifact or (row.kind, row.id) == (artifact.kind, artifact.id) for row in artifacts):
         artifacts = artifacts + (artifact,)
-    return ActiveContext(
-        owner=active.owner,
-        request_id=active.request_id,
-        topic=active.topic,
-        active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
-        active_task_references=active.active_task_references,
-        recent_references=active.recent_references,
-        active_artifacts=artifacts,
-        pending_references=active.pending_references,
-        memory_references=active.memory_references,
-    )
+    return replace(active, active_artifacts=artifacts)
 
 
 def _append_pending(active: ActiveContext, pending: ContextReference | None) -> ActiveContext:
@@ -154,18 +144,7 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
     if not any(row is pending or (row.source, row.kind, row.id) == (pending.source, pending.kind, pending.id)
                for row in refs):
         refs = refs + (pending,)
-    return ActiveContext(
-        owner=active.owner,
-        request_id=active.request_id,
-        topic=active.topic,
-        active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
-        active_task_references=active.active_task_references,
-        recent_references=active.recent_references,
-        active_artifacts=active.active_artifacts,
-        pending_references=refs,
-        memory_references=active.memory_references,
-    )
+    return replace(active, pending_references=refs)
 
 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
@@ -304,10 +283,41 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     )
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
+    # Clock is a Core observation, never inferred from the utterance.
+    from datetime import datetime
+    clock = getattr(runtime, "datetime", datetime)
+    now = clock.now().astimezone().isoformat(timespec="seconds")
+    from modules import developer
+    try:
+        development = developer.status(owner)
+    except (ValueError, OSError):
+        _record_failure("modules/brain_entry.py:development_observation")
+        development = {}
+    active = replace(active, current_time=now, development_active=(
+        development.get("enabled") is True and development.get("unlocked") is True))
     active = _with_app_target_evidence(active, runtime)
     active = _with_recipient_evidence(active, runtime)
+    # An ephemeral Workbench job is a canonical owner-scoped artifact by
+    # opaque digest only; its stored file paths never enter the model.
+    from modules import workbench
+    digest = workbench.snapshot_digest(owner)
+    if digest is not None:
+        active = _append_artifact(active, ContextReference(
+            id="last_workbench", kind="artifact", source="workbench", owner=owner,
+            provenance={"digest": digest},
+        ))
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
+    # Taildrop choice is a bounded owner-local State protocol. Never give
+    # the model candidate paths or let filesend.handle parse "1" again.
+    from modules import filesend
+    file_choices = filesend.pending_choices(owner)
+    if file_choices is not None:
+        names, expires = file_choices
+        active = _append_pending(active, ContextReference(
+            id="pending_filesend", kind="pending_state", source="filesend", owner=owner,
+            provenance={"choices": names, "expires": expires},
+        ))
     return _append_artifact(active, artifact)
 
 
@@ -344,10 +354,12 @@ def _state_refs(runtime: Any, owner: str, request_id: str, active: ActiveContext
     except Exception:
         _record_failure("modules/brain_entry.py:desktop_consent_observe")
         desktop = None
-    if isinstance(desktop, dict) and desktop.get("status") == "consent":
+    if isinstance(desktop, dict) and desktop.get("status") not in {"done", "cancelled"}:
         rows.append(ContextReference(
-            id="consent", kind="pending_state", source="desktop_agent", owner=owner,
-            provenance={"status": "consent"},
+            id="consent" if desktop.get("status") == "consent" else "desktop",
+            kind="pending_state", source="desktop_agent", owner=owner,
+            provenance={"status": desktop.get("status"), "job_id": desktop.get("id"),
+                        "question": desktop.get("question")},
         ))
 
     photo = _pending_photo_state(active)
@@ -366,6 +378,7 @@ def _semantic_pass(
     text: str,
     active: ActiveContext,
     allow_file_scan: bool,
+    model_only: bool = False,
 ):
     candidates = build_candidates(
         owner=owner,
@@ -382,14 +395,25 @@ def _semantic_pass(
         active_context=active,
         candidates=candidates,
     )
-    semantic = understand(
-        owner=owner,
-        request_id=request_id,
-        text=text,
-        active_context=active,
-        candidates=candidates,
-        references=references,
-    )
+    if model_only:
+        # Candidate and reference observations are not intent judgments.
+        # The primary model receives a neutral proposal: no legacy keyword
+        # capability, argument, relation or ambiguity may become authority.
+        semantic = UnderstandingResult(
+            owner=owner, request_id=request_id, request_kind=RequestKind.CHAT,
+            arguments={"original_text": text}, references=references,
+        )
+    else:
+        # Legacy isolated test fixture path only. Production engine and
+        # nested canonical steps ALWAYS request model_only=True.
+        semantic = understand(
+            owner=owner,
+            request_id=request_id,
+            text=text,
+            active_context=active,
+            candidates=candidates,
+            references=references,
+        )
     if semantic.owner != owner or semantic.request_id != request_id:
         raise ValueError("Understanding owner/request fence eşleşmiyor.")
     return candidates, references, semantic
@@ -446,15 +470,24 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     if fast.matched:
         return EntryResult(owner, request_id, source, text, active, state, fast)
 
+    # Native questions are owner-bound observations, not selectable targets.
+    # Include their text in model context even after the session flag was lost
+    # on restart; State/Fast arbitration above has already run.
+    for native in state_refs:
+        if native.source == "desktop_agent" and native.provenance.get("status") == "question":
+            active = _append_pending(active, native)
+
+    from modules.brain_reference import file_observation_requested
     candidates, references, semantic = _semantic_pass(
         runtime,
         owner=owner,
         request_id=request_id,
         text=text,
         active=active,
-        allow_file_scan=False,
+        allow_file_scan=model_understanding and file_observation_requested(text),
+        model_only=model_understanding,
     )
-    if _needs_file_discovery(references, semantic):
+    if not model_understanding and _needs_file_discovery(references, semantic):
         candidates, references, semantic = _semantic_pass(
             runtime,
             owner=owner,
@@ -464,10 +497,29 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             allow_file_scan=True,
         )
     if model_understanding:
-        # Exactly one bounded proposal runs after final candidate/reference enrichment.
-        semantic = apply_model_understanding(semantic, text, active_context=active)
+        # Identity is the admission fence: apply_model_understanding returns the
+        # ORIGINAL evidence result on invalid, rejected or unavailable model
+        # proposals, and a NEW immutable result only on accepted proposals.
+        # Tests can supply a model adapter without forging authority flags.
+        evidence = semantic
+        from modules.brain_model_understanding import proposal_diagnostic
+        proposal_diagnostic(clear=True)
+        semantic = apply_model_understanding(evidence, text, active_context=active)
+        if semantic is evidence:
+            diagnostic = proposal_diagnostic()
+            reason = diagnostic.get("reason_code")
+            unavailable = (not diagnostic or reason in {
+                "PROVIDER_UNAVAILABLE", "PROVIDER_ROUTE_DISABLED", "MODEL_CALL_ERROR",
+                "MODEL_CALL_OR_VALIDATION_ERROR", "LOCAL_DEADLINE_EXCEEDED", "REQUEST_CANCELLED",
+            })
+            semantic = replace(
+                evidence, reason_codes=evidence.reason_codes + (
+                    "MODEL_UNAVAILABLE" if unavailable else "MODEL_PROPOSAL_REJECTED",))
+        elif "MODEL_DECIDED" not in semantic.reason_codes:
+            semantic = replace(
+                semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))
         references = semantic.references
-    return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
+    return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic, state_references=state_refs)
 
 
 def core_proposal(entry: EntryResult) -> dict[str, object]:
@@ -579,10 +631,16 @@ def _open_core_pending(runtime: Any) -> frozenset[str]:
     except Exception:
         _record_failure("modules/brain_entry.py:core_pending_snapshot")
         return frozenset()
-    return frozenset(
+    result = {
         field for field in brain_context._PENDING_FIELDS
         if getattr(state, field, None) not in (None, False, "", (), [], {})
-    )
+    }
+    # A Taildrop clarification is a real Core pending slot, not a prose
+    # success. Macro/batch execution must stop at this boundary.
+    from modules import filesend
+    if filesend.pending_choices(runtime.profile.slug) is not None:
+        result.add("pending_filesend")
+    return frozenset(result)
 
 
 @contextmanager
@@ -732,9 +790,10 @@ def _install_job_guard() -> None:
         if entry is not None:
             if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
                 return None
-            if entry.state_gate.matched and not matched_protocol("job.resume", "job.cancel"):
+            if entry.state_gate.matched and not matched_protocol(
+                    "job.resume", "job.cancel", "job.empty_cancel"):
                 return None
-        canonical = matched_protocol("job.resume", "job.cancel")
+        canonical = matched_protocol("job.resume", "job.cancel", "job.empty_cancel")
         return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
 
     job_front._brain_legacy_route = original
@@ -937,19 +996,6 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
-def step_plan(command: str) -> tuple[str, ...]:
-    """Bu turn'ün kanonical sıralı adım planı; ham motor yüzeyi cümleyi kendi başına bölmez.
-
-    Karar bağlı request'e aittir: giriş bu turn'ün cümlesiyle birebir aynı olmalıdır. Böylece
-    düzeltilmiş/geçmiş bir metin görüşü ikinci bir adım planı üretemez. Sıra gramerinin tek sahibi
-    Understanding'dir (`sequence_steps`); plan boşsa yüzey tek isteğe sahip normal akışına devam
-    eder, adım yürütmesi typed adaptörde (`engine_sequence._run_steps`) kalır."""
-    entry = current()
-    if entry is None or entry.text.strip() != command:
-        return ()
-    return sequence_steps(command)
-
-
 def _canonical_photo_path(entry: EntryResult) -> tuple[str | None, bool]:
     """Re-derive the one photo artifact this request may act on; Core does not trust the proposal.
 
@@ -984,9 +1030,11 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    if is_sequenced(entry.text) and not entry.batch_child:
-        return None
-    plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    arguments = semantic.arguments
+    if semantic.capability_hint == "development.manage":
+        # Approval source is the immutable Core entry, never a model field.
+        arguments = {**arguments, "original_text": entry.text}
+    plan = brain_core_map.core_plan(semantic.capability_hint, arguments)
     if plan is not None and plan[0] == "document_export":
         artifacts = [ref for ref in entry.active_context.active_artifacts
                      if ref.owner == entry.owner and ref.kind == "artifact"
@@ -997,6 +1045,16 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         if not isinstance(digest, str) or len(digest) != 64:
             return None
         plan = (plan[0], {"document_owner": entry.owner, "document_digest": digest})
+    if plan is not None and plan[0] == "workbench_followup":
+        references = [ref for ref in entry.active_context.active_artifacts
+                      if ref.owner == entry.owner and ref.id == "last_workbench"
+                      and ref.source == "workbench" and ref.kind == "artifact"]
+        if len(references) != 1:
+            return None
+        digest = references[0].provenance.get("digest")
+        if not isinstance(digest, str) or len(digest) != 64:
+            return None
+        plan = ("workbench_followup", {**plan[1], "expected_digest": digest})
     photo_plan = plan is not None and plan[0] == "photo_action"
     if photo_plan:
         selected, ambiguous = _canonical_photo_path(entry)
@@ -1015,6 +1073,23 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         # A note effect/read may target only an id Brain resolved for THIS request, never an arbitrary string.
         if ident is not None and ident not in {ref.id for ref in semantic.references if ref.kind == "note"}:
             return None
+        if plan[0] == "notes_write":
+            # This digest is Core-owned and never provided by the model. Recheck
+            # the persisted record at the exact effect boundary before writing.
+            matches = [ref for ref in semantic.references
+                       if ref.kind == "note" and ref.owner == entry.owner
+                       and ref.id == ident]
+            if len(matches) != 1:
+                return None
+            from modules import main_planner
+            observed = {"id": matches[0].id, **{
+                key: matches[0].provenance.get(key)
+                for key in ("text", "title", "ts", "photo")
+            }}
+            digest = main_planner.note_snapshot_digest(observed)
+            if digest is None:
+                return None
+            plan = ("notes_write", {**plan[1], "expected_note_digest": digest})
     if plan is not None and plan[0] == "file_action":
         allowed = {str(ref.provenance.get("path")) for ref in semantic.references
                    if ref.kind == "file" and isinstance(ref.provenance.get("path"), str)}
@@ -1023,6 +1098,16 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         if path is not None and path not in allowed:
             return None
         if paths is not None and (not isinstance(paths, (list, tuple)) or any(value not in allowed for value in paths)):
+            return None
+    if plan is not None and plan[0] == "file_mutate" and plan[1].get("operation") in {"rename", "move"}:
+        allowed = {ref.provenance.get("path") for ref in semantic.references
+                   if ref.owner == entry.owner and ref.kind == "file"}
+        if plan[1].get("path") not in allowed:
+            return None
+    if plan is not None and plan[0] == "development_manage":
+        allowed = {ref.provenance.get("path") for ref in semantic.references
+                   if ref.owner == entry.owner and ref.kind == "file"}
+        if any(path not in allowed for path in plan[1].get("reference_paths", ())):
             return None
     if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
         return None
@@ -1035,7 +1120,9 @@ def _translate_source_is_brains(entry: EntryResult, args: Mapping[str, Any]) -> 
     if args.get("origin") == "inline":
         return text in entry.text
     turn_id = args.get("turn_id")
-    return any(ref.kind == "conversation_turn" and ref.id == turn_id
+    return any(ref.owner == entry.owner and ref.source == "history"
+               and ref.provenance.get("role") == args.get("origin")
+               and ref.kind == "conversation_turn" and ref.id == turn_id
                and str(ref.provenance.get("text") or "").strip() == text for ref in entry.candidates)
 
 
@@ -1052,11 +1139,42 @@ def _use_existing_handler(entry: EntryResult) -> bool:
         # stays open; a capability never silently falls through to chat because of a slot.
         return not _pending_owns_turn(entry)
     if semantic.request_kind is RequestKind.CHAT:
-        # Chat is never an open slot's answer. An independent chat-shaped request keeps the
-        # existing handler path (Brain-unmapped phrases such as "hava durumuna bak" still have a
-        # legacy owner); slot consumers are fenced by pending_answer_owned, so the slot survives.
+        # A *validated model CHAT* decision has already determined that this
+        # utterance requests no effect. It cannot be reclassified by legacy
+        # camera/share/note/extra parsers. If the model was unavailable or
+        # rejected, no marker exists and established fallback is preserved.
+        # Bounded pending answers keep their State owner above this branch.
+        if "MODEL_DECIDED" in semantic.reason_codes or "MODEL_CHAT_DECIDED" in semantic.reason_codes:
+            return False
         return not _pending_owns_turn(entry)
     return False
+
+
+def _is_explicit_owner_protocol(runtime: Any, command: str) -> bool:
+    """Exact user-addressed owner commands; never a raw NL fallback."""
+    from modules import brain_precedence
+    if (brain_precedence.explicit_desktop_owner_protocol(command)
+            or brain_precedence.explicit_workflow_owner_protocol(command)
+            or brain_precedence.explicit_task_control_protocol(command)):
+        return True
+    from modules import main_documents
+    match = getattr(runtime, "_FILE_CMD", None)
+    if main_documents.explicit_ui_file_command(command, match):
+        return True
+    from modules import git_publish
+    if git_publish.requested(command):
+        return True
+    import updater
+    return updater.command_request(command) is not None
+
+
+def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: str) -> bool:
+    """An explicit bounded command survives an accepted model CHAT verdict."""
+    semantic = entry.understanding
+    if (semantic is None or semantic.request_kind is not RequestKind.CHAT
+            or not ({"MODEL_DECIDED", "MODEL_CHAT_DECIDED"} & set(semantic.reason_codes))):
+        return False
+    return _is_explicit_owner_protocol(runtime, command)
 
 
 def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
@@ -1106,7 +1224,7 @@ def _core_rejected_proposal(entry: EntryResult) -> bool:
         return False
     if not (set(semantic.arguments) - {"original_text"}):
         return False
-    return not is_sequenced(entry.text) and not _pending_owns_turn(entry)
+    return not _pending_owns_turn(entry)
 
 
 def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]] | None:
@@ -1132,6 +1250,29 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
             if len(refs) != 1:
                 return None
             pending_snapshot = refs[0].provenance.get("value")
+        if gate.protocol == "hoca.lesson.control":
+            # Canonical State reply is bound to the exact observed lesson
+            # question/step; no arbitrary input or unowned course identifier.
+            refs = [ref for ref in entry.active_context.pending_references
+                    if ref.source == "profile.hoca" and ref.id == "lesson.pending"
+                    and ref.owner == entry.owner]
+            if len(refs) == 1:
+                pending_snapshot = dict(refs[0].provenance)
+            elif not refs:
+                active = [ref for ref in entry.active_context.active_task_references
+                          if ref.source == "profile.hoca" and ref.id == "lesson"
+                          and ref.owner == entry.owner
+                          and ref.provenance.get("has_pending") is False]
+                if len(active) != 1:
+                    return None
+                pending_snapshot = {
+                    "step": active[0].provenance.get("active"),
+                    "question": "",
+                    "started": active[0].provenance.get("started"),
+                    "course_id": active[0].provenance.get("course_id"),
+                }
+            else:
+                return None
         return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)
     fast = entry.fast_gate
     if fast is not None and fast.matched:
@@ -1142,6 +1283,13 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
 
 def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Run each adopted action through the existing Core intent path, never raw text."""
+    from modules.command_manager import awaiting_input
+    if awaiting_input(runtime._session()):
+        row = feedback(entry, result_status="needs_input", reason_code="CORE_AWAITING_INPUT",
+                       core_ambiguities=("core pending: existing interaction",))
+        _LAST_FEEDBACK.set(row)
+        return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım. "
+                "Önce bekleyen yanıtı tamamla veya iptal et.", row, None)
     semantic = entry.understanding
     actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
     outcomes: dict[str, str] = {}
@@ -1207,6 +1355,60 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
         raise ValueError("Core handoff owner eşleşmiyor.")
+    semantic = entry.understanding
+    # The last verified volume/brightness target belongs only to an adjacent
+    # level-setting conversation. A different canonical turn (including chat,
+    # web navigation, exact controls, model outage or clarification) closes
+    # that context before it can leak into a later bare-number request.
+    if not (entry.stage == "understanding" and semantic is not None
+            and semantic.capability_hint == "pc.level.set"
+            and "MODEL_DECIDED" in semantic.reason_codes):
+        from modules import session_state
+        session_reader = getattr(runtime, "_session", None)
+        if callable(session_reader):
+            session_state.clear_property(session_reader())
+    if semantic is None or semantic.capability_hint != "notes.write":
+        from modules import session_state
+        session_reader = getattr(runtime, "_session", None)
+        if callable(session_reader):
+            # Reads/adds must publish their own successful result. Other turns
+            # close the previous referent instead of letting it drift topics.
+            session_state.clear_note(session_reader())
+    if (entry.stage == "understanding" and semantic is not None
+            and {"MODEL_UNAVAILABLE", "MODEL_PROPOSAL_REJECTED"}.intersection(semantic.reason_codes)):
+        # State and Fast lanes have their own exact Core protocols. They never
+        # depend on the general semantic model's availability.
+        # Only explicit UI-path and exact user-registered shortcut protocols
+        # survive a model outage. A synthetic non-reminder plan closes all
+        # raw front gates (planner/camera/cascade/fuzzy macro) in precedence.
+        exact = brain_precedence.claim(runtime, command, ("unsupported", {}))
+        if exact is not None:
+            row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
+            _LAST_FEEDBACK.set(row)
+            return exact[1], row, None
+        # Independent exact PC/workflow/git/updater owner protocols must remain
+        # operational without the semantic model. Do not admit any raw natural
+        # language fallback; only a whole explicit protocol can enter the
+        # existing bounded handler and its permission checks.
+        if _is_explicit_owner_protocol(runtime, command):
+            if not callable(handler):
+                raise ValueError("Exact protocol handler callable olmalı.")
+            _install_core_guards(runtime)
+            with bind(entry):
+                output = handler(command)
+            if output is not None:
+                row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
+                _LAST_FEEDBACK.set(row)
+                return output, row, None
+        rejected = "MODEL_PROPOSAL_REJECTED" in semantic.reason_codes
+        row = feedback(entry, result_status="failed", reason_code=(
+            "BRAIN_MODEL_PROPOSAL_REJECTED" if rejected else "BRAIN_MODEL_UNAVAILABLE"))
+        _LAST_FEEDBACK.set(row)
+        if rejected:
+            return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
+                    "hiçbir işlem başlatmadım.", row, None)
+        return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
+                "güvenlik için işlem başlatmadım.", row, None)
     question = clarification(entry)
     if question is not None:
         if entry.understanding is not None:
@@ -1241,7 +1443,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         row = feedback(entry, result_status="failed", reason_code="PHOTO_TARGET_NOT_VALIDATED")
         _LAST_FEEDBACK.set(row)
         return message, row, None
-    if plan is None and lane_plan is None and _core_rejected_proposal(entry):
+    if (plan is None and lane_plan is None
+            and (_core_rejected_proposal(entry)
+                 or (semantic is not None and "MODEL_DECIDED" in semantic.reason_codes
+                     and semantic.request_kind is RequestKind.CAPABILITY))):
         # Core'un reddettiği tam tipli öneri ham cepheden ikinci kez yürütülemez: ne etki ne
         # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
         message = "Bu isteği güvenli biçimde doğrulayamadım; işlem başlatılmadı."
@@ -1256,6 +1461,17 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     goal_resolution = None
     try:
         with bind(entry):
+            # A model-accepted independent request supersedes an unanswered
+            # reminder creation/conflict prompt. Without this fence, a later
+            # unrelated "evet" can create an old event the user has left behind.
+            # A true ANSWER_TO_PENDING still belongs to the existing State owner.
+            if (entry.stage == "understanding" and semantic is not None
+                    and "MODEL_DECIDED" in semantic.reason_codes
+                    and semantic.conversation_relation in {
+                        ConversationRelation.NEW_REQUEST, ConversationRelation.TOPIC_CHANGE
+                    }
+                    and semantic.capability_hint != "reminder.propose"):
+                runtime._session().pending_event_title = None
             if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             _photo_lifecycle(runtime, entry)
@@ -1279,6 +1495,8 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                     # Protokol cevapları tek sahibine gider: cümlenin kendisi hiçbir yerde yeniden sınıflandırılmaz.
                     from modules.engine_intents import dispatch
                     output = dispatch(runtime, lane_plan[0], dict(lane_plan[1]), command, command.casefold())
+                elif _explicit_owner_after_model_chat(runtime, entry, command):
+                    output = handler(command)
                 elif _use_existing_handler(entry):
                     output = handler(command)
                 elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
@@ -1307,6 +1525,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         # CORE_HANDOFF_RETURNED onun yerine geçmez (etki mi, ret mi, soru mu ayrımı kaybolur).
         result = feedback(entry, result_status=goal_resolution.result_status,
                           reason_code=goal_resolution.reason_code)
+    elif getattr(output, "ok", None) is False:
+        # A Core/domain ActionOutcome with ok=False is a failure, also for
+        # single actions; the batch path already observes this same signal.
+        result = feedback(entry, result_status="failed", reason_code="CORE_ACTION_FAILED")
     else:
         result = feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
     _LAST_FEEDBACK.set(result)
@@ -1452,6 +1674,9 @@ _PENDING_OWNER_FIELDS = {
     PendingOwner.MESSAGE_TO: "pending_msg",
     PendingOwner.MESSAGE_TEXT: "pending_msg",
     PendingOwner.APP_CLARIFY: "pending_action",
+    PendingOwner.APP_SELECTION: "pending_app",
+    PendingOwner.EVENT_TIME: "pending_event_title",
+    PendingOwner.DESKTOP_REPLY: "pending_desktop",
 }
 
 

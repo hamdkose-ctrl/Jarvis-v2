@@ -62,11 +62,17 @@ class StudyFallbackTests(unittest.TestCase):
     def test_book_questions_have_one_study_owner(self):
         # PR10c: "o kitaptan örnek ver" gibi adı verilmemiş cümlede kaynağı keyword kümesiyle
         # seçen düşürme kaldırıldı. Kitap/çıkmış soru kaynağını artık yalnız Çalışma domain'i seçer:
-        # sesli/yazılı yol _study_intent -> hoca.handle, panel yolu web_study_sources -> study.ask.
+        # Text/voice now resolve through the Brain's typed Core study.read
+        # or hoca.lesson.start proposal, never the deleted _study_intent parser.
         src = engine_source.source()
         self.assertNotIn("_study_answer", src)
-        self.assertIn("_study_intent", src)
-        self.assertIn("hoca", src)
+        self.assertNotIn("_study_intent", src)
+        from modules import brain_core_map
+        self.assertEqual(brain_core_map.core_plan("study.read", {"view": "plan"}),
+                         ("study_read", {"view": "plan"}))
+        self.assertEqual(brain_core_map.core_plan("hoca.lesson.start",
+                                                   {"topic": "hücre"}),
+                         ("hoca_start", {"topic": "hücre"}))
         panel = (Path(__file__).resolve().parents[1] / "web_study_sources.py").read_text(encoding="utf-8")
         self.assertIn("study.ask", panel)
 

@@ -1,5 +1,9 @@
 # Güncelleme, CI, model ve kota (AGENTS.md alan notları)
 
+- **BRAIN-03 #613 ret tanısı:** Model yanıtı alınıp JSON/şema/argüman/referans yüzünden reddedilirse `MODEL_PROPOSAL_REJECTED` ve güvenli hedef/işlem doğrulama mesajı üretilir. Ücretsiz rota/taşıma yokluğu veya deadline `MODEL_UNAVAILABLE` kalır. `MODEL_RESPONSE_INVALID` ile `MODEL_CALL_ERROR` ayrı tanılardır; kota/sağlayıcı kapıları veya fallback yetkisi değişmez. Önceki çağrının tanısı yeni tura taşınmaz.
+
+**BRAIN-03 #613 — geliştirme alanı:** `development.manage` model/Core typed request ve kapalı control operation taşır. `developer.execute_typed` mevcut şifreli UI `_AUTH`, workspace kilidi, taslak/test/apply/undo ve release guard sahiplerini kullanır. Request metni apply/undo kontrolü olarak yeniden yorumlanmaz; final control özgün Core entry cümlesinin mevcut exact protokolü olmalıdır. Model `original_text`, `reference_paths`, kilit veya onay sağlayamaz. Ekler owner'a ait file_N gözleminden bağlanır ve mevcut `_reference` izin denetiminden geçer. `development_active` yalnız gözlemsel metadata'dır; yeni şifre veya izin yaratmaz. `headless/developer/voice_actions/router_agents_smoke` açık model önerileriyle gerçek Core/Bridge/domain akışını sınar; canlı dil kabulü değildir.
+
 ## Merkezi router deneme bütçesi — 9 Kasım 2026
 
 - Yeni çağrı sözleşmesi `smart_router.ModelRequest`, `ModelSpec`, `RoutePlan` ve `RouteResult` tiplerini kullanır. Çağıran gerekli özellikleri, çıktı üst sınırını, deadline/iptali ve rotayı bildirir; router açık aday planını kurar. Prompt içeriğinden niyet, görev türü veya model kalitesi tahmini yapılmaz.

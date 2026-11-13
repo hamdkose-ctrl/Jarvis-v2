@@ -248,6 +248,23 @@ def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[
     return pending, artifacts, recent
 
 
+def _session_note_ref(owner: str, state: Any, profile: Any) -> ContextReference | None:
+    """Re-observe a just-delivered note; an old ID alone is never context authority."""
+    from modules import main_planner, personalization, session_state
+    observed = session_state.fresh_note(state, owner)
+    if observed is None or str(getattr(profile, "slug", "")) != owner:
+        return None
+    with personalization._LOCK:
+        data = getattr(profile, "data", {})
+        rows = [row for row in data.get("items", ()) if isinstance(row, dict)
+                and str(row.get("id")) == observed["id"]]
+        if len(rows) != 1 or main_planner.note_snapshot_digest(rows[0]) != observed["digest"]:
+            return None
+        return _ref(owner=owner, ident=observed["id"], kind="note", source="profile.items",
+                    provenance={"collection": "items", **{key: rows[0].get(key)
+                                for key in ("text", "title", "ts", "photo")}})
+
+
 def _history_refs(
     owner: str,
     reader: Callable[[str, int], Iterable[Mapping[str, Any]]],
@@ -313,6 +330,8 @@ def _goal_card(owner: str, row: Mapping[str, Any]) -> ContextReference | None:
         provenance['execution_snapshot'] = row['_execution_snapshot']
         provenance['canonical_version'] = row.get('_canonical_version')
         provenance['control_key'] = goal_executor.control_key(row)
+    if row.get("state") == "question" and isinstance(row.get("question"), str):
+        provenance["question"] = row["question"][:600]
     progress = _goal_progress(row)
     if progress is not None:
         provenance["progress"] = progress
@@ -439,6 +458,9 @@ def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], lis
             "started": lesson.get("started"),
             "step_title": step.get("title"),
             "step_goal": step.get("goal"),
+            "has_pending": bool(isinstance(lesson.get("pending"), Mapping)
+                                and lesson["pending"].get("step") == active
+                                and lesson["pending"].get("question")),
         },
     ))
     hoca_pending = lesson.get("pending")
@@ -448,7 +470,8 @@ def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], lis
             ident="lesson.pending",
             kind="pending_state",
             source="profile.hoca",
-            provenance={"step": hoca_pending.get("step"), "question": hoca_pending.get("question")},
+            provenance={"step": hoca_pending.get("step"), "question": hoca_pending.get("question"),
+                        "started": lesson.get("started"), "course_id": lesson.get("course_id")},
         ))
     return memory, tasks, pending
 
@@ -499,6 +522,9 @@ def build_active_context(
     pending.extend(session_pending)
     artifacts.extend(session_artifacts)
     recent.extend(session_recent)
+    note_ref = _session_note_ref(owner, state, profile)
+    if note_ref is not None:
+        recent.append(note_ref)
     if session_status is not None:
         recent.append(session_status)
 

@@ -146,7 +146,9 @@ class HandoffTests(unittest.TestCase):
 class LevelSetIntentTests(unittest.TestCase):
     def runtime(self, volume_ok=True, bright_ok=True):
         state = session_state.SessionState()
-        control = Mock(set_volume=Mock(return_value=volume_ok), set_brightness_verified=Mock(return_value=bright_ok))
+        control = Mock(set_volume=Mock(return_value=volume_ok),
+                       current_volume=Mock(return_value=70),
+                       set_brightness_verified=Mock(return_value=bright_ok))
         return SimpleNamespace(_session=lambda: state, system_control=control), state
 
     def run_intent(self, runtime, args):

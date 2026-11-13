@@ -160,17 +160,28 @@ class DocumentTableTests(unittest.TestCase):
     def test_custom_columns_word_output_and_followup_version(self):
         reply = self.answer(["Teslim süresi", "45 gün", "sayfa 1"])
         with patch.object(workbench.docs, "read_document", return_value=self.text), \
-             patch.object(workbench.llm, "ask", return_value=reply) as ask:
+             patch.object(workbench.llm, "ask", return_value=reply) as ask, \
+             patch("modules.nxapi.allowed",
+                   side_effect=lambda path: self.pdf if path == str(self.pdf) else None):
             workbench.handle("hamdi", [str(self.pdf)], "tablo yap sütunlar: Madde, Değer")
             self.assertIn('["Madde", "Değer"]', ask.call_args.args[0])
-            self.assertIsNone(workbench.followup("hamdi", "hava nasıl"))
-            self.assertIsNone(workbench.followup("ebru", "tutar sütunu ekle"))
-            answer = workbench.followup("hamdi", "tabloyu word olarak ver, açıklama sütunu ekle")
+            self.assertFalse(hasattr(workbench, "followup"))
+            self.assertIsNone(workbench.snapshot_digest("ebru"))
+            digest = workbench.snapshot_digest("hamdi")
+            self.assertEqual(len(digest), 64)
+            answer = workbench.followup_typed(
+                "hamdi", "tabloyu word olarak ver, açıklama sütunu ekle",
+                expected_digest=digest, fmt=".docx")
         self.assertTrue((self.tmp / "sartname_tablo.xlsx").exists())
         self.assertIn(str(self.tmp / "sartname_tablo.docx"), answer)
         self.assertIn("Ek istek: tabloyu word", ask.call_args.args[0])
+        current_digest = workbench.snapshot_digest("hamdi")
         workbench._LAST["hamdi"]["at"] -= workbench.FOLLOW_SECONDS + 1
-        self.assertIsNone(workbench.followup("hamdi", "tutar sütunu ekle"))
+        self.assertIsNone(workbench.snapshot_digest("hamdi"))
+        self.assertIn(
+            "süresi doldu",
+            workbench.followup_typed(
+                "hamdi", "tutar sütunu ekle", expected_digest=current_digest))
 
     def test_long_document_is_capped_with_a_note(self):
         long_text = "\f".join(f"Madde {i}: " + "x" * 11000 for i in range(20))
@@ -259,13 +270,45 @@ class FileCommandTests(unittest.TestCase):
             self.assertEqual(main_documents._file_command(self.runtime(), f'"{a}" "{b}" iki şartnameyi karşılaştır'), "Hazır")
         handle.assert_called_once_with("hamdi", [str(a), str(b)], "iki şartnameyi karşılaştır")
 
+    def test_quoted_path_ui_does_not_turn_negative_words_into_effects(self):
+        from modules import main_documents, nxapi, filesend
+        runtime = self.runtime()
+        for command in (
+            '"C:/Docs/report.pdf" telefonuma gönderme',
+            '"C:/Docs/report.pdf" telefonuma gönder, ama silme',
+            '"C:/Docs/report.pdf" dosyasını dönüştürme',
+            '"C:/Docs/report.pdf" dosyasını görselleştirme',
+            '"C:/Docs/report.pdf" telefonuma gönder?',
+            '"C:/Docs/report.pdf" telefonuma gönder ne demek?',
+        ):
+            with self.subTest(command=command), \
+                 patch.object(nxapi, "allowed",
+                              side_effect=AssertionError("untrusted file path opened")) as allowed, \
+                 patch.object(filesend, "send",
+                              side_effect=AssertionError("negative send executed")) as send:
+                self.assertFalse(
+                    main_documents.explicit_ui_file_command(command, runtime._FILE_CMD))
+                self.assertIsNone(main_documents._file_command(runtime, command))
+                allowed.assert_not_called()
+                send.assert_not_called()
+
+    def test_quoted_path_ui_accepts_only_known_positive_whole_actions(self):
+        from modules import main_documents
+        runtime = self.runtime()
+        for action in ("özetle", "yerel OCR ile oku", "dosyasını Türkçeye çevir",
+                       "dosyasını görselleştir", "pdf'e dönüştür", "telefonuma gönder",
+                       "iki şartnameyi karşılaştır", "tablo yap"):
+            with self.subTest(action=action):
+                self.assertTrue(main_documents.explicit_ui_file_command(
+                    f'"C:/Docs/report.pdf" {action}', runtime._FILE_CMD))
+
     def test_disallowed_file_and_followup_without_paths(self):
         from modules import main_documents, nxapi
         with patch.object(nxapi, "allowed", return_value=None):
             self.assertIn("erişemiyorum", main_documents._file_command(self.runtime(), '"C:/gizli/a.pdf" "C:/x/b.pdf" tablo yap'))
-        with patch.object(workbench, "followup", return_value=None) as follow:
-            self.assertIsNone(main_documents._file_command(self.runtime(), "merhaba"))
-        follow.assert_called_once_with("hamdi", "merhaba")
+        # The raw language-followup adapter was physically retired.
+        self.assertFalse(hasattr(workbench, "followup"))
+        self.assertIsNone(main_documents._file_command(self.runtime(), "merhaba"))
 
 
 if __name__ == "__main__":

@@ -128,7 +128,7 @@ def ambiguous_files(first_path: str, second_path: str, text: str, name_first: st
 
 
 class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
-    def test_model_cannot_downgrade_context_control_to_chat(self):
+    def test_model_chat_owns_the_context_relation_without_a_lexical_veto(self):
         semantic = make_result(
             request_kind=RequestKind.CONTEXT_CONTROL,
             conversation_relation=ConversationRelation.TOPIC_CHANGE,
@@ -136,8 +136,10 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         )
         raw = model_answer(operation="chat", conversation_relation="TOPIC_CHANGE",
                            temporal_need="STATIC", confidence="LOW")
-        self.assertIsNone(asked(raw, "boşver, başka konuya geçelim", semantic,
-                                protected_relation=True))
+        decision = asked(raw, "boşver, başka konuya geçelim", semantic, protected_relation=True)
+        self.assertEqual(decision.operation, "chat")
+        self.assertEqual(decision.conversation_relation, ConversationRelation.TOPIC_CHANGE)
+        self.assertEqual(decision.actions, ())
 
     def test_plain_chat_is_evaluated_without_a_keyword_or_capability_hint(self):
         semantic = make_result()
@@ -211,8 +213,10 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertEqual(dict(resolved.actions[0].arguments), {
             "original_text": text, "operation": "summarize",
             "path": second.provenance["path"]})
-        # Yalnız bu kanıtlı, salt okunur hedef çözümü LOW'u MEDIUM'a taşıyabilir.
-        self.assertIs(resolved.confidence, Confidence.MEDIUM)
+        # The validated model chose HIGH; grounding the offered file slot
+        # must preserve its confidence rather than letting old heuristic
+        # confidence overwrite that decision. The path remains Core-bound.
+        self.assertIs(resolved.confidence, Confidence.HIGH)
 
         applied = asked_apply(raw, text, semantic)
         self.assertIs(applied.request_kind, RequestKind.CAPABILITY)
@@ -230,31 +234,45 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(asked(file_read("summarize", ["file_0"]), text, semantic,
                                 file_operation_hint="summarize"))
 
-    def test_ambiguity_resolution_cannot_change_the_requested_read_operation(self):
+    def test_grounded_file_model_operation_is_not_vetoed_by_legacy_keyword_hint(self):
+        # The free-language operation belongs to the model. A deterministic
+        # "summarize" hint must never become a competing semantic veto; Core
+        # still rejects invented paths, unsupported operations and bad slots.
         text = "rapor dosyasını özetle"
-        _, _, semantic = ambiguous_files(
+        first, _, semantic = ambiguous_files(
             r"C:\Users\hamdi\Documents\Rapor\rapor.pdf",
             r"C:\Users\hamdi\Downloads\Rapor\son.pdf", text, "rapor.pdf", "son.pdf")
-        self.assertIsNone(asked(file_read("analyze", ["file_0"]), text, semantic,
-                                file_operation_hint="summarize"))
+        resolved = asked(file_read("analyze", ["file_0"]), text, semantic,
+                         file_operation_hint="summarize")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.references, (first,))
+        self.assertEqual(resolved.actions[0].capability_id, "files.read")
+        self.assertEqual(resolved.actions[0].arguments["operation"], "analyze")
+        self.assertEqual(resolved.actions[0].arguments["path"], first.provenance["path"])
 
-    def test_ambiguous_file_open_is_not_resolved_by_the_model(self):
+    def test_model_resolves_a_file_open_to_an_offered_exact_slot(self):
         text = "rapor.pdf'i aç"
-        _, _, semantic = ambiguous_files(
+        first, _, semantic = ambiguous_files(
             r"C:\Users\hamdi\Documents\Rapor\rapor.pdf",
             r"C:\Users\hamdi\Downloads\Rapor\son.pdf", text, "rapor.pdf", "son.pdf")
-        self.assertIsNone(asked(file_read("open", ["file_0"]), text, semantic,
-                                file_operation_hint="open"))
+        decision = asked(file_read("open", ["file_0"]), text, semantic,
+                         file_operation_hint="open")
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.references, (first,))
+        self.assertEqual(decision.actions[0].arguments["operation"], "open")
+        self.assertEqual(decision.actions[0].arguments["path"], first.provenance["path"])
 
-    def test_model_chat_proposal_cannot_clear_ambiguous_file_target(self):
+    def test_accepted_model_chat_does_not_inherit_a_file_action_guess(self):
         text = "rapor.pdf'i aç"
         _, _, semantic = ambiguous_files(
             r"C:\Users\hamdi\Documents\Rapor\rapor.pdf",
             r"D:\Users\hamdi\Documents\Rapor\rapor.pdf", text, "rapor.pdf", "rapor.pdf")
         returned = asked_apply(model_answer(operation="chat", confidence="MEDIUM"), text, semantic)
-        self.assertIs(returned, semantic)
-        self.assertTrue(returned.needs_input)
-        self.assertEqual(returned.request_kind, RequestKind.CLARIFY)
+        self.assertIsNot(returned, semantic)
+        self.assertFalse(returned.needs_input)
+        self.assertEqual(returned.request_kind, RequestKind.CHAT)
+        self.assertIsNone(returned.capability_hint)
+        self.assertEqual(returned.references, semantic.references)
 
     def test_unresolved_ambiguity_stays_clarify_when_model_cannot_choose(self):
         text = "rapor.pdf'i aç"
@@ -268,7 +286,7 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertTrue(returned.needs_input)
         self.assertEqual(returned.request_kind, RequestKind.CLARIFY)
 
-    def test_non_file_reference_ambiguity_cannot_be_downgraded_to_chat(self):
+    def test_model_chat_may_reject_a_non_file_action_guess(self):
         note_a = ContextReference(id="note-a", kind="note", source="candidate", owner=OWNER,
                                   provenance={"title": "Toplantı notu"})
         note_b = ContextReference(id="note-b", kind="note", source="candidate", owner=OWNER,
@@ -281,10 +299,11 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
             ambiguities=("multiple target references",),
             needs_input=True,
         )
-        self.assertIsNone(asked(model_answer(operation="chat", confidence="LOW"),
-                                "onu göster", semantic))
+        decision = asked(model_answer(operation="chat", confidence="LOW"), "onu göster", semantic)
+        self.assertEqual(decision.operation, "chat")
+        self.assertEqual(decision.actions, ())
 
-    def test_apply_model_understanding_preserves_non_file_target_clarification(self):
+    def test_accepted_chat_keeps_observations_without_inheriting_a_lexical_clarification(self):
         note_a = ContextReference(id="note-a", kind="note", source="candidate", owner=OWNER,
                                   provenance={"title": "Toplantı notu"})
         note_b = ContextReference(id="note-b", kind="note", source="candidate", owner=OWNER,
@@ -299,9 +318,12 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         )
         returned = asked_apply(model_answer(operation="chat", confidence="MEDIUM"),
                                "onu göster", semantic)
-        self.assertIs(returned, semantic)
-        self.assertTrue(returned.needs_input)
-        self.assertEqual(returned.ambiguities, ("multiple target references",))
+        self.assertIsNot(returned, semantic)
+        self.assertEqual(returned.request_kind, RequestKind.CHAT)
+        self.assertFalse(returned.needs_input)
+        self.assertEqual(returned.ambiguities, ())
+        self.assertEqual(returned.references, semantic.references)
+        self.assertEqual(returned.actions, ())
 
     def test_ambiguous_file_resolution_rejects_candidate_from_unmentioned_folder(self):
         text = "İndirilenlerdeki 2025 dosyasını özetle"
@@ -348,6 +370,31 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertTrue(model._selected_file_candidate_is_grounded(
             "2025 dosyasını özetle", unique_first, [unique_first, unique_second]
         ))
+
+    def test_model_chat_cannot_select_ambiguous_note_as_an_effect(self):
+        # A validated model CHAT decision must not be vetoed by a legacy
+        # ambiguity heuristic. It is safe to chat, but the unresolved notes
+        # remain references and neither may be selected for a file/note effect.
+        note_a = ContextReference(id="note-a", kind="note", source="candidate", owner=OWNER,
+                                  provenance={"title": "Toplantı notu"})
+        note_b = ContextReference(id="note-b", kind="note", source="candidate", owner=OWNER,
+                                  provenance={"title": "Proje notu"})
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            arguments={"original_text": "onu göster"},
+            references=(note_a, note_b),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        returned = asked_apply(model_answer(operation="chat", confidence="MEDIUM"),
+                               "onu göster", semantic)
+        self.assertIs(returned.request_kind, RequestKind.CHAT)
+        self.assertEqual(returned.actions, ())
+        self.assertIsNone(returned.capability_hint)
+        self.assertEqual(returned.references, (note_a, note_b))
+
+
 
 
 if __name__ == "__main__":

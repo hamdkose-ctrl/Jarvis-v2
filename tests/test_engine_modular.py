@@ -100,14 +100,28 @@ class ModularEngineTests(unittest.TestCase):
             context.stop_event.set()
             return 'Merhaba'
         context.handle=Mock(side_effect=handle_once)
-        context.emit=Mock();context._finalize=lambda text:text
+        context.emit=Mock();context._finalize=lambda text:text;context._emit_route=Mock()
         context._start_hang_watch=Mock()
         context.profile.log_agent=Mock()
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
         context.events.put(('command','selam','web',owner,'one'))
         voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,state={},speak=Mock())
-        with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'),patch('modules.brain_entry._install_core_guards'):
+        # This checks the event-loop handoff and stop lifecycle, not model
+        # availability. A free-language turn now requires the primary model;
+        # mock that external decision seam so the fixture cannot hang in an
+        # unavailable provider while never reaching the handler.
+        def handoff(_runtime, _entry, handler, command):
+            return handler(command), SimpleNamespace(result_status='handled'), None
+        with patch('modules.engine_voice.VoiceSession',return_value=voice), \
+             patch('instance.take_over',return_value=False), \
+             patch('updater.pop_notice',return_value=None), \
+             patch('modules.perf.start'), patch('release_guard.ready'), \
+             patch('modules.brain_entry._install_core_guards'), \
+             patch('modules.brain_entry.prepare',return_value=SimpleNamespace(stage='semantic')), \
+             patch('modules.brain_entry.handoff',side_effect=handoff), \
+             patch('modules.brain_echo.present'), \
+             patch.object(context._llm,'take_route',return_value=None):
             context.main(ui=Mock())
         context.handle.assert_called_once_with('selam')
         voice.speak.assert_called_once_with('Merhaba')
@@ -260,6 +274,7 @@ class ModularEngineTests(unittest.TestCase):
         with patch('builtins.open',handle),patch('faulthandler.cancel_dump_traceback_later'):
             context._start_hang_watch()
         handle().close.assert_called_once()
+
 
     def barge_session(self):
         """A voice session with only what the barge watcher touches; the locks are real."""

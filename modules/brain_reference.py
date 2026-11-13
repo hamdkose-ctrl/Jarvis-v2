@@ -13,7 +13,6 @@ from modules.brain_contracts import ActiveContext, ContextReference
 
 _TEXT_FIELDS = ("name", "title", "text", "label")
 _FILE_DEICTICS = ("bu dosya", "son dosya", "yüklediğim dosya", "yukledigim dosya")
-_NOTE_DEICTICS = ("son not", "son notu", "son notum")
 _ANSWER_DEICTICS = ("son cevap", "son cevabı", "son cevabi", "son yanıt", "son yanit")
 _GENERIC_DEICTICS = ("onu", "bunu", "az önceki", "az onceki")
 _NOTE_MUTATION = re.compile(
@@ -23,13 +22,20 @@ _NOTE_MUTATION = re.compile(
 _NOTE_SUMMARY = re.compile(
     r"^(?P<target>.+?)\s+(?:(?:başlıklı|baslikli)\s+)?not\w*\s+(?:özetle|ozetle|özet|ozet)\w*$"
 )
+_NOTE_READ = re.compile(
+    r"^(?P<target>.+?)\s+(?:(?:başlıklı|baslikli)\s+)?not\w*\s+(?:göster|goster|oku|getir)\w*$"
+)
 _NOTE_ORDINALS = {
     "ilk": 1, "birinci": 1, "ikinci": 2, "üçüncü": 3, "ucuncu": 3, "dördüncü": 4, "dorduncu": 4,
     "beşinci": 5, "besinci": 5, "altıncı": 6, "altinci": 6, "yedinci": 7,
     "sekizinci": 8, "dokuzuncu": 9, "onuncu": 10,
 }
-_NOTE_ORDINAL_RE = re.compile(r"(?<!\w)(" + "|".join(sorted(_NOTE_ORDINALS, key=len, reverse=True)) + r")(?!\w)")
-_NOTE_SUMMARY_CUE = re.compile(r"(?<!\w)(?:özetle|ozetle|özet|ozet)(?!\w)")
+_NOTE_NOUN = r"not(?:u|um|umu|unu|un|umun)?(?!\w|\.\w)"
+_NOTE_POSITION_RE = re.compile(
+    r"(?<![\w#])(?:(?P<number>\d+)(?:\.\s*|\s+numaral[ıi]\s+)|(?P<word>"
+    + "|".join(sorted((*_NOTE_ORDINALS, "son"), key=len, reverse=True))
+    + r")\s+)" + _NOTE_NOUN
+)
 _NOTE_ACTIVE_DEICTICS = ("bu notu", "şu notu", "su notu", "o notu", "bu notum", "şu notum", "su notum")
 _NOTE_TARGET_STOP = frozenset({
     "bu", "şu", "su", "o", "son", "tüm", "tum", "bütün", "butun", "hepsi", "hepsini",
@@ -47,7 +53,7 @@ def _required(name: str, value: str) -> str:
 def _norm(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return " ".join(value.casefold().strip().strip("\"'`").split())
+    return " ".join(value.casefold().replace("i\u0307", "i").strip().strip("\"'`").split())
 
 
 def _contains_bounded(text: str, needle: str) -> bool:
@@ -123,9 +129,10 @@ def _file_signals(candidate: ContextReference) -> tuple[str, ...]:
 
 
 def _note_target_words(text: str) -> tuple[str, ...]:
-    """Named note mutation/summary target; bounded numeric/all/last protocols stay with their domain owner."""
+    """Named note target; list positions and active deictics resolve separately."""
     stripped = text.strip(" .!?")
-    match = _NOTE_MUTATION.fullmatch(stripped) or _NOTE_SUMMARY.fullmatch(stripped)
+    match = (_NOTE_MUTATION.fullmatch(stripped) or _NOTE_SUMMARY.fullmatch(stripped)
+             or _NOTE_READ.fullmatch(stripped))
     if match is None:
         return ()
     words = tuple(re.findall(r"[\wçğıöşü]+", match.group("target")))
@@ -134,6 +141,20 @@ def _note_target_words(text: str) -> tuple[str, ...]:
     if any(word.isdecimal() or word in _NOTE_TARGET_STOP for word in words):
         return ()
     return words
+
+
+def file_observation_requested(text: str) -> bool:
+    """Bounded resource mentions, never an intent/operation decision.
+
+    Ordinary chat must not synchronously walk the PC. An explicit document
+    noun or a supported filename can request read-only inventory discovery.
+    """
+    from modules import nxapi
+    text = _norm(text)
+    if re.search(r"(?<!\w)(?:dosya|belge)\w*", text):
+        return True
+    extensions = "|".join(re.escape(ext.lstrip(".")) for ext in sorted(nxapi._ALL))
+    return re.search(r"(?<!\w)[\w-]+\.(?:" + extensions + r")(?!\w)", text) is not None
 
 
 def _note_candidate_matches(candidate: ContextReference, target_words: tuple[str, ...]) -> bool:
@@ -156,12 +177,30 @@ def _note_candidate_matches(candidate: ContextReference, target_words: tuple[str
     return all(hit(target) for target in target_words)
 
 
-def _note_ordinal(text: str) -> int:
-    """Bounded 1-based note ordinal for a summary request; 0 when absent or multiple."""
-    if _NOTE_SUMMARY_CUE.search(text) is None:
+def _note_ordinal(text: str) -> int | None:
+    """Observe a note list position, without choosing an operation/capability.
+
+    None means absent, 0 ambiguous/invalid, -1 the actual last Profile row.
+    """
+    hits = list(_NOTE_POSITION_RE.finditer(text))
+    if not hits:
+        return None
+    if len(hits) != 1:
         return 0
-    hits = _NOTE_ORDINAL_RE.findall(text)
-    return _NOTE_ORDINALS[hits[0]] if len(hits) == 1 else 0
+    hit = hits[0]
+    if hit["number"] is not None:
+        return int(hit["number"]) if len(hit["number"]) <= 9 else 0
+    return -1 if hit["word"] == "son" else _NOTE_ORDINALS[hit["word"]]
+
+
+def _note_at_position(candidate: ContextReference, ordinal: int) -> bool:
+    if candidate.kind != "note" or candidate.source != "profile.items":
+        return False
+    position = candidate.provenance.get("list_position")
+    count = candidate.provenance.get("list_count")
+    if type(position) is not int or type(count) is not int or not 1 <= position <= count:
+        return False
+    return position == (count if ordinal == -1 else ordinal)
 
 
 def _active_note_keys(context: ActiveContext) -> set[tuple[str, str]]:
@@ -212,32 +251,21 @@ def resolve_references(
     if not usable:
         return ()
 
+    ordinal = _note_ordinal(normalized)
+    if ordinal is not None:
+        # Displayed note numbers are list positions, not shared Profile IDs.
+        # Missing/truncated inventory must not fall through to a coincident ID.
+        return tuple(candidate for candidate in usable if _note_at_position(candidate, ordinal))
+
     explicit = tuple(candidate for candidate in usable if _contains_explicit_id(normalized, _norm(candidate.id)))
     if explicit:
         return explicit
-
-    exact_fields: list[ContextReference] = []
-    for candidate in usable:
-        for key in _TEXT_FIELDS:
-            signal = _norm(candidate.provenance.get(key))
-            if signal and normalized == signal:
-                exact_fields.append(candidate)
-                break
-    if exact_fields:
-        return tuple(exact_fields)
 
     note_target = _note_target_words(normalized)
     if note_target:
         note_matches = tuple(candidate for candidate in usable if _note_candidate_matches(candidate, note_target))
         if note_matches:
             return note_matches
-
-    ordinal = _note_ordinal(normalized)
-    if ordinal:
-        notes = tuple(candidate for candidate in usable if candidate.kind == "note")
-        if 0 < ordinal <= len(notes):
-            return (notes[ordinal - 1],)
-        return ()
 
     file_matches = tuple(
         candidate
@@ -248,11 +276,20 @@ def resolve_references(
     if file_matches:
         return file_matches
 
+    # A repeated command can equal a prior user history row verbatim. That
+    # history text must not hide its explicitly named note/file target.
+    exact_fields: list[ContextReference] = []
+    for candidate in usable:
+        for key in _TEXT_FIELDS:
+            signal = _norm(candidate.provenance.get(key))
+            if signal and normalized == signal:
+                exact_fields.append(candidate)
+                break
+    if exact_fields:
+        return tuple(exact_fields)
+
     if any(_phrase(normalized, phrase) for phrase in _FILE_DEICTICS):
         return tuple(candidate for candidate in usable if candidate.kind == "file")
-
-    if any(_phrase(normalized, phrase) for phrase in _NOTE_DEICTICS):
-        return tuple(candidate for candidate in usable if candidate.kind == "note")
 
     if any(_phrase(normalized, phrase) for phrase in _ANSWER_DEICTICS):
         return tuple(

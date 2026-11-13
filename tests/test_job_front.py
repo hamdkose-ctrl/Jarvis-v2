@@ -1,7 +1,8 @@
-"""Tek giriş (motor birleştirme adım 3): çıplak "devam"/"iptal" yalnız hedef işi yoksa açık görev işine gider.
+"""Bounded resume/cancel contracts through the real Brain State Gate -> Engine.
 
-Gerçek EngineContext.handle kullanılır; iş kayıtları taklit, model çağrılmaz. Önceki davranış (hedef önceliği, "görev …"
-ve "hedef …" önekleri, onay kelimeleri) aynen korunur.
+The old raw EngineContext.handle call without a bound Brain turn is not a
+production entry point. A real prepare/bind is mandatory in these tests;
+existing goal/job workers are mocked, and the general model must not be called.
 """
 import time
 import unittest
@@ -10,7 +11,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime
-from modules import goal_executor, task_agents
+from modules import brain_context, goal_executor, task_agents
 from modules.diagnostics import record_failure as _record_failure
 
 NOW = time.time()
@@ -22,7 +23,7 @@ def _task(state, age=60):
 
 class JobFrontTests(ProfileCase):
     def _run(self, text, goal=None, task=None, pending=None, photo_pending=False, forbid_model=False,
-             canonical=False):
+             canonical=True):
         rt = _runtime(self, self.profile, datetime(2026, 10, 18, 9, 0))
         if photo_pending:
             rt._pending_photo[rt.profile.slug] = {'t': time.time(), 'path': 'fake-photo.jpg'}
@@ -63,7 +64,8 @@ class JobFrontTests(ProfileCase):
         # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi model kapılarının
         # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmez.
         model = Mock(side_effect=RuntimeError('sohbete düştü'))
-        with patch.object(goal_executor, 'latest', return_value=g), \
+        with patch.object(brain_context, '_default_goal_reader', return_value=g), \
+                patch.object(goal_executor, 'latest', return_value=g), \
                 patch.object(goal_executor, 'run', side_effect=lambda *a, **k: calls.append('goal.run') or 'G'), \
                 patch.object(goal_executor, '_save', side_effect=goal_save), \
                 patch.object(goal_executor, 'render', return_value='G-render'), \

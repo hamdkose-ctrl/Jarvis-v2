@@ -42,7 +42,7 @@ def run_checks(root=None, *, python=None):
             return False, 'Zorunlu test dosyaları eksik; doğrulama tamamlanmadı.'
         commands = [
             ('Architecture Guard', [executable, '-X', 'utf8', '-m', 'modules.architecture_guard']),
-            ('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-q']),
+            ('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-v']),
         ]
         commands += [(str(f.relative_to(root)), [node, '--check', str(f)]) for f in sorted((root / 'webui').rglob('*.js'))]
         commands += [(n, [node, 'tests/' + n + '.js']) for n in JS_GROUPS]
@@ -62,13 +62,61 @@ def run_checks(root=None, *, python=None):
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
+                    if name == 'Python testleri':
+                        # Keep error names even when the test suite output is too long
+                        # for the standard validation log tail.
+                        from collections import Counter
+                        failures = re.findall(r'^(?:FAIL|ERROR): (.+)$', output, re.MULTILINE)
+                        modules = Counter()
+                        for item in failures:
+                            match = re.search(r'\((test_[A-Za-z0-9_]+)\.', item)
+                            modules[match.group(1) if match else 'unclassified'] += 1
+                        index = '\n'.join(
+                            f'  {module}: {count}' for module, count in modules.most_common()
+                        )
+                        headline = (f'CI failure index: {len(failures)} cases in {len(modules)} test modules.\n'
+                                    + index + '\nFirst failures:\n'
+                                    + '\n'.join(failures[:20]))
+                        # The first failure often identifies a shared root cause;
+                        # include its traceback instead of only its name.
+                        details = re.findall(
+                            r'(?ms)^(?:FAIL|ERROR): .+?(?=^={10,}$|^Ran [0-9]+ tests|\Z)',
+                            output,
+                        )
+                        examples = {}
+                        for part in details:
+                            match = re.search(r'\((test_[A-Za-z0-9_]+)\.', part)
+                            key = match.group(1) if match else 'unclassified'
+                            examples.setdefault(key, part)
+                        # One representative traceback per failure-heavy module
+                        # is much more useful than six copies of one broken
+                        # legacy test fixture. The full suite still fails.
+                        selected = [module for module, _count in modules.most_common(15)]
+                        first_traces = '\n'.join(
+                            examples[module][:1900] for module in selected
+                            if module in examples
+                        )
+                        return False, (headline + '\nRepresentative failure tracebacks:\n'
+                                       + first_traces + '\nLast failure details:\n'
+                                       + output[-12000:])
                     return False, '\n'.join(logs)[-16000:]
                 if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
                         return False, 'Python testleri çalışmadı; doğrulama tamamlanmadı.\n' + output
         return True, '\n'.join(logs)[-16000:]
-    except (OSError, SyntaxError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        # The old -q + discarded captured output concealed the offending test:
+        # CI showed only "timed out after 600 seconds". Verbose unittest names
+        # and the last printed test are diagnostic evidence, not a test PASS.
+        def decoded(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8", "replace")
+            return value or ""
+        partial = decoded(exc.stdout) + decoded(exc.stderr)
+        return False, ('\n'.join(logs)[-3500:] + "\nLast test output before timeout:\n"
+                       + partial[-10000:] + "\nDoğrulama tamamlanmadı: " + str(exc))
+    except (OSError, SyntaxError) as exc:
         return False, '\n'.join(logs)[-12000:] + '\nDoğrulama tamamlanmadı: ' + str(exc)
 
 if __name__ == '__main__':

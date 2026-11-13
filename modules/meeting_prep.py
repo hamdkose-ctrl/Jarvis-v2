@@ -112,9 +112,22 @@ def _ago(days: int) -> str:
     return "bugün" if days <= 0 else "dün" if days == 1 else f"{days} gün önce"
 
 
+def handle_typed(profile, now, *, hint: str = "") -> str:
+    """Model-selected read-only meeting worker; hint is validated by Core."""
+    if not isinstance(hint, str) or len(hint) > 120 or any(ord(ch) < 32 for ch in hint):
+        return "Toplantı hedefi doğrulanamadı; hiçbir mail okunmadı."
+    return _render_meeting(hint, profile, now)
+
+
 def handle(cmd_lower: str, profile, now) -> str | None:
     if not asked(cmd_lower):
         return None
+    return _render_meeting(cmd_lower, profile, now)
+
+
+def _render_meeting(cmd_lower: str, profile, now) -> str:
+    from modules import requests_state
+    requests_state.check()
     meeting, note = find_meeting(cmd_lower, profile, now)
     if meeting is None:
         return (note + f"Önümüzdeki {_DAYS} günde hazırlanacak bir toplantı görünmüyor "

@@ -1,19 +1,9 @@
-"""Explicit precedence contract between legacy front gates and Brain-planned Core intents.
+"""Bounded explicit-owner protocols, not a second natural-language router.
 
-Core never executes a Brain ``capability_hint`` ahead of a gate that the legacy pipeline
-(``engine_commands.handle``) evaluates *before* the generic fast path. The gates below keep
-exactly that relative order, and ``engine_commands.handle`` consults the same table instead of
-carrying its own copy: the inline gates run in place, the tail range is delegated with
-``claim_tail`` (pinned by tests/test_brain_b3a.py::FrontGatePrecedenceTests and
-tests/test_brain_pr3b_legacy_front_door_authority.py::CascadeOrderContractTests). A gate that
-answers owns the request, so a user macro, a saved custom command, a planner phrase, a Windows
-settings page or a Jarvis self-control command always beats weather/level Core dispatch.
-
-Canonical data requests are the narrow exception when Brain has already produced a validated
-Core plan for the same surface. In that case legacy UI/read gates must not shadow the data
-operation; explicit page/section navigation and unmigrated planner operations stay unchanged.
-
-This module decides nothing about permission or effect: it only calls the existing handlers.
+Only a validated machine-addressed file UI action and an exact stored macro
+trigger may claim a turn. General planner, camera/share, note, and cross-domain
+keyword cascades were retired by BRAIN-03; model proposals proceed to the same
+Core validators and existing workers. No permission or effect is decided here.
 """
 from __future__ import annotations
 
@@ -34,142 +24,61 @@ def explicit_desktop_owner_protocol(text: str) -> bool:
 
 # Explicit workflow prefix: like the PC task prefix, this exact protocol owns the full
 # utterance before any domain-specific proposal can claim words inside its payload.
-_EXPLICIT_WORKFLOW_OWNER = re.compile(r"^görev\s+akışı(?:\s|:|$)", re.I)
+_EXPLICIT_WORKFLOW_OWNER = re.compile(
+    r"^görev\s+akışı\s+(?:rapor|mail|kod|video)\s*:\s*\S.*$",
+    re.I | re.S,
+)
 
 
 def explicit_workflow_owner_protocol(text: str) -> bool:
     return isinstance(text, str) and _EXPLICIT_WORKFLOW_OWNER.match(text.strip()) is not None
 
 
-# Order is the contract. This table is its only owner.
-FRONT_GATES: tuple[str, ...] = (
-    "file_command",
-    "user_controls",
-    "planner_command",
-    "macro_run",
-    "extra_commands",
-)
-
-# The range ``engine_commands.handle`` delegates instead of re-listing: shortcuts, then the
-# domain cascade. PR3B §11/§25 B: the surface may not carry a second copy of this order.
-TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
+def explicit_task_control_protocol(text: str) -> bool:
+    """Existing machine-addressed task/status controls, never task creation."""
+    if not isinstance(text, str):
+        return False
+    return re.fullmatch(
+        r"(?:görev\s+(?:devam|sürdür|iptal|durumu)(?:\s+[a-zA-Z0-9_-]{1,32})?"
+        r"|görev\s+(?:geçmişi|akışları|kuyruğu|yetenekleri)|ajan\s+(?:görevleri|yetenekleri)"
+        r"|kuyruk\s+(?:iptal|çalıştır|calistir|şimdi çalıştır)\s+[a-f0-9]{16}"
+        r"|işlem\s+(?:onayla|iptal|takip)\s+[a-f0-9]{16})[.!]*",
+        text.strip(), re.I) is not None
 
 
-def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
-    def planner_gate():
-        # A typed translation source is not a note/calendar command: only
-        # Core's translate adapter may execute that verified source text.
-        # Canonical notes_read already has a validated Core plan. Do not let the planner's old
-        # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
-        # branches are unchanged and remain domain-owned until their own migration decision.
-        # PR3C-3: kanonical `file_organize` planı önizlemeyi kendi sahibinde kurar; planner'ın eski
-        # ham-metin dalı aynı cümleye ikinci kez bakamaz (serbest Goal fallback'i de buradan yasak).
-        # PR3C-4: aynı hüküm `folder_analyze` için geçerlidir — klasör taraması yürütücünün tek sahibiyle
-        # yapılır, planner'ın "şunu incele" kalıbı aynı cümleyi ikinci kez yorumlayamaz.
-        # PR3C-6: Core-owned visual_create yalnız source-question adapterini açar; Planner'ın
-        # görsel türü/iş niyeti seçmeye çalışan raw cascade'i aynı isteği tekrar yorumlayamaz.
-        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
-                                            "folder_analyze", "visual_create", "translate"}:
-            return None
-        # A reminder plan authorizes creation with Core-validated arguments
-        # (main_planner.core_reminder). Pending answers and explicit notes retain their
-        # existing owner; legacy event edit/snooze may not reinterpret a quoted title.
-        if plan is None or plan[0] != "reminder":
-            return runtime._planner_command(command, lowered)
-        from modules import main_planner
-        with main_planner.core_reminder(plan[1]):
-            return runtime._planner_command(command, lowered)
-
-    def extra_commands():
-        # Typed translation content must not enter the old raw domain cascade.
-        # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
-        # file_action, the later files.handle chain must not get a second chance at the same target.
-        # A validated notes plan likewise owns its request: unrelated later chains (e.g. the mail/agenda
-        # handler reacting to a word like "toplantı") must not answer it instead.
-        # `file_organize` aynı hükmü PR3C-3'ten alır: önizleme sahibini cascade'teki ham kalıp
-        # yeniden yorumlayamaz, geri alma koluna ise plan olmadan (None) ulaşılır.
-        # PR3C-4: `folder_analyze` planının kapısı cascade'in içindeydi; ham kalıp emekli olduğunda
-        # cascade aynı cümleye bir daha bakamaz (klasör taraması yalnız kanonical plandan yürür).
-        # PR3C-6: `visual_create` de Brain→Core tarafından sahiplenildi; eski cascade ikinci
-        # intent sahibi olamaz.
-        if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write",
-                                            "folder_analyze", "visual_create", "translate"}:
-            return None
-        return runtime._extra_commands(command, lowered)
-
-    def file_gate():
-        # The explicit quoted-path UI protocol still outranks a Core plan.
-        # A normal typed plan must not fall into workbench.followup, which
-        # searches raw text and may re-create the last document as a side effect.
-        if plan is not None:
-            explicit = getattr(runtime, "_FILE_CMD", None)
-            if explicit is None or explicit.match(command.strip()) is None:
-                return None
-        return runtime._file_command(command)
-
-    return {
-        "file_command": file_gate,
-        # Core-validated reminder, note and text-translation payloads are
-        # data. Legacy raw share/camera/voice phrases within those payloads
-        # may not become independent effects. Pending State/Fast and
-        # unplanned legacy controls keep their original owners.
-        "user_controls": lambda: (None if plan is not None and
-                                  plan[0] in {"reminder", "notes_read", "notes_write", "translate"}
-                                  else runtime._user_controls(command, lowered)),
-        "planner_command": planner_gate,
-        "macro_run": lambda: runtime._macro_run(lowered),
-        "extra_commands": extra_commands,
-    }
+# Only machine-addressed UI syntax and a saved, exact trigger remain.
+# Neither branch classifies natural language or scans domain handlers.
+FRONT_GATES: tuple[str, ...] = ("file_command", "macro_run")
 
 
 def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
-    """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
+    """Bounded explicit owner protocol, never a secondary semantic authority."""
     if plan is not None and plan[0] in {"photo_action", "user_manage", "macro_teach", "macro_manage"}:
-        # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
-        # mutation gates must not reinterpret the same utterance.
         return None
-    lowered = _lowered(runtime, command)
-    return _claim_range(runtime, command, lowered, FRONT_GATES, plan)
+    from modules import main_documents
+    match = getattr(runtime, "_FILE_CMD", None)
+    exact_file = main_documents.explicit_ui_file_command(command, match)
+    if exact_file:
+        handle = getattr(runtime, "_file_command", None)
+        if callable(handle):
+            output = handle(command)
+            if output is not None:
+                return "file_command", output
 
-
-def claim_tail(runtime: Any, command: str, lowered: str | None = None) -> tuple[str, Any] | None:
-    """``engine_commands.handle``'ın devrettiği kuyruk aralığı: kısayollar, sonra domain cascade'i.
-
-    Yüzey kendi handler tuple'ını artık taşımıyor (§25 B); sıra ve argüman biçimi yalnız bu
-    tablodan gelir. Erken efekt gate'leri (dosya/ayyarlar/sayfa/planner) burada ikinci kez
-    çalışmaz: bu aralık onları yüzeyin kendisine bırakır, yoksa aynı taşıma/yayın iki kez olur.
-    Cascade'in kendisi (BRAIN-MIG-052) kanonical capability parity kazanan kollara bölünene kadar
-    domain-owned kalır; PR3C satırı budur, bu fonksiyon değil."""
-    if lowered is None:
-        lowered = _lowered(runtime, command)
-    return _claim_range(runtime, command, lowered, TAIL_GATES)
-
-
-def _lowered(runtime: Any, command: str) -> str:
-    lower = getattr(runtime, "_tr_lower", None)
-    return lower(command) if callable(lower) else command.casefold()
-
-
-def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...],
-                 plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
-    table = _gates(runtime, command, lowered, plan)
-    for name in names:
-        try:
-            reply = table[name]()
-        except AttributeError:
-            if _present(runtime, name):
-                raise
-            continue  # minimal runtime (acceptance harness stub) without that legacy gate
-        if reply is not None:
-            return name, reply
+    data = getattr(getattr(runtime, "profile", None), "data", None)
+    macros = data.get("macros") if isinstance(data, dict) else None
+    keyer = getattr(runtime, "_macro_key", None)
+    runner = getattr(runtime, "_macro_run", None)
+    if isinstance(macros, dict) and callable(keyer) and callable(runner):
+        lower = getattr(runtime, "_tr_lower", None)
+        normalized = lower(command) if callable(lower) else command.casefold()
+        # A stored normalized key is the entire trigger, never a bag of
+        # significant words. Removing all punctuation with _macro_key would
+        # otherwise turn "sabah rutini?" or a quoted mention into an effect.
+        # Only whitespace folding and terminal command punctuation are allowed.
+        literal = " ".join(normalized.strip(" .!").split())
+        if literal and keyer(literal) == literal and literal in macros:
+            output = runner(literal)
+            if output is not None:
+                return "macro_run", output
     return None
-
-
-_ATTRS = {
-    "file_command": ("_file_command",),
-    "user_controls": ("_user_controls",), "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
-}
-
-
-def _present(runtime: Any, name: str) -> bool:
-    return all(hasattr(runtime, attr) for attr in _ATTRS[name])

@@ -15,10 +15,17 @@ if 'pyautogui' not in sys.modules:
     stub.__getattr__ = lambda attr: MagicMock()
     sys.modules['pyautogui'] = stub
 import main,web
-with patch.object(main,'emit') as emitted:
-    result=main._study_intent('çalışmaya başla')
-    assert 'dersi hazırlıyorum' in result
-    emitted.assert_called_once_with('study_start','')
+# Study reads now use the typed Core path; the old _study_intent semantic
+# parser is physically retired. This smoke exercises the real dispatch seam.
+from modules import brain_core_map, engine_intents, engine_tools, requests_state
+assert not hasattr(main._runtime, '_study_intent')
+plan = brain_core_map.core_plan('study.read', {'view':'plan'})
+assert plan == ('study_read', {'view':'plan'})
+with patch('modules.requests_state.check'), \
+     patch.object(engine_tools, 'study_read', return_value='DERS PROGRAMI') as reader:
+    assert engine_intents.dispatch(main._runtime, *plan,
+                                   'ders programımı göster', 'ders programımı göster') == 'DERS PROGRAMI'
+reader.assert_called_once_with(main._runtime, 'plan')
 
 home=main.pc_profile()
 people={name:SimpleNamespace(name=name,slug=name.lower()) for name in ('Hamdi','Ebru')}
@@ -52,7 +59,7 @@ from modules.session_state import SessionStore
 with patch.object(main, '_sessions', SessionStore()):
     # Production handle must discard a previous phone reply and honor engine controls first.
     main._session().speech_override = 'Eski telefon çevirisi'
-    assert main.handle('tamam') == 'Tamam.'
+    assert 'Brain turunda yorumlanmadı' in main.handle('tamam')
     assert main._session().speech_override is None
     from modules import pc_guide
     with patch.object(main, '_close_jarvis', return_value='kapandı') as close, patch.object(pc_guide, 'handle', return_value='Rehber devam ediyor') as guide:
@@ -64,11 +71,18 @@ with patch.object(main, '_sessions', SessionStore()):
         close.assert_not_called()
     print('Motor: önceki sesli kısa yanıt temizliği, rehberlikten bağımsız kapatma ve telefon kapatma sınırı geçti.')
 
-    with patch('modules.command_manager.dispatch', return_value=None), patch.object(main, '_user_controls', return_value=None), patch.object(main, '_planner_command', return_value=None), patch.object(main, '_macro_run', return_value='kısayol çalıştı') as run, patch.object(main, '_extra_commands') as extra:
-        assert main.handle('özel deneme komutu') == 'kısayol çalıştı'
-        run.assert_called_once()
-        extra.assert_not_called()
-    print('Motor: ilk hızlı işleyici yanıtladığında diğer işleyiciler ve yan etkileri çalışmıyor.')
+    from modules import brain_precedence
+    assert not hasattr(main._runtime, '_extra_commands')
+    assert not hasattr(main._runtime, '_planner_command')
+    assert not hasattr(main._runtime, '_user_controls')
+    with patch.dict(main.profile.data, {'macros': {
+            'özel deneme komutu': {'actions': ['saat kaç']}}}), \
+         patch.object(main, '_macro_run', return_value='kısayol çalıştı') as run:
+        assert brain_precedence.claim(main._runtime, 'özel deneme komutu') == (
+            'macro_run', 'kısayol çalıştı')
+        assert brain_precedence.claim(main._runtime, 'özel deneme komutu?') is None
+        run.assert_called_once_with('özel deneme komutu')
+    print('Motor: tam kayıtlı kısayol tek sahibinden çalışır; ham semantic cascade kapalı.')
 
 people = {name: SimpleNamespace(name=name, slug=name.lower()) for name in ('Hamdi', 'Ebru', 'Can')}
 with patch.object(main, 'profile', people['Hamdi']), patch.object(main, '_guest', None), patch.object(main, '_home', None), patch.object(main, 'match_user', side_effect=lambda name: name if name in people else None), patch.object(main, '_get_profile', side_effect=lambda name: people[name]):

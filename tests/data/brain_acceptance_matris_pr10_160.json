@@ -909,11 +909,13 @@
   },
   {
    "expect": {
-    "request_kind": "CONTEXT_CONTROL"
+    "protocol": "job.empty_cancel",
+    "stage": "state"
    },
    "girdi": "boşver",
    "kategori": "Correction/Ambiguity",
    "katman": "brain_harness",
+   "kriter_notu": "BRAIN-03: açık hedef/pending yokken boşver exact State no-op olur; genel anlamsal correction veya yeni iş değildir.",
    "no": 117,
    "senaryo": "boşver."
   },

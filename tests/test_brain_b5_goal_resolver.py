@@ -263,12 +263,14 @@ class GoalEnvelopeFenceTests(unittest.TestCase):
         correct = self.envelope(operation="continue_goal", targets=(CARD,),
                                 relation="NEW_REQUEST")
         self.assertEqual(self.ask(correct, cards=offered, text=text).target_goal_ids, (CARD,))
-        # Only deterministic context may establish CONTINUE_ACTIVE. A model
-        # cannot claim to own an active turn merely from the word "devam".
+        # Relation is a model meaning decision. Goal ownership still comes
+        # only from the offered card and the Core resolver's durable fence.
         forged = self.envelope(operation="continue_goal", targets=(CARD,),
                                relation="CONTINUE_ACTIVE")
-        self.assertIsNone(self.ask(forged, cards=offered, text=text))
-        self.assertEqual(envelope.proposal_diagnostic()["reason_code"], "RELATION_NOT_CURRENT")
+        decision = self.ask(forged, cards=offered, text=text)
+        self.assertEqual(decision.target_goal_ids, (CARD,))
+        self.assertEqual(decision.conversation_relation.value, "CONTINUE_ACTIVE")
+        self.assertEqual(decision.actions, ())
 
     def test_revise_and_add_task_require_an_id_and_no_model_card(self):
         offered = (card(CARD), card(OTHER))

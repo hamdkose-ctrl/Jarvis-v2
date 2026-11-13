@@ -206,6 +206,34 @@ def _job_match(reference: ContextReference, text: str, owner: str, request_id: s
     return None
 
 
+def _filesend_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
+    if reference.source != "filesend" or reference.id != "pending_filesend":
+        return None
+    names = reference.provenance.get("choices")
+    expires = reference.provenance.get("expires")
+    if (not isinstance(names, (tuple, list)) or not 1 <= len(names) <= 4
+            or any(not isinstance(name, str) or not name for name in names)
+            or not isinstance(expires, (int, float)) or isinstance(expires, bool)
+            or expires <= time.time()):
+        return None
+    if text in _CANCEL or text in {"hiçbiri", "hicbiri"}:
+        return _hit(owner, request_id, "state", "filesend.pending.cancel",
+                    "cancel", "BOUNDED_FILE_TRANSFER_CANCEL")
+    # A file transfer can leave the machine. Unlike open-ended domain
+    # clarification, do not accept fuzzy/substring names for this effect.
+    numbers = {"birinci": 1, "ilk": 1, "ikinci": 2, "üçüncü": 3,
+               "ucuncu": 3, "dördüncü": 4, "dorduncu": 4}
+    numeric = re.fullmatch(r"([1-4])(?:\s*\.?\s*(?:numara|numarayı|olanı))?", text)
+    selected = int(numeric.group(1)) if numeric else numbers.get(text)
+    if selected is None:
+        exact = [i + 1 for i, name in enumerate(names) if _norm(name) == text]
+        selected = exact[0] if len(exact) == 1 else None
+    if selected is None or selected > len(names):
+        return None
+    return _hit(owner, request_id, "state", "filesend.pending.select",
+                selected, "BOUNDED_FILE_TRANSFER_SELECTION")
+
+
 def _session_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
     if reference.source != "session_state" or reference.id not in _PENDING_SESSION_IDS:
         return None
@@ -267,6 +295,19 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
     if reference.id == "pending_msg":
         if data is not None and data.get("stage") in ("to", "text") and text in _CANCEL:
             return _hit(owner, request_id, "state", "session.pending_msg.cancel", "cancel", "BOUNDED_MESSAGE_CANCEL")
+        if data is not None and data.get("stage") == "to":
+            # Only an EXACT name offered from this owner's current address book
+            # may answer the bounded recipient question. No fuzzy nickname,
+            # substring, arbitrary text, or free-language classification.
+            choices = reference.provenance.get("recipient_candidates")
+            if not isinstance(choices, (tuple, list)):
+                return None
+            matches = [name for name in choices
+                       if isinstance(name, str) and name.strip() and _norm(name) == text]
+            if len(matches) == 1:
+                return _hit(owner, request_id, "state", "session.pending_msg.recipient",
+                            matches[0], "BOUNDED_MESSAGE_RECIPIENT")
+            return None
         if data is None or data.get("stage") != "confirm":
             return None
         answer = _confirmation(text, extra=("gönder", "gonder", "evet gönder", "evet gonder", "gönder gitsin", "gonder gitsin"))
@@ -341,14 +382,34 @@ def _learning_match(reference: ContextReference, text: str, owner: str, request_
 
 
 def _hoca_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
-    if reference.source != "profile.hoca" or reference.id != "lesson.pending":
+    if reference.source != "profile.hoca" or reference.id not in {"lesson", "lesson.pending"}:
+        return None
+    pending = reference.id == "lesson.pending"
+    # The active lesson card is only authoritative for controls when there
+    # is NO pending question; otherwise the pending slot would conflict with
+    # the same exact command and produce two equal-ranked State matches.
+    if not pending and reference.provenance.get("has_pending") is not False:
         return None
     options = {
-        "sonraki adım": "next", "bir sonraki adım": "next", "ilerle": "next", "geç": "next",
-        "dersi bitir": "exit", "dersten çık": "exit",
+        "sonraki adım": "next", "bir sonraki adım": "next", "ilerle": "next",
+        "geç": "next", "dersi bitir": "exit", "dersten çık": "exit",
+        "zayıf konular": "weak", "eksik konular": "weak",
     }
     selection = options.get(text)
-    return _hit(owner, request_id, "state", "hoca.lesson.control", selection, "BOUNDED_HOCA_CONTROL") if selection else None
+    if selection:
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    selection, "BOUNDED_HOCA_CONTROL")
+    if not pending:
+        return None
+    # No unprefixed free-text answer can bypass model/normal conversation.
+    answer = re.fullmatch(r"(?:cevap|cevabım)\s*[:,\-]\s*(.{1,500})", text, re.S)
+    if answer and answer.group(1).strip():
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    "answer:" + answer.group(1).strip(), "BOUNDED_HOCA_ANSWER")
+    if text in {"bilmiyorum", "bilmem", "pas", "pas geçiyorum"}:
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    "give_up", "BOUNDED_HOCA_GIVE_UP")
+    return None
 
 
 def _desktop_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
@@ -416,6 +477,7 @@ def _foreground_open(reference: ContextReference) -> bool:
         or (reference.source == "profile.hoca" and reference.id == "lesson.pending")
         or (reference.source == "desktop_agent" and reference.id == "consent")
         or (reference.source == "engine_commands" and reference.id == "pending_photo")
+        or (reference.source == "filesend" and reference.id == "pending_filesend")
     )
 
 
@@ -445,6 +507,7 @@ def exact_state_gate(
             _goal_match(reference, normalized, owner, request_id)
             or _job_match(reference, normalized, owner, request_id, goal_open=goal_open)
             or _session_match(reference, normalized, owner, request_id)
+            or _filesend_match(reference, normalized, owner, request_id)
             or _learning_match(reference, normalized, owner, request_id)
             or _hoca_match(reference, normalized, owner, request_id)
             or _desktop_match(reference, normalized, owner, request_id)
@@ -453,6 +516,18 @@ def exact_state_gate(
         if match is not None:
             matches.append(match)
     if not matches:
+        # "iptal" with no active target is an exact no-op status, not a
+        # free-language command. Never let a chat/model or unrelated domain
+        # interpret it as a new action; do not steal any foreground pending,
+        # active goal or live task-job ownership.
+        if (normalized in _CANCEL and not goal_open
+                and not any(_foreground_open(ref) for ref in rows)
+                and not any(ref.source == "task_agents" and ref.kind == "task_job"
+                            and str(ref.provenance.get("state") or "") in _JOB_OPEN
+                            and ref.provenance.get("stale") is not True
+                            for ref in rows)):
+            return _hit(owner, request_id, "state", "job.empty_cancel",
+                        "noop", "BOUNDED_EMPTY_CANCEL")
         return _miss(owner, request_id, "state", "NO_BOUNDED_STATE_MATCH")
     best_rank = min(_state_rank(match.protocol or "", normalized) for match in matches)
     winners = [match for match in matches if _state_rank(match.protocol or "", normalized) == best_rank]
@@ -569,6 +644,15 @@ def deterministic_fast_gate(
     status = goal_status_selection(text)
     if status is not None:
         return _hit(owner, request_id, "fast", "fast.goal.status", status, "EXACT_LOCAL_READ")
+
+    # Last file-organization undo is an exact, bounded user control.
+    # No substring or natural language classification: the existing
+    # domain executor replays only the owner's own last organize journal.
+    if normalized in {"düzenlemeyi geri al", "duzenlemeyi geri al",
+                      "düzenlemeyi iptal et", "duzenlemeyi iptal et",
+                      "taşıdıklarını geri al", "tasidiklarini geri al"}:
+        return _hit(owner, request_id, "fast", "fast.file.organize.undo",
+                    "undo", "EXACT_LAST_ORGANIZE_UNDO")
 
     if normalized in {"saat kaç", "saat kac", "saat ne", "saati"}:
         return _hit(owner, request_id, "fast", "fast.time.read", "time", "EXACT_LOCAL_READ")

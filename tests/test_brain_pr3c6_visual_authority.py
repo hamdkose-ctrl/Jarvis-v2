@@ -50,7 +50,7 @@ class CanonicalVisualProposalTests(unittest.TestCase):
         self.assertEqual(core_plan(result.capability_hint, result.arguments),
                          ("visual_create", {"kind": "visualize"}))
 
-    def test_primary_model_cannot_downgrade_visual_creation_to_chat(self):
+    def test_primary_model_chat_replaces_the_legacy_visual_guess(self):
         from modules.brain_model_understanding import UnderstandingProposal
 
         result = decide("zihin haritası oluştur")
@@ -62,9 +62,10 @@ class CanonicalVisualProposalTests(unittest.TestCase):
         )
         with patch("modules.brain_model_understanding.propose", return_value=proposal):
             refined = apply_model_understanding(result, "zihin haritası oluştur")
-        self.assertIs(refined, result)
-        self.assertEqual(refined.capability_hint, VISUAL_CAPABILITY)
-        self.assertIs(refined.request_kind, RequestKind.CAPABILITY)
+        self.assertIsNot(refined, result)
+        self.assertEqual(refined.request_kind, RequestKind.CHAT)
+        self.assertIsNone(refined.capability_hint)
+        self.assertEqual(refined.actions, ())
 
     def test_core_rejects_unknown_visual_kind(self):
         self.assertIsNone(core_plan(VISUAL_CAPABILITY, {"kind": "arbitrary", "original_text": "görsel oluştur"}))

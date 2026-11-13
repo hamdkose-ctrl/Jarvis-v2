@@ -52,6 +52,45 @@ def organize_preview(runtime, folder: str) -> str:
     return organize_preview_question(label, plan)
 
 
+def execute_screen_text(runtime, operation: str) -> str:
+    """Shared typed/strict-fallback OCR executor; no natural-language selection.
+
+    Always enforce the same privacy, cancellation and clipboard/note effect
+    boundaries, regardless of whether the model or bounded compatibility
+    protocol selected this already Core-validated operation.
+    """
+    from modules import requests_state
+    requests_state.check()
+    if operation not in {"read", "copy", "error_note"}:
+        return "Ekran metni işlemi doğrulanmadı; işlem başlatılmadı."
+    if (blocked := runtime.privacy.blocked("screen")):
+        return blocked
+    if operation == "error_note":
+        text = runtime._screen_ocr(
+            "Ekranda bir hata ya da uyarı mesajı varsa, Türkçe olarak tek cümleyle ne olduğunu "
+            "ve olası çözümünü yaz. Hata yoksa sadece 'Hata görünmüyor' yaz."
+        )
+        requests_state.check()
+        if not text or "Hata görünmüyor" in text:
+            return "Ekranda bir hata görünmüyor."
+        normalized = " ".join(text.split())
+        runtime.profile.add_note_item("Ekran hatası: " + normalized)
+        return "Ekrandaki hatayı notlarına ekledim: " + normalized[:200]
+    text = runtime._screen_ocr(
+        "Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini "
+        "koruyarak yaz. Yorum, başlık ya da açıklama ekleme; yalnızca metin."
+    )
+    requests_state.check()
+    if not text:
+        return "Ekranda okunabilir bir metin bulamadım."
+    if operation == "read":
+        return text
+    copied = runtime._copy_text(text)
+    if not copied:
+        return "Metni çıkardım ama panoya kopyalayamadım."
+    return f"Ekrandaki metni panoya kopyaladım ({len(text)} karakter). Başı: “{' '.join(text[:80].split())}…”"
+
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -82,6 +121,225 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "system_diagnose":
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
+        case "screen_text":
+            return execute_screen_text(runtime, a["operation"])
+        case "share_control":
+            # set_share is the single permission/vision/UI/audit effect owner.
+            return runtime.set_share({"screen": "screen", "camera": "camera", "stop": None}[a["action"]])
+        case "voice_select":
+            # No second TTS identity. The existing profile writer verifies the
+            # installed voice catalogue and interrupts stale speech.
+            return runtime._set_voice(a["key"])
+        case "voice_rate":
+            # Exactly the same preference writer as the existing spoken/UI
+            # controls; no new voice identity or provider fallback is created.
+            from modules import engine_context, voice_runtime
+            direction = a["direction"]
+            prefs = runtime.profile.data["prefs"]
+            saved = prefs.get("rate", -8)
+            current = saved if type(saved) is int and -40 <= saved <= 40 else -8
+            rate = max(-40, min(40, current + (10 if direction == "faster" else -10)))
+            if not engine_context.set_profile_rate(runtime.profile, rate, lane=voice_runtime.active()):
+                return "Seçilen ses kurulmadığı için konuşma hızı değiştirilmedi."
+            return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
+        case "conversation_table":
+            return runtime._table_chat()
+        case "daily_brief":
+            return runtime._daily_briefing()
+        case "notes_manage":
+            from modules import main_planner
+            if runtime._session().pending_confirm:
+                return "Önce açık onayı tamamla veya iptal et; yeni not silme onayı başlatılmadı."
+            if not runtime.profile.data.get("items"):
+                return "Not defterin zaten boş."
+            runtime._session().pending_confirm = {
+                "action": "notes_clear",
+                "owner": runtime.profile.slug,
+                "digest": main_planner._notes_snapshot_digest(runtime),
+            }
+            return "Tüm notlarını silmemi onaylıyor musun? Evet veya hayır de."
+        case "notes_add":
+            # Exact user-owned text was checked for grounding by the model
+            # envelope and length/nonempty value by Core. Old note timestamp,
+            # profile save and last-note correction remain in domain owner.
+            item_text = a["text"]
+            note = runtime._add_note(item_text)
+            from modules import main_planner
+            main_planner.remember_note_target(runtime, note)
+            return f"Not aldım: {item_text}"
+        case "agenda_read":
+            # Calendar reader remains the original Google+Jarvis read worker;
+            # not a new natural language parsing entry or event mutation.
+            from datetime import timedelta
+            from modules import main_planner
+            view, period = a["view"], a["period"]
+            now = runtime.datetime.now()
+            if view == "day_plan":
+                return main_planner._day_plan(runtime, 1 if period == "tomorrow" else 0)
+            if view == "week_plan":
+                return main_planner._week_plan(runtime, period)
+            if view == "upcoming":
+                events = runtime.profile.upcoming(now, 5)
+                if not events:
+                    return "Yaklaşan bir kaydın yok."
+                return "Yaklaşanlar: " + "; ".join(
+                    f"{runtime.whenmod.describe(row['when'], now)} {row['title']}" for row in events
+                ) + "."
+            day = (now + timedelta(days=1 if period == "tomorrow" else 0)).strftime("%Y-%m-%d")
+            return runtime._agenda_text(day, "Yarın" if period == "tomorrow" else "Bugün")
+        case "reminder_manage":
+            from modules import main_planner
+            return main_planner.reminder_change_preview(runtime, a)
+        case "browser_page":
+            from modules import browser
+            return browser.summarize(a["url"])
+        case "media_search":
+            from modules import media
+            if (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            service = a["service"]
+            if service == "music_home":
+                return media.open_music()
+            if service == "youtube_home":
+                return (media.youtube("", browser=a["browser"])
+                        if "browser" in a else media.youtube(""))
+            if service == "youtube":
+                return media.youtube(a["query"])
+            return media.spotify(a["query"])
+        case "handoff_manage":
+            from modules import handoff, requests_state
+            if (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            try:
+                return handoff.execute_typed(
+                    a["operation"], where=a.get("where"),
+                    text=a.get("text", ""), when=a.get("when"))
+            except (requests_state.Cancelled, PermissionError):
+                raise
+            except Exception as exc:
+                runtime._record_failure("modules.engine_intents:handoff_manage")
+                return handoff.explain_error(exc)
+        case "filesend_transfer":
+            from modules import filesend
+            return filesend.transfer_typed(runtime.profile.slug, a["operation"], a.get("query", ""))
+        case "pc_guide_start":
+            from modules import pc_guide
+            # The only model-owned effect is starting the existing read-only
+            # guided-overlay worker. The goal stays user-grounded, while the
+            # domain retains profile, screen privacy and Windows checks.
+            return pc_guide.handle(runtime.profile, "PC yardımı: " + a["goal"])
+        case "notify_manage":
+            from modules import notify
+            operation = a["operation"]
+            if operation in {"enable", "test"} and (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            return notify.execute_typed(operation, runtime.profile.data["prefs"], runtime.profile.save)
+        case "hoca_control":
+            from config import load_settings
+            from modules import hoca
+            settings = load_settings()
+            if not bool(settings.get("hoca_enabled", True)):
+                return "Hoca modu kapalı. Ayarlardan etkinleştirip tekrar dene."
+            try:
+                message = hoca.control_typed(
+                    runtime.profile, operation=a["operation"], step=a["step"],
+                    question=a["question"], answer=a.get("answer", ""),
+                    started=a.get("started"), course_id=a.get("course_id"),
+                )
+            except hoca.HocaError as exc:
+                return str(exc)
+            if settings.get("hoca_voice_full"):
+                try:
+                    runtime._session().speech_override = runtime.richtext.speakable(message)
+                except Exception:
+                    runtime._record_failure("modules.engine_intents:hoca_control_voice")
+            return message
+        case "hoca_start":
+            from modules import requests_state, hoca
+            from config import load_settings
+            requests_state.check()
+            if not bool(load_settings().get("hoca_enabled", True)):
+                return "Hoca modu kapalı. Ayarlardan etkinleştirip tekrar dene."
+            try:
+                source = (hoca._research_source(a["topic"])
+                          if a.get("research") is True else None)
+                requests_state.check()
+                lesson = hoca.start(runtime.profile, a["topic"],
+                                    level=a.get("level", ""), source=source)
+                requests_state.check()
+                source_line = f" Kaynak: {source['url']}" if source else ""
+                message = (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım."
+                           + source_line + "\n\n" + hoca._lesson_text(runtime.profile))
+                # Preserve the existing Hoca full-speech preference after the
+                # semantic start parser was retired. The same Voice Front still
+                # owns the actual playback and selected voice identity.
+                if load_settings().get("hoca_voice_full"):
+                    try:
+                        runtime._session().speech_override = runtime.richtext.speakable(message)
+                    except Exception:
+                        runtime._record_failure("modules.engine_intents:hoca_start_voice")
+                return message
+            except hoca.HocaError as exc:
+                return str(exc)
+        case "development_manage":
+            from modules import developer
+            result = developer.execute_typed(runtime.profile.slug, a["operation"],
+                goal=a.get("goal"), reference_paths=a.get("reference_paths", ()), emit=runtime.emit)
+            if isinstance(result, str) and (len(result) > 300 or 'data:image' in result):
+                runtime._session().speech_override = "Geliştirme sonucu sohbet ekranında hazır."
+            return result
+        case "tasks_manage":
+            from modules import tasks
+            operation = a["operation"]
+            if operation == "list":
+                return tasks.list_text(runtime.profile)
+            if operation == "clear_done":
+                return tasks.clear_done_preview(runtime.profile, runtime._session())
+            if operation == "add":
+                task = tasks.add(runtime.profile, a["text"])
+                return f"Görev ekledim: {task['text']}."
+            if operation == "delete":
+                from modules import personalization
+                with personalization._LOCK:
+                    matches = [task for task in runtime.profile.data.get("tasks", [])
+                               if task.get("text") == a["text"]]
+                    if len(matches) != 1:
+                        return "Bu adla tek bir görev bulamadım; hiçbir görev silinmedi."
+                    return app_actions.voice({"action": "task_delete", "params": {"tid": matches[0]["id"]}},
+                        runtime._session(), runtime.profile, runtime.emit, command)
+            completed = tasks.complete_exact(runtime.profile, a["text"])
+            if completed is None:
+                return ("Bu adla tek bir açık görev bulamadım; "
+                        "hiçbir görevi tamamlandı olarak işaretlemedim.")
+            return f"“{completed}” görevini tamamlandı olarak işaretledim."
+        case "kb_query":
+            from modules import kb
+            return kb.answer(runtime.profile, a["question"])
+        case "worktrack_read":
+            from modules import worktrack
+            return worktrack.report(a["kind"], a.get("project"))
+        case "filesend_select":
+            from modules import filesend
+            return filesend.select_pending(runtime.profile.slug, a["index"])
+        case "filesend_cancel":
+            from modules import filesend
+            return filesend.cancel_pending(runtime.profile.slug)
+        case "file_organize_undo":
+            from modules import requests_state
+            requests_state.check()
+            restored = runtime.files.undo_organize(runtime.profile.slug)
+            return ("Geri alınacak bir düzenleme kaydı yok." if restored is None
+                    else f"{restored} dosyayı eski yerine taşıdım.")
+        case "study_read":
+            from modules import engine_tools
+            return engine_tools.study_read(runtime, a["view"])
+        case "workbench_followup":
+            from modules import workbench
+            return workbench.followup_typed(
+                runtime.profile.slug, command,
+                expected_digest=str(a.get("expected_digest") or ""),
+                fmt=a.get("format"),
+            )
         case "user_manage":
             from modules import user_command_domain
             return user_command_domain.user_manage(runtime, a)
@@ -243,13 +501,27 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime._session().pending_level = None   # yeni açık istek eski "ses mi parlaklık mı?" sorusunu geçersiz kılar
             level = max(0, min(100, int(a["level"])))
             if a["property"] == "volume":
-                if runtime.system_control.set_volume(level):
+                if not runtime.system_control.set_volume(level):
+                    from modules import session_state
+                    session_state.clear_property(runtime._session())
+                    return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
+                # An accepted Windows API write is NOT proof of the resulting
+                # system state. Only a fresh endpoint readback may authorize
+                # the success claim or the next-turn level context.
+                measured = runtime.system_control.current_volume()
+                if type(measured) is int and measured == level:
                     _remember(runtime, "volume")
                     return ActionOutcome(f"Ses seviyesini yüzde {level} yaptım.", True)
-                return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
+                from modules import session_state
+                session_state.clear_property(runtime._session())
+                return ActionOutcome(
+                    "Ses ayarı gönderildi ancak gerçek seviyeyi doğrulayamadım; "
+                    "işlemi başarılı saymıyorum.", False)
             if runtime.system_control.set_brightness_verified(level):
                 _remember(runtime, "brightness")
                 return ActionOutcome(f"Ekran parlaklığını yüzde {level} olarak ayarladım.", True)
+            from modules import session_state
+            session_state.clear_property(runtime._session())
             return ActionOutcome("Ekran parlaklığını doğrulayamadım.", False)
         case "audio_action":
             # Eski ham "ses" dallarının tek sahibi: durum tersine çevrilmez, seviye adımı aynı owner'da.
@@ -340,6 +612,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
         case "notes_read":
+            if a.get("which") == "count":
+                return f"Not defterinde {len(runtime.profile.data.get('items', []))} notun var."
             if a.get("which") == "search":
                 from modules import main_planner
                 return main_planner.notes_search(runtime, str(a.get("query") or ""), a.get("window"))
@@ -348,21 +622,50 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return main_planner.notes_summary(runtime, a.get("id"))
             if a.get("which") == "one":
                 note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
+                if note is not None:
+                    from modules import main_planner
+                    main_planner.remember_note_target(runtime, note)
                 return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
             return runtime._notes_text()
         case "notes_write":
-            note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
-            if note is None:
-                return "Bu notu bulamadım."
-            if a.get("operation") == "delete":
-                old = str(note.get("text") or "")
-                runtime.profile.delete_note_item(note["id"])
-                return f"Notu sildim: {old}"
-            if a.get("operation") == "update":
-                note["text"] = str(a.get("text") or "")
-                runtime.profile.save()
-                return f"Düzelttim: {note['text']}"
-            return "Bu not işlemi Core tarafından doğrulanmadı."
+            from modules import main_planner, personalization, requests_state
+            # Atomic check-and-effect with the Profile owner's existing
+            # reentrant lock; no second writer, store or authority is created.
+            # Without it another request could change the note after digest
+            # check but before delete/update.
+            with personalization._LOCK:
+                matches = [n for n in runtime.profile.data.get("items", [])
+                           if isinstance(n, dict) and str(n.get("id")) == str(a.get("id"))]
+                if len(matches) != 1:
+                    return ActionOutcome("Not hedefi artık tek değil veya bulunamadı; değiştirmedim.", False)
+                note = matches[0]
+                digest = a.get("expected_note_digest")
+                if (not isinstance(digest, str) or len(digest) != 64
+                        or main_planner.note_snapshot_digest(note) != digest):
+                    return ActionOutcome("Not son gözlemden beri değişti; hiçbir işlem yapılmadı.", False)
+                requests_state.check()
+                if a.get("operation") == "delete":
+                    old = str(note["text"])
+                    if not runtime.profile.delete_note_item(note["id"]):
+                        return ActionOutcome("Not silme işlemi doğrulanamadı; silindi demiyorum.", False)
+                    from modules import session_state
+                    session_state.clear_note(runtime._session())
+                    return f"Notu sildim: {old}"
+                if a.get("operation") == "update":
+                    text = a.get("text")
+                    if not isinstance(text, str) or not text.strip():
+                        return ActionOutcome("Yeni not metni doğrulanmadı; değiştirmedim.", False)
+                    old_text = note["text"]
+                    note["text"] = text
+                    try:
+                        runtime.profile.save()
+                    except Exception:
+                        runtime._record_failure("modules/engine_intents.py:notes_write_save")
+                        note["text"] = old_text
+                        raise
+                    main_planner.remember_note_target(runtime, note)
+                    return f"Düzelttim: {note['text']}"
+                return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
@@ -394,6 +697,23 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             contacts[name] = phone
             runtime.profile.save()
             return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
+        case "meeting_prepare":
+            from modules import meeting_prep
+            if blocked := runtime.privacy.blocked("web"):
+                return blocked
+            return meeting_prep.handle_typed(runtime.profile, runtime.datetime.now(), hint=a["hint"])
+        case "mail_read":
+            from modules import engine_tools
+            return engine_tools.mail_read_typed(runtime, a["source"])
+        case "outlook_draft":
+            from modules import outlook
+            # Mail is read-only; only the selected reply TEXT is returned.
+            # Outlook's send, save, reply and status mutation APIs are absent.
+            return outlook.draft_typed(
+                runtime.ask, index=a.get("index"), sender=a.get("sender"))
+        case "finance_alert_manage":
+            from modules import finance_alert_commands
+            return finance_alert_commands.execute_typed(runtime.profile.slug, a)
         case "finance_read":
             # Core yalnız biçim hükmü verdi; veri çekme ve biçimlendirme finans domain'inindir.
             from modules import finance

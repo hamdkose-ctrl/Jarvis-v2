@@ -80,6 +80,15 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             close_application=Mock(return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True)),
             open_application=Mock(return_value=ApplicationResult("Chrome penceresi açık; açılışını doğruladım.", ok=True)),
         )
+        # A mocked successful volume write must have a matching *independent*
+        # readback in tests that intentionally simulate success. Failure and
+        # mismatch cases use dedicated explicit readback test doubles.
+        def observed_volume():
+            write = self.ctx.system_control.set_volume
+            if write.call_args and write.return_value is True:
+                return write.call_args.args[0]
+            return 40
+        self.ctx.system_control.current_volume.side_effect = observed_volume
         self.ctx.desktop = Mock(screenshot=Mock(return_value="EKRAN GÖRÜNTÜSÜ"), system_status=Mock(return_value="SISTEM"))
         self.ctx._weather = Mock(return_value="HAVA")
         self.ctx.voice = Mock(stop_speaking=Mock())
@@ -347,13 +356,13 @@ class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
                 self.assertIn("kaydedilmemiş", out, text)
 
     def test_close_grammar_does_not_outrank_the_notes_front_gate(self):
-        # "Not Defteri kapat" baseline'de de not planner'ına düşüyordu (ham app-close dalı
-        # handle'da planner'ın SONRASINDAYDI). PR3A bu sıralamayı değiştirmez: front gate
-        # cevabı Core app.close planını gölger, hiçbir kapatma onayı açılmaz.
+        # A canonical app.close proposal is not the old accidental note-planner
+        # shadow. It asks for confirmation, but cannot close without approval.
         entry, out, handle, _ = self.turn("Not Defteri kapat")
         self.assertEqual(entry.understanding.capability_hint, "app.close")
-        self.assertIsNone(self.ctx._session().pending_confirm, out)
-        self.assertNotIn("kaydedilmemiş", out)
+        self.assertEqual(self.ctx._session().pending_confirm,
+                         {"action": "close_app", "name": "not defteri"})
+        self.assertIn("kaydedilmemiş", out)
         self.ctx.system_control.close_application.assert_not_called()
         handle.assert_not_called()
 
@@ -729,11 +738,15 @@ class FastAuthorityTests(_CanonicalAuthorityHarness):
 
 class MultiStepAuthorityTests(_CanonicalAuthorityHarness):
     def test_each_step_keeps_its_own_canonical_owner_and_effect_once(self):
-        _, out, _, _ = self.turn_real("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            _, out, _, _ = self.turn_real("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.ctx._volume_step.assert_called_once_with(-10, "kıstım")
         self.ctx.system_control.media_control.assert_called_once_with("next")
-        self.assertIn("1.", out)
-        self.assertIn("2.", out)
+        self.assertIn("a1:", out)
+        self.assertIn("a2:", out)
 
 
 class NegativeMatrixTests(_CanonicalAuthorityHarness):

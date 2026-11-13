@@ -283,9 +283,17 @@ def set_volume(level: int) -> bool:
         volume = _volume_endpoint()
         if volume.GetMute() == 1:
             volume.SetMute(0, None)
-        clamped = max(0, min(100, level)) / 100.0
-        volume.SetMasterVolumeLevelScalar(clamped, None)
-        print(f"Ses seviyesi %{max(0, min(100, level))} yapıldı.")
+        target = max(0, min(100, level))
+        volume.SetMasterVolumeLevelScalar(target / 100.0, None)
+        # The common PC adapter is also used by direct and background workers.
+        # A successful COM setter does not prove that Windows applied the
+        # requested volume (or that the endpoint left mute mode).
+        observed = volume.GetMasterVolumeLevelScalar()
+        actual = round(float(observed) * 100)
+        if actual != target or volume.GetMute() == 1:
+            _record_failure('modules/system_control.py:set_volume_readback_mismatch')
+            return False
+        print(f"Ses seviyesi %{target} olarak doğrulandı.")
         return True
     except Exception as e:
         _record_failure('modules/system_control.py:set_volume')

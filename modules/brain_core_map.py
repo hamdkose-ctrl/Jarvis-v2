@@ -455,7 +455,9 @@ def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(row, Mapping) or set(row) - {"title", "when", "repeat"}:
         return None
     title, when, repeat = row.get("title"), row.get("when"), row.get("repeat")
-    if not reminder_parse.valid_args(title, when, repeat):
+    # reminder_parse uses "unknown" as an unsupported-recursion sentinel,
+    # never as a runnable repeat rule. Do not turn it into a one-off alarm.
+    if repeat == "unknown" or not reminder_parse.valid_args(title, when, repeat):
         return None
     return {"title": title, "when": when, "repeat": repeat}
 
@@ -477,13 +479,17 @@ def _note_query(value: Any) -> str | None:
 
 
 def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Core re-validates the read-only notes proposal; the id is checked against the profile at execution."""
+    """Core re-validates read-only notes; unknown top-level fields have no authority."""
+    if (set(arguments) - {"notes", "original_text"}
+            or ("original_text" in arguments
+                and not isinstance(arguments["original_text"], str))):
+        return None
     row = arguments.get("notes")
     if not isinstance(row, Mapping):
         return None
     which, ident = row.get("which"), row.get("id")
-    if which == "all":
-        return {"which": "all"} if set(row) == {"which"} else None
+    if which in {"all", "count"}:
+        return {"which": which} if set(row) == {"which"} else None
     if which == "one":
         if set(row) != {"which", "id"}:
             return None
@@ -738,6 +744,516 @@ def _translate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+
+# BRAIN-03: these closed operations are Core argument contracts, not a second
+# natural-language classifier. The model chooses from the catalogue; Core
+# validates the enum and the existing domain owner applies each effect.
+_SCREEN_TEXT_OPERATIONS = frozenset({"read", "copy", "error_note"})
+_SHARE_OPERATIONS = frozenset({"screen", "camera", "stop"})
+_VOICE_RATE_DIRECTIONS = frozenset({"faster", "slower"})
+_VOICE_SELECT_KEYS = frozenset({"tr_erkek", "tr_kadin", "ml_erkek", "ml_kadin", "ml_erkek2", "ml_kadin2"})
+
+
+def _study_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "view"}:
+        return None
+    view = arguments.get("view")
+    return {"view": view} if type(view) is str and view in {"plan", "focus"} else None
+
+
+def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Only the bounded revision/format choice comes from the model. Owner,
+    # target paths and revision identity come from canonical ActiveContext.
+    if set(arguments) - {"original_text", "operation", "format"}:
+        return None
+    if arguments.get("operation") != "revise":
+        return None
+    output = arguments.get("format")
+    formats = {None: None, "excel": ".xlsx", "word": ".docx", "pdf": ".pdf"}
+    if type(output) not in (str, type(None)) or output not in formats:
+        return None
+    return {"format": formats[output]}
+
+
+def _handoff_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "where", "text", "when"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"list", "add", "complete"}:
+        return None
+    where = arguments.get("where")
+    if type(where) not in (str, type(None)) or where not in {"is", "ev", None}:
+        return None
+    if operation == "list":
+        return {"operation": operation, "where": where} if arguments.get("text") is None and arguments.get("when") is None else None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 500:
+        return None
+    if operation == "complete":
+        return {"operation": operation, "text": text.strip()} if where is None and arguments.get("when") is None else None
+    when = arguments.get("when", "today")
+    if where not in {"is", "ev"} or type(when) is not str or when not in {"today", "tomorrow"}:
+        return None
+    return {"operation": operation, "where": where, "text": text.strip(), "when": when}
+
+
+def _filesend_transfer_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "query"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"latest", "screenshot", "search"}:
+        return None
+    query = arguments.get("query")
+    if operation in {"latest", "screenshot"}:
+        return {"operation": operation} if query is None else None
+    if not isinstance(query, str) or not query.strip() or "\x00" in query or len(query) > 200:
+        return None
+    return {"operation": "search", "query": query.strip()}
+
+
+def _pc_guide_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate one read-only Windows coaching goal, never a PC action."""
+    if set(arguments) - {"original_text", "goal"}:
+        return None
+    goal = arguments.get("goal")
+    if (not isinstance(goal, str) or not goal.strip() or len(goal) > 500
+            or any(ord(char) < 32 for char in goal)):
+        return None
+    return {"goal": goal.strip()}
+
+
+def _notify_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    operation = arguments.get("operation")
+    return {"operation": operation} if type(operation) is str and operation in {"enable", "disable", "test"} else None
+
+
+def _browser_page_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only a public HTTP(S) page URL; public_sources repeats DNS/redirect checks."""
+    if set(arguments) - {"original_text", "url"}:
+        return None
+    url = arguments.get("url")
+    if not isinstance(url, str) or len(url) > 2048 or not url.strip() or any(ord(x) <= 32 for x in url):
+        return None
+    from urllib.parse import urlsplit
+    import ipaddress
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if parsed.scheme not in {"https", "http"} or not host or "." not in host:
+            return None
+        if parsed.username or parsed.password or parsed.port is not None or host.endswith((".local", ".internal", ".localhost")):
+            return None
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            return None
+    except ValueError:
+        return None
+    return {"url": url}
+
+
+def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Model chooses site vs Windows app; Core owns closed browser preference."""
+    if set(arguments) - {"original_text", "service", "query", "browser"}:
+        return None
+    service = arguments.get("service")
+    if type(service) is not str or service not in {"youtube", "spotify", "music_home", "youtube_home"}:
+        return None
+    query = arguments.get("query")
+    browser = arguments.get("browser", "default")
+    if service == "youtube_home":
+        if query is not None or type(browser) is not str or browser not in {"default", "chrome", "firefox"}:
+            return None
+        return {"service": service, **({"browser": browser} if "browser" in arguments else {})}
+    # Explicit browser selection is only supported for the YouTube web-home
+    # route. It must never silently change another media capability.
+    if "browser" in arguments:
+        return None
+    if service == "music_home":
+        return {"service": service} if query is None else None
+    if not isinstance(query, str) or not query.strip() or "\x00" in query or len(query) > 200:
+        return None
+    return {"service": service, "query": query.strip()}
+
+
+def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Read-only mail source contract; no recipients, drafts, sends or raw parsing."""
+    if set(arguments) - {"original_text", "source"}:
+        return None
+    source = arguments.get("source")
+    if type(source) is not str or source not in {
+            "inbox", "important", "work", "work_important", "combined",
+            "awaiting_mine", "awaiting_theirs", "first_attachments", "first_attachment_read"}:
+        return None
+    return {"source": source}
+
+
+def _meeting_prepare_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only an optional user-grounded meeting name; never mail source, ID or action."""
+    if set(arguments) - {"original_text", "hint"}:
+        return None
+    hint = arguments.get("hint", "")
+    if (not isinstance(hint, str) or len(hint) > 120
+            or any(ord(ch) < 32 for ch in hint)):
+        return None
+    return {"hint": hint.strip()}
+
+
+
+def _outlook_draft_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """One Outlook unread reply-text draft; model may not select mail effects.
+
+    The selector is an explicitly chosen 1..20 position or an owner-grounded
+    sender string. Neither arbitrary Outlook IDs nor send/forward operations
+    can cross Core. The worker still checks the live unread list for uniqueness.
+    """
+    if set(arguments) - {"original_text", "operation", "index", "sender"}:
+        return None
+    if ("original_text" in arguments
+            and not isinstance(arguments["original_text"], str)):
+        return None
+    if arguments.get("operation") != "reply":
+        return None
+    index, sender = arguments.get("index"), arguments.get("sender")
+    if (index is None) == (sender is None):
+        return None
+    if index is not None:
+        return {"index": index} if type(index) is int and 1 <= index <= 20 else None
+    if (not isinstance(sender, str) or not 2 <= len(sender.strip()) <= 120
+            or any(ord(ch) < 32 for ch in sender)):
+        return None
+    return {"sender": sender.strip()}
+
+
+def _finance_alert_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate fields, never classify raw alarm language or accept model rule IDs."""
+    if set(arguments) - {"original_text", "operation", "asset", "value",
+                         "direction", "index"}:
+        return None
+    operation = arguments.get("operation")
+    if operation == "list":
+        return {"operation": "list"} if set(arguments) <= {"original_text", "operation"} else None
+    if operation == "delete":
+        index = arguments.get("index")
+        if type(index) is int and 1 <= index <= 20 and set(arguments) <= {
+                "original_text", "operation", "index"}:
+            return {"operation": "delete", "index": index}
+        return None
+    if operation != "add" or set(arguments) - {
+            "original_text", "operation", "asset", "value", "direction"}:
+        return None
+    asset, value, direction = (arguments.get("asset"), arguments.get("value"),
+                                arguments.get("direction"))
+    if not isinstance(asset, str) or not asset.strip() or len(asset) > 60:
+        return None
+    if direction not in ("above", "below") or not isinstance(value, str) or not re.fullmatch(
+            r"\d{1,8}(?:[.,]\d{1,4})?", value.strip()):
+        return None
+    parsed = float(value.replace(",", "."))
+    if not 0 < parsed <= 100_000_000:
+        return None
+    from modules import finance_alert_commands
+    try:
+        kind, symbol = finance_alert_commands._asset(asset)
+    except ValueError:
+        return None
+    return {"operation": "add", "kind": kind, "symbol": symbol,
+            "direction": direction, "value": parsed}
+
+
+def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Typed lesson target and explicit bounded public-source request.
+
+    The model decides the subject; a research fetch additionally requires the
+    user's own explicit Hoca research syntax. It is not a second semantic
+    classifier and does not accept model-supplied URLs or source objects.
+    """
+    if set(arguments) - {"original_text", "topic", "level", "research"}:
+        return None
+    topic = arguments.get("topic")
+    if not isinstance(topic, str) or not topic.strip() or "\x00" in topic or len(topic) > 160:
+        return None
+    level = arguments.get("level")
+    if level is not None and (type(level) is not str or level not in {"başlangıç", "orta", "ileri"}):
+        return None
+    research = arguments.get("research", False)
+    if type(research) is not bool:
+        return None
+    result: dict[str, Any] = {"topic": topic.strip()}
+    if level is not None:
+        result["level"] = level
+    if research:
+        original = arguments.get("original_text")
+        source = (re.fullmatch(r"\s*hoca modu\s*:\s*araştır\s+(.+?)\s*[.!]*",
+                               original.casefold())
+                  if isinstance(original, str) else None)
+        # The requested subject must be the complete spoken suffix, not a
+        # model-extracted fragment of a longer negative or quoted sentence.
+        if source is None or source.group(1).strip() != topic.strip().casefold():
+            return None
+        result["research"] = True
+    return result
+
+
+def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "text"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"list", "add", "complete", "delete", "clear_done"}:
+        return None
+    if operation in {"list", "clear_done"}:
+        return {"operation": operation} if arguments.get("text") is None else None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 500:
+        return None
+    return {"operation": operation, "text": text.strip()}
+
+
+def _kb_query_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "question"}:
+        return None
+    question = arguments.get("question")
+    if not isinstance(question, str) or not question.strip() or "\x00" in question or len(question) > 1000:
+        return None
+    return {"question": question.strip()}
+
+
+def _worktrack_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "kind", "project"}:
+        return None
+    kind = arguments.get("kind")
+    if type(kind) is not str or kind not in {"status", "reply", "dated", "priority", "weekly"}:
+        return None
+    project = arguments.get("project")
+    if project is None:
+        return {"kind": kind}
+    if not isinstance(project, str) or not project.strip() or "\x00" in project or len(project) > 120:
+        return None
+    return {"kind": kind, "project": project.strip()}
+
+
+def _notes_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Only an explicit user-confirmed all-notes deletion. Individual notes
+    # already use the canonical notes.write referenced-note contract.
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    return {"operation": "clear_all"} if arguments.get("operation") == "clear_all" else None
+
+
+def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates a new user note. The note body must be grounded by Brain."""
+    if set(arguments) - {"original_text", "text"}:
+        return None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 4000:
+        return None
+    return {"text": text.strip()}
+
+
+def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Closed read-only calendar views; never infer an edit or external calendar write."""
+    if set(arguments) - {"original_text", "view", "period"}:
+        return None
+    view, period = arguments.get("view"), arguments.get("period")
+    choices = {"agenda": frozenset({"today", "tomorrow"}),
+               "day_plan": frozenset({"today", "tomorrow"}),
+               "week_plan": frozenset({"this", "next", "seven"}),
+               "upcoming": frozenset({None})}
+    if (type(view) is not str or view not in choices
+            or type(period) not in (str, type(None)) or period not in choices[view]):
+        return None
+    return {"view": view, "period": period}
+
+
+
+def _reminder_protocol_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Model selects an operation; Core bounds the title and delay.
+
+    The target record is resolved by the existing owner-local reminder worker,
+    not by IDs invented by the model. Every mutation still requires the
+    snapshot-bound State confirmation.
+    """
+    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday", "period", "daypart"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move", "reschedule"}:
+        return None
+    title = arguments.get("title")
+    if ((operation in {"snooze", "reschedule"} or operation == "skip"
+         and arguments.get("period") == "today") and title is None):
+        checked_title = None  # only the unique recently fired event is eligible
+    elif isinstance(title, str) and title.strip() and len(title) <= 200 and "\x00" not in title:
+        checked_title = title.strip()
+    else:
+        return None
+    period = arguments.get("period")
+    daypart = arguments.get("daypart")
+    if operation in {"delete", "skip"}:
+        if daypart is not None:
+            return None
+        if arguments.get("duration") is not None or arguments.get("weekday") is not None:
+            return None
+        if operation == "delete":
+            return {"operation": "delete", "title": checked_title} if (
+                checked_title is not None and period is None) else None
+        if period not in (None, "today", "tomorrow"):
+            return None
+        if checked_title is None and period != "today":
+            return None
+        return {"operation": "skip", "title": checked_title,
+                **({"period": period} if period is not None else {})}
+    if period is not None:
+        return None
+    if operation == "reschedule":
+        if (daypart != "tomorrow_morning"
+                or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "reschedule", "title": checked_title,
+                "daypart": "tomorrow_morning"}
+    if operation == "snooze" and daypart is not None:
+        if (daypart != "evening" or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "snooze", "title": checked_title,
+                "daypart": "evening"}
+    if daypart is not None:
+        return None
+    if operation == "move":
+        day = arguments.get("weekday")
+        weekday = {"pazartesi": 0, "salı": 1, "çarşamba": 2,
+                   "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6,
+                   "pazartesiye": 0, "salıya": 1, "çarşambaya": 2, "perşembeye": 3,
+                   "cumaya": 4, "cumartesiye": 5, "pazara": 6}
+        if (checked_title is None or type(day) is not str
+                or day not in weekday or arguments.get("duration") is not None):
+            return None
+        return {"operation": "move", "title": checked_title,
+                "weekday": weekday[day]}
+    if arguments.get("weekday") is not None:
+        return None
+    duration = arguments.get("duration")
+    if operation == "snooze" and duration is None:
+        return {"operation": operation, "title": checked_title, "minutes": 10}
+    if not isinstance(duration, str) or len(duration) > 40:
+        return None
+    if duration in {"yarına", "yarin", "yarına kadar"} and operation == "postpone":
+        return {"operation": operation, "title": checked_title, "minutes": 1440}
+    named_delays = {"yarım saat": 30, "bir saat": 60, "bir gün": 1440,
+                    "iki gün": 2880}
+    if duration.casefold().strip() in named_delays:
+        minutes = named_delays[duration.casefold().strip()]
+        return {"operation": operation, "title": checked_title,
+                "minutes": minutes} if minutes <= (
+                    1440 if operation == "snooze" else 10080) else None
+    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
+    if parsed is None:
+        return None
+    count, unit = int(parsed.group(1)), parsed.group(2)
+    minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
+    if not 1 <= minutes <= (1440 if operation == "snooze" else 10080):
+        return None
+    return {"operation": operation, "title": checked_title, "minutes": minutes}
+
+
+
+def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core checks one grounded exact-title reminder change; no arbitrary ids or bulk."""
+    if (isinstance(arguments.get("operation"), str) and arguments["operation"] in {"snooze", "move", "reschedule"}
+            or set(arguments) & {"weekday", "period", "daypart"}):
+        return _reminder_protocol_args(arguments)
+    if set(arguments) - {"original_text", "operation", "title", "duration", "target", "occurrence", "schedule", "on_date"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip"}:
+        return None
+    title, target = arguments.get("title"), arguments.get("target", "title")
+    occurrence = arguments.get("occurrence", "next")
+    if type(target) is not str or target not in {"title", "only", "last_fired"}:
+        return None
+    if type(occurrence) is not str or occurrence not in {"next", "fired"}:
+        return None
+    if target == "title":
+        if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
+            return None
+    elif title is not None:
+        return None
+    result = {"operation": operation}
+    if target == "title":
+        result["title"] = title.strip()
+    else:
+        result["target"] = target
+    if occurrence != "next":
+        result["occurrence"] = occurrence
+    on_date = arguments.get("on_date")
+    if on_date is not None:
+        if not isinstance(on_date, str) or not on_date.strip() or len(on_date) > 100 or "\x00" in on_date:
+            return None
+        result["on_date"] = on_date.strip()
+    duration, schedule = arguments.get("duration"), arguments.get("schedule")
+    if operation in {"delete", "skip"}:
+        return result if duration is None and schedule is None and occurrence == "next" else None
+    if schedule is not None:
+        if duration is not None or not isinstance(schedule, str) or not schedule.strip() or len(schedule) > 100 or "\x00" in schedule:
+            return None
+        return {**result, "schedule": schedule.strip()}
+    if not isinstance(duration, str) or len(duration) > 40:
+        return None
+    # These are data formats for a model-selected delay, never intent words.
+    from modules.turkish_text import lower
+    value = lower(duration).strip()
+    fixed = {"yarına": 1440, "yarin": 1440, "yarına kadar": 1440,
+             "haftaya": 10080, "yarım saat": 30, "yarim saat": 30}
+    minutes = fixed.get(value)
+    if minutes is None:
+        parsed = re.fullmatch(r"([1-9]\d{0,3}|bir|iki|üç|uc|dört|dort|beş|bes|on)\s*(dakika|dk|saat|gün|gun)", value)
+        if parsed is None:
+            return None
+        number, unit = parsed.groups()
+        words = {"bir": 1, "iki": 2, "üç": 3, "uc": 3, "dört": 4, "dort": 4, "beş": 5, "bes": 5, "on": 10}
+        count = int(number) if number.isdigit() else words[number]
+        minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
+    return {**result, "minutes": minutes} if 1 <= minutes <= 10080 else None
+
+
+def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in _SCREEN_TEXT_OPERATIONS:
+        return None
+    return {"operation": operation}
+
+
+def _share_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "action"}:
+        return None
+    action = arguments.get("action")
+    if type(action) is not str or action not in _SHARE_OPERATIONS:
+        return None
+    return {"action": action}
+
+
+def _voice_rate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "direction"}:
+        return None
+    direction = arguments.get("direction")
+    if type(direction) is not str or direction not in _VOICE_RATE_DIRECTIONS:
+        return None
+    return {"direction": direction}
+
+
+def _voice_select_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "key"}:
+        return None
+    key = arguments.get("key")
+    return {"key": key} if type(key) is str and key in _VOICE_SELECT_KEYS else None
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -911,7 +1427,9 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
             else:
                 good = False
         else:
-            if key == "hologram_tone":
+            if key == "nx_theme":
+                good = value in {"light", "dark", "system"} if isinstance(value, str) else False
+            elif key == "hologram_tone":
                 good = isinstance(value, str) and value in {"blue", "turquoise", "yellow"}
             elif key == "hologram_background":
                 good = isinstance(value, str) and value in {"lava", "mountains"}
@@ -925,9 +1443,65 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _development_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    from modules.developer import TYPED_CONTROLS
+    operation = arguments.get("operation")
+    if not isinstance(operation, str):
+        return None
+    if operation == "request":
+        goal = arguments.get("goal")
+        if (set(arguments) - {"original_text", "operation", "goal", "reference_paths"}
+                or not isinstance(goal, str) or not 0 < len(goal.strip()) <= 2000 or "\x00" in goal):
+            return None
+        paths = arguments.get("reference_paths", ())
+        if (not isinstance(paths, (tuple, list)) or len(paths) > 10
+                or any(_validated_file_path(value) is None for value in paths) or len(set(paths)) != len(paths)):
+            return None
+        return {"operation": operation, "goal": goal.strip(), "reference_paths": tuple(paths)}
+    if operation not in TYPED_CONTROLS or set(arguments) - {"original_text", "operation"}:
+        return None
+    # Source application/test/rollback controls keep their exact existing
+    # protocol; a model enum alone cannot grant a final application approval.
+    from modules.turkish_text import lower
+    original = arguments.get("original_text")
+    if not isinstance(original, str) or lower(original).strip(" .!") not in TYPED_CONTROLS[operation]:
+        return None
+    return {"operation": operation}
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
+    "development.manage": ("development_manage", _development_args),
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    # BRAIN-03: typed adapters preserve the existing OCR/clipboard/note,
+    # Vision share, voice-rate and personal briefing executors.
+    "screen.text": ("screen_text", _screen_text_args),
+    "device.share": ("share_control", _share_args),
+    "voice.rate": ("voice_rate", _voice_rate_args),
+    "voice.select": ("voice_select", _voice_select_args),
+    "brief.read": ("daily_brief", _empty_action_args),
+    "workbench.followup": ("workbench_followup", _workbench_followup_args),
+    "study.read": ("study_read", _study_read_args),
+    # Migration of planner semantic authority to typed, existing domain effects.
+    "notes.add": ("notes_add", _note_add_args),
+    "notes.manage": ("notes_manage", _notes_manage_args),
+    "calendar.read": ("agenda_read", _agenda_read_args),
+    "reminders.manage": ("reminder_manage", _reminder_manage_args),
+    "tasks.manage": ("tasks_manage", _tasks_manage_args),
+    "kb.query": ("kb_query", _kb_query_args),
+    "worktrack.read": ("worktrack_read", _worktrack_read_args),
+    "hoca.lesson.start": ("hoca_start", _hoca_start_args),
+    "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
+    "mail.read": ("mail_read", _mail_read_args),
+    "meeting.prepare": ("meeting_prepare", _meeting_prepare_args),
+    "conversation.table": ("conversation_table", _empty_action_args),
+    "mail.draft": ("outlook_draft", _outlook_draft_args),
+    "browser.page.read": ("browser_page", _browser_page_args),
+    "media.search": ("media_search", _media_search_args),
+    "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
+    "notify.manage": ("notify_manage", _notify_manage_args),
+    "pc.guide.start": ("pc_guide_start", _pc_guide_start_args),
+    "handoff.manage": ("handoff_manage", _handoff_manage_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
@@ -960,7 +1534,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # kümede yeniden doğrular ve HİÇ yol görmez. Diskteki gerçek kimliği yalnız yürütücü çözer.
     FOLDER_ANALYSIS_CAPABILITY: ("folder_analyze", _folder_analysis_args),
     WATCHER_CAPABILITY: ("watcher_manage", _watcher_args),
-    # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
+    # Creation uses the existing reminder worker; edits/deletes/skips use the
+    # separately typed reminders.manage contract and bound confirmation.
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),
     NOTES_WRITE_CAPABILITY: ("notes_write", _notes_write_args),
@@ -1000,6 +1575,7 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     "fast.date.read": ("fast_date", {}),
     "fast.system.status": ("fast_system_status", {}),
     "fast.speech.stop": ("fast_speech_stop", {}),
+    "fast.file.organize.undo": ("file_organize_undo", {}),
     "fast.mic.toggle": ("app_action", {"action": "set_flag", "params": {"name": "mic", "value": True}}),
 }
 
@@ -1021,6 +1597,31 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
 
 def state_plan(protocol: str | None, selection: Any, level: Any,
                pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
+    if protocol == "hoca.lesson.control":
+        if (not isinstance(pending_snapshot, Mapping)
+                or set(pending_snapshot) != {"step", "question", "started", "course_id"}):
+            return None
+        step, question = pending_snapshot["step"], pending_snapshot["question"]
+        started, course_id = pending_snapshot["started"], pending_snapshot["course_id"]
+        if (type(step) is not int or step < 0 or not isinstance(question, str)
+                or len(question) > 3000 or (started is not None and type(started) is not int)
+                or (course_id is not None and type(course_id) is not int)):
+            return None
+        bound = {"step": step, "question": question,
+                 "started": started, "course_id": course_id}
+        if selection in {"next", "exit", "weak"}:
+            return ("hoca_control", {"operation": selection, **bound})
+        if selection == "give_up" and question.strip():
+            return ("hoca_control", {"operation": selection, **bound})
+        if question.strip() and isinstance(selection, str) and selection.startswith("answer:"):
+            answer = selection[len("answer:"):].strip()
+            if 0 < len(answer) <= 500 and "\x00" not in answer:
+                return ("hoca_control", {"operation": "answer", "answer": answer, **bound})
+        return None
+    if protocol == "filesend.pending.select":
+        return ("filesend_select", {"index": selection}) if type(selection) is int and 1 <= selection <= 4 else None
+    if protocol == "filesend.pending.cancel":
+        return ("filesend_cancel", {}) if selection == "cancel" else None
     if protocol == "learning.pending_facts.select":
         if not isinstance(selection, str) or not isinstance(pending_snapshot, (list, tuple)) or not pending_snapshot:
             return None

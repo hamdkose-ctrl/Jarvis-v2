@@ -36,7 +36,15 @@ class EngineLinkTests(unittest.TestCase):
         context.handle = Mock(return_value='Tamam.')
         prompt = _pc_context(context, lambda: context.profile.name)
         self.assertEqual(prompt(), context.pc_profile().name)
-        self.assertEqual(context._live_command('merhaba'), 'Tamam.')
+        # Canonical semantic decisions are not the subject of this PC-owner
+        # wrapper test. Model-free fixtures must not silently wait on a
+        # provider or assume a legacy raw handler fallback.
+        def handoff(_runtime, _entry, handler, command):
+            return handler(command), SimpleNamespace(result_status='handled'), None
+        with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
+             patch('modules.brain_entry.handoff', side_effect=handoff), \
+             patch('modules.brain_echo.present'):
+            self.assertEqual(context._live_command('merhaba'), 'Tamam.')
         context.handle.assert_called_once_with('merhaba')
 
     def test_pc_scope_reuses_home_profile_during_phone_session(self):
@@ -66,11 +74,14 @@ class EngineLinkTests(unittest.TestCase):
 
     def test_every_direct_runtime_dependency_is_declared(self):
         context=self.context()
-        known=set(vars(context))|set(context._exported)
-        for path in (fixtures.ROOT/'modules').glob('engine_*.py'):
-            for node in ast.walk(ast.parse(path.read_bytes())):
-                if isinstance(node,ast.Attribute) and isinstance(node.value,ast.Name) and node.value.id=='runtime':
-                    self.assertIn(node.attr,known,f'{path.name}:{node.lineno}')
+        # A runtime property is declared on EngineContext's class and is not
+        # in vars(context). Use the independent AST drift guard's complete
+        # contract instead of incorrectly failing class-backed accessors.
+        from test_engine_runtime_drift import context_names, drift
+        known=context_names()
+        sources={path.name:ast.parse(path.read_bytes())
+                 for path in (fixtures.ROOT/'modules').glob('engine_*.py')}
+        self.assertEqual(drift(sources,known), [])
 
     def test_concurrent_command_metadata_does_not_cross_between_threads(self):
         context=self.context();barrier=threading.Barrier(2)
@@ -107,7 +118,12 @@ class EngineLinkTests(unittest.TestCase):
             context._session().speech_override='Sesli kısa sonuç'
             return 'Tam sonuç'
         context.handle=handle
-        self.assertEqual(context._live_command('istek'),'Sesli kısa sonuç')
+        def handoff(_runtime, _entry, handler, command):
+            return handler(command), SimpleNamespace(result_status='handled'), None
+        with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
+             patch('modules.brain_entry.handoff', side_effect=handoff), \
+             patch('modules.brain_echo.present'):
+            self.assertEqual(context._live_command('istek'),'Sesli kısa sonuç')
         self.assertEqual(len(observed),1)
         source,rid=observed[0]
         self.assertEqual(source,'ses')

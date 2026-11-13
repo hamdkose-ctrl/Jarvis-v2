@@ -1,5 +1,7 @@
 # Görsel komutlar
 
+**BRAIN-03 tek-PR bounded retry düzeltmesi (TASLAK):** Son görseli yeniden üretme yalnız bütün turu kaplayan olumlu `yeniden dene/tekrar dene/bir daha dene` sözüyle mümkündür. `yeniden dene demedim`, sorular ve alıntılar eski substring eşleşmesiyle üretim başlatmaz. Kaynak cevabında `sohbet` ve `dosya` birlikte geçip canonical seçim yoksa görsel oluşturulmaz, yeniden netleştirilir. Yeni görüntü türü sınıflandırıcısı veya Cloudflare/ses değişikliği yoktur; CI/PC kabulü beklenir.
+
 ## Güncel canonical akış — PR3C-6 (5 Kasım 2026)
 
 PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısını kaldırıp isteği Brain → Core sınırına taşır. BRAIN-01 (merge `f5132fb…`) modelin birincil semantik owner'ı olmasını sağladı; BRAIN-02 (PR #525, squash `eb5ea39…`) photo turunu da aynı zarfa bağladı. **Tür önerisi hâlâ model-birincil değildir:** görsel tür seçimi `brain_understanding._visual_kind` ve `visual_types.match_type` içindeki kapalı bounded regex gramerine dayanır (domain grammar, semantic authority değil).
@@ -209,3 +211,6 @@ yok.
 listesi/detay paneli ve kategori filtrelerini düz dilde açıklayan bir
 pencere açar. Saf arayüz değişikliği, backend'e dokunmadı;
 `node --check webui/nx.js` ile sözdizimi doğrulandı.
+
+
+**BRAIN-03 #613 accepted CHAT fallback ayrımı:** Model CHAT kararı kabul edildiyse son görsel retry'ını tetikleyen eski ham domain parser'a cümle geri bırakılmaz. `visual_chat.handle` ayrıca olumlu tam retry grameri ister; gerçek Cloudflare/PNG canlı üretimi test edilmedi, accepted-chat/şüpheli quoted data Full model holdout açık.

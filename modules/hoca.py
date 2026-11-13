@@ -506,6 +506,52 @@ def _finished(profile) -> str:
     return "Ders bitti." + tail
 
 
+def control_typed(profile, *, operation: str, step: int, question: str,
+                  answer: str = "", started: int | None = None,
+                  course_id: int | None = None) -> str:
+    """One explicit State-confirmed lesson reply, not an NL dispatcher.
+
+    Recheck step/question at execution so a stale observed answer cannot
+    grade or advance a later lesson, including on profile/lesson switch.
+    """
+    from modules import requests_state
+    requests_state.check()
+    lesson = active(profile)
+    pending = lesson.get("pending") if isinstance(lesson, dict) else None
+    if (not isinstance(lesson, dict) or type(step) is not int or step < 0
+            or lesson.get("active") != step or not isinstance(question, str)
+            or lesson.get("started") != started or lesson.get("course_id") != course_id
+            or (question and (not isinstance(pending, dict)
+                              or pending.get("step") != step
+                              or pending.get("question") != question))
+            or (not question and isinstance(pending, dict)
+                and pending.get("step") == step and pending.get("question"))):
+        return "Ders sorusu değişti; bu cevapla işlem yapmadım."
+    if operation == "weak":
+        weak = weak_topics(profile)
+        return ("Zayıf konuların: " + ", ".join(w["title"] for w in weak)
+                if weak else "Şu an zayıf konun yok.")
+    if operation == "exit":
+        stop(profile)
+        return "Dersi bıraktım. İstediğinde 'hoca modu: konu' diye yeniden başlarız."
+    if operation == "next":
+        if not advance(profile):
+            return _finished(profile)
+        return _lesson_text(profile)
+    if operation == "give_up" and question:
+        return (f"Doğrusu: {give_up(profile)}\nBu adımı zayıf konulara yazdım; "
+                "devam etmek için 'sonraki adım' de.")
+    if operation != "answer" or not question or not isinstance(answer, str) or not answer.strip():
+        return "Ders cevabını doğrulayamadım; işlem başlatılmadı."
+    graded = grade(profile, answer)
+    if graded["correct"]:
+        if not current_step(profile):
+            return f"{graded['feedback']}\n\n" + _finished(profile)
+        return f"{graded['feedback']}\n\n" + _lesson_text(profile)
+    return (f"{graded['feedback']}\nDoğrusu: {graded['expected']}\n"
+            "Bu adımı zayıf konulara yazdım; devam etmek için 'sonraki adım' de.")
+
+
 def handle(profile, text: str, enabled: bool = True) -> str | None:
     """Hoca modu cümlesini işler; hoca modunun olmadığı her cümle için None döner (normal yol)."""
     if not enabled:

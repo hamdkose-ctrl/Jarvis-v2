@@ -24,6 +24,40 @@ def _google(events=(), unread=3, connected=True, fail=False):
     return dict(connected=lambda: connected, day_events=day_events, unread_count=unread_count)
 
 
+def typed_calendar(rt, text, *, view="day_plan", period="today"):
+    """Exercise a model-selected read through real Brain -> Core -> calendar.
+
+    Only the semantic model decision is simulated here. The domain worker,
+    profile, Google stubs and output formatting are genuine. Text variants
+    are NOT asserted to be recognized by a live model in this suite.
+    """
+    import uuid
+    from dataclasses import replace
+    from unittest.mock import Mock
+    from modules import brain_entry, requests_state
+    from modules.brain_contracts import RequestKind
+
+    def model(evidence, utterance, *, active_context=None):
+        assert utterance == text
+        return replace(evidence, request_kind=RequestKind.CAPABILITY,
+                       capability_hint="calendar.read",
+                       arguments={"original_text": utterance, "view": view, "period": period},
+                       needs_input=False, ambiguities=(), actions=())
+
+    rid = "day-plan-" + uuid.uuid4().hex[:12]
+    owner = rt.profile.slug
+    assert requests_state.register(owner, rid)
+    with requests_state.activate(owner, rid), \
+         patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+        entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
+                                    text=text, source="yazı", model_understanding=True)
+        forbidden = Mock(side_effect=AssertionError("calendar model action reached old raw handler"))
+        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+    assert feedback.result_status == "handled", (text, feedback)
+    forbidden.assert_not_called()
+    return str(reply)
+
+
 class DayPlanTests(ProfileCase):
     now = datetime(2026, 10, 17, 10, 0)      # cumartesi
 
@@ -50,7 +84,7 @@ class DayPlanTests(ProfileCase):
             {'id': 4, 'text': 'Eski iş', 'done': True, 'when': '2026-10-10'}]
         tz = datetime.now().astimezone().tzinfo
         google = [(datetime(2026, 10, 17, 12, 0, tzinfo=tz), 'Proje toplantısı')]
-        reply = say(self.rt(events=google, unread=5), 'bugünün planı ne')
+        reply = typed_calendar(self.rt(events=google, unread=5), 'bugünün planı ne')
         self.assertIn('Bugünün planı (17 Ekim Cumartesi)', reply)
         self.assertIn('09:00 Dişçi (geçti); 12:00 Proje toplantısı; 14:30 Sunum; tüm gün Anneme hediye', reply)
         self.assertIn('Sıradaki: 12:00 Proje toplantısı, 2 saat sonra.', reply)
@@ -63,30 +97,30 @@ class DayPlanTests(ProfileCase):
     def test_google_event_keeps_calendar_wall_time(self):
         """Google'dan gelen saat, çalıştıran makinenin saat dilimine göre kaymaz."""
         meeting = datetime(2026, 10, 17, 12, 0, tzinfo=timezone(timedelta(hours=3)))
-        reply = say(self.rt(events=[(meeting, 'Proje toplantısı')]), 'bugünün planı ne')
+        reply = typed_calendar(self.rt(events=[(meeting, 'Proje toplantısı')]), 'bugünün planı ne')
         self.assertIn('12:00 Proje toplantısı', reply)
 
-    def test_variants_reach_plan(self):
+    def test_model_selected_day_plan_variants_reach_the_same_calendar_worker(self):
         for text in ('bugun planim ne', 'planımı söyle', 'bugün ne yapmalıyım', 'günümü planla', 'Bugünün planı'):
             with self.subTest(text=text):
-                self.assertIn('Bugünün planı', say(self.rt(), text))
+                self.assertIn('Bugünün planı', typed_calendar(self.rt(), text))
 
     def test_tomorrow_plan_skips_mail_and_past_marks(self):
         self.profile.add_event('Toplantı', '2026-10-18T09:00')
-        reply = say(self.rt(unread=9), 'yarın planım ne')
+        reply = typed_calendar(self.rt(unread=9), 'yarın planım ne', period="tomorrow")
         self.assertIn('Yarının planı (18 Ekim Pazar)', reply)
         self.assertIn('09:00 Toplantı', reply)
         self.assertNotIn('geçti', reply)
         self.assertNotIn('Gmail', reply)
 
     def test_empty_day_and_google_not_connected(self):
-        reply = say(self.rt(connected=False), 'bugünün planı')
+        reply = typed_calendar(self.rt(connected=False), 'bugünün planı')
         self.assertIn('Takviminde bir şey yok.', reply)
         self.assertNotIn('Gmail', reply)
 
     def test_google_failure_is_said_not_hidden(self):
         self.profile.add_event('Dişçi', '2026-10-17T15:00')
-        reply = say(self.rt(fail=True), 'bugünün planı')
+        reply = typed_calendar(self.rt(fail=True), 'bugünün planı')
         self.assertIn('15:00 Dişçi', reply)
         self.assertIn("Google Takvim'e bakamadım ve Gmail'e bakamadım.", reply)
 
@@ -97,7 +131,7 @@ class DayPlanTests(ProfileCase):
         rt = self.rt()
         rt.google_api.day_events = boom
         rt.google_api.unread_count = boom
-        reply = say(rt, 'bugünün planı')
+        reply = typed_calendar(rt, 'bugünün planı')
         self.assertIn('Google izni çalışmıyor', reply)
         self.assertIn('“Bağlan” düğmesine basıp izni yenile', reply)
         self.assertEqual(reply.count('Google izni çalışmıyor'), 1)       # Takvim ve Gmail aynı izin: bir kez söylenir
@@ -105,30 +139,54 @@ class DayPlanTests(ProfileCase):
 
     def test_handoff_line_and_failure_are_both_said(self):
         with patch('modules.handoff.brief_status', return_value=('Ev için bekleyen 2 devir notu var: çizim.', None)):
-            self.assertIn('2 devir notu', say(self.rt(), 'bugünün planı'))
+            self.assertIn('2 devir notu', typed_calendar(self.rt(), 'bugünün planı'))
         problem = 'Google Görevler izni yok ya da çalışmıyor. Menü › Yapay zekâ › Gmail ve Takvim bölümünde “Görevler iznini ver” düğmesine bas.'
         with patch('modules.handoff.brief_status', return_value=(None, problem)):
-            reply = say(self.rt(), 'bugünün planı')
+            reply = typed_calendar(self.rt(), 'bugünün planı')
         self.assertIn('Devir notlarına bakamadım', reply)
         self.assertIn('“Görevler iznini ver”', reply)
         with patch('modules.handoff.brief_status', return_value=(None, problem)):
-            self.assertNotIn('Devir', say(self.rt(), 'yarın planım ne'))      # yalnız bugünün planında
+            self.assertNotIn('Devir', typed_calendar(self.rt(), 'yarın planım ne', period="tomorrow"))      # yalnız bugünün planında
 
     def test_duplicate_jarvis_and_google_entry_shown_once(self):
         self.profile.add_event('Sunum', '2026-10-17T14:30')
         tz = datetime.now().astimezone().tzinfo
-        reply = say(self.rt(events=[(datetime(2026, 10, 17, 14, 30, tzinfo=tz), 'sunum')]), 'bugünün planı')
+        reply = typed_calendar(self.rt(events=[(datetime(2026, 10, 17, 14, 30, tzinfo=tz), 'sunum')]), 'bugünün planı')
         calendar = reply.split('Takvim: ')[1].split('.')[0]
         self.assertEqual(calendar.lower().count('14:30 sunum'), 1)
 
-    def test_other_plans_are_not_hijacked(self):
+    def test_model_chat_does_not_run_calendar_read_by_second_parser(self):
+        from dataclasses import replace
+        from unittest.mock import Mock
+        from modules import brain_entry, requests_state, main_planner
+        from modules.brain_contracts import RequestKind
+        import uuid
         for text in ('çalışma planım', 'proje planım ne durumda'):
             with self.subTest(text=text):
-                self.assertIsNone(__import__('modules.main_planner', fromlist=['x'])._PLAN_ASK.search(text))
+                rt = self.rt()
+                owner = rt.profile.slug
+                rid = "day-chat-" + uuid.uuid4().hex[:12]
+                self.assertTrue(requests_state.register(owner, rid))
+                def chat(evidence, utterance, *, active_context=None):
+                    return replace(evidence, request_kind=RequestKind.CHAT,
+                                   capability_hint=None, arguments={"original_text": utterance},
+                                   needs_input=False, ambiguities=(), actions=())
+                with requests_state.activate(owner, rid), \
+                     patch.object(brain_entry, "apply_model_understanding", side_effect=chat), \
+                     patch.object(main_planner, "_day_plan",
+                                  side_effect=AssertionError("CHAT ran old day planner")) as planner, \
+                     patch.object(rt, "chat", return_value="CHAT"):
+                    entry = brain_entry.prepare(rt, owner=owner, request_id=rid, text=text,
+                                                source="yazı", model_understanding=True)
+                    output, feedback, _ = brain_entry.handoff(
+                        rt, entry, Mock(side_effect=AssertionError("CHAT reached raw handler")), text)
+                self.assertEqual(feedback.result_status, "handled")
+                self.assertEqual(str(output), "CHAT")
+                planner.assert_not_called()
 
     def test_agenda_questions_unchanged(self):
         self.profile.add_event('Dişçi', '2026-10-17T15:00')
-        reply = say(self.rt(), 'bugün ne var')
+        reply = typed_calendar(self.rt(), 'bugün ne var', view="agenda", period="today")
         self.assertNotIn('planı', reply)
         self.assertIn('Dişçi', reply)
 

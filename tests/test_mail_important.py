@@ -71,7 +71,8 @@ class ImportantTests(unittest.TestCase):
         self.assertNotEqual(route('önemli bir mail gönder'), 'ONEMLI')
 
     def test_real_engine_reaches_it_without_model(self):
-        from test_mail_calendar_fixes import _runtime, say
+        from test_mail_calendar_fixes import _runtime
+        from brain_turn_fixture import turn
         rt = _runtime(self, SimpleNamespace(slug='deneme', name='Deneme', data={'prefs': {}, 'events': [], 'tasks': [],
                                                                                'items': [], 'rules': []}),
                       datetime(2026, 10, 17, 10, 0))
@@ -79,7 +80,7 @@ class ImportantTests(unittest.TestCase):
         with patch.object(google_api, 'important_text', return_value='ONEMLI'), \
                 patch.object(google_api, 'connected', return_value=True), \
                 patch('modules.outlook.installed', return_value=False):
-            self.assertEqual(say(rt, 'önemli maillerim'), 'ONEMLI')
+            self.assertEqual(turn(rt, 'önemli maillerim', 'mail.read', {'source': 'important'}), 'ONEMLI')
 
 
 if __name__ == '__main__':

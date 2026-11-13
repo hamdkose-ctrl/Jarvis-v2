@@ -6,6 +6,8 @@ grant permission, run effects, call models, or own durable state.
 from __future__ import annotations
 
 import time
+from collections import deque
+from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping
 
 from modules.brain_contracts import ActiveContext, ContextReference
@@ -85,14 +87,19 @@ def _profile_refs(owner: str, profile: Any, limit: int) -> list[ContextReference
         rows = data.get(collection)
         if not isinstance(rows, (list, tuple)):
             continue
-        for row in rows:
-            if len(refs) >= limit:
-                return refs
+        collected = 0
+        for position, row in enumerate(rows, 1):
+            if collected >= limit:
+                break
             if not isinstance(row, Mapping):
                 continue
             ref = _profile_row_ref(owner=owner, row=row, collection=collection, kind=kind, fields=fields)
             if ref is not None:
+                if kind == "note":
+                    ref = replace(ref, provenance={**ref.provenance,
+                                  "list_position": position, "list_count": len(rows)})
                 refs.append(ref)
+                collected += 1
     # goals/facts/rules are intentionally absent: current Profile stores them as
     # strings/index-addressed lists, not stable target identities.
     return refs
@@ -113,6 +120,11 @@ def _active_context_refs(owner: str, context: ActiveContext, limit: int) -> list
                 raise ValueError("ActiveContext başka owner referansı taşıyor.")
             if ref.kind == "source_status":
                 continue
+            if ref.kind == "note":
+                # List positions belong to this turn's Profile observation,
+                # never to an earlier conversation's stored reference.
+                ref = replace(ref, provenance={key: value for key, value in ref.provenance.items()
+                                               if key not in {"list_position", "list_count"}})
             refs.append(ref)
             if len(refs) >= limit:
                 return refs
@@ -161,7 +173,10 @@ def _default_file_reader(*, limit: int) -> Iterable[Mapping[str, Any]]:
 
     rows = _fresh_cached_file_rows()
     if rows is None:
-        rows = list(nxapi._scan_files())
+        # Reuse the inventory owner's generation fence and cache. This call
+        # observes metadata only; it does not select an operation or open files.
+        nxapi._background_refresh()
+        rows = _fresh_cached_file_rows() or []
     return _sorted_file_rows(rows, limit)
 
 
@@ -202,13 +217,33 @@ def _file_refs(
 
 def _dedupe(refs: Iterable[ContextReference]) -> tuple[ContextReference, ...]:
     out: list[ContextReference] = []
-    seen: set[tuple[str, str]] = set()
+    seen: dict[tuple[str, str], int] = {}
     for ref in refs:
         key = (ref.kind, ref.id)
         if key in seen:
+            # A current Profile note refreshes its content and list position
+            # without changing the priority/order of other active observations.
+            if ref.kind == "note" and "list_position" in ref.provenance:
+                out[seen[key]] = ref
             continue
-        seen.add(key)
+        seen[key] = len(out)
         out.append(ref)
+    return tuple(out)
+
+
+def _fair_limit(refs: tuple[ContextReference, ...], limit: int) -> tuple[ContextReference, ...]:
+    """Bound the whole observation without letting task/history volume hide notes/files."""
+    groups: dict[str, deque] = {}
+    for ref in refs:
+        groups.setdefault(ref.kind, deque()).append(ref)
+    out: list[ContextReference] = []
+    while groups and len(out) < limit:
+        for kind in tuple(groups):
+            out.append(groups[kind].popleft())
+            if not groups[kind]:
+                del groups[kind]
+            if len(out) == limit:
+                break
     return tuple(out)
 
 
@@ -257,4 +292,4 @@ def build_candidates(
     except Exception:
         _record_failure("modules/brain_candidates.py:profile_provider")
     refs.extend(_file_refs(owner, reader, provider_limit))
-    return _dedupe(refs)[:provider_limit]
+    return _fair_limit(_dedupe(refs), provider_limit)

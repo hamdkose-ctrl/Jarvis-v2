@@ -102,10 +102,10 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(out, "CORE")
         self.assertFalse(handle.called)
 
-    def test_two_notes_make_son_notu_ambiguous_and_never_pick_one(self):
+    def test_last_note_uses_current_profile_list_position(self):
         entry, out, handle, core = self.real_claim_run("son notu göster")
-        self.assertIsNone(core)
-        self.assertTrue(entry.understanding.needs_input)
+        self.assertEqual(core, ("notes_read", {"which": "one", "id": str(self.second["id"])}))
+        self.assertFalse(entry.understanding.needs_input)
 
     def test_multi_intent_sentences_get_no_notes_proposal_and_keep_legacy_path(self):
         for text in ("notları göster ve hava durumu nasıl", "notlarımı göster ve not al: süt",

@@ -87,7 +87,8 @@ class GoalHoldoutTests(unittest.TestCase):
             self.assertIsNone(goal.ask('alice', case, 3))
         sent = fake.call_args.args[1]
         self.assertIn('GOAL OUTPUT CONTRACT', sent)
-        self.assertIn('COPY current.conversation_relation exactly', sent)
+        self.assertIn('infer conversation_relation', sent)
+        self.assertNotIn('COPY current.conversation_relation exactly', sent)
         self.assertIn('For continue_goal, revise_goal, add_task', sent)
         self.assertIn('FINAL JSON CONTRACT CHECK', sent)
         self.assertIn('GOAL PRIORITY VS REVISION', sent)

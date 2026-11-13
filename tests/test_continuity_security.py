@@ -108,26 +108,17 @@ class ContextTests(unittest.TestCase):
             llm.chat_draft('explain it',user='a')
             self.assertIn('NEW TOOL TABLE RESULT',str(send.call_args.args[3]))
     def test_table_routes_before_translate_and_updates_export(self):
-        ns={'emit':Mock(),'re':re,'profile':SimpleNamespace(slug='a'),'_llm':Mock(),'_tr_lower':str.lower,
-            '_cur_source':'yazı','flags':{'sleep':False},'_close_jarvis':Mock(),'set_sleep':Mock(),
-            '_record_failure':Mock(),'output':Mock(),'pending_weather_location':False,
-            'pending_confirm':None,'pending_level':None,
-            'pending_msg':None,'pending_organize':None,'pending_voice':None,'pending_event_title':None,
-            'last_doc':None,'speech_override':None}
-        from modules.session_state import SessionState
-        state=SessionState();ns['_session']=lambda:state
-        tree=engine_source.tree();fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='handle')
-        prefix=[]
-        for stmt in fn.body:
-            if isinstance(stmt,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='_st' for t in stmt.targets):break
-            prefix.append(stmt)
-        fn.body=prefix;exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'main-prefix','exec'),ns)
-        self.h.append('a','assistant','A=1 B=2')
-        ns.update(history=self.h,ask=Mock(return_value='| A | B |\n|1|2|'))
-        functions('main.py',['_table_chat','_conversation_summary'],ns)
-        for command in ['bunu tabloya çevir','bunu tabloya dönüştür','yazıları toplo yap']:
-            result=ns['handle'](command);self.assertIn('| A |',result);self.assertEqual(state.last_doc[0],result)
-        self.assertEqual(ns['handle']('tamam'),'Tamam.')
+        from test_mail_calendar_fixes import _runtime
+        from brain_turn_fixture import turn
+        rt = _runtime(self, SimpleNamespace(slug='a', name='A', data={'prefs': {}}), datetime.now())
+        rt.history = self.h
+        rt.ask = Mock(return_value='| A | B |\n|1|2|')
+        self.h.append('a', 'assistant', 'A=1 B=2')
+        for command in ['bunu tabloya çevir', 'bunu tabloya dönüştür', 'yazıları toplo yap']:
+            result = turn(rt, command, 'conversation.table', {})
+            self.assertIn('| A |', result)
+            self.assertEqual(rt._session().last_doc[0], result)
+        self.assertEqual(rt.ask.call_count, 3)
     def test_tail_read_and_size_pruning(self):
         with patch.object(self.h,'_MAX_BYTES',3000):
             for i in range(30):self.h.append('a','user',str(i)+'x'*200)

@@ -113,10 +113,13 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIs(absent["current"]["current_output"]["available"], False)
         self.assertIsNone(absent["current"]["current_output"]["slot"])
         self.assertIsNone(absent["current"]["current_output"]["label"])
-        # Core yalnız tek bir çıktıyı bağlayabilir: iki kayıt belirsizdir, uydurma hedef değildir.
+        # Only last_doc is exportable; unrelated Workbench/history slots cannot hide it.
         two = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},
                                               {"slot": "older_doc", "label": "önceki"}))
-        self.assertIs(two["current"]["current_output"]["available"], False)
+        self.assertIs(two["current"]["current_output"]["available"], True)
+        duplicate = self.payload(session_artifacts=({"slot": "last_doc", "label": "a"},
+                                                   {"slot": "last_doc", "label": "b"}))
+        self.assertIs(duplicate["current"]["current_output"]["available"], False)
 
     def test_an_unrecognised_slot_is_never_a_session_output(self):
         # Tanınmış last_doc dışı bir tek kayıt çıktı sayılmaz; hükmün kaynağı Core'un
@@ -240,8 +243,11 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNotNone(self.ask(answer(confidence="HIGH")))
 
         pending = current(conversation_relation=ConversationRelation.ANSWER_TO_PENDING)
-        self.assertIsNone(self.ask(answer(conversation_relation="NEW_REQUEST"),
-                                   active=pending, args=pending.arguments, protected_relation=True))
+        decision = self.ask(answer(conversation_relation="NEW_REQUEST"),
+                            active=pending, args=pending.arguments, protected_relation=True)
+        self.assertEqual(decision.operation, "chat")
+        self.assertEqual(decision.actions, ())
+        self.assertIs(pending.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
 
     def test_malformed_json_fails_closed(self):
         self.assertIsNone(self.ask("not json"))

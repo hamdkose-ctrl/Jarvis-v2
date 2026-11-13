@@ -1,5 +1,7 @@
 # Ses ve video (AGENTS.md alan notları)
 
+BRAIN-03 (#613): `engine_voice` içindeki `threading.Event` tür başvurusunun eksik import'u tamamlandı; bu değişiklik ses gecikmesi veya oynatma davranışı eklemez. Hatırlatma kaydı değişince mevcut owner/event ses kuyruğunun geçersizleştirilmesi `main_planner` sahibindedir.
+
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
 ## Ses tanıma süzgeci ve belirsiz komutlar — 14 Ekim 2026

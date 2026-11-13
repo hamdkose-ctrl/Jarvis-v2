@@ -692,7 +692,7 @@ class GoalTests(unittest.TestCase):
         from modules import engine_commands,command_manager
         runtime=SimpleNamespace(_tr_lower=str.casefold,_llm=SimpleNamespace(set_user_context=Mock()),profile=self.profile,
              _session=lambda:SimpleNamespace(speech_override=None),_cur_source='yazı',flags={},_close_jarvis=Mock(),set_sleep=Mock())
-        with patch.object(command_manager,'engine_control',return_value=None),patch.object(goals,'handle',return_value='Kayıtlı hedef sürüyor') as handle,patch.object(command_manager,'dispatch') as dispatch:
+        with patch('modules.brain_entry.matched_protocol', side_effect=lambda *names: 'goal.resume' in names), patch.object(command_manager,'engine_control',return_value=None),patch.object(goals,'handle',return_value='Kayıtlı hedef sürüyor') as handle,patch.object(command_manager,'dispatch') as dispatch:
             self.assertEqual(engine_commands.handle(runtime,'sürdür'),'Kayıtlı hedef sürüyor')
         handle.assert_called_once_with(runtime,'sürdür');dispatch.assert_not_called()
 

@@ -9,6 +9,7 @@ Kurallar:
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
 import threading
@@ -31,8 +32,6 @@ _TABLE = re.compile(r"tablo\w*\s+(?:\w+\s+)?(?:yap|oluştur|olustur|hazırla|haz
 # Excel/CSV işlemleri: yalnız tüm dosyalar tablo ise
 _TABLE_OPS = re.compile(r"birleştir|birlestir|grupla|göre\s+topla|toplamını|tekrar\s*ed|tekrarlan|mükerrer|"
                         r"çift\s+(?:satır|kayıt)|sütun\w*\s+(?:\w+\s+)?birleştir", re.I)
-_FOLLOW = re.compile(r"(?:sütun\w*|kolon\w*)\s+(?:ekle|çıkar|kaldır|sil)|tabloya\s+\w+\s+ekle|tabloyu\s+(?:güncelle|yenile|düzelt)|"
-                     r"tabloyu\s+(?:excel|word|pdf)", re.I)
 FOLLOW_SECONDS = 1800   # "şu sütunu ekle" son tabloya 30 dakika bağlanır
 
 
@@ -515,16 +514,57 @@ def handle(owner: str, paths: list[str], instruction: str, ext: str | None = Non
             "\n\nDeğiştirmek istersen “şu sütunu ekle” gibi söyle; yeni bir sürüm oluştururum.")
 
 
-def followup(owner: str, command: str) -> str | None:
-    """'Şu sütunu ekle', 'tabloyu Word'de ver' gibi istekler son işi yeni sürümle tekrarlar."""
-    if not _FOLLOW.search(command or ""):
+def _owner_snapshot(owner: str) -> dict | None:
+    """Read-only owner-scoped state; never pass paths into Brain/model context."""
+    if not isinstance(owner, str) or not owner:
         return None
     with _LOCK:
-        last = _LAST.get(owner)
-    if not last or time.monotonic() - last["at"] > FOLLOW_SECONDS:
+        source = _LAST.get(owner)
+        if not isinstance(source, dict):
+            return None
+        row = {key: source.get(key) for key in ("paths", "instruction", "at", "ext")}
+        if isinstance(row["paths"], list):
+            row["paths"] = list(row["paths"])
+    if (type(row["at"]) not in (int, float) or time.monotonic() - row["at"] > FOLLOW_SECONDS
+            or not isinstance(row["paths"], list) or not row["paths"]
+            or not all(isinstance(path, str) for path in row["paths"])
+            or not isinstance(row["instruction"], str)
+            or not isinstance(row["ext"], str)):
         return None
-    if not all(Path(p).is_file() for p in last["paths"]):
-        return "Son tablonun kaynak dosyalarını bulamadım; dosyayı tekrar ekler misin?"
-    named = re.search(r"excel|word|pdf", command, re.I)
-    return handle(owner, last["paths"], last["instruction"] + ". Ek istek: " + command,
-                  output_ext(command) if named else last.get("ext"))
+    return row
+
+
+def snapshot_digest(owner: str) -> str | None:
+    """Opaque reference identity over the owner-specific active Workbench job."""
+    row = _owner_snapshot(owner)
+    if row is None:
+        return None
+    source = json.dumps(row, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def followup_typed(owner: str, command: str, *, expected_digest: str,
+                   fmt: str | None = None) -> str:
+    """Perform a Core-authorized revision without rediscovering intent.
+
+    Require a still-current owner reference and revalidate every stored path
+    at execution. Model cannot supply paths, revision or permission claims.
+    """
+    from modules import nxapi, requests_state
+    requests_state.check()
+    if (not isinstance(command, str) or not command.strip() or len(command) > 500
+            or fmt not in (None, ".xlsx", ".docx", ".pdf")
+            or not isinstance(expected_digest, str) or len(expected_digest) != 64):
+        return "Tablo güncelleme isteği doğrulanmadı; işlem başlatılmadı."
+    row = _owner_snapshot(owner)
+    if row is None or snapshot_digest(owner) != expected_digest:
+        return "Son tablo değişti veya süresi doldu; isteği yeniden oluşturmanı istiyorum."
+    paths = []
+    for saved in row["paths"]:
+        permitted = nxapi.allowed(saved)
+        if permitted is None or not permitted.is_file():
+            return "Son tablonun kaynak dosyalarını güvenli biçimde bulamadım; dosyayı tekrar seç."
+        paths.append(str(permitted))
+    requests_state.check()
+    return handle(owner, paths, row["instruction"] + ". Ek istek: " + command,
+                  fmt if fmt is not None else row["ext"])
