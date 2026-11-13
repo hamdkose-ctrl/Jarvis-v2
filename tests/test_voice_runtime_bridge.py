@@ -16,7 +16,9 @@ from unittest.mock import Mock, patch
 
 from modules import requests_state, voice_edge, voice_runtime
 from modules.engine_voice import VoiceSession
-from modules.voice_core import VoiceCatalog, VoiceSpec
+from modules.voice_core import (
+    VoiceCatalog, VoiceSpec, split_speech_text,
+)
 
 
 def runtime(tmp, voice="tr_kadin"):
@@ -863,6 +865,47 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
             lane.interrupt()
             self.assertTrue(done.wait(2))
         note.assert_not_called()
+
+    def test_cut_long_answer_keeps_the_unplayed_tail_out_of_the_echo_guard(self):
+        # Quoting a part Jarvis had not read yet is a new command, not the
+        # speaker's own voice returning to the mic: only the audible chunk
+        # may suppress a matching microphone result.
+        from modules import stt_guard
+        stt_guard._said.clear()
+        self.addCleanup(stt_guard._said.clear)
+        head = "Ekran paylaşımını şimdi kapatıyorum."
+        tail = "Sessiz modu da etkinleştiriyorum."
+        phrases = " ".join([head] * 30) + " " + tail
+        chunks = split_speech_text(phrases)
+        self.assertGreater(len(chunks), 1)
+        self.assertNotIn(tail, chunks[0])
+        self.assertIn(tail, chunks[-1])
+        started, released = threading.Event(), threading.Event()
+
+        def play(audio, cancel, on_start):
+            on_start()
+            if not started.is_set():
+                started.set()
+                self.assertTrue(released.wait(3))
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio", play,
+        )
+        voice_runtime.register(lane)
+        with patch.object(stt_guard, "enabled", return_value=True):
+            try:
+                done = lane.say("alice", "tr_kadin", phrases)
+                self.assertTrue(started.wait(2))
+                self.assertEqual(stt_guard.reject(head), "echo")
+                self.assertIsNone(stt_guard.reject(tail))
+                lane.interrupt()
+            finally:
+                released.set()
+            self.assertTrue(done.wait(3))
+        self.assertEqual([s for _t, s in stt_guard._said],
+                         [stt_guard._norm(chunks[0])])
+        self.assertIsNone(stt_guard.reject(tail))
 
     def test_push_to_talk_handoff_cuts_speech_and_verifies_output_stopped(self):
         started, stopped = threading.Event(), threading.Event()

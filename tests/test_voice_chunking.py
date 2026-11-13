@@ -35,8 +35,9 @@ class ChunkedSpeechTests(unittest.TestCase):
             self.receipts.append(receipt)
             self.condition.notify_all()
 
-    def start(self, synth, play):
-        self.coordinator = VoiceCoordinator(spec(), synth, play, self.notify)
+    def start(self, synth, play, echo_note=None):
+        self.coordinator = VoiceCoordinator(spec(), synth, play, self.notify,
+                                            echo_note=echo_note)
         return self.coordinator
 
     def until(self, count):
@@ -93,6 +94,45 @@ class ChunkedSpeechTests(unittest.TestCase):
         self.assertEqual({v for v, _ in starts}, {"tr_kadin"})
         self.assertEqual([(r.request_id, r.status) for r in self.receipts],
                          [("long", "played")])
+
+    def test_every_audible_chunk_of_a_long_answer_reaches_the_echo_guard(self):
+        phrases = ("Merhaba, bu uzun bir yanıtın parçasıdır. " * 36).strip()
+        chunks = split_speech_text(phrases)
+        self.assertGreater(len(chunks), 1)
+        heard = []
+        lane = self.start(lambda voice, text, cancel: text.encode("utf-8"),
+                          lambda audio, cancel, on_start: on_start(),
+                          echo_note=lambda req, text: heard.append(text))
+        self.assertTrue(lane.submit(request("full", phrases)))
+        self.until(1)
+        self.assertEqual(heard, list(chunks))
+        self.assertEqual("".join(heard), phrases)
+        self.assertEqual(self.receipts[0].status, "played")
+
+    def test_sus_registers_only_the_chunk_that_was_on_the_speaker(self):
+        phrases = ("Merhaba, bu uzun bir yanıtın parçasıdır. " * 36).strip()
+        chunks = split_speech_text(phrases)
+        self.assertGreater(len(chunks), 1)
+        heard = []
+        started, released = threading.Event(), threading.Event()
+
+        def play(audio, cancel, on_start):
+            on_start()
+            if not started.is_set():
+                started.set()
+                self.assertTrue(released.wait(3))
+
+        lane = self.start(lambda voice, text, cancel: text.encode("utf-8"), play,
+                          echo_note=lambda req, text: heard.append(text))
+        try:
+            self.assertTrue(lane.submit(request("cut", phrases)))
+            self.assertTrue(started.wait(2))
+            lane.interrupt_speech()
+        finally:
+            released.set()
+        self.until(1)
+        self.assertEqual(heard, [chunks[0]])
+        self.assertEqual(self.receipts[0].status, "cancelled")
 
     def test_whitespace_only_chunks_do_not_trigger_piper(self):
         chunks = []

@@ -301,7 +301,24 @@ class VoiceLane:
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
+            echo_note=self._echo_note,
         )
+
+    def _echo_note(self, request: SpeechRequest, text: str) -> None:
+        """Register the words that really started on the speaker, one chunk at a time.
+
+        The living echo guard must reject the speaker's own output returning to
+        the mic, so only audio that actually started is registered: a
+        privacy-rejected or cancelled utterance never plays and must not suppress
+        a matching user command. Registering the whole answer at its first start
+        would have done the same to the not-yet-read tail, so this is fed by the
+        per-chunk player boundary instead of the UI stage event.
+        """
+        try:
+            from modules import stt_guard
+            stt_guard.note_said(text)
+        except Exception:
+            _record_failure("modules/voice_runtime.py:echo")
 
     def _stage_event(self, request: SpeechRequest, stage: str) -> None:
         """Present the real player boundary, never enqueue/WAV readiness, as speech.
@@ -323,16 +340,6 @@ class VoiceLane:
                     self._last_audible[request.owner] = request.turn_id
                     while len(self._last_audible) > _LAST_AUDIBLE_OWNERS_KEPT:
                         self._last_audible.pop(next(iter(self._last_audible)))
-            # Register what Jarvis actually plays so the living echo guard rejects
-            # the speaker's own output returning to the mic. Only real playback
-            # registers: a privacy-rejected or cancelled utterance never plays, so
-            # it must not suppress a matching user command. This is independent of
-            # the UI presentation owner gate below.
-            try:
-                from modules import stt_guard
-                stt_guard.note_said(request.text)
-            except Exception:
-                _record_failure("modules/voice_runtime.py:echo")
         try:
             if request.owner != self.runtime.pc_profile().slug:
                 return
