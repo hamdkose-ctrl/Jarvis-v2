@@ -102,6 +102,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "learning.manage": frozenset({"text", "old", "index"}),
     "workbench.followup": frozenset({"format"}),
     "notes.add": frozenset({"text"}),
+    "notes.write": frozenset({"text"}),
     "reminders.manage": frozenset({"title", "duration"}),
     "tasks.manage": frozenset({"text"}),
     "kb.query": frozenset({"question"}),
@@ -138,7 +139,7 @@ _MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"
 _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
     "screen.text", "device.share", "voice.rate", "voice.select", "brief.read",
     "workbench.followup", "study.read",
-    "notes.add", "notes.manage", "calendar.read", "reminders.manage",
+    "notes.add", "notes.manage", "notes.write", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
     "browser.page.read", "media.search", "filesend.transfer", "notify.manage", "handoff.manage",
 })
@@ -313,6 +314,13 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id == "notes.add":
         return {"text": "verbatim text the user asked Jarvis to save",
                 "argument_sources": ["text"]}
+    if capability_id == "notes.write":
+        return {"operation": ["update", "delete"],
+                "text": "verbatim replacement text, required only for update",
+                "reference_slots": ["exactly one note_N from note_candidates"],
+                "argument_sources": ["text"],
+                "constraint": "choose an existing owner-scoped note only; do not invent a note ID, "
+                              "never act on multiple or ambiguous candidates"}
     if capability_id == "calendar.read":
         return {"view": ["agenda", "day_plan", "week_plan", "upcoming"],
                 "period": ["today", "tomorrow", "this", "next", "seven", None],
@@ -639,6 +647,33 @@ def _file_slots(current: Any) -> tuple[list[dict[str, str]], list[tuple[str, Any
     return slot_rows, slot_refs, slot_labels
 
 
+def _note_slots(current: Any) -> tuple[list[dict[str, str]], list[tuple[str, Any]]]:
+    """Offer only already-resolved, owner-bound note references, never raw IDs.
+
+    Selection is semantic model-owned; any unresolvable/ambiguous target
+    returns clarification or refusal, not a lexically guessed destructive
+    effect. A note body is shown only as a short data preview, not instruction.
+    """
+    rows: list[dict[str, str]] = []
+    refs: list[tuple[str, Any]] = []
+    seen: set[str] = set()
+    for ref in current.references:
+        if getattr(ref, "kind", None) != "note" or ref.owner != current.owner:
+            continue
+        if not isinstance(ref.id, str) or not ref.id or ref.id in seen:
+            continue
+        seen.add(ref.id)
+        if len(refs) >= 8:
+            break
+        label = ref.provenance.get("title") or ref.provenance.get("text") or ""
+        if not isinstance(label, str):
+            label = ""
+        slot = f"note_{len(refs)}"
+        rows.append({"slot": slot, "preview": " ".join(label.split())[:100]})
+        refs.append((slot, ref))
+    return rows, refs
+
+
 def _offered_goal_ids(candidates: Any) -> tuple[str, ...]:
     return tuple(dict.fromkeys(
         str(reference.id) for reference in candidates
@@ -832,6 +867,29 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
             slot_labels=slot_labels, current=current,
             resolving_file_ambiguity=resolving_file_ambiguity,
             file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
+    if capability_id == "notes.write":
+        # The model supplies operation and optional user-grounded new text.
+        # The stored note ID comes ONLY from the selected immutable reference,
+        # and handoff separately revalidates it against semantic.references.
+        if len(slots) != 1 or slots[0] not in by_slot:
+            return None
+        selected = by_slot[slots[0]]
+        if selected.kind != "note" or selected.owner != owner:
+            return None
+        if set(supplied) - {"operation", "text"}:
+            return None
+        operation = supplied.get("operation")
+        if operation not in {"update", "delete"}:
+            return None
+        new_text = supplied.get("text")
+        if (operation == "delete" and new_text is not None) or (
+            operation == "update" and
+            (not isinstance(new_text, str) or not new_text.strip())):
+            return None
+        row = {"operation": operation, "id": selected.id}
+        if operation == "update":
+            row["text"] = new_text
+        return {"original_text": text, "notes": row}, (selected,)
     if slots:
         return None
     # Model alone decides free-language arguments. An empty model payload
@@ -879,7 +937,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
     file_refs = [reference for reference in current.references
                  if getattr(reference, "kind", None) == "file"]
     _, slot_refs, slot_labels = _file_slots(current)
-    by_slot = dict(slot_refs)
+    _, note_refs = _note_slots(current)
+    by_slot = dict([*slot_refs, *note_refs])
     resolving_file_ambiguity = _resolving_file_ambiguity(
         current, file_operation_hint=file_operation_hint,
         protected_relation=protected_relation, file_refs=file_refs)
@@ -1046,6 +1105,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
 
         from modules.brain_core_map import CORE_INTENTS
         slot_rows, _, _ = _file_slots(current)
+        note_rows, _ = _note_slots(current)
         # Model, kendisine kapalı bir yeteneği de seçebilir sanmasın: önerilen katalog, yasak
         # kümeyi taşımaz. Yetki yine `_build`deki fail-closed denetimidir, promptta değil.
         offered_capabilities = sorted(set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES)
@@ -1076,6 +1136,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "argument_schema": {name: _supplied_schema(name) for name in offered_capabilities},
             },
             "file_candidates": slot_rows,
+            "note_candidates": note_rows,
             "goal_candidates": _offered_goal_cards(goal_candidates),
             "recent_turns": [
                 {"role": row["role"], "text": row["text"][:350]}
