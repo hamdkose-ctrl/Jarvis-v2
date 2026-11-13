@@ -29,9 +29,9 @@ class InfrastructureTests(unittest.TestCase):
         control=Mock(return_value='paylaşım sonucu')
         runtime=SimpleNamespace(re=re,set_share=control,_session=lambda:SessionState())
         for text in ('ekran paylaşımını aç','ekran paylasımını aç','ekran paylasimini aç'):
-            self.assertEqual(engine_context._user_command(runtime,text,text),'paylaşım sonucu')
+            self.assertEqual(engine_context._user_controls(runtime,text,text),'paylaşım sonucu')
             control.assert_called_with('screen')
-        engine_context._user_command(runtime,'ekran paylasimini kapat','ekran paylasimini kapat')
+        engine_context._user_controls(runtime,'ekran paylasimini kapat','ekran paylasimini kapat')
         control.assert_called_with(None)
 
     def test_queue_status_uses_human_schedule_and_named_action(self):
