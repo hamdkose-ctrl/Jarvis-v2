@@ -27,6 +27,37 @@ def _execution_journal_lock(path, job_id):
     return goal_job_control.locked(parent, job_id)
 
 
+def create_canonical_queued_goal(path, *, owner, job_id, goal):
+    """Create one born-canonical, as-yet-unplanned goal for the ONE Scheduler.
+
+    This compat adapter stays the exclusive initial GoalState writer. The
+    caller publishes its matching planning_queued ExecutionRecord under the
+    same per-job control lock; half-publications fail closed on discovery.
+    """
+    with _execution_journal_lock(path, job_id):
+        initial = goal_state.new(
+            owner=owner, job_id=job_id, goal=goal,
+            execution_mode=PROJECTION_EXECUTION_MODE, authority='canonical',
+        )
+        return goal_state_store.create(path, initial)
+
+
+def park_unplanned_canonical_goal(path, *, owner, job_id, reason):
+    """Use the existing reducer/CAS rather than inventing a new goal writer."""
+    with _execution_journal_lock(path, job_id):
+        current = goal_state_store.load(path)
+        if ((current['owner'], current['job_id']) != (owner, job_id)
+                or goal_state.authority(current) != 'canonical'
+                or current['state'] != 'pending' or 'goal_plan' in current):
+            raise ReconcilePolicyError('Only a pending, unplanned canonical goal may be parked.')
+        next_state = core_state_reducer.apply(current, {
+            'expected_version': current['version'], 'op': 'set_state',
+            'state': 'paused', 'reason_code': reason,
+        })
+        return goal_state_store.compare_and_swap(
+            path, expected_version=current['version'], next_state=next_state)
+
+
 def create_canonical_planned_goal(path, *, owner, job_id, goal, plan):
     """Publish a born-canonical GoalState with its Core-accepted plan in one file.
 
