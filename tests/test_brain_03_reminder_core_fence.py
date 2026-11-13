@@ -161,6 +161,53 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             "Kahve al",
         )
 
+    def test_canonical_reminder_date_question_survives_incomplete_answer(self):
+        self.ctx._session().pending_event_title = "Su iç"
+        with patch.object(brain_entry, "pending_answer_owned", return_value=True), \
+             patch.object(brain_entry, "matched_protocol", return_value=False), \
+             patch.object(self.ctx.whenmod, "parse_when", return_value=(None, "")), \
+             patch.object(main_planner, "_reminder_or_confirm",
+                          side_effect=AssertionError("wrote without a date")) as write:
+            response = main_planner.continue_pending_event_title(
+                self.ctx, "biraz sonra", "biraz sonra")
+        self.assertIn("tarih ve saati anlayamadım", response)
+        self.assertEqual(self.ctx._session().pending_event_title, "Su iç")
+        write.assert_not_called()
+        with patch.object(brain_entry, "pending_answer_owned", return_value=True), \
+             patch.object(brain_entry, "matched_protocol", return_value=False), \
+             patch.object(self.ctx.whenmod, "parse_when",
+                          return_value=("2026-11-14T10:00", "")), \
+             patch.object(main_planner, "_reminder_or_confirm",
+                          return_value="HATIRLATMA EKLENDI") as write:
+            response = main_planner.continue_pending_event_title(
+                self.ctx, "yarın 10'da", "yarın 10'da")
+        self.assertEqual(response, "HATIRLATMA EKLENDI")
+        self.assertIsNone(self.ctx._session().pending_event_title)
+        write.assert_called_once_with(self.ctx, "Su iç", "2026-11-14T10:00")
+
+    def test_canonical_reminder_conflict_confirmation_is_not_lost_on_unclear_reply(self):
+        original = {"confirm": ("Su iç", "2026-11-14T10:00", None)}
+        self.ctx._session().pending_event_title = original
+        with patch.object(brain_entry, "pending_answer_owned", return_value=True), \
+             patch.object(brain_entry, "matched_protocol", return_value=False), \
+             patch("modules.confirmation.decision", return_value=None), \
+             patch.object(main_planner, "_save_reminder",
+                          side_effect=AssertionError("saved without approval")) as write:
+            response = main_planner.continue_pending_event_title(
+                self.ctx, "anlamadım", "anlamadım")
+        self.assertIn("Evet veya hayır", response)
+        self.assertEqual(self.ctx._session().pending_event_title, original)
+        write.assert_not_called()
+        with patch.object(brain_entry, "pending_answer_owned", return_value=True), \
+             patch.object(brain_entry, "matched_protocol", return_value=False), \
+             patch("modules.confirmation.decision", return_value=True), \
+             patch.object(main_planner, "_save_reminder", return_value="KAYDEDILDI") as write:
+            response = main_planner.continue_pending_event_title(
+                self.ctx, "evet", "evet")
+        self.assertEqual(response, "KAYDEDILDI")
+        self.assertIsNone(self.ctx._session().pending_event_title)
+        write.assert_called_once_with(self.ctx, "Su iç", "2026-11-14T10:00", None)
+
     def test_model_outage_cannot_delete_existing_reminder_via_legacy_nlp(self):
         self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
         before = [dict(row) for row in self.ctx.profile.data["events"]]
