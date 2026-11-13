@@ -77,7 +77,16 @@ def run_checks(root=None, *, python=None):
                         headline = (f'CI failure index: {len(failures)} cases in {len(modules)} test modules.\n'
                                     + index + '\nFirst failures:\n'
                                     + '\n'.join(failures[:20]))
-                        return False, headline + '\nLast failure details:\n' + output[-16000:]
+                        # The first failure often identifies a shared root cause;
+                        # include its traceback instead of only its name.
+                        details = re.findall(
+                            r'(?ms)^(?:FAIL|ERROR): .+?(?=^={10,}$|^Ran [0-9]+ tests|\Z)',
+                            output,
+                        )
+                        first_traces = '\n'.join(part[:2500] for part in details[:6])
+                        return False, (headline + '\nFirst failure tracebacks:\n'
+                                       + first_traces + '\nLast failure details:\n'
+                                       + output[-12000:])
                     return False, '\n'.join(logs)[-16000:]
                 if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
