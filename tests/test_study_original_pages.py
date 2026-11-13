@@ -69,6 +69,34 @@ class OriginalPageTests(unittest.TestCase):
             self.assertIn('Yalnız seçili kırpılmış alanı', model.call_args.args[1])
         study.remove(self.profile, 1); self.assertFalse(saved.exists())
 
+    def test_study_source_id_collision_never_overwrites_existing_artifacts(self):
+        with patch.object(study, '_read_isolated',
+                          return_value='Verified source text.\\fSecond page text.'):
+            item = study.add(self.profile, str(self.path))
+            original = {
+                p.name: p.read_bytes()
+                for p in study._dir(self.profile).glob('1.*')
+            }
+            with self.assertRaises(FileExistsError):
+                study.add(self.profile, str(self.path))
+        self.assertEqual(
+            {p.name: p.read_bytes() for p in study._dir(self.profile).glob('1.*')},
+            original,
+        )
+        self.assertEqual(len(self.profile.data['study']['docs']), 1)
+        self.assertEqual(item['id'], 1)
+        self.assertFalse(list(study._dir(self.profile).glob('.jarvis-study-*')))
+
+    def test_study_profile_save_failure_rolls_back_new_files(self):
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('disk full'))
+        with patch.object(study, '_read_isolated',
+                          return_value='Verified source text.\\fSecond page text.'):
+            with self.assertRaises(OSError):
+                study.add(self.profile, str(self.path))
+        self.assertEqual(self.profile.data['study']['docs'], [])
+        self.assertEqual(list(study._dir(self.profile).glob('1.*')), [])
+        self.assertEqual(list(study._dir(self.profile).glob('.jarvis-study-*')), [])
+
     def test_bad_page_stale_key_and_foreign_profile_do_not_reach_model(self):
         with patch.object(mt.llm, 'ask_image', return_value=self.reply): mt.solve(self.profile, '', str(self.path))
         view = mt.preview(self.profile, 1)
