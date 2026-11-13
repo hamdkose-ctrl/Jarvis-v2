@@ -172,11 +172,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import main_planner
             view, period = a["view"], a["period"]
             now = runtime.datetime.now()
-            if view == "meeting_prep":
-                from modules import meeting_prep
-                if (blocked := runtime.privacy.blocked("web")):
-                    return blocked
-                return meeting_prep.prepare(runtime.profile, now, query=a["query"])
             if view == "day_plan":
                 return main_planner._day_plan(runtime, 1 if period == "tomorrow" else 0)
             if view == "week_plan":
@@ -692,6 +687,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             contacts[name] = phone
             runtime.profile.save()
             return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
+        case "meeting_prepare":
+            from modules import meeting_prep
+            if blocked := runtime.privacy.blocked("web"):
+                return blocked
+            return meeting_prep.handle_typed(runtime.profile, runtime.datetime.now(), hint=a["hint"])
         case "mail_read":
             from modules import engine_tools
             return engine_tools.mail_read_typed(runtime, a["source"])

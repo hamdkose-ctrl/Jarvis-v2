@@ -4,8 +4,16 @@ from datetime import datetime
 from unittest.mock import patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime
-from brain_turn_fixture import turn
+from modules import brain_core_map, engine_intents
 from modules import google_api, meeting_prep, outlook
+
+
+def typed_meeting(runtime, hint=""):
+    """Only a Core-proposed read; this is not a live Turkish model test."""
+    fields = {"hint": hint}
+    plan = brain_core_map.core_plan("meeting.prepare", fields)
+    assert plan == ("meeting_prepare", fields), plan
+    return engine_intents.dispatch(runtime, *plan, "", "")
 
 
 class MeetingPrepTests(ProfileCase):
@@ -44,7 +52,7 @@ class MeetingPrepTests(ProfileCase):
         self.profile.add_event('Dişçi', '2026-10-17T15:00')
         calls = self.patches(gmail=[{'who': 'Ahmet Yılmaz', 'subject': 'Teklif taslağı', 'days': 2}],
                              olook=[{'who': 'Ayşe', 'subject': 'Teklif fiyatları', 'days': 0}])
-        reply = turn(self.rt(), 'toplantıma hazırlan', 'calendar.read', {'view': 'meeting_prep', 'period': None})
+        reply = typed_meeting(self.rt())
         self.assertIn('yarın 14:00', reply)
         self.assertIn('Ahmet ile teklif toplantısı (Jarvis kaydı)', reply)
         self.assertIn('Gmail: Ahmet Yılmaz · Teklif taslağı (2 gün önce)', reply)
@@ -56,25 +64,37 @@ class MeetingPrepTests(ProfileCase):
     def test_name_hint_picks_that_meeting_and_google_events_count(self):
         self.profile.add_event('Mehmet ile toplantı', '2026-10-17T16:00')
         self.patches(g_events=[(self.now.date(), self.now.replace(hour=12), 'Ayşe Demir sunumu')])
-        reply = turn(self.rt(), "Ayşe'yle sunuma hazırlan", 'calendar.read', {'view': 'meeting_prep', 'period': None, 'query': 'Ayşe'})
+        reply = typed_meeting(self.rt(), "Ayşe")
         self.assertIn('bugün 12:00 · Ayşe Demir sunumu (Google Takvim)', reply)
         self.assertNotIn('Mehmet', reply)
 
     def test_no_meeting_and_no_keyword_and_no_match(self):
         self.patches()
-        self.assertIn('hazırlanacak bir toplantı görünmüyor', turn(self.rt(), 'sıradaki toplantım için hazırlık yap', 'calendar.read', {'view': 'meeting_prep', 'period': None}))
+        self.assertIn('hazırlanacak bir toplantı görünmüyor', typed_meeting(self.rt()))
         self.profile.add_event('Haftalık toplantı', '2026-10-17T15:00')
-        self.assertIn('ayırt edici sözcük yok', turn(self.rt(), 'toplantıma hazırlan', 'calendar.read', {'view': 'meeting_prep', 'period': None}))
+        self.assertIn('ayırt edici sözcük yok', typed_meeting(self.rt()))
         self.profile.add_event('Bütçe toplantısı', '2026-10-17T11:00')
-        self.assertIn('geçen mail bulamadım', turn(self.rt(), 'toplantıma hazırlan', 'calendar.read', {'view': 'meeting_prep', 'period': None}))
+        self.assertIn('geçen mail bulamadım', typed_meeting(self.rt()))
 
     def test_source_failure_is_friendly_and_leaks_nothing(self):
         self.profile.add_event('Bütçe toplantısı', '2026-10-17T11:00')
         self.patches(g_fail=True)
-        reply = turn(self.rt(), 'toplantıma hazırlan', 'calendar.read', {'view': 'meeting_prep', 'period': None})
+        reply = typed_meeting(self.rt())
         self.assertIn("Gmail'e bakamadım", reply)
         self.assertNotIn('secret-detail', reply)
         self.assertNotIn('RuntimeError', reply)
+
+    def test_typed_core_cannot_create_or_modify_calendar_or_email(self):
+        for fields in (
+            {"hint": "Ayşe", "send": True},
+            {"hint": "Ayşe", "recipient": "user@example.org"},
+            {"hint": "Ayşe", "read_body": True},
+            {"hint": "Ayşe", "event_id": "external-id"},
+            {"hint": "\x00"},
+            {"hint": "x" * 121},
+        ):
+            with self.subTest(fields=fields):
+                self.assertIsNone(brain_core_map.core_plan("meeting.prepare", fields))
 
     def test_not_hijacking_other_meeting_commands(self):
         self.patches()

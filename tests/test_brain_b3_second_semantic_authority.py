@@ -111,7 +111,21 @@ def production_callers(marker: str, sources: dict[str, object] | None = None) ->
     found: set[str] = set()
     for name, tree, bindings in scan:
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _dotted(node, bindings)[-len(target):] == target:
+            if not isinstance(node, ast.Call):
+                continue
+            if _dotted(node, bindings)[-len(target):] == target:
+                found.add(name)
+                break
+            # A bounded front protocol can be invoked through a retrieved
+            # bound method: handle = getattr(runtime, "_file_command");
+            # handle(text). The call's AST name is now "handle", not the
+            # original method. Count the literal lookup as a possible
+            # production owner instead of falsely certifying caller-zero.
+            if (target[-1] in {"_file_command", "_macro_run"}
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "getattr" and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value == target[-1]):
                 found.add(name)
                 break
     return sorted(found)

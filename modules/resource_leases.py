@@ -222,9 +222,17 @@ def process_resource_claim(owner_root: Path, key: str):
         details = os.fstat(handle.fileno())
         if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
             raise LeaseConflict("Resource claim must be an ordinary private file.")
-        if handle.seek(0, os.SEEK_END) == 0:
-            handle.write(b"0")
-        handle.seek(0)
+        try:
+            if handle.seek(0, os.SEEK_END) == 0:
+                # Windows denies writing a byte currently locked by
+                # another process. Treat that as live contention, not a
+                # raw PermissionError escaping file-effect admission.
+                handle.write(b"0")
+            handle.seek(0)
+        except OSError as exc:
+            raise LeaseConflict(
+                "Resource claim initialization is busy or unavailable."
+            ) from exc
         try:
             if os.name == "nt":
                 import msvcrt

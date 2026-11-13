@@ -5,8 +5,12 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from test_mail_calendar_fixes import ProfileCase, _runtime, say
-from modules import brain_entry, main_planner
+from dataclasses import replace
+import uuid
+from test_day_plan import typed_calendar
+from test_mail_calendar_fixes import ProfileCase, _runtime
+from modules import brain_entry, brain_core_map, main_planner, requests_state
+from modules.brain_contracts import RequestKind
 
 
 REQUEST = (
@@ -25,46 +29,60 @@ class ResearchDayPlanPrecedenceTests(ProfileCase):
         rt.google_api.connected = lambda: False
         return rt
 
+    def typed_research(self, runtime, text):
+        """A model fixture selects research; real Core prevents calendar capture."""
+        owner = runtime.profile.slug
+        rid = "research-plan-" + uuid.uuid4().hex[:12]
+        assert requests_state.register(owner, rid)
+        def model(semantic, utterance, *, active_context=None):
+            self.assertEqual(utterance, text)
+            return replace(
+                semantic, request_kind=RequestKind.CAPABILITY,
+                capability_hint="research.search",
+                arguments={"original_text": text,
+                           "research": {"query": text, "route": "PRIVATE"}},
+                needs_input=False, ambiguities=(), actions=(),
+                reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))
+        with requests_state.activate(owner, rid), \
+             patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+            entry = brain_entry.prepare(runtime, owner=owner, request_id=rid,
+                                        text=text, source="yazı", model_understanding=True)
+            out, feedback, _ = brain_entry.handoff(
+                runtime, entry,
+                Mock(side_effect=AssertionError("typed research entered old NL")), text)
+        self.assertEqual(entry.understanding.capability_hint, "research.search")
+        self.assertEqual(feedback.result_status, "handled")
+        return out
+
     def test_long_research_request_is_not_swallowed_by_date_or_day_plan(self):
         rt = self.rt()
-        rt._daily_briefing = Mock(side_effect=AssertionError("research daily briefing'e gitmemeli"))
-        with patch.object(main_planner, "_day_plan", side_effect=AssertionError("research _day_plan'a gitmemeli")), \
-                patch.object(brain_entry, 'route_command',
-                             return_value={"intent": "task", "args": {"query": REQUEST, "route": "PRIVATE"}}) as route, \
-                patch("modules.engine_intents.dispatch", return_value="RESEARCH") as dispatch:
-            self.assertEqual(rt.handle(REQUEST), "RESEARCH")
-        route.assert_called_once_with(rt, REQUEST)
+        rt._daily_briefing = Mock(side_effect=AssertionError("research became daily brief"))
+        with patch.object(main_planner, "_day_plan",
+                          side_effect=AssertionError("research became day plan")) as day_plan, \
+             patch("modules.engine_intents.dispatch", return_value="RESEARCH") as dispatch:
+            self.assertEqual(self.typed_research(rt, REQUEST), "RESEARCH")
+        day_plan.assert_not_called()
         dispatch.assert_called_once()
+        self.assertEqual(dispatch.call_args.args[1], "task")
 
-    def test_short_news_research_request_reaches_deterministic_research_classification(self):
-        # PR10c: deterministik araştırma tanıması legacy router.classify'ta değil canonical
-        # Brain understanding/Core haritasında yaşıyor; model kapısına düşülmez.
-        def no_model(*_a, **_k):
-            raise AssertionError("deterministic research route model istememeli")
-        from modules import brain_core_map, brain_understanding
-        from modules.brain_contracts import ActiveContext
-        with patch("modules.llm.ask", no_model):
-            semantic = brain_understanding.understand(
-                owner="hamdi", request_id="rid-research", text=SHORT_REQUEST,
-                active_context=ActiveContext(owner="hamdi", request_id="rid-research"),
-                candidates=(), references=())
-        self.assertEqual(semantic.capability_hint, "research.search")
-        self.assertEqual(brain_core_map.core_plan(semantic.capability_hint, semantic.arguments),
-                         ("task", {"query": SHORT_REQUEST, "route": "PRIVATE"}))
+    def test_short_research_uses_model_selected_closed_core_query(self):
+        plan = brain_core_map.core_plan("research.search", {
+            "research": {"query": SHORT_REQUEST, "route": "PRIVATE"}})
+        self.assertEqual(plan, ("task", {"query": SHORT_REQUEST, "route": "PRIVATE"}))
+        with patch("modules.engine_intents.dispatch", return_value="RESEARCH") as dispatch:
+            self.assertEqual(self.typed_research(self.rt(), SHORT_REQUEST), "RESEARCH")
+        dispatch.assert_called_once()
 
     def test_explicit_day_plan_requests_still_use_day_plan(self):
         for text in ("Bugünün planı ne?", "Bugün ne yapmalıyım?", "Günümü planla"):
             with self.subTest(text=text):
-                from brain_turn_fixture import turn
-                self.assertIn("Bugünün planı", turn(self.rt(), text, 'calendar.read', {'view': 'day_plan', 'period': 'today'}))
+                self.assertIn("Bugünün planı", typed_calendar(self.rt(), text))
 
     def test_research_request_does_not_call_day_plan(self):
         rt = self.rt()
         with patch.object(main_planner, "_day_plan") as day_plan, \
-                patch.object(brain_entry, 'route_command',
-                             return_value={"intent": "task", "args": {"query": REQUEST, "route": "PRIVATE"}}), \
-                patch("modules.engine_intents.dispatch", return_value="RESEARCH"):
-            self.assertEqual(rt.handle(REQUEST), "RESEARCH")
+             patch("modules.engine_intents.dispatch", return_value="RESEARCH"):
+            self.assertEqual(self.typed_research(rt, REQUEST), "RESEARCH")
         day_plan.assert_not_called()
 
     def test_startup_morning_briefing_path_is_unchanged(self):

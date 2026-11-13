@@ -32,14 +32,14 @@ class CompletionWiringTests(fixtures._CanonicalAuthorityHarness):
         from modules import meeting_prep
         now = self.clock()
         with patch.object(self.ctx.privacy, 'blocked', return_value=None), \
-             patch.object(meeting_prep, 'prepare', return_value='MEETING') as reader, \
+             patch.object(meeting_prep, 'handle_typed', return_value='MEETING') as reader, \
              patch.object(meeting_prep, 'handle', side_effect=AssertionError('raw selector')):
             entry, output, _, feedback = self.typed(
-                "Ayşe ile toplantıma hazırlan", 'calendar.read',
-                {'view': 'meeting_prep', 'period': None, 'query': 'Ayşe'})
+                "Ayşe ile toplantıma hazırlan", 'meeting.prepare',
+                {'hint': 'Ayşe'})
         self.assertEqual(output, 'MEETING')
         self.assertEqual(feedback.result_status, 'handled')
-        reader.assert_called_once_with(self.ctx.profile, now, query='Ayşe')
+        reader.assert_called_once_with(self.ctx.profile, now, hint='Ayşe')
 
     def test_model_correction_action_is_rejected_with_neutral_pending_evidence(self):
         self.ctx._session().pending_msg = {'stage': 'text', 'to': 'Ayşe'}
@@ -292,6 +292,14 @@ class ModelBindingContractTests(unittest.TestCase):
             sources={'goal': 'taslak hazırla'}, raw_text='taslak hazırla'))
         self.assertIsNone(self.propose('development.manage', {'operation': 'request', 'goal': 'dosyayı sil'},
             sources={'goal': 'dosyayı sil'}, raw_text='taslak hazırla'))
+
+    def test_weekday_move_keeps_the_actual_spoken_case_as_its_source(self):
+        proposal = self.propose('reminders.manage', {'operation': 'move', 'title': 'Toplantı', 'weekday': 'cumaya'},
+            sources={'title': 'Toplantı', 'weekday': 'cumaya'}, raw_text='Toplantı cumaya kaysın')
+        self.assertIsNotNone(proposal)
+        self.assertEqual(brain_core_map.core_plan('reminders.manage', proposal.actions[0].arguments)[1]['weekday'], 4)
+        self.assertIsNone(self.propose('reminders.manage', {'operation': 'move', 'title': 'Toplantı', 'weekday': 'pazara'},
+            sources={'title': 'Toplantı', 'weekday': 'pazara'}, raw_text='Toplantı cumaya kaysın'))
 
     def test_note_read_binds_offered_id_and_rejects_model_supplied_id(self):
         from modules.brain_contracts import ContextReference

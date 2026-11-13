@@ -33,7 +33,7 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 | Domain | Model/Core intent → tek effect sahibi | Fiziksel sınır |
 |---|---|---|
 | Not ekle/oku/düzelt/sil/tümünü temizle | `notes.add/read/write/manage` → mevcut Profile/not worker'ı | Eski planner not mutasyon seçicileri kaldırıldı; tek not kimliği owner/referans ve SHA-256 sürüm mühürüyle bound; toplu silme State onayı ister |
-| Hatırlatıcı/takvim | `reminder.propose`, `reminders.manage`, `calendar.read` → `main_planner` | Eski planner niyet seçicisi kaldırıldı; pending tarih/çakışma sorusu belirsiz cevapla kaybolmaz |
+| Hatırlatıcı/takvim | `reminder.propose`, `reminders.manage`, `calendar.read`, `meeting.prepare` → `main_planner` | Eski planner niyet seçicisi kaldırıldı; pending tarih/çakışma sorusu belirsiz cevapla kaybolmaz |
 | Hoca/çalışma | `hoca.lesson.start`, `study.read` ve State `hoca_control` → mevcut Hoca/study worker | Eski `_study_intent` çağıranı kaldırıldı; tam ses tercihi ve açık `hoca modu: araştır KONU` için güvenli public kaynak yürütmesi korundu |
 | Cihaz/ses/ekran | `device.share`, `voice.rate/select`, `screen.text` → mevcut privacy, VoiceCoordinator ve OCR işçisi | İkinci capture/voice/note etkisi yok; kapatma/uyku sadece tam Fast protokolü |
 | Workbench | `workbench.followup` → `workbench.followup_typed` → aynı `handle` | Kullanıcıya ait süreli digest, izinli kaynak tekrar denetimi; serbest raw followup emekli |
@@ -45,7 +45,8 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 ## Son parite ve model sözleşmesi bağlantıları
 
 - Katalogdaki her Core yeteneği açık argüman şeması taşır; dosya/not slot talimatı ile decoder aynı sözleşmededir. City set/reset için önceki geçiş yasağı kaldırılmıştır; set kullanıcı sözünden dayanak ister, model kimlik/yol veremez.
-- Takvim `meeting_prep`, mail `awaiting_*`/ilk mail ekleri, not count/one, konuşma tablosu, dosya çeviri/dönüşüm/mutasyon ve geçmiş cevabın tam metin çevirisi mevcut worker'larına bağlıdır. Prompt yalnız önizleme alır; çeviri Core'un owner/rol/turn ID bağlı tam kaynağını kullanır. Tarihli öneriler gözlenen yerel saatten üretilir. Saat `ActiveContext.current_time` metadata'sıdır; iş/dosya/referans adayı değildir ve artifact/pending bağlanırken korunur.
+- Toplantı `meeting.prepare`, mail `awaiting_*`/ilk mail ekleri, not count/one, konuşma tablosu, dosya çeviri/dönüşüm/mutasyon ve geçmiş cevabın tam metin çevirisi mevcut worker'larına bağlıdır. Prompt yalnız önizleme alır; çeviri Core'un owner/rol/turn ID bağlı tam kaynağını kullanır. Tarihli öneriler gözlenen yerel saatten üretilir. Saat `ActiveContext.current_time` metadata'sıdır; iş/dosya/referans adayı değildir ve artifact/pending bağlanırken korunur.
+- Aynı dala gelen closed snooze/move/reschedule/skip-period alanları tek reminder önizleme/onay sahibine normalleştirilir; ikinci raw parser veya effect motoru yoktur. Published meeting.prepare tek toplantı capability'si olarak korunur.
 - Hatırlatma değişikliği Profile kilidi içinde exact snapshot onayıyla yapılır; sıradaki tekrar, base saati ve fired snooze ayrılır, değişen olayın eski ses kuyruğu geçersizleşir.
 - Desktop açık soru cevabı exact native job/soru/aktif PC sahibine bağlanır. Goal açık soru cevabı model ilişkisinden aynı hedefin mevcut resolver/control çitine gider; canonical Scheduler yerine ikinci run açılmaz.
 - Görev silme tam owner başlığından mevcut State onayına; tema değişimi mevcut UI ayar sahibine bağlıdır. Geliştirme request/control ve owner ek bağlama paritesi ayrı typed sözleşmeyle korunur; hiçbir model alanı özgün onay metnini değiştiremez.

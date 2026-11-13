@@ -371,6 +371,31 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
             "2025 dosyasını özetle", unique_first, [unique_first, unique_second]
         ))
 
+    def test_model_chat_cannot_select_ambiguous_note_as_an_effect(self):
+        # A validated model CHAT decision must not be vetoed by a legacy
+        # ambiguity heuristic. It is safe to chat, but the unresolved notes
+        # remain references and neither may be selected for a file/note effect.
+        note_a = ContextReference(id="note-a", kind="note", source="candidate", owner=OWNER,
+                                  provenance={"title": "Toplantı notu"})
+        note_b = ContextReference(id="note-b", kind="note", source="candidate", owner=OWNER,
+                                  provenance={"title": "Proje notu"})
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            arguments={"original_text": "onu göster"},
+            references=(note_a, note_b),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        returned = asked_apply(model_answer(operation="chat", confidence="MEDIUM"),
+                               "onu göster", semantic)
+        self.assertIs(returned.request_kind, RequestKind.CHAT)
+        self.assertEqual(returned.actions, ())
+        self.assertIsNone(returned.capability_hint)
+        self.assertEqual(returned.references, (note_a, note_b))
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

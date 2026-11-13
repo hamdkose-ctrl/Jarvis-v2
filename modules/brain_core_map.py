@@ -892,6 +892,18 @@ def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"source": source}
 
 
+def _meeting_prepare_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only an optional user-grounded meeting name; never mail source, ID or action."""
+    if set(arguments) - {"original_text", "hint"}:
+        return None
+    hint = arguments.get("hint", "")
+    if (not isinstance(hint, str) or len(hint) > 120
+            or any(ord(ch) < 32 for ch in hint)):
+        return None
+    return {"hint": hint.strip()}
+
+
+
 def _outlook_draft_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """One Outlook unread reply-text draft; model may not select mail effects.
 
@@ -1044,27 +1056,116 @@ def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Closed read-only calendar views; never infer an edit or external calendar write."""
-    if set(arguments) - {"original_text", "view", "period", "query"}:
+    if set(arguments) - {"original_text", "view", "period"}:
         return None
     view, period = arguments.get("view"), arguments.get("period")
     choices = {"agenda": frozenset({"today", "tomorrow"}),
                "day_plan": frozenset({"today", "tomorrow"}),
                "week_plan": frozenset({"this", "next", "seven"}),
-               "upcoming": frozenset({None}), "meeting_prep": frozenset({None})}
+               "upcoming": frozenset({None})}
     if (type(view) is not str or view not in choices
             or type(period) not in (str, type(None)) or period not in choices[view]):
         return None
-    query = arguments.get("query")
-    if view != "meeting_prep":
-        return {"view": view, "period": period} if query is None else None
-    if query is not None and (not isinstance(query, str) or not query.strip()
-                              or len(query) > 200 or "\x00" in query):
+    return {"view": view, "period": period}
+
+
+
+def _reminder_protocol_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Model selects an operation; Core bounds the title and delay.
+
+    The target record is resolved by the existing owner-local reminder worker,
+    not by IDs invented by the model. Every mutation still requires the
+    snapshot-bound State confirmation.
+    """
+    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday", "period", "daypart"}:
         return None
-    return {"view": view, "period": period, "query": query or ""}
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move", "reschedule"}:
+        return None
+    title = arguments.get("title")
+    if ((operation in {"snooze", "reschedule"} or operation == "skip"
+         and arguments.get("period") == "today") and title is None):
+        checked_title = None  # only the unique recently fired event is eligible
+    elif isinstance(title, str) and title.strip() and len(title) <= 200 and "\x00" not in title:
+        checked_title = title.strip()
+    else:
+        return None
+    period = arguments.get("period")
+    daypart = arguments.get("daypart")
+    if operation in {"delete", "skip"}:
+        if daypart is not None:
+            return None
+        if arguments.get("duration") is not None or arguments.get("weekday") is not None:
+            return None
+        if operation == "delete":
+            return {"operation": "delete", "title": checked_title} if (
+                checked_title is not None and period is None) else None
+        if period not in (None, "today", "tomorrow"):
+            return None
+        if checked_title is None and period != "today":
+            return None
+        return {"operation": "skip", "title": checked_title,
+                **({"period": period} if period is not None else {})}
+    if period is not None:
+        return None
+    if operation == "reschedule":
+        if (daypart != "tomorrow_morning"
+                or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "reschedule", "title": checked_title,
+                "daypart": "tomorrow_morning"}
+    if operation == "snooze" and daypart is not None:
+        if (daypart != "evening" or arguments.get("duration") is not None
+                or arguments.get("weekday") is not None):
+            return None
+        return {"operation": "snooze", "title": checked_title,
+                "daypart": "evening"}
+    if daypart is not None:
+        return None
+    if operation == "move":
+        day = arguments.get("weekday")
+        weekday = {"pazartesi": 0, "salı": 1, "çarşamba": 2,
+                   "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6,
+                   "pazartesiye": 0, "salıya": 1, "çarşambaya": 2, "perşembeye": 3,
+                   "cumaya": 4, "cumartesiye": 5, "pazara": 6}
+        if (checked_title is None or type(day) is not str
+                or day not in weekday or arguments.get("duration") is not None):
+            return None
+        return {"operation": "move", "title": checked_title,
+                "weekday": weekday[day]}
+    if arguments.get("weekday") is not None:
+        return None
+    duration = arguments.get("duration")
+    if operation == "snooze" and duration is None:
+        return {"operation": operation, "title": checked_title, "minutes": 10}
+    if not isinstance(duration, str) or len(duration) > 40:
+        return None
+    if duration in {"yarına", "yarin", "yarına kadar"} and operation == "postpone":
+        return {"operation": operation, "title": checked_title, "minutes": 1440}
+    named_delays = {"yarım saat": 30, "bir saat": 60, "bir gün": 1440,
+                    "iki gün": 2880}
+    if duration.casefold().strip() in named_delays:
+        minutes = named_delays[duration.casefold().strip()]
+        return {"operation": operation, "title": checked_title,
+                "minutes": minutes} if minutes <= (
+                    1440 if operation == "snooze" else 10080) else None
+    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
+    if parsed is None:
+        return None
+    count, unit = int(parsed.group(1)), parsed.group(2)
+    minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
+    if not 1 <= minutes <= (1440 if operation == "snooze" else 10080):
+        return None
+    return {"operation": operation, "title": checked_title, "minutes": minutes}
+
 
 
 def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core checks one grounded exact-title reminder change; no arbitrary ids or bulk."""
+    if (isinstance(arguments.get("operation"), str) and arguments["operation"] in {"snooze", "move", "reschedule"}
+            or set(arguments) & {"weekday", "period", "daypart"}):
+        return _reminder_protocol_args(arguments)
     if set(arguments) - {"original_text", "operation", "title", "duration", "target", "occurrence", "schedule", "on_date"}:
         return None
     operation = arguments.get("operation")
@@ -1392,6 +1493,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
     "mail.read": ("mail_read", _mail_read_args),
+    "meeting.prepare": ("meeting_prepare", _meeting_prepare_args),
     "conversation.table": ("conversation_table", _empty_action_args),
     "mail.draft": ("outlook_draft", _outlook_draft_args),
     "browser.page.read": ("browser_page", _browser_page_args),

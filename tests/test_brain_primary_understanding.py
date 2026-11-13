@@ -237,6 +237,24 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
             utterance, envelope(actions=[forged], confidence="HIGH"))
         self.assertIs(rejected, base)
 
+    def test_grounded_meeting_brief_is_model_selected_not_a_raw_keyword_intent(self):
+        text = "Ayşe'yle sunuma hazırlan"
+        proposed = action(capability_id="meeting.prepare",
+                          arguments={"hint": "Ayşe"})
+        proposed["argument_sources"] = {"hint": "Ayşe"}
+        base, adopted = applied(text, envelope(actions=[proposed], confidence="HIGH"))
+        self.assertIs(adopted.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(adopted.capability_hint, "meeting.prepare")
+        self.assertEqual(core_plan(adopted.capability_hint, adopted.arguments),
+                         ("meeting_prepare", {"hint": "Ayşe"}))
+        forged = action(capability_id="meeting.prepare",
+                        arguments={"hint": "Mehmet"})
+        forged["argument_sources"] = {"hint": "Ayşe"}
+        original, rejected = applied(text, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected, original)
+        self.assertIsNone(core_plan("meeting.prepare",
+                                   {"hint": "Ayşe", "send": True}))
+
     def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
         utterance = "Not al: Raporu teslim et"
         raw_action = action(capability_id="notes.add",

@@ -548,6 +548,34 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
                          "çit açıkken ham kapılar soruya hiç bakmaz")
         self.assertEqual(self.ctx._study_intent.call_args_list, [])
 
+    def test_model_chat_questions_never_reenter_old_domain_language_doors(self):
+        from dataclasses import replace
+        for seam, text in (("modules.pc_guide.handle", "ekrandaki klasör ne işe yarar?"),
+                           ("modules.developer.handle", "bu hata neden oluyor?")):
+            with self.subTest(text=text):
+                self.seams[seam].reset_mock()
+                def choose(current, utterance, *, active_context=None):
+                    self.assertEqual(utterance, text)
+                    return replace(
+                        current, request_kind=RequestKind.CHAT,
+                        capability_hint=None,
+                        arguments={"original_text": utterance},
+                        needs_input=False, ambiguities=(), actions=(),
+                        reason_codes=current.reason_codes + ("MODEL_DECIDED",
+                                                              "MODEL_CHAT_DECIDED"),
+                    )
+                with patch.object(brain_entry, "apply_model_understanding",
+                                  side_effect=choose):
+                    entry, out, _handler, feedback = self.turn(
+                        text, model_understanding=True)
+                self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+                self.assertEqual(out, "CHAT")
+                self.assertEqual(feedback.result_status, "handled")
+                self.seams[seam].assert_not_called()
+                self.door.assert_not_called()
+
+
+
 
 class MultiStepAuthorityTests(_RawDoorHarness):
     """Sıra semantiği kanonical katmanda doğar; ham yüzey adım seçmez (BRAIN-MIG-017)."""
