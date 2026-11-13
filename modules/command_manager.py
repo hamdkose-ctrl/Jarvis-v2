@@ -140,45 +140,6 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None,
     return None
 
 
-_TYPO_READ_INTENTS = frozenset({'notes_read'})
-
-
-def typo_read_plan(corrected):
-    """Düzeltilmiş tam cümlenin doğrulanmış salt-okuma planı: Core önerisi veya None.
-
-    Yürütme burada değildir: etki intent'in kendi sahibindedir ve planı seam'in kendisi
-    `engine_intents.dispatch`e verir (`engine_commands`). `core_plan`ın döndürdüğü intent
-    `_TYPO_READ_INTENTS` dışındaysa öneri reddedilir; yazma/organize/açma akışları bu kapalı
-    setten geçemez. Kanonical aday/referans/model geçişi yeniden çalışmaz."""
-    from modules import brain_core_map, brain_understanding
-    view = brain_understanding.notes_read_view(corrected)
-    if view is None:
-        return None
-    plan = brain_core_map.core_plan(*view)
-    return plan if plan is not None and plan[0] in _TYPO_READ_INTENTS else None
-
-
-def typo_read_recovery(context, runtime, corrected):
-    """Yazım düzeltmesinin salt-okuma kurtarması (metin sahipleri): iki tam-cümle grameri, sıfır etki.
-
-    Koşul (§25 A, BRAIN-MIG-042): bu turn'de kanonical State/Fast/Understanding, ham cepheler ve
-    `exact_admin_view` ham cümleyi hiçbir kol almadan geçirdi. Burası ikinci bir pipeline değildir —
-    candidates/references/model/State/Fast/Understanding yeniden çalışmaz, ham kapı düzeltilmiş metinle
-    yeniden yürümez. Yalnız *düzeltilmiş tam cümle* salt-okuma gramerlerine sorulur ve cevap o gramerin
-    kendi sahibinden yürür: `main_planner.agenda_read_request` + `runtime._agenda_text`,
-    `tasks.list_request` + `tasks.list_text`. Not listesinin kanonical Core intent'i plan olarak
-    `typo_read_plan`da durur; sahibi `engine_intents`tir. Tarayıcı açan alt biçim ve yazma/organize
-    akışları bu sette değildir. Kilidi
-    `tests/test_brain_pr3b_legacy_front_door_authority.py::TypoReadRecovery(Tests|GuardTests)`."""
-    from modules import main_planner, tasks
-    read = main_planner.agenda_read_request(corrected, runtime.datetime.now())
-    if read is not None:
-        return runtime._agenda_text(*read)
-    if tasks.list_request(corrected):
-        return tasks.list_text(context.profile)
-    return None
-
-
 def engine_control(normalized, *, source, sleeping, close, set_sleep):
     """Explicit engine controls bypass conversational guides and model routing."""
     normalized = normalized.replace('’', "'")
