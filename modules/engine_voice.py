@@ -176,9 +176,28 @@ class VoiceSession:
             return
         if done.wait(1.2):                 # konuşmanın ilk anı: hoparlör sesi yankı yapıp uyandırmasın
             return
+
+        def stopped() -> bool:
+            return done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"]
+
+        # The wake microphone is the same capture device the recorder uses, and the
+        # engine owns it under audio_lock. Opening this second stream outside that
+        # lock let a background notice start capturing while a push-to-talk or web
+        # recording was already running: two PortAudio streams on one device, with
+        # the speaker feeding Jarvis's own wake model. Listening in short slices
+        # keeps the handover bounded — wait returns within one frame of the stop
+        # signal, the recorder wins the lock between slices, and the watch resumes.
+        deadline = runtime.time.time() + 600
+        hit = None
         try:
-            hit = wakeword.wait(lambda: done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"], capture=False, max_seconds=600,
-                                min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
+            while not stopped() and runtime.time.time() < deadline:
+                with runtime.audio_lock:
+                    if stopped():
+                        break
+                    hit = wakeword.wait(stopped, capture=False, max_seconds=2.0,
+                                        min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
+                if hit is not None:
+                    break
         except Exception:
             runtime._record_failure('main.py:_barge_watch')
             return
@@ -438,7 +457,8 @@ class VoiceSession:
                 runtime.stop_event.set()
                 break
             if text:
-                if runtime._tr_lower(text).strip(" .!") in ("dur", "sus", "yeter", "stop"):
-                    runtime.voice.stop_speaking()   # okunan yanıtı hemen keser
-                    continue
+                # The keyboard is not a second cancel authority: engine_queue owns the
+                # vocabulary, so a typed "dur" keeps the Core cancellation the same word
+                # has from the UI and the phone, while "sus" alone stays speech-only.
+                # The private shortcut here used to make both words mean "stop talking".
                 runtime.submit(text, "yazı")
