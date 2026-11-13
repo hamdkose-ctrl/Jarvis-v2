@@ -198,7 +198,7 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [second["id"]])
 
     def test_legacy_named_note_update_negative_must_not_change_profile(self):
-        from modules import main_planner, brain_model_understanding
+        from modules import brain_model_understanding
         note = self.ctx.profile.add_note_item("Market alışverişi")
         snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
         with patch.object(brain_model_understanding, "propose", return_value=None), \
