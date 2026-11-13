@@ -9,6 +9,7 @@ RED phase contract:
 """
 import ast
 import copy
+from dataclasses import replace
 import tempfile
 import unittest
 import uuid
@@ -19,7 +20,7 @@ from unittest.mock import Mock, patch
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 import test_brain_production_entry as fx
 from modules import brain_core_map, brain_entry, brain_reference, brain_understanding, engine_runtime, requests_state
-from modules.brain_contracts import ActiveContext, ContextReference
+from modules.brain_contracts import ActiveContext, ContextReference, RequestKind
 
 SEARCH_QUERY_MISSING = "note search query missing"
 
@@ -216,6 +217,60 @@ class _BrainCase(unittest.TestCase):
     def notes(self):
         return copy.deepcopy(self.ctx.profile.data["items"])
 
+    def _model_fixture(self, semantic, text, *, active_context=None):
+        """Only the model proposal boundary is stubbed; real Core/worker run.
+
+        This suite covers typed note execution and isolation, NOT live Turkish
+        recognition. Every phrase has an explicit independent model fixture;
+        unlisted phrases fail rather than silently falling back to a parser.
+        """
+        queries = {
+            "notlarımda proje alfa ara": "proje alfa",
+            "proje alfa geçen notu bul": "proje alfa",
+            "notlarda toplantı geçenleri göster": "toplantı",
+            "hangi notumda bütçe yazıyor": "bütçe",
+            "notlarımda zzzzz ara": "zzzzz",
+            "notlarımda gizli ara": "gizli",
+        }
+        if text in queries:
+            row = {"which": "search", "query": queries[text]}
+            capability = "notes.read"
+        elif text in ("notlarımı özetle", "tüm notlarımı özetle"):
+            row = {"which": "summary"}
+            capability = "notes.read"
+        elif text in ("ikinci notumu özetle", "proje alfa başlıklı notu özetle"):
+            matches = [ref for ref in semantic.references if ref.kind == "note"]
+            if len(matches) != 1:
+                raise AssertionError("The note target must be uniquely observed before Core.")
+            row = {"which": "summary", "id": matches[0].id}
+            capability = "notes.read"
+        elif text in ("kitap notunu sil", "kitap notunu düzelt: kitap: Suç ve Ceza"):
+            matches = [ref for ref in semantic.references if ref.kind == "note"]
+            if len(matches) != 1:
+                raise AssertionError("Model cannot invent an unobserved note target.")
+            row = {"operation": "delete" if text.endswith(" sil") else "update",
+                   "id": matches[0].id}
+            if row["operation"] == "update":
+                row["text"] = "kitap: Suç ve Ceza"
+            capability = "notes.write"
+        elif text in ("notlarımda ara", "toplantı notunu özetle", "bu notu özetle"):
+            reason = {
+                "notlarımda ara": brain_understanding.NOTE_SEARCH_QUERY_MISSING,
+                "toplantı notunu özetle": brain_understanding.NOTE_TARGET_AMBIGUOUS,
+                "bu notu özetle": brain_understanding.NOTE_TARGET_UNRESOLVED,
+            }[text]
+            return replace(semantic, request_kind=RequestKind.CLARIFY,
+                           capability_hint=None, arguments={"original_text": text},
+                           ambiguities=(reason,), needs_input=True, actions=())
+        else:
+            raise AssertionError(f"No explicit semantic model fixture for {text!r}")
+        return replace(
+            semantic, request_kind=RequestKind.CAPABILITY,
+            capability_hint=capability,
+            arguments={"original_text": text, "notes": row},
+            ambiguities=(), needs_input=False, actions=(),
+        )
+
     def through_brain(self, text, *, forbid_legacy_search=True, ask=None, owner=None):
         owner = owner or self.owner
         rid = "notes-ss-" + uuid.uuid4().hex[:8]
@@ -223,9 +278,12 @@ class _BrainCase(unittest.TestCase):
         handler = Mock(wraps=self.ctx.handle)
         with ExitStack() as stack:
             if forbid_legacy_search:
-                stack.enter_context(patch(
-                    "modules.main_planner._note_lookup",
-                    side_effect=AssertionError("canonical notes search/summary legacy lookup'a dönmemeli"),
+                from modules import main_planner
+                self.assertFalse(hasattr(main_planner, "_note_lookup"),
+                                 "Retired raw note lookup must remain physically absent.")
+                stack.enter_context(patch.object(
+                    brain_entry, "apply_model_understanding",
+                    side_effect=self._model_fixture,
                 ))
             if ask is not None:
                 stack.enter_context(patch.object(self.ctx, "ask", ask))
@@ -233,7 +291,8 @@ class _BrainCase(unittest.TestCase):
                 self.ctx, "chat", side_effect=AssertionError("notes search/summary sohbet koluna düşmemeli"),
             ))
             stack.enter_context(requests_state.activate(owner, rid))
-            entry = brain_entry.prepare(self.ctx, owner=owner, request_id=rid, text=text, source="yazı")
+            entry = brain_entry.prepare(self.ctx, owner=owner, request_id=rid, text=text,
+                                        source="yazı", model_understanding=forbid_legacy_search)
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, text)
         return entry, out, feedback, handler
 
@@ -423,11 +482,9 @@ class StaticSecondAuthorityGuardTests(unittest.TestCase):
 
     def test_legacy_lookup_keeps_no_search_execution(self):
         tree = self._tree("main_planner.py")
-        lookup = self._function(tree, "_note_lookup")
-        names = self._names(lookup)
-        self.assertNotIn("_note_hits", names)
-        self.assertNotIn("_note_listing", names)
-        module_names = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+        module_names = {node.name for node in ast.walk(tree)
+                        if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+        self.assertNotIn("_note_lookup", module_names)
         self.assertNotIn("_NOTE_ASK_END", {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)})
         self.assertIn("notes_search", module_names)
         self.assertIn("notes_summary", module_names)
