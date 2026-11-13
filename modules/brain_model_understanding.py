@@ -108,6 +108,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "kb.query": frozenset({"question"}),
     "worktrack.read": frozenset({"project"}),
     "hoca.lesson.start": frozenset({"topic", "level"}),
+    "finance.alert.manage": frozenset({"asset", "value", "index"}),
     "browser.page.read": frozenset({"url"}),
     "media.search": frozenset({"query"}),
     "filesend.transfer": frozenset({"query"}),
@@ -141,6 +142,7 @@ _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
     "workbench.followup", "study.read",
     "notes.add", "notes.manage", "notes.write", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
+    "finance.alert.manage",
     "browser.page.read", "media.search", "filesend.transfer", "notify.manage", "handoff.manage",
 })
 
@@ -291,6 +293,15 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "query": "verbatim music/video title supplied by user, except for home",
                 "argument_sources": ["query"],
                 "constraint": "opens user's media service search; not a claim that playback succeeded"}
+    if capability_id == "finance.alert.manage":
+        return {"operation": ["list", "add", "delete"],
+                "asset": "verbatim finance asset name from user (add only)",
+                "value": "verbatim positive numeric TL threshold from user (add only)",
+                "direction": ["above", "below"],
+                "index": "positive integer user explicitly said in alarm deletion",
+                "argument_sources": ["asset", "value", "index"],
+                "constraint": "no guessed rule ID, owner, account or effect; list has no fields; "
+                              "delete requires explicit single index; financial alarm not trading"}
     if capability_id == "hoca.lesson.start":
         return {"topic": "the verbatim requested lesson subject",
                 "level": ["başlangıç", "orta", "ileri", None],
