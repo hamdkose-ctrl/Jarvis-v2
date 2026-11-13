@@ -126,6 +126,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "share_control":
             # set_share is the single permission/vision/UI/audit effect owner.
             return runtime.set_share({"screen": "screen", "camera": "camera", "stop": None}[a["action"]])
+        case "voice_select":
+            # No second TTS identity. The existing profile writer verifies the
+            # installed voice catalogue and interrupts stale speech.
+            return runtime._set_voice(a["key"])
         case "voice_rate":
             # Exactly the same preference writer as the existing spoken/UI
             # controls; no new voice identity or provider fallback is created.
