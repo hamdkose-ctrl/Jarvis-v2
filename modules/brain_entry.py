@@ -31,10 +31,11 @@ from modules.brain_contracts import (
     ConversationRelation,
     PendingOwner,
     RequestKind,
+    UnderstandingResult,
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import apply_model_understanding, is_sequenced, sequence_steps, understand
+from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -385,6 +386,7 @@ def _semantic_pass(
     text: str,
     active: ActiveContext,
     allow_file_scan: bool,
+    model_only: bool = False,
 ):
     candidates = build_candidates(
         owner=owner,
@@ -401,14 +403,25 @@ def _semantic_pass(
         active_context=active,
         candidates=candidates,
     )
-    semantic = understand(
-        owner=owner,
-        request_id=request_id,
-        text=text,
-        active_context=active,
-        candidates=candidates,
-        references=references,
-    )
+    if model_only:
+        # Candidate and reference observations are not intent judgments.
+        # The primary model receives a neutral proposal: no legacy keyword
+        # capability, argument, relation or ambiguity may become authority.
+        semantic = UnderstandingResult(
+            owner=owner, request_id=request_id, request_kind=RequestKind.CHAT,
+            arguments={"original_text": text}, references=references,
+        )
+    else:
+        # Legacy isolated test fixture path only. Production engine and
+        # nested canonical steps ALWAYS request model_only=True.
+        semantic = understand(
+            owner=owner,
+            request_id=request_id,
+            text=text,
+            active_context=active,
+            candidates=candidates,
+            references=references,
+        )
     if semantic.owner != owner or semantic.request_id != request_id:
         raise ValueError("Understanding owner/request fence eşleşmiyor.")
     return candidates, references, semantic
@@ -472,8 +485,9 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         text=text,
         active=active,
         allow_file_scan=False,
+        model_only=model_understanding,
     )
-    if _needs_file_discovery(references, semantic):
+    if not model_understanding and _needs_file_discovery(references, semantic):
         candidates, references, semantic = _semantic_pass(
             runtime,
             owner=owner,
@@ -972,19 +986,6 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
-def step_plan(command: str) -> tuple[str, ...]:
-    """Bu turn'ün kanonical sıralı adım planı; ham motor yüzeyi cümleyi kendi başına bölmez.
-
-    Karar bağlı request'e aittir: giriş bu turn'ün cümlesiyle birebir aynı olmalıdır. Böylece
-    düzeltilmiş/geçmiş bir metin görüşü ikinci bir adım planı üretemez. Sıra gramerinin tek sahibi
-    Understanding'dir (`sequence_steps`); plan boşsa yüzey tek isteğe sahip normal akışına devam
-    eder, adım yürütmesi typed adaptörde (`engine_sequence._run_steps`) kalır."""
-    entry = current()
-    if entry is None or entry.text.strip() != command:
-        return ()
-    return sequence_steps(command)
-
-
 def _canonical_photo_path(entry: EntryResult) -> tuple[str | None, bool]:
     """Re-derive the one photo artifact this request may act on; Core does not trust the proposal.
 
@@ -1018,8 +1019,6 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         return None
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
-        return None
-    if is_sequenced(entry.text) and not entry.batch_child:
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     if plan is not None and plan[0] == "document_export":
@@ -1180,10 +1179,6 @@ def _core_rejected_proposal(entry: EntryResult) -> bool:
         return False
     if semantic.capability_hint not in brain_core_map.CORE_INTENTS:
         return False
-    if is_sequenced(entry.text):
-        # No partial execution when the model is unavailable or returned only
-        # one action for a multi-action utterance. Explicit State/Fast is above.
-        return True
     if not (set(semantic.arguments) - {"original_text"}):
         return False
     return not _pending_owns_turn(entry)
