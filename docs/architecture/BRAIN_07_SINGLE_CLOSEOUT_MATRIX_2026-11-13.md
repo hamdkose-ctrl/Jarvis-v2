@@ -1,6 +1,10 @@
 # BRAIN-07 single-PR closeout — executable Windows regression matrix (13 Nov 2026)
 
-**Scope:** #614 introduced the original executable matrix; #617 is the current ONE combined BRAIN-07 #584 follow-up PR, adding final per-owner/worker/notification and receipt regression coverage. #615 has already been accepted and merged. The existing Python validation suite is executed on Windows CI and the real Windows PC watcher; do not claim acceptance until **the same final source SHA** passes both. External mail/research APIs and audio/desktop provider interactions in these tests are synthetic. This is a reproducible *Windows regression matrix*, not proof of 15 actual hardware interactions or of OS accounts that were not available.
+**GÜNCEL DURUM — #617 KABUL EDİLDİ VE MERGE EDİLDİ.** Kaynak SHA `195813952094d339c2ab0702229360114dfb2a35`, [Windows CI 43440628846](https://github.com/hamdkose-ctrl/Jarvis-v2/actions/runs/43440628846) completed SUCCESS (5.970 Python testi, 7 skipped; 47 kararlılık testi), gerçek PC watcher aynı SHA için **`Genel durum: passed` + `Validation: passed`**, main merge commit `75aa6e96ea2ab12883f5ae0a9cdbc5125e2671d6`. Aşağıdaki 15 durum, kaynak/işletim sistemi/kilitler için **Windows'ta koşturulan otomatik regresyonlardır**; 15 ayrı fiziksel cihaz/insan etkileşimi veya gerçek Gmail/sağlayıcı hesabı testi değildir.
+
+**#621 YENİ KAPSAM, HENÜZ KABUL EDİLMEDİ:** [Tek takip PR](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/621), kabul edilmiş #617'den sonra kalan yerel belge/görsel/fotoğraf dosya yazıcılarının aynı OS fiziksel claim/no-clobber sözleşmesine bağlanmasını içerir. `tests/test_document_conversion.py`, `tests/test_visual_commands.py` ve `tests/test_pc_photo_notes.py` gerçek geçici dosya üzerinde kaynak/hedef kilidi, mevcut hedefi ezmeme, yarış ve yarım dosya reddini sınar. Bu yeni testlerin yazılmış olması PASS demek değildir; #621 kendi exact-head Windows CI ve aynı-head gerçek PC watcher kanıtını gerektirir.
+
+**Kapsam sınırları:** Developer-controlled read-only `task.verify` join kabul edilmiştir; disk report writer yeni effectful DAG yetkisi değildir. Gerçek dış OAuth subject, unknown-effect reconciliation, hard-kill blocked provider ve 15 ayrı manuel/hardware senaryosunun kanıtı bu kabulden türetilemez. Eski DRAFT/pending cümleleri aşağıda tarihsel geliştirme kayıtları olarak tutulmuştur.
 
 | # | Concrete scenario | Executable unittest evidence | Limits |
 |---|---|---|---|
@@ -20,8 +24,10 @@
 | 14 | Crash between Core terminal CAS and journal write preserves owner result | `tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_core_done_before_record_crash_preserves_owner_readable_result` | No resend of unknown delivery |
 | 15 | Scheduler restart only completes evidence-verified DAG, no worker replay | `tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_scheduler_restart_resumes_verified_completion_without_worker_replay` | Model/provider mocked |
 
-**New supported dependent proof join (PR #617, pending acceptance):**
+**New supported dependent proof join (PR #617, accepted exact-source CI/PC and merged):**
 `tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_real_scheduler_verify_joins_research_and_gmail_without_writer` starts a real Scheduler with two overlapping synthetic-provider read-only roots (public research and Gmail list), waits for both accepted/certified Core WorkerResults, runs existing `task.verify` as the exact dependent read-only join, and delivers one verified owner result without provider or worker replay. `test_verify_only_joins_read_only_parents_and_never_grants_writer` rejects root verify, verify-of-verify, effectful writer and Core acceptance without an active exact verify lease. This is NOT a disk report writer, live Gmail login, a second Scheduler, or a manual hardware run.
+
+## Tarihsel #617 pre-merge notları (güncel kabul durumu değildir)
 
 **Non-negotiable open evidence:** actual **final-source-SHA** CI and physical PC watcher; live-provider verified account subject/connection ID (provider-wide fallback safely serializes potentially distinct accounts); unsupported/unaudited residual IO writers remain outside accepted native writer coverage; hard transport kill for a blocked external provider and 15 separate *hardware/manual* scenarios. #617 additionally has dedicated regressions for owner question/answer→Core result on real Scheduler, late semantic stop/deadline, no-replay restart, UI/phone receipts and two long owner IDs sharing an unsafe historical receipt alias. No second Scheduler, autonomous capability installer, effect replay or unproved exactly-once semantics. #613 BRAIN-03 and #605 VOICE remain independent PRs. 
 
