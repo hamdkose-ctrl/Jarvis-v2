@@ -184,16 +184,43 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             day = (now + timedelta(days=1 if period == "tomorrow" else 0)).strftime("%Y-%m-%d")
             return runtime._agenda_text(day, "Yarın" if period == "tomorrow" else "Bugün")
         case "reminder_manage":
-            # Core validates a grounded exact title; the approval is bound
-            # to this owner and one immutable event snapshot. Even a bad
-            # model decision cannot delete without a second user confirmation.
+            # One Core-selected operation, one owner-local exact target, one
+            # snapshot-bound State approval; no natural-language redispatch.
+            from datetime import datetime, timedelta
             from modules import requests_state
-            requests_state.check()
             from modules.turkish_text import lower
-            wanted = lower(a["title"])
-            matched = [event for event in runtime.profile.data["events"]
-                       if isinstance(event, dict) and isinstance(event.get("title"), str)
-                       and lower(event["title"]) == wanted]
+            requests_state.check()
+            events = runtime.profile.data["events"]
+            operation = a["operation"]
+            if operation == "snooze" and a["title"] is None:
+                now = runtime.datetime.now()
+                recently_fired = []
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    fired = (event.get("fired") if event.get("repeat") else
+                             event.get("when") if event.get("notified") else None)
+                    if not isinstance(fired, str):
+                        continue
+                    try:
+                        at = datetime.strptime(fired[:16], "%Y-%m-%dT%H:%M")
+                    except ValueError:
+                        continue
+                    if timedelta(0) <= now - at <= timedelta(hours=6):
+                        recently_fired.append((at, event))
+                if not recently_fired:
+                    return "Yakın zamanda çalan bir hatırlatma bulamadım; ertelemedim."
+                latest = max(at for at, _ in recently_fired)
+                matched = [ev for at, ev in recently_fired if at == latest]
+                if len(matched) != 1:
+                    return "Birden fazla hatırlatma son çalmış; hangisini ertelememi istiyorsun?"
+            else:
+                title = a.get("title")
+                wanted = lower(title) if isinstance(title, str) else ""
+                matched = [event for event in events
+                           if isinstance(event, dict)
+                           and isinstance(event.get("title"), str)
+                           and lower(event["title"]) == wanted]
             if not matched:
                 return "Bu adla bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
             if len(matched) != 1:
@@ -201,9 +228,17 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             event = matched[0]
             if runtime._session().pending_confirm:
                 return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
-            operation = a["operation"]
             if operation == "skip" and not event.get("repeat"):
                 return "Bu tek seferlik bir hatırlatma; sonraki tekrar atlanamaz."
+            if operation == "snooze":
+                fired = (event.get("fired") if event.get("repeat")
+                         else event.get("when") if event.get("notified") else None)
+                try:
+                    at = datetime.strptime(str(fired)[:16], "%Y-%m-%dT%H:%M")
+                except ValueError:
+                    return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
+                if not timedelta(0) <= runtime.datetime.now() - at <= timedelta(hours=6):
+                    return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
             if operation == "postpone" and len(str(event.get("when") or "")) == 10 and a["minutes"] % 1440:
                 return "Tüm gün hatırlatması yalnız tam gün ertelenebilir."
             runtime._session().pending_confirm = {
@@ -216,10 +251,13 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 "when": event["when"],
                 "repeat": event.get("repeat"),
                 "base": event.get("base"),
+                "fired": event.get("fired"),
+                "notified": event.get("notified", False),
+                "snooze": event.get("snooze"),
             }
             intent_text = ("silmemi" if operation == "delete" else
                            "sıradaki tekrarını atlamamı" if operation == "skip" else
-                           f"{a['minutes']} dakika ertelememi")
+                           f"{a['minutes']} dakika sonraya ertelememi")
             return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
         case "browser_page":
