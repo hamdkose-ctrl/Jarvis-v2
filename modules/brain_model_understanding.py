@@ -372,13 +372,18 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "period": ["today", "tomorrow", "this", "next", "seven", None],
                 "constraint": "view=agenda/day_plan requires today/tomorrow; week_plan requires this/next/seven; upcoming requires null"}
     if capability_id == "reminders.manage":
-        return {"operation": ["delete", "postpone", "skip", "snooze", "move"],
+        return {"operation": ["delete", "postpone", "skip", "snooze", "move", "reschedule"],
                 "title": "verbatim unique existing reminder title; may be null ONLY for snooze of one uniquely recent fired reminder",
                 "duration": "verbatim spoken delay e.g. 10 dakika, yarım saat, 1 saat, 2 gün, yarına; for postpone/snooze only; snooze with no delay means 10 minutes",
                 "weekday": ["pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar"],
+                "period": ["today", "tomorrow"],
+                "daypart": ["evening", "tomorrow_morning"],
                 "argument_sources": ["title", "duration", "weekday"],
                 "constraint": "single exact named reminder for delete/postpone/skip, or unique recently fired reminder for snooze. "
-                              "For move, use only one spoken weekday, no duration; resolve its date in Core/worker. "
+                              "For move, use one spoken weekday only; for skip, use period today/tomorrow only when the user says it. "
+                              "For a recent fired reminder, snooze daypart evening means today 18:00; "
+                              "reschedule daypart tomorrow_morning means next day 09:00. "
+                              "Neither accepts a model-provided absolute date/time. "
                               "Every mutation requires user yes confirmation. Do not invent title, delay, weekday, event ID or a prior notification."}
     if capability_id == "study.read":
         return {"view": ["plan", "focus"]}
