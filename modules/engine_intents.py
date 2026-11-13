@@ -223,17 +223,16 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return media.youtube(a["query"])
             return media.spotify(a["query"])
         case "handoff_manage":
-            from modules import handoff
+            from modules import handoff, requests_state
             if (blocked := runtime.privacy.blocked("web")):
                 return blocked
             try:
                 return handoff.execute_typed(
                     a["operation"], where=a.get("where"),
                     text=a.get("text", ""), when=a.get("when"))
+            except (requests_state.Cancelled, PermissionError):
+                raise
             except Exception as exc:
-                from modules import requests_state
-                if isinstance(exc, (requests_state.Cancelled, PermissionError)):
-                    raise
                 runtime._record_failure("modules.engine_intents:handoff_manage")
                 return handoff.explain_error(exc)
         case "filesend_transfer":
