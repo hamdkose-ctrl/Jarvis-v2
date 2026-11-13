@@ -103,6 +103,37 @@ def typed_reminder_create(rt, text, *, title, when, repeat=None):
     return str(reply)
 
 
+def typed_notes_read(rt, text):
+    """Model-selected independent note listing supersedes reminder-conflict pending."""
+    from modules import brain_entry, requests_state
+    from modules.brain_contracts import RequestKind, ConversationRelation
+    from unittest.mock import Mock
+    owner = rt.profile.slug
+    rid = "reminder-topic-" + uuid.uuid4().hex[:12]
+    assert requests_state.register(owner, rid)
+
+    def independent(semantic, utterance, *, active_context=None):
+        assert utterance == text
+        return replace(
+            semantic, request_kind=RequestKind.CAPABILITY,
+            conversation_relation=ConversationRelation.NEW_REQUEST,
+            capability_hint="notes.read",
+            arguments={"original_text": utterance, "notes": {"which": "all"}},
+            needs_input=False, ambiguities=(), actions=(),
+            reason_codes=semantic.reason_codes + ("MODEL_DECIDED",),
+        )
+
+    forbidden = Mock(side_effect=AssertionError("accepted notes.read reached raw parser"))
+    with requests_state.activate(owner, rid), \
+         patch.object(brain_entry, "apply_model_understanding", side_effect=independent):
+        entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
+                                    text=text, source="yazı", model_understanding=True)
+        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+    assert feedback.result_status == "handled"
+    forbidden.assert_not_called()
+    return str(reply)
+
+
 def bounded_reminder_answer(rt, text):
     """Exercise the existing exact confirmation State owner with a bound turn."""
     from modules import brain_entry, requests_state
@@ -247,7 +278,7 @@ class ReminderCommandTests(ProfileCase):
         self.assertIn('Proje toplantısı (Google Takvim)',
                       typed_reminder_create(rt, "yarın 9'da dişçi hatırlat",
                                             title="dişçi", when="2026-10-18T09:00"))
-        self.assertIn('Not defterin boş', say(rt, 'notlarım'))      # başka komut: soru düşer, kayıt açılmaz
+        self.assertIn('Not defterin boş', typed_notes_read(rt, 'notlarım'))  # independent typed request
         self.assertIsNone(rt._session().pending_event_title)
         self.assertEqual(self.reload().data['events'], [])
 
