@@ -25,6 +25,7 @@ from modules import (
 _SCAN_LOCK = threading.Lock()
 _SCAN_CURSOR = {}
 _JOB_ID = re.compile(r"[0-9a-f]{16}\Z")
+_FOREGROUND_QUERY = re.compile(r"hedef ön plan\s+([0-9a-f]{16})\s*[.!?]?\Z", re.IGNORECASE)
 _PLANNER_SECONDS = 60
 
 
@@ -250,6 +251,39 @@ def execute(profile, job_id: str, *, stop_event=None):
         llm._key_context.reset(token)
 
 
+def take_foreground(owner: str, command: str):
+    """Exact, owner-bound, one-shot bridge to the ORIGINAL foreground goal executor.
+
+    Only an unsupported first plan can be resumed this way. No effect is
+    permitted on the background worker, and the claim is durable BEFORE the
+    engine invokes its existing permissioned foreground goal executor.
+    Uncertain/timeout and user-cancelled plans cannot be silently revived.
+    Returns (job_id, original_user_text) or None for unrelated commands.
+    """
+    if not isinstance(command, str):
+        return None
+    match = _FOREGROUND_QUERY.fullmatch(command.strip())
+    if match is None:
+        return None
+    requests_state.check()
+    job_id = match.group(1).lower()
+    root = goal_executor._owner_root(owner)
+    with goal_job_control.locked(root, job_id):
+        try:
+            state, record = _check_pair(root, owner, job_id)
+        except (ValueError, PermissionError, FileNotFoundError, OSError):
+            raise ValueError("Foreground planning handoff is unavailable.") from None
+        if (record.get("state") != "review" or state["state"] != "paused"
+                or "goal_plan" in state
+                or state["audit"][-1]["reason_code"] != "PLANNER_FOREGROUND_REVIEW_REQUIRED"):
+            raise ValueError("This planner result is not eligible for foreground execution.")
+        record["state"] = "foreground_claimed"
+        record["updated"] = time.time()
+        release_guard.atomic(execution_record.path_for(root, job_id),
+                             execution_record.encode(record))
+    return job_id, record["request"]
+
+
 def status(owner: str, job_id: str) -> str | None:
     """Read-only exact owner/job status; never retry a worker or model."""
     if not _JOB_ID.fullmatch(str(job_id)):
@@ -266,9 +300,15 @@ def status(owner: str, job_id: str) -> str | None:
     if stage == "planning_running":
         return f"Hedef {job_id}: planlama modeli çalışıyor; diğer komutlar beklemez."
     if stage == "review" and "goal_plan" not in state:
-        return (f"Hedef {job_id}: güvenli arka plan planlaması sonuçlanmadı. "
-                "Desteklenmeyen işlemler otomatik yürütülmedi. "
-                "Gerekirse işi yeni bir ön plan isteği olarak ilet.")
+        if state["audit"][-1]["reason_code"] == "PLANNER_FOREGROUND_REVIEW_REQUIRED":
+            return (f"Hedef {job_id}: salt-okunur arka plan kapsamına girmiyor. "
+                    "Hiçbir dış etki çalıştırılmadı. Mevcut izinli hedef yürütücüsüne "
+                    f'ön plandan bir kez devretmek için "hedef ön plan {job_id}" yaz.')
+        return (f"Hedef {job_id}: planlama iptal oldu veya sonuç belirsiz. "
+                "Hiçbir iş otomatik tekrar başlatılmadı; yeni açık istek gerekir.")
+    if stage == "foreground_claimed":
+        return (f"Hedef {job_id}: ön plan yürütücüsüne tek seferlik devredildi; "
+                "bu kimlikle otomatik veya manuel yeniden çalıştırma yapılmaz.")
     if "goal_plan" in state and state["state"] in ("pending", "running"):
         return f"Hedef {job_id}: plan kabul edildi; Scheduler adımları yürütüyor."
     return None
