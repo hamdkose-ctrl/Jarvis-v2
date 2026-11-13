@@ -2144,6 +2144,63 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         ))
         self.assertEqual(notified.call_count, 2)
 
+    def test_engine_owner_event_adapter_connects_question_and_completion(self):
+        """Real BRAIN-07 engine event path, not just a synthetic notify stub."""
+        from modules import engine_loop, event_channels
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sent = []
+
+        def owner_sink(runtime, owner, event, *, title):
+            self.assertIs(runtime, self.ctx)
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(event['source'], 'canonical_goal')
+            self.assertEqual(event['payload']['job_id'], job_id)
+            self.assertEqual(event['payload']['event_id'],
+                             ('canonical-question:' + job_id + ':1'
+                              if event['kind'] == 'question'
+                              else 'canonical:' + job_id))
+            sent.append((event, title))
+            return {'ui': 'delivered', 'log': 'delivered'}
+
+        def deliver(owner, identity, message):
+            return engine_loop._deliver_verified_canonical_goal(
+                self.ctx, owner, identity, message,
+            )
+
+        with patch.object(event_channels, 'deliver', side_effect=owner_sink), \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask',
+                                        'question': 'Which date range?'}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, deliver,
+            ))
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0]['kind'], 'question')
+        self.assertEqual(sent[0][1], 'Jarvis hedef sorusu')
+        self.assertIn('hedef cevap ' + job_id, sent[0][0]['payload']['text'])
+        self.assertIn('Yanıt bu hedefe kaydedildi',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' November',
+                      ))
+        with patch.object(event_channels, 'deliver', side_effect=owner_sink), \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, deliver,
+            ))
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[1][0]['kind'], 'completed')
+        self.assertEqual(sent[1][1], 'Jarvis araştırma sonucu')
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(record['_canonical_delivery'], 'delivered')
+        self.assertEqual(record['_canonical_delivery_receipt']['channel'], 'ui')
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, deliver,
+        ))
+        self.assertEqual(len(sent), 2)
+
     def test_ntfy_only_delivery_has_exact_channel_receipt(self):
         """The user may enable phone ntfy without the desktop UI channel."""
         job_id = self._accepted_canonical_research_for_crash_test()
