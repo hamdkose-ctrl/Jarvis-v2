@@ -122,3 +122,43 @@ class PhonePhotoPublicationTests(unittest.TestCase):
         self.assertFalse(self.target.exists())
         self.assertTrue(self.source.exists())
         self.assertEqual(list(self.target.parent.glob('.jarvis-photo-*')), [])
+
+
+class FileUploadPublicationTests(unittest.TestCase):
+    def setUp(self):
+        import io
+        from modules import nxapi
+        self.io, self.nxapi = io, nxapi
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        patcher = patch.object(nxapi, 'FILES_DIR', self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_upload_preserves_existing_name_and_publishes_complete_suffix(self):
+        target = self.root / 'notes.txt'
+        target.write_bytes(b'previous user document')
+        published = self.nxapi.save_upload_stream(
+            'notes.txt', self.io.BytesIO(b'new verified upload'),
+        )
+        self.assertEqual(target.read_bytes(), b'previous user document')
+        self.assertEqual(published.name, 'notes_1.txt')
+        self.assertEqual(published.read_bytes(), b'new verified upload')
+        self.assertEqual(list(self.root.glob('.jarvis-upload-*')), [])
+
+    def test_upload_failure_exposes_no_partial_public_filename(self):
+        class BrokenReader(self.io.BytesIO):
+            def __init__(self):
+                super().__init__(b'first chunk')
+                self.calls = 0
+            def read(self, n=-1):
+                self.calls += 1
+                if self.calls == 2:
+                    raise OSError('stream disconnected')
+                return super().read(n)
+        with self.assertRaises(OSError):
+            self.nxapi.save_upload_stream('unverified.txt', BrokenReader())
+        self.assertFalse((self.root/'unverified.txt').exists())
+        self.assertEqual(list(self.root.glob('.jarvis-upload-*')), [])
+
