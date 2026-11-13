@@ -298,7 +298,10 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(asked(model_answer(operation="chat", confidence="LOW"),
                                 "onu göster", semantic))
 
-    def test_apply_model_understanding_preserves_non_file_target_clarification(self):
+    def test_model_chat_cannot_select_ambiguous_note_as_an_effect(self):
+        # A validated model CHAT decision must not be vetoed by a legacy
+        # ambiguity heuristic. It is safe to chat, but the unresolved notes
+        # remain references and neither may be selected for a file/note effect.
         note_a = ContextReference(id="note-a", kind="note", source="candidate", owner=OWNER,
                                   provenance={"title": "Toplantı notu"})
         note_b = ContextReference(id="note-b", kind="note", source="candidate", owner=OWNER,
@@ -313,9 +316,10 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         )
         returned = asked_apply(model_answer(operation="chat", confidence="MEDIUM"),
                                "onu göster", semantic)
-        self.assertIs(returned, semantic)
-        self.assertTrue(returned.needs_input)
-        self.assertEqual(returned.ambiguities, ("multiple target references",))
+        self.assertIs(returned.request_kind, RequestKind.CHAT)
+        self.assertEqual(returned.actions, ())
+        self.assertIsNone(returned.capability_hint)
+        self.assertEqual(returned.references, (note_a, note_b))
 
     def test_ambiguous_file_resolution_rejects_candidate_from_unmentioned_folder(self):
         text = "İndirilenlerdeki 2025 dosyasını özetle"
