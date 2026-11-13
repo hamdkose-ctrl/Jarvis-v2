@@ -208,8 +208,7 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         lane = Mock()
         lane.say.side_effect = ValueError("selected voice unavailable")
         person = SimpleNamespace(slug='alice', data={'prefs': {'voice': 'tr_kadin', 'rate': 0}})
-        runtime = SimpleNamespace(sys=SimpleNamespace(argv=['main.py', '--text']),
-            live=SimpleNamespace(enabled=Mock(return_value=False)), flags={'speak': True, 'mic': False},
+        runtime = SimpleNamespace(sys=SimpleNamespace(argv=['main.py', '--text']), flags={'speak': True, 'mic': False},
             emit=Mock(), threading=SimpleNamespace(Event=threading.Event, Thread=Mock()),
             profile=person, _record_failure=lambda *a: None)
         with patch('modules.voice_runtime.maybe_start', return_value=(lane, False)):

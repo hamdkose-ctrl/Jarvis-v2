@@ -18,31 +18,36 @@ class MicHardOffTests(unittest.TestCase):
         assert 'if not engine.flags.get("mic", True)' in WEB or "if not engine.flags.get('mic', True)" in WEB
 
 
-    def test_live_releases_physical_input_stream_when_muted(self):
-        # Exercise the extracted reader rather than searching for an old comment.
-        import sys
+    def test_wakeword_releases_physical_input_stream_when_mic_is_turned_off(self):
+        # Yaşayan dinleyici: mikrofon anahtarı kapanınca fiziksel giriş akışı gerçekten bırakılır.
+        # Eski Gemini Live okuyucusu emekli olduktan sonra bu garanti tek başına wakeword.wait'tadır.
+        import sounddevice as sd
         import numpy as np
         from types import SimpleNamespace
         from unittest.mock import Mock, patch
-        import test_engine_modular
-        from modules import live, voice
-        with patch.object(live, '_Player', return_value=Mock()), patch.object(live.threading, 'Thread'):
-            obj = live.Live(Mock(), Mock(), Mock())
-        self.addCleanup(obj.loop.close)
-        obj.mic_on = Mock(side_effect=[True, False])
+        from modules import voice, wakeword
+
+        model = SimpleNamespace(predict=lambda _x: {}, reset=lambda: None)
         closed = []
+
         class Stream:
-            def __enter__(self): return self
-            def read(self, count): return np.zeros((count, 1), dtype=np.int16), False
-            def __exit__(self, *args):
+            def __enter__(s):
+                return s
+            def __exit__(s, *args):
                 closed.append(True)
-                obj.stop_event.set()
-        sounddevice = SimpleNamespace(query_devices=lambda *args: {'name':'fake', 'default_samplerate':16000}, InputStream=Mock(return_value=Stream()))
-        with patch.dict(sys.modules, {'sounddevice':sounddevice}), patch.object(voice, '_input_device', return_value=None), patch.object(live, 'enabled', return_value=True):
-            obj._mic_loop()
-        self.assertEqual(closed, [True])
-        sounddevice.InputStream.assert_called_once()
-        self.assertEqual(len(obj._outbox), 0)
+            def read(s, count):
+                return np.zeros((count, 1), dtype=np.int16), False
+
+        previous = wakeword._model
+        wakeword._model = model
+        self.addCleanup(setattr, wakeword, '_model', previous)
+        should_stop = Mock(side_effect=[False, True])
+        with patch.object(sd, 'InputStream', return_value=Stream()), \
+             patch.object(voice, '_input_device', return_value=None), \
+             patch.object(wakeword, 'sensitivity_threshold', return_value=0.5):
+            self.assertIsNone(wakeword.wait(should_stop))
+        self.assertEqual(closed, [True], 'akış kapanmadan döndü')
+        self.assertTrue(should_stop.called)
 
 
     def test_emergency_uses_same_master_mic_switch(self):

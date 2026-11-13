@@ -1,6 +1,6 @@
 """Model çağrısı sayacı: neyin kota harcadığını kanıtla göstermek için.
 
-Her gerçek sağlayıcı çağrısı (Gemini, Groq, Ollama, Cloudflare, ücretli, gömme, ses, Live bağlantısı)
+Her gerçek sağlayıcı çağrısı (Gemini, Groq, Ollama, Cloudflare, ücretli, gömme, ses)
 kullanıcıya özel `~/.jarvis/kota/<kullanıcı>.jsonl` dosyasına bir satır yazar: zaman, sağlayıcı, model,
 çağıran yer (modül.fonksiyon), giden/gelen karakter ve sonuç (ok, 429, hata kodu). İstem veya cevap
 metni yazılmaz. Karakter sayısı token değildir; yaklaşık büyüklük içindir. Sağlayıcı yanıtında token sayısı
@@ -29,7 +29,7 @@ _LOCK = threading.Lock()
 _TR = timezone(timedelta(hours=3))
 _MAX_BYTES = 2_000_000          # dolan günlük parçası benzersiz arşive taşınır; eski parçalar ezilmez
 _SKIP = ('modules/llm.py', 'modules/usage_meter.py', 'modules/smart_router.py', 'modules/model_wait.py',
-         'modules/paid_providers.py', 'modules/live_session.py')
+         'modules/paid_providers.py')
 
 
 def _dir():
@@ -334,7 +334,7 @@ def rows(owner: str | None = None, day: str | None = None) -> list[dict]:
 
 _LABEL = {'gemini': 'Gemini', 'groq': 'Groq', 'ollama': 'Ollama (yerel)', 'cloudflare': 'Cloudflare',
           'openai': 'OpenAI', 'anthropic': 'Claude', 'gemini-embed': 'Gemini gömme',
-          'gemini-ses': 'Gemini ses çevirme', 'gemini-live': 'Gemini Live bağlantısı'}
+          'gemini-ses': 'Gemini ses çevirme'}
 
 
 def summary(owner: str | None = None, day: str | None = None) -> str:

@@ -33,33 +33,37 @@ class Slice5CoreTests(unittest.TestCase):
                 with self.subTest(bad=bad, kind=kind):
                     payload = {"kind": kind, key: bad}
                     if kind in ("setting", "ui"):
-                        payload["key"] = "response_speed" if kind == "setting" else "hologram_tone"
+                        payload["key"] = "wake_sensitivity" if kind == "setting" else "hologram_tone"
                     self.assertIsNone(brain_core_map.core_plan("jarvis.selfctl", {"action": payload}))
 
     def test_safe_setting_read_values_are_closed(self):
-        for key in ("wake_sensitivity", "response_speed", "idle_seconds"):
+        for key in ("wake_sensitivity",):
             self.assertEqual(brain_core_map.core_plan("jarvis.selfctl",
                 {"action": {"kind": "setting_read", "key": key}}),
                 ("selfctl", {"kind": "setting_read", "key": key}))
-        for key in ("api_key", "private_mode", "token"):
+        # Kimlik/anahtar gizliliği + tüketicisiyle birlikte emekli edilen sözler: kapıdan geçmez.
+        for key in ("api_key", "private_mode", "token",
+                    "response_speed", "idle_seconds", "live_mode"):
             self.assertIsNone(brain_core_map.core_plan("jarvis.selfctl",
                 {"action": {"kind": "setting_read", "key": key}}))
 
     def test_setting_read_reports_values_without_writing(self):
         from modules import selfctl
-        settings = {"wake_sensitivity": 4, "live_silence_ms": 1700, "live_idle_seconds": 120}
+        settings = {"wake_sensitivity": 4}
         with patch.object(selfctl, "load_settings", return_value=settings), \
              patch.object(selfctl, "save_settings", side_effect=AssertionError("must not write")):
             self.assertIn("4", selfctl.execute({"kind": "setting_read", "key": "wake_sensitivity"}, Mock()))
-            self.assertIn("sabırlı", selfctl.execute({"kind": "setting_read", "key": "response_speed"}, Mock()))
-            self.assertIn("120", selfctl.execute({"kind": "setting_read", "key": "idle_seconds"}, Mock()))
+            for key in ("response_speed", "idle_seconds"):
+                self.assertIn("okunabilir değil",
+                              selfctl.execute({"kind": "setting_read", "key": key}, Mock()))
 
     def test_model_schema_reveals_closed_values(self):
         from modules.brain_model_understanding import _argument_shape
         schema = _argument_shape("jarvis.selfctl")["action"]
         self.assertIn("setting_read", schema["kind"])
-        self.assertEqual(schema["setting"]["response_speed"], ["fast", "balanced", "patient"])
-        self.assertIn("idle_seconds", schema["setting_read.key"])
+        self.assertEqual(schema["setting_read.key"], ["wake_sensitivity"])
+        self.assertEqual(set(schema["setting"]),
+                         {"wake_sensitivity", "wake_beep", "learn_from_chat", "widget", "window_mode"})
 
 
 class Slice5ProductionSeamTests(unittest.TestCase):

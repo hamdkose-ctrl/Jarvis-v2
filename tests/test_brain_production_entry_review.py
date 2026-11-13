@@ -164,7 +164,6 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
             manual_local_stt=False,
             listening_enabled=False,
             speak_enabled=False,
-            live_on=False,
             state={},
             speak=Mock(),
             read_keyboard=Mock(),

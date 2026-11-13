@@ -150,6 +150,8 @@ svg.i{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:1.8;
 .m.a .orb{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:#7df1ff;font-size:19px;border:1.5px solid #3fb7ff;box-shadow:0 0 16px rgba(63,183,255,.6);background:#06142f}
 .m.a .nm{color:#4de8ff;font-weight:700;font-size:13px;margin-bottom:4px}.m.a .nm time{color:var(--mut);font-weight:400;margin-left:8px}
 .m.a .bb{background:var(--panel2);border:1px solid var(--line);padding:8px 12px;border-radius:4px 14px 14px 14px}
+/* §8: Sesli sunum izi — yalnız üreticinin gerçek oynatma olayında yanar. Kuyruk, sentez veya WAV hazırlığı bu sınıfı almaz; pencere öne alınmaz, yalnız kart işaretlenir. */
+.m.a.saying .bb,.task.saying{box-shadow:inset 3px 0 0 var(--blue);outline:1px solid var(--line2)}
 .m.s{align-self:center;color:var(--mut);font-size:12.5px;max-width:90%;text-align:center}
 .m time.t{color:var(--mut);font-size:11.5px;margin-left:10px}
 .bb ul,.bb ol{padding-left:20px;margin:6px 0}.bb p{margin:4px 0}.bb code{background:rgba(0,229,255,.15);padding:1px 5px;border-radius:5px;font-family:"JetBrains Mono",monospace;font-size:.92em}

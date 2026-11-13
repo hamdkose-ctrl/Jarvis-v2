@@ -246,15 +246,19 @@ class LocalSttTests(unittest.TestCase):
         for name in ('../escape','small.en','large',''):
             with self.assertRaises(ValueError):local_stt.model_dir(name)
 
-    def test_manual_local_session_does_not_enable_live_or_barge_listener(self):
+    def test_manual_local_session_never_opens_the_background_wake_listener(self):
         self.settings['local_stt_enabled']=True
-        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py']),live=SimpleNamespace(enabled=Mock(side_effect=AssertionError('Live'))))
-        # This test is about manual-local listening (no Live, no barge), not the
-        # speech lane; stub the single owner so the minimal mock needs no catalog.
+        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py']))
+        # This test is about manual-local listening, not the speech lane; stub the
+        # single owner so the minimal mock needs no catalog.
         with patch('modules.voice_runtime.maybe_start',return_value=(None,False)):
             session=VoiceSession(runtime)
-        self.assertTrue(session.manual_local_stt);self.assertFalse(session.live_on)
-        session._barge_watch(threading.Event())
+        self.assertTrue(session.manual_local_stt)
+        # Yaşayan sınır: yerel düğme modunda uyandırma dinleyicisi hiç açılmaz,
+        # dolayısıyla Jarvis konuşurken onu kesen barge kuyruğu da kurulmaz.
+        with patch('modules.wakeword.wanted',side_effect=AssertionError('barge dinleyicisi')), \
+             patch('modules.wakeword.ready',side_effect=AssertionError('barge dinleyicisi')):
+            session._barge_watch(threading.Event())
 
     def test_web_adapter_requires_explicit_prepare_call(self):
         with patch.object(local_stt,'status',return_value={'ready':False}) as status,patch.object(local_stt,'prepare',return_value={'started':True}) as prepare:
@@ -262,16 +266,14 @@ class LocalSttTests(unittest.TestCase):
             self.assertEqual(WebVoice().local_stt_prepare('base'),{'started':True})
             prepare.assert_called_once_with('base')
 
-    def test_manual_mode_voice_picker_uses_regular_tts_not_live(self):
+    def test_voice_picker_offers_only_the_single_owner_catalog(self):
         from modules.voice_core import VoiceCatalog, VoiceSpec
         bridge=WebVoice()
         profile=SimpleNamespace(slug='alice',data={'prefs':{}},set_pref=Mock())
-        live=SimpleNamespace(enabled=Mock(side_effect=AssertionError('Live voice picker')))
-        bridge._runtime=SimpleNamespace(config=SimpleNamespace(load_settings=lambda:{'local_stt_enabled':True}),
-            _p=lambda:profile,_live=lambda:live,voice=SimpleNamespace(VOICES={'tr_erkek':('Kerem','tr-TR-AhmetNeural')}),engine=SimpleNamespace(events=Mock()))
+        bridge._runtime=SimpleNamespace(_p=lambda:profile,
+            voice=SimpleNamespace(VOICES={'tr_erkek':('Kerem','tr-TR-AhmetNeural')}),engine=SimpleNamespace(events=Mock()))
         self.assertNotIn('live',bridge.voice_options())
-        # Selecting the exact regular (Edge) identity goes through the single owner;
-        # the Live voice picker is never consulted.
+        # Seçim tek sahibin catalog'undan geçer; eski ikinci bir ses seçici yoktur.
         catalog=VoiceCatalog((VoiceSpec('tr_erkek','Kerem','edge','tr-TR-AhmetNeural'),))
         lane=Mock();lane.catalog=catalog;lane.check_voice.side_effect=catalog.require
         with patch('modules.voice_runtime.active',return_value=lane):

@@ -185,7 +185,7 @@ class RoutingPolicyTests(unittest.TestCase):
 
 
 class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
-    """P0-3c: documents (embed), voice (STT/Live) and screens (vision) are PRIVATE content."""
+    """P0-3c: documents (embed), voice (STT) and screens (vision) are PRIVATE content."""
 
     def setUp(self):
         p = patch.object(llm, '_cli', side_effect=AssertionError('Gemini istemcisi özel içerik için açılamaz'))
@@ -208,10 +208,6 @@ class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
     def test_transcribe_never_sends_audio_to_gemini(self):
         with self.assertRaises(RuntimeError):
             llm.transcribe(data=b'wav')
-
-    def test_live_is_closed(self):
-        from modules import live
-        self.assertFalse(live.enabled())
 
     def test_vision_chain_is_local_only(self):
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)

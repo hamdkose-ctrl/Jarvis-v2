@@ -1,6 +1,4 @@
-"""Ses tanıma süzgeci, Türkçe dil kodu, paylaşım kapatma ve belirsiz komut sorusu (ağ/mikrofon yok)."""
-import asyncio
-from contextlib import asynccontextmanager
+"""Ses tanıma süzgeci, paylaşım kapatma ve belirsiz komut sorusu (ağ/mikrofon yok)."""
 import importlib
 import re
 import sys
@@ -8,8 +6,6 @@ import types as pytypes
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-
-from google.genai import types
 
 # Windows ses kütüphaneleri (PortAudio) yoksa sahte modülle yer tut; testler yalnız karar mantığını sınar.
 for _name in ("edge_tts", "pyttsx3", "sounddevice", "speech_recognition"):
@@ -26,7 +22,7 @@ for _name in ("edge_tts", "pyttsx3", "sounddevice", "speech_recognition"):
             _m.__getattr__ = lambda attr: Mock()
         sys.modules[_name] = _m
 
-from modules import engine_context, engine_output, live, live_session_config, llm, stt_guard, voice
+from modules import engine_context, engine_output, llm, stt_guard, voice
 from modules.session_state import SessionState
 
 
@@ -93,82 +89,6 @@ class GuardTests(unittest.TestCase):
         with patch.object(voice, '_engine', return_value='gemini'), patch.object(llm, 'transcribe', return_value='Sesi kıs'):
             self.assertEqual(voice.recognize(b'\0\0' * 1600), 'Sesi kıs')
 
-    def test_live_drops_foreign_and_echo_user_transcripts(self):
-        obj = live.Live.__new__(live.Live)
-        obj.emit = Mock(); obj._in_buf = []; obj._out_buf = []; obj._recent_user = []; obj._convo = []
-        obj._suppress_output_turns = 0; obj._tools_running = 0
-        obj._out_buf = ['Ekranı paylaşmayı kapattım, başka bir isteğin var mı?']
-        obj._flush_transcripts()
-        for heard in (["C'est bien."], ['Sí'], ['Ekranı paylaşmayı kapattım, başka bir isteğin var mı']):
-            obj._in_buf = list(heard)
-            obj._flush_user()
-        obj._in_buf = ['Sesi kıs']
-        obj._flush_user()
-        self.assertEqual([c for c in obj._convo if c[0] == 'user'], [('user', 'Sesi kıs')])
-        self.assertEqual(obj._recent_user, ['Sesi kıs'])
-
-
-class LanguageHintTests(unittest.TestCase):
-    def instance(self):
-        obj = live.Live.__new__(live.Live)
-        obj._stt_hint = False; obj._stt_drop = set(); obj.vocab = lambda: []
-        return obj
-
-    services = SimpleNamespace(_cfg=lambda key, default: default)
-
-    def test_turkish_code_and_vocabulary_are_sent_and_safe_mode_keeps_language(self):
-        obj = self.instance()
-        full = live_session_config.transcription(obj, types, self.services)
-        self.assertEqual(full['language_codes'], ['tr-TR']); self.assertIn('Jarvis', full['custom_vocabulary'])
-        safe = live_session_config.transcription(obj, types, self.services, minimal=True)
-        self.assertEqual(safe, {'language_codes': ['tr-TR']}); self.assertTrue(obj._stt_hint)
-
-    def test_rejection_drops_one_field_per_run_and_never_saves_setting(self):
-        obj = self.instance(); obj._stt_hint = True
-        with patch('config.save_settings') as save:
-            self.assertFalse(live_session_config.stt_rejected(obj, 'api key not valid'))
-            self.assertFalse(live_session_config.stt_rejected(obj, 'invalid api key'))
-            self.assertTrue(live_session_config.stt_rejected(obj, '1007 invalid argument'))
-            self.assertEqual(obj._stt_drop, {'custom_vocabulary'})
-            self.assertEqual(live_session_config.transcription(obj, types, self.services), {'language_codes': ['tr-TR']})
-            obj._stt_hint = True
-            self.assertTrue(live_session_config.stt_rejected(obj, '1007 invalid argument'))
-            self.assertEqual(live_session_config.transcription(obj, types, self.services), {})
-            self.assertFalse(obj._stt_hint)
-            self.assertFalse(live_session_config.stt_rejected(obj, '1007 invalid argument'))
-        save.assert_not_called()
-
-    def test_unknown_language_field_drops_language_only(self):
-        obj = self.instance(); obj._stt_hint = True
-        self.assertTrue(live_session_config.stt_rejected(obj, 'unknown name "language_codes"'))
-        self.assertEqual(obj._stt_drop, {'language_codes'})
-        self.assertEqual(set(live_session_config.transcription(obj, types, self.services)), {'custom_vocabulary'})
-
-    def test_converse_reconnects_without_rejected_field(self):
-        with patch.object(live, '_Player', return_value=Mock()), patch.object(live.threading, 'Thread'):
-            obj = live.Live(Mock(), Mock(), Mock())
-        self.addCleanup(obj.loop.close)
-        obj._save_sent = Mock()
-        seen = []
-        def config():
-            seen.append(set(obj._stt_drop)); obj._stt_hint = True
-            return 'config'
-        obj._config = config
-        @asynccontextmanager
-        async def connect(**kwargs):
-            if len(seen) == 1:
-                raise RuntimeError('1007 Invalid argument: custom_vocabulary')
-            yield object()
-        async def run(session): obj._closing = True
-        obj._run_session = run
-        client = SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
-        with patch.object(llm, 'gemini_client', return_value=client), patch.object(live, 'enabled', return_value=True), \
-                patch.object(live, 'model_name', return_value='m'), patch.object(live, 'voice_name', return_value='Kore'), \
-                patch.object(live, '_cfg', side_effect=lambda key, default: default), patch('config.save_settings') as save:
-            asyncio.run(obj._converse())
-        self.assertEqual(seen, [set(), {'custom_vocabulary'}])
-        save.assert_not_called()
-
 
 class ShareAndClarifyTests(unittest.TestCase):
     def test_share_stop_phrases_route_to_existing_close(self):
@@ -200,13 +120,6 @@ class ShareAndClarifyTests(unittest.TestCase):
         def fail(): raise RuntimeError('aygıt meşgul')
         broken.vision.stop = fail
         self.assertTrue(engine_output.set_share(broken, None).startswith('Paylaşım kapatılamadı'))
-
-    def test_live_prompt_asks_instead_of_guessing_and_routes_share(self):
-        prompt = live.build_prompt('Jarvis', 'Hamdi')
-        self.assertIn("'paylaşımı kapat'", prompt)
-        self.assertIn('Neyi kapatmamı istiyorsun?', prompt)
-        self.assertTrue(live._CLAIM.search('kapatıyorum'))
-        self.assertTrue(live._CLAIM.search('durduruyorum'))
 
 
 if __name__ == '__main__':
@@ -296,7 +209,7 @@ class EngineClarifyTests(unittest.TestCase):
         context.time = SimpleNamespace(time=time.time, sleep=lambda seconds: None)
         context.events.put(('command', 'Kapat.', 'ses', owner, 'one'))
         context.events.put(('command', 'kapat', 'yazı', owner, 'two'))
-        voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, live_on=False, state={}, speak=Mock())
+        voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, state={}, speak=Mock())
         with patch('modules.engine_voice.VoiceSession', return_value=voice), patch('instance.take_over', return_value=False), \
                 patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'), \
                 patch('modules.brain_entry._install_core_guards'):

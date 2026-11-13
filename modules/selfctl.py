@@ -32,7 +32,6 @@ PAGES: dict[str, tuple[str, str, str]] = {
     "tasks": ("tools", "takvim", "Görevler"),
 }
 TONES = {"blue": "Mavi", "turquoise": "Turkuaz", "yellow": "Sarı"}
-SPEEDS = {"fast": (600, "hızlı"), "balanced": (1100, "dengeli"), "patient": (1700, "sabırlı")}
 
 
 def execute(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
@@ -64,12 +63,6 @@ def execute(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
         key = action.get("key")
         if key == "wake_sensitivity":
             return f"Uyanma hassasiyeti şu an {int(current.get('wake_sensitivity') or 3)} (1 zor uyanır, 5 çok kolay uyanır)."
-        if key == "response_speed":
-            value = int(current.get("live_silence_ms") or 1100)
-            name = next((label for _key, (ms, label) in SPEEDS.items() if ms == value), f"{value} ms")
-            return f"Cevap hızı şu an {name}."
-        if key == "idle_seconds":
-            return f"Açık kalma süresi şu an {int(current.get('live_idle_seconds') or 90)} saniye."
         return "Bu Jarvis ayarı okunabilir değil."
     if kind == "setting":
         return _setting(action, emit)
@@ -87,19 +80,10 @@ def _setting(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
         save_settings(wake_sensitivity=new)
         return (f"Uyanma hassasiyeti zaten {current} (1 zor uyanır, 5 çok kolay uyanır)." if new == current
                 else f"Uyanma hassasiyetini {current} seviyesinden {new} seviyesine aldım (1 zor uyanır, 5 çok kolay uyanır).")
-    if key == "response_speed":
-        ms, name = SPEEDS[str(value)]
-        save_settings(live_silence_ms=ms)
-        return f"Cevap hızını {name} yaptım; bir sonraki konuşmada geçerli olur."
-    if key in {"wake_beep", "learn_from_chat", "live_mode"}:
-        setting = {"wake_beep": "live_beep", "learn_from_chat": "learn_from_chat", "live_mode": "live_mode"}[str(key)]
-        save_settings(**{setting: bool(value)})
+    if key in {"wake_beep", "learn_from_chat"}:
+        save_settings(**{str(key): bool(value)})
         if key == "wake_beep": return f"Uyanma sesini {'açtım' if value else 'kapattım'}."
-        if key == "learn_from_chat": return "Konuşmalarından öğrenmeyi " + ("açtım; öğrendiklerimi önce onayına sunarım." if value else "kapattım.")
-        return f"Canlı konuşmayı {'açtım' if value else 'kapattım'}. Geçerli olması için “kendini yeniden başlat” de."
-    if key == "idle_seconds":
-        save_settings(live_idle_seconds=value)
-        return f"Konuşma bittikten sonra {value} saniye açık kalacağım."
+        return "Konuşmalarından öğrenmeyi " + ("açtım; öğrendiklerimi önce onayına sunarım." if value else "kapattım.")
     if key == "widget":
         emit("widget", "show" if value else "hide")
         return "Küçük Jarvis'i " + ("gösteriyorum (ana pencere açıkken görünmez)." if value else "gizledim.")

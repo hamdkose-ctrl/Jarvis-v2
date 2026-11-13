@@ -116,14 +116,6 @@ def main(runtime, ui=None):
     if "--phone" in runtime.sys.argv:
         from modules.phone import PhoneServer
         print("Telefon erişimi açık. Telefonda (aynı Wi-Fi) şu adresi aç:", PhoneServer(runtime).start())
-    if voice_session.live_on:
-        from modules.engine_voice import prepare_live_tool
-        runtime.live.set_speak_check(lambda: runtime.flags["speak"])
-        runtime.live.start(runtime._live_command, runtime.emit, runtime._live_prompt, mic_on=lambda: runtime.flags["mic"],
-                   wants_sleep=lambda: runtime.flags["sleep"], stop_event=runtime.stop_event, vocab=runtime._live_vocab,
-                   on_session_end=runtime._live_session_end,
-                   on_session_start=runtime.live_session_opened,
-                   prepare_tool=lambda fn, *args: prepare_live_tool(runtime, fn, *args))
     if voice_session.listening_enabled and not voice_session.manual_local_stt:
         runtime.threading.Thread(target=voice_session.listen_for_wake_word, daemon=True).start()
     runtime.threading.Thread(target=runtime._morning_brief, daemon=True).start()
@@ -191,7 +183,7 @@ def main(runtime, ui=None):
               "Çıkış: \"Jarvis'i kapat\"")
     else:
         print(f"Jarvis hazır (model: {runtime.MODEL}), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: \"Jarvis'i kapat\"")
-    runtime.log.info("Jarvis başladı (pid %d): model=%s dinleme=%s ses=%s canlı=%s", runtime.os.getpid(), runtime.MODEL, voice_session.listening_enabled, voice_session.speak_enabled, voice_session.live_on)
+    runtime.log.info("Jarvis başladı (pid %d): model=%s dinleme=%s ses=%s", runtime.os.getpid(), runtime.MODEL, voice_session.listening_enabled, voice_session.speak_enabled)
     runtime.threading.Thread(target=runtime._reminder_loop, daemon=True, name="hatirlatma").start()
     from modules import watcher
     runtime.threading.Thread(target=watcher.loop, args=(runtime,), daemon=True, name="klasor-izleme").start()
@@ -212,10 +204,15 @@ def main(runtime, ui=None):
             if kind in ("say", "say_slow"):
                 if len(event) > 2 and event[2] != runtime.pc_profile().slug:
                     continue
+                # A notice may name the result it announces: ('say', text, owner,
+                # {event_id/goal_id/state_version/...}). Text without an owner is a
+                # foreground answer of the current turn and stays identity-free.
+                identity = event[3] if len(event) > 3 else None
                 runtime.pause_listening.set()
                 try:
                     with runtime.audio_lock:
-                        voice_session.speak(event[1], slow=(kind == "say_slow"), shown=len(event) > 2)
+                        voice_session.speak(event[1], slow=(kind == "say_slow"),
+                                            shown=len(event) > 2, identity=identity)
                 finally:
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()
@@ -239,9 +236,6 @@ def main(runtime, ui=None):
                     runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
                     continue
 
-            if kind == "listen" and voice_session.live_on and runtime.live.get() is not None and runtime.live.enabled():
-                runtime.live.get().wake()
-                continue
 
             if kind == "listen":
                 runtime.pause_listening.set()

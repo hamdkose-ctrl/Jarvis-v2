@@ -1,6 +1,5 @@
 """Report regressions: deterministic disk/network/thread tests; no real devices or AI calls."""
 import ast
-import asyncio
 import collections
 import concurrent.futures
 import contextlib
@@ -9,7 +8,6 @@ import json
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import queue
-import secrets
 import tempfile
 import threading
 import time
@@ -21,8 +19,8 @@ from urllib.parse import parse_qs, urlparse
 import os
 import shutil
 import test_engine_modular as fixtures
-from modules import llm, live, requests_state as requests, study, studyexam, nxapi
-from modules import engine_voice, engine_output
+from modules import llm, requests_state as requests, study, studyexam, nxapi
+from modules import engine_output
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -103,83 +101,12 @@ class ClientTests(unittest.TestCase):
 
 
 class DirectToolTests(unittest.TestCase):
-    def runtime(self):
-        owner = SimpleNamespace(slug='a',name='A')
-        lock = threading.Lock()
-        @contextlib.contextmanager
-        def as_user(name):
-            with lock: yield
-        runtime = SimpleNamespace(pc_profile=lambda:owner, secrets=secrets, requests_state=requests,
-            as_user=as_user, _cur_source='web', _cur_rid=None)
-        return runtime, lock
+    """Domain sahipleri işlem ortasında iptal/deadline duyulunca effect üretmez.
 
-    def test_cancellation_before_executor_and_lock_wait_prevents_effect(self):
-        runtime, lock = self.runtime(); effect = Mock()
-        with tempfile.TemporaryDirectory() as td, patch.object(requests, '_records', {}), patch.object(requests, '_journal', Path(td)/'requests.json'):
-            run = engine_voice.prepare_live_tool(runtime, effect)
-            self.assertEqual(len(requests._records), 1)
-            lock.acquire()
-            with concurrent.futures.ThreadPoolExecutor(1) as pool:
-                pending = pool.submit(run); requests.cancel('a'); lock.release()
-                with self.assertRaises(requests.Cancelled): pending.result(3)
-            effect.assert_not_called(); self.assertIsNone(requests._current.get())
-
-    def test_cancel_during_direct_operation_cleans_context_and_discards_result(self):
-        runtime, _ = self.runtime(); effects=[]
-        def operation():
-            effects.append(requests._current.get()); requests.cancel('a'); return 'not accepted'
-        with tempfile.TemporaryDirectory() as td, patch.object(requests, '_records', {}), patch.object(requests, '_journal', Path(td)/'requests.json'):
-            with self.assertRaises(requests.Cancelled): engine_voice.prepare_live_tool(runtime, operation)()
-            self.assertEqual(effects[0][0], 'a'); self.assertIsNone(requests._current.get())
-            self.assertEqual((runtime._cur_source,runtime._cur_rid), ('web',None))
-
-    def test_direct_operation_deadline_prevents_late_effect(self):
-        runtime, _ = self.runtime(); effect=Mock()
-        with tempfile.TemporaryDirectory() as td, patch.object(requests, '_records', {}), patch.object(requests, '_journal', Path(td)/'requests.json'):
-            run = engine_voice.prepare_live_tool(runtime, effect)
-            next(iter(requests._records.values()))['deadline'] = time.monotonic()-1
-            with self.assertRaises(requests.Cancelled): run()
-        effect.assert_not_called()
-
-    def tool_target(self, name, args, recent=()):
-        """Canlı araç yürütmesini sahte oturumla çağırır; (prepared, handler) gözlemleriyle döner."""
-        from modules import live_tool_runner
-        obj = live.Live.__new__(live.Live)
-        obj._tools_running = 1
-        obj._recent_user = list(recent)
-        obj._flush_user = lambda: None
-        obj.emit = Mock()
-        obj.wants_sleep = lambda: False
-        obj.handler = Mock(return_value='Tamam')
-        prepared = []
-        obj.prepare_tool = lambda fn, *a: (prepared.append((fn, a)), (lambda: fn(*a)))[1]
-        session = SimpleNamespace(send_tool_response=lambda **k: None)
-        return obj, prepared, session, live_tool_runner, SimpleNamespace(name=name, args=args, id='call')
-
-    def test_domain_owned_live_tools_use_prepared_callback(self):
-        # Ses ve yanlış-duyma araçlarının yazılı yüzey grameri yok: domain owner'ında kalır, çitten geçer.
-        obj, prepared, session, runner, fc = self.tool_target('ses_degistir', {'ses': 'Kore'}, ['sesini değiştir'])
-        with patch.object(runner, 'change_voice', return_value='Tamam'):
-            asyncio.run(obj._run_tool(session, fc))
-        self.assertEqual(prepared, [(obj._change_voice, ('Kore',))])
-
-        obj, prepared, session, runner, fc = self.tool_target(
-            'yanlis_duyma', {'dogru': 'takvimi aç'}, ['resmi aç', 'hayır takvimi aç dedim'])
-        with patch('modules.learning.learn_mishearing', return_value='Tamam') as fix:
-            asyncio.run(obj._run_tool(session, fc))
-        self.assertEqual(prepared, [(fix, ('resmi aç', 'takvimi aç'))])
-
-    def test_music_and_handoff_live_paths_run_as_canonical_sentences(self):
-        # PR10c: bu iki efekt artık kanonik cümle; doğrudan servis çağrısı ve prepare çiti yok.
-        for name, args, sentence in [
-                ('muzik_cal', {'sorgu': 'ars viwandi', 'platform': 'youtube'}, "youtube'da ars viwandi çal"),
-                ('gorev_ekle', {'yer': 'ev', 'metin': 'kombi faturasını öde'}, 'ev için not: kombi faturasını öde')]:
-            with self.subTest(name=name):
-                obj, prepared, session, _runner, fc = self.tool_target(name, args)
-                asyncio.run(obj._run_tool(session, fc))
-                obj.handler.assert_called_once_with(sentence)
-                self.assertEqual(prepared, [])
-                self.assertEqual(obj._tools_running, 0)
+    Eski Live araç çiti (prepare_live_tool/live_tool_runner) emekli oldu; aynı iptal
+    garantisi yaşayan yüzeyde test_conversation_request_safety.py'de `_live_command`
+    üzerinden, burada ise domain araçlarının kendisinde doğrulanır.
+    """
 
     def test_music_cancelled_during_search_never_opens_browser(self):
         from modules import media
@@ -341,12 +268,12 @@ class MiscTests(unittest.TestCase):
         self.assertEqual(p.data['goals'],['keep']);p.save.assert_not_called()
 
     def test_turkish_mishearing_is_normalized_and_deduplicated(self):
-        from modules import learning
+        from modules import learning, stt_fixes
         settings={'stt_fixes':''}
         with patch.object(learning,'load_settings',side_effect=lambda:settings),patch.object(learning,'save_settings',side_effect=lambda **kw:settings.update(kw)):
             learning.learn_mishearing('IŞIK','ışık aç');learning.learn_mishearing('ışık','ışık kapat')
-            pairs=live.parse_fixes(settings['stt_fixes']);self.assertEqual(pairs,[('ışık','ışık kapat')])
-            self.assertEqual(live.apply_fixes('IŞIK',pairs),'Işık kapat')
+            pairs=stt_fixes.parse_fixes(settings['stt_fixes']);self.assertEqual(pairs,[('ışık','ışık kapat')])
+            self.assertEqual(stt_fixes.format_fixes(pairs),'ışık=ışık kapat')
 
     def test_background_settings_follow_data_dir(self):
         with tempfile.TemporaryDirectory() as td,patch.object(nxapi,'DATA_DIR',Path(td)),patch.object(nxapi,'load_settings',return_value={}),patch.object(nxapi,'autostart_get',return_value=False),patch('modules.learning.enabled',return_value=False),patch('modules.personalization.Profile'),patch('modules.personalization.get_active',return_value='a'):
@@ -372,14 +299,6 @@ class MiscTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(req,timeout=3)
                 self.assertEqual(error.exception.code,404);error.exception.close()
             finally:server.stop()
-
-    def test_audio_recording_default_is_off_and_explicit_opt_in_works(self):
-        obj=live.Live.__new__(live.Live);obj._sent=collections.deque([b'\0\0'*1280],maxlen=10)
-        with tempfile.TemporaryDirectory() as td,patch('config.DATA_DIR',Path(td)),patch.object(live,'load_settings',return_value={}):
-            obj._save_sent();self.assertFalse((Path(td)/'son_ses.wav').exists())
-            obj._sent.append(b'\0\0'*1280)
-            with patch.object(live,'load_settings',return_value={'live_save_audio':True}):obj._save_sent()
-            self.assertTrue((Path(td)/'son_ses.wav').exists())
 
     def test_stale_background_scan_cannot_overwrite_forced_refresh(self):
         old_started, release_old = threading.Event(), threading.Event()

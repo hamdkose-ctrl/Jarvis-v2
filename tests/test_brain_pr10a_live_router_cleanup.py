@@ -82,9 +82,15 @@ class LiveBindingTests(unittest.TestCase):
         self.assertFalse(hasattr(engine_voice, "_live_command"))
 
     def test_engine_voice_keeps_its_real_voice_helpers(self):
-        for name in ("_live_prompt", "_live_vocab", "_sounds_like_wake", "find_wake", "_strip_wake",
-                     "_pc_context", "prepare_live_tool", "list_input_devices"):
+        for name in ("_sounds_like_wake", "find_wake", "_strip_wake",
+                     "_pc_context", "list_input_devices"):
             self.assertTrue(hasattr(engine_voice, name), name)
+
+    def test_engine_voice_holds_no_retired_live_session_helpers(self):
+        # Canlı oturum talimatı, sözlüğü, açılma olayı ve araç çiti Gemini Live'la birlikte
+        # emekli oldu (§9). Bu modül onlardan yalnız yaşayan yüzeyleri tutar.
+        for name in ("_live_prompt", "_live_vocab", "live_session_opened", "prepare_live_tool"):
+            self.assertFalse(hasattr(engine_voice, name), name)
 
     def test_engine_voice_no_longer_holds_a_second_command_entry(self):
         tree = ast.parse((MODULES / "engine_voice.py").read_text(encoding="utf-8"))

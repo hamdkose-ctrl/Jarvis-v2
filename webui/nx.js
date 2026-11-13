@@ -18,7 +18,7 @@ async function api(name,...args){
 }
 async function tryApi(name,...a){try{return await api(name,...a)}catch(e){toast(e.message,'bad')}}
 function toast(msg,kind){if(kind!=='bad'&&S.ui&&S.ui.nx_notify===false)return;const d=document.createElement('div');if(kind)d.className=kind;d.textContent=msg;$('#toast').appendChild(d);setTimeout(()=>d.remove(),kind==='bad'?6500:4000)}
-const S={snap:null,ui:null,page:store.get('page','home'),orb:'idle',chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',acat:'Tümü',aq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
+const S={snap:null,ui:null,page:store.get('page','home'),orb:'idle',speech:null,chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',acat:'Tümü',aq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
 const DAYS=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'],MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const pad=n=>String(n).padStart(2,'0');
 const hm=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+':'+pad(d.getMinutes())};
@@ -638,7 +638,7 @@ const MENU_INFO={   // rol, ne yapar, durum (online/standby/integration)
   hafiza:['Uzun süreli hafıza',['Senin hakkında öğrendiklerini tutar','Öğrettiğin kurallara her konuşmada uyar','Önce onayına sunar, sonra kaydeder'],'online'],
   ai:['Model ve bağlantılar',['Gemini, Groq ve Ollama arasında seçim','Her kullanıcı kendi anahtarını kullanır','Google ve GitHub bağlantıları'],'online'],
   study:['Çalışma alanı',['Konu çalışma, soru çözme, kaynak ekleme','Matematik çalışma masası','Derse özel notlar'],'online'],
-  ses:['Mikrofon, uyanma ve konuşma',['Mikrofon, sesli yanıt, konuşma sesi','Canlı konuşma ve yerel ses tanıma','Uyanma sesi ve hassasiyet'],'online'],
+  ses:['Mikrofon, uyanma ve konuşma',['Mikrofon, sesli yanıt, konuşma sesi','Yerel ses tanıma ve düzeltmeler','Uyanma sesi ve hassasiyet'],'online'],
   takvim:['Aylık görünüm ve etkinlikler',['Aylık görünüm ve günün etkinlikleri','Yaklaşan etkinlikler'],'online'],
   telefon:['Telefondan erişim',['QR ile telefondan bağlanma','Bildirimler'],'online'],
   mesaj:['WhatsApp ile mesaj ve kişiler',['WhatsApp kişileri ve mesaj gönderme','Göndermeden önce onay ister'],'online'],
@@ -1385,6 +1385,25 @@ function mathBasic(x,depth=0){
  return s.replace(/\\times\b/g,'×').replace(/\\div\b/g,'÷').replace(/\\neq\b/g,'≠').replace(/\\leq?\b/g,'≤').replace(/\\geq?\b/g,'≥').replace(/\\pi\b/g,'π').replace(/\\sum\b/g,'∑').replace(/\\int\b/g,'∫').replace(/\\cdot\b/g,'·').replace(/\\pm\b/g,'±');
 }
 function mdMath(t){let h=md(t||'');return h.replace(/\\\((.*?)\\\)/g,(m,x)=>`<span class="math">${mathBasic(x)}</span>`).replace(/\$\$([^$]+)\$\$/g,(m,x)=>`<div class="math block">${mathBasic(x)}</div>`).replace(/\$([^$\n]+)\$/g,(m,x)=>`<span class="math">${mathBasic(x)}</span>`)}
+// SPEECH HIGHLIGHT START
+// §8: Görünür "şimdi sesli anlatılan sonuç" izi. Vurguyu yalnız üreticinin gerçek
+// oynatma olayı (playback_started) koyar; kuyruk, sentez veya WAV hazırlığı konuşma
+// değildir. Geç kalan bir stage daha yeni konuşmayı söndüremez, çünkü konuşma durumu
+// olayın akış sırasından değil oynatmanın kendisinden gelir. Pencere öne alınmaz.
+function speechEvent(m){
+  let id=null;try{id=JSON.parse(m.x||'{}')}catch(e){}
+  if(!id||typeof id!=='object'||String(m.t||'')!=='playback_started')return;
+  S.speech=id;applySpeechHighlight();
+}
+function speechStateEvent(state){if(state==='speaking'||!S.speech)return;S.speech=null;applySpeechHighlight()}
+function speechClassFor(m){return S.speech&&m&&m.rid&&S.speech.turn_id===m.rid?' saying':''}
+function speechTaskClass(){return S.speech&&S.speech.goal_id?' saying':''}
+function applySpeechHighlight(){
+  const id=S.speech||{};
+  $$('.m.a').forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
+  const task=$('#cside .task');if(task)task.classList.toggle('saying',!!id.goal_id);
+}
+// SPEECH HIGHLIGHT END
 function msgHtml(m){
   if(m.role==='files')return filesHtml();
   if(m.role==='agenda')return agendaHtml();
@@ -1394,7 +1413,7 @@ function msgHtml(m){
     return `<div class="m u"><div class="bb">${heard}${body}<time class="t">${hm(m.ts)}</time></div><span class="av">${esc(((S.snap||{}).user||{}).name?.[0]||'S')}</span></div>`}
   if(m.role==='system')return `<div class="m s">${esc(m.text)}</div>`;
   if(m.role==='step')return stepsHtml(S.steps[m.rid]);
-  return `<div class="m a"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}<time>${hm(m.ts)}</time></div><div class="bb">${md(m.text)}</div></div></div>`;
+  return `<div class="m a${speechClassFor(m)}" data-rid="${esc(m.rid||'')}"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}<time>${hm(m.ts)}</time></div><div class="bb">${md(m.text)}</div></div></div>`;
 }
 function stepsHtml(card){
   const items=card?[...card.items.values()]:[];if(!items.length)return '';
@@ -1524,7 +1543,7 @@ function drawSide(){
   const ms=curMsgs();const fl=[...new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]))].map(p=>({path:p,name:p.split(/[\\/]/).pop(),cat:catOf(p)}));
   const files=fl.length?fl:(S.files&&S.files.files||[]).slice(0,3);
   el.innerHTML=`<section class="card"><div class="ch"><span class="ct" style="display:flex;gap:8px;align-items:center"><span class="ib sm purple">${ic('file')}</span>Mevcut Görev</span></div>
-     <div class="task"><span class="ib ${run?'orange':'navy'}" style="width:50px;height:50px">${ic(run?'activity':'check')}</span><div style="min-width:0"><b>${esc(run?run.text.replace(/^Komut alındı:\s*/,'').slice(0,40):last?(last.area||'Son işlem'):'Görev yok')}</b><small>${files.length} dosya</small>
+     <div class="task${speechTaskClass()}"><span class="ib ${run?'orange':'navy'}" style="width:50px;height:50px">${ic(run?'activity':'check')}</span><div style="min-width:0"><b>${esc(run?run.text.replace(/^Komut alındı:\s*/,'').slice(0,40):last?(last.area||'Son işlem'):'Görev yok')}</b><small>${files.length} dosya</small>
       <div class="okk" style="${run?'color:var(--orange)':''}">${ic(run?'clock':'check')} ${run?'Çalışıyor…':last?(last.status==='error'?'Başarısız':'Tamamlandı'):'Hazır'}</div></div></div></section>
    <section class="card"><div class="ch"><span class="ct">Dosyalar</span><button class="link" data-go="files">Tümünü Gör</button></div>
      ${files.length?files.map(f=>`<div class="frow" data-act="fpick" data-p="${esc(f.path)}"><span class="fi ${f.cat}">${(extOf(f.path)||'?').toUpperCase().slice(0,3)}</span><span>${esc(f.name)}</span><small>${f.size?fmtSize(f.size):''}</small></div>`).join(''):'<div class="empty">Dosya yok.</div>'}</section>
@@ -2053,20 +2072,15 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
       srow('mic','Mikrofon','“Hey Jarvis” dinlemesi',sw1('mic',f.mic))+
       field('Mikrofon cihazı',sel('micdev',[['','Windows varsayılanı'],...devs.map(d=>[d.name,d.name])],st.input_device||''),'Değişiklik için Jarvis’i yeniden başlat.')+save)
    +sbox('bell','Uyanma','“Hey Jarvis” ile uyanma.',
-      srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('live_beep',u.live_beep))+
-      srow('users','Kulaklık kullanıyorum','Jarvis konuşurken de dinlesin (hoparlörde kapalı kalsın)',`<button class="sw ${st.live_headphones?'on':''}" data-act="phones" data-v="${st.live_headphones?0:1}"></button>`)+
-      field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+
-      field('Açık kalma süresi (sn)',inp('lidle','90',st.live_idle_seconds||90,'number'))+save)
+      srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('wake_beep',u.wake_beep))+
+      field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+save)
    +sbox('vol','Sesli Yanıt','Cevapları sesli okuma ve konuşma sesi.',
       srow('vol','Sesli yanıt','Cevapları sesli oku',sw1('speak',f.speak))+
-      (vo.voices.length&&!vo.live?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+save)
-   +sbox('spark','Canlı Konuşma','Gemini Live ile akıcı sesli sohbet.',
-      srow('spark','Canlı konuşma','Gemini Live ile akıcı sesli sohbet (yeniden başlatınca)',sw('live_mode',u.live_mode))+
-      field('Cevap hızı',sel('lsil',[[600,'Hızlı'],[1100,'Dengeli'],[1700,'Sabırlı · düşünerek konuşurum']],st.live_silence_ms||1100),'Sözünü kesiyorsa “Sabırlı” seç.')+save)
+      (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+save)
    +sbox('user','Asistanın Adı','Uyanma ve konuşmada kullanılan ad.',
       field('Asistanın adı',inp('aname','Jarvis',st.assistant_name))+save)
    +sbox('check','Yerel Ses Tanıma','Konuş düğmesinde internetsiz ses tanıma.',
-      field('Ses tanıma',sel('lstt',[[0,'Gemini / Google · mevcut akış'],[1,'Yerel · yalnız Konuş düğmesi']],st.local_stt_enabled?1:0),'Yerel seçimi yeniden başlatınca etkinleşir; Hey Jarvis ve Gemini Live bu denemede kapalıdır.')+
+      field('Ses tanıma',sel('lstt',[[0,'Gemini / Google · mevcut akış'],[1,'Yerel · yalnız Konuş düğmesi']],st.local_stt_enabled?1:0),'Yerel seçimi yeniden başlatınca etkinleşir; yerel denemede “Hey Jarvis” ile arka plan uyanması kapalıdır. Cevap modeli ayrıca seçilir.')+
       field('Yerel ses modeli',sel('lsttmodel',[['small','small · başlangıç'],['base','base · daha hafif']],st.local_stt_model||'small'))+
       field('Yerel ses hızı',sel('lsttbeam',[[5,'En doğru · yavaş (varsayılan)'],[2,'Dengeli'],[1,'En hızlı · daha az doğru']],st.local_stt_beam||5),'İşlemcide yavaş kalırsa Dengeli ya da En hızlı dene.')+
       pad18(`<span class="mut">${esc(localSttText(ls))}</span> <button class="btn sm" data-act="lsttprepare">Modeli indir</button> <button class="btn sm" data-act="lsttrefresh">Durumu yenile</button>`)+save)
@@ -2183,19 +2197,15 @@ async function drawSettings(){
     h+=$('#mn-win')?sesBoxes({st,vo,devs,ls,sel,f,u,sn}):sbox('vol','Ses','Konuşma ve dinleme.',
       srow('mic','Mikrofon','“Hey Jarvis” dinlemesi',`<button class="sw ${f.mic?'on':''}" data-act="sflag" data-k="mic" data-v="${f.mic?0:1}"></button>`)+
       srow('vol','Sesli yanıt','Cevapları sesli oku',`<button class="sw ${f.speak?'on':''}" data-act="sflag" data-k="speak" data-v="${f.speak?0:1}"></button>`)+
-      srow('spark','Canlı konuşma','Gemini Live ile akıcı sesli sohbet (yeniden başlatınca)',sw('live_mode',u.live_mode))+
-      (vo.voices.length&&!vo.live?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
+      (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
       field('Asistanın adı',inp('aname','Jarvis',st.assistant_name))+
       '<details class="sdet"><summary>Gelişmiş ses ayarları</summary>'+
-      srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('live_beep',u.live_beep))+
-      srow('users','Kulaklık kullanıyorum','Jarvis konuşurken de dinlesin (hoparlörde kapalı kalsın)',`<button class="sw ${st.live_headphones?'on':''}" data-act="phones" data-v="${st.live_headphones?0:1}"></button>`)+
-      field('Ses tanıma',sel('lstt',[[0,'Gemini / Google · mevcut akış'],[1,'Yerel · yalnız Konuş düğmesi']],st.local_stt_enabled?1:0),'Yerel seçimi yeniden başlatınca etkinleşir; Hey Jarvis ve Gemini Live bu denemede kapalıdır. Cevap modeli ayrıca seçilir.')+
+      srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('wake_beep',u.wake_beep))+
+      field('Ses tanıma',sel('lstt',[[0,'Gemini / Google · mevcut akış'],[1,'Yerel · yalnız Konuş düğmesi']],st.local_stt_enabled?1:0),'Yerel seçimi yeniden başlatınca etkinleşir; yerel denemede “Hey Jarvis” ile arka plan uyanması kapalıdır. Cevap modeli ayrıca seçilir.')+
       field('Yerel ses modeli',sel('lsttmodel',[['small','small · başlangıç'],['base','base · daha hafif']],st.local_stt_model||'small'))+
       field('Yerel ses hızı',sel('lsttbeam',[[5,'En doğru · yavaş (varsayılan)'],[2,'Dengeli'],[1,'En hızlı · daha az doğru']],st.local_stt_beam||5),'İşlemcide yavaş kalırsa Dengeli ya da En hızlı dene. Hemen geçerli olur, yeniden başlatma gerekmez.')+
       pad18(`<span class="mut">${esc(localSttText(ls))}</span> <button class="btn sm" data-act="lsttprepare">Modeli indir</button> <button class="btn sm" data-act="lsttrefresh">Durumu yenile</button>`)+
       field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+
-      field('Cevap hızı',sel('lsil',[[600,'Hızlı'],[1100,'Dengeli'],[1700,'Sabırlı · düşünerek konuşurum']],st.live_silence_ms||1100),'Sözünü kesiyorsa “Sabırlı” seç.')+
-      field('Açık kalma süresi (sn)',inp('lidle','90',st.live_idle_seconds||90,'number'))+
       field('Yanlış duyulanlar',inp('sfix','city mall=steam',st.stt_fixes),'“yanlış=doğru”, virgülle ayır.')+
       field('Özel kelimeler',inp('swords','Nevzat Bey, EAE',st.stt_words),'Sık söylediğin adlar/terimler, virgülle.')+
       field('Mikrofon cihazı',sel('micdev',[['','Windows varsayılanı'],...devs.map(d=>[d.name,d.name])],st.input_device||''),'Değişiklik için Jarvis’i yeniden başlat.')+
@@ -2348,8 +2358,7 @@ ACT.gprodopen=async()=>{const r=await tryApi('google_oauth_console');SX.g=msgOf(
 ACT.gprodok=async ()=>{if(!await ask('Google Cloud’da OAuth yayın durumunu gerçekten “In production” yaptın mı?'))return;const r=await tryApi('google_oauth_production',true);SX.g=msgOf(r);drawSettings()};
 ACT.hoplace=el=>sAfter(api('handoff_place',el.dataset.v));
 ACT.hoconn=async()=>{SX.ho='Tarayıcıda Google izin ekranı açılıyor…';drawSettings();SX.ho=msgOf(await tryApi('handoff_connect'));sAfter(0)};
-ACT.phones=el=>sAfter(api('settings_save',{live_headphones:el.dataset.v==='1'}));
-ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,live_silence_ms:+$('#lsil').value,live_idle_seconds:+$('#lidle').value||90,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
+ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
 ACT.pmode=el=>sAfter(api('privacy_set',{mode:el.dataset.k}));
 ACT.ptog=el=>sAfter(api('privacy_set',{[el.dataset.k]:el.dataset.v==='1'}));
 ACT.odata=()=>api('open_folder','data');
@@ -2387,8 +2396,8 @@ function onEvent(m){
     if(S.page==='chat'){drawMsgs();drawConvs()}}
   else if(k==='step'){onStep(m);return}
   else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;if(S.page==='chat')drawMsgs()}
-  else if(k==='state'){S.orb=m.t||'idle';dockState();{const hh=$('.hhey');if(hh){hh.classList.toggle('live',S.orb==='listening');const sm=hh.querySelector('small');if(sm)sm.textContent=heyTxt()}const hc=$('.hcore');if(hc)hc.dataset.s=S.orb}$$('.mic').forEach(b=>b.classList.toggle('live',S.orb==='listening'));if(S.page==='home'){const r=$('.ready');if(r){const[a,b]=STATE_TXT[S.orb]||STATE_TXT.idle;r.querySelector('b').textContent=a;r.querySelector('small').textContent=b}}}
-  else if(k==='speech'){let id=null;try{id=JSON.parse(m.x||'{}')}catch(e){}S.speech=id||null;const hc=$('.hcore');if(hc&&id){hc.dataset.speechGoal=id.goal_id||'';hc.dataset.speechTurn=id.turn_id||'';hc.dataset.speechId=id.speech_id||''}return}
+  else if(k==='state'){S.orb=m.t||'idle';dockState();speechStateEvent(S.orb);{const hh=$('.hhey');if(hh){hh.classList.toggle('live',S.orb==='listening');const sm=hh.querySelector('small');if(sm)sm.textContent=heyTxt()}const hc=$('.hcore');if(hc)hc.dataset.s=S.orb}$$('.mic').forEach(b=>b.classList.toggle('live',S.orb==='listening'));if(S.page==='home'){const r=$('.ready');if(r){const[a,b]=STATE_TXT[S.orb]||STATE_TXT.idle;r.querySelector('b').textContent=a;r.querySelector('small').textContent=b}}}
+  else if(k==='speech'){speechEvent(m);return}
   else if(k==='share'){S.snap=S.snap||{};S.snap.mode=m.t||null;drawMiniPreview();if(S.page==='vision')render()}
   else if(k==='nav'){navTo(m.t);return}
   else if(k==='ui'){uiVoice(m.t);return}

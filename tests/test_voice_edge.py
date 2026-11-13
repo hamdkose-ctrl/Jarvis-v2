@@ -119,15 +119,52 @@ class EdgeSynthesizerTests(unittest.TestCase):
             with self.assertRaises(voice_edge.EdgeVoiceUnavailable):
                 voice_edge.EdgeSynthesizer(timeout_seconds=0.05)(edge_spec(), "Metin", threading.Event())
 
+    def test_cancel_while_awaiting_first_item_frees_worker_immediately(self):
+        # §4-B: a Sus during the very first network wait — before ANY audio byte —
+        # must cooperatively end the provider coroutine and release the worker in
+        # about one poll interval, not wait for the next part or the 45 s deadline.
+        # The already-sent request is not claimed to stop server-side instantly;
+        # only local consumption and the physical output worker are bounded.
+        import asyncio
+        import time
+
+        closed = []
+        cancel = threading.Event()
+
+        class Communicate:
+            def __init__(self, text, voice, rate=None):
+                pass
+
+            def stream(self):
+                async def gen():
+                    try:
+                        await asyncio.sleep(30)          # hangs before the first byte
+                        yield {"type": "audio", "data": b"late"}
+                    finally:
+                        closed.append("closed")          # teardown must run on cancel
+                return gen()
+
+        timer = threading.Timer(0.05, cancel.set)
+        timer.start()
+        self.addCleanup(timer.cancel)
+        with patch.dict(sys.modules, {"edge_tts": fake_edge_module(Communicate)}):
+            started = time.monotonic()
+            audio = voice_edge.EdgeSynthesizer()(edge_spec(), "Metin", cancel)
+            elapsed = time.monotonic() - started
+        self.assertEqual(audio, b"")                     # late audio never gathered
+        self.assertLess(elapsed, 2.0)                    # worker freed long before 30 s/45 s
+        self.assertIn("closed", closed)                  # stream torn down, no orphan task
+
 
 class FakeMCI:
     """Records MCI commands and simulates a mode timeline; never touches winmm."""
 
-    def __init__(self, modes, open_code=0, play_code=0):
+    def __init__(self, modes, open_code=0, play_code=0, status_code=263):
         self.commands = []
         self.modes = list(modes)
         self.open_code = open_code
         self.play_code = play_code
+        self.status_code = status_code
         self.path = None
 
     def __call__(self, command, buffer, length, hwnd):
@@ -139,6 +176,9 @@ class FakeMCI:
         if command.startswith("play "):
             return self.play_code
         if command.startswith("status "):
+            if self.modes and self.modes[0] is None:
+                self.modes.pop(0)         # the status read itself failed
+                return self.status_code
             mode = self.modes.pop(0) if self.modes else "stopped"
             if buffer is not None:
                 buffer.value = mode
@@ -205,6 +245,62 @@ class EdgePlayerTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 voice_edge.EdgePlayer(poll_seconds=0)(b"", threading.Event(), lambda: None)
         self.assertEqual(mci.commands, [])
+
+    def player(self, modes, **kwargs):
+        """A real EdgePlayer against a fake winmm, with test-sized time bounds."""
+        options = {"poll_seconds": 0, "grace_seconds": 0.05, "wait_seconds": 1.0}
+        options.update(kwargs)
+        mci = FakeMCI(modes)
+        self.enterContext(patch.object(voice_edge, "_mci_send", return_value=mci))
+        return voice_edge.EdgePlayer(**options), mci
+
+    def test_mci_that_never_reports_playing_is_a_typed_failure(self):
+        # §4-D: play was accepted but the stream never entered "playing". The old
+        # wait loop returned normally here, so the coordinator filed a "played"
+        # receipt for audio that never existed. No start callback, and the alias
+        # and temp file are still released.
+        started = []
+        player, mci = self.player([])
+        with self.assertRaises(OSError):
+            player(b"mp3", threading.Event(), lambda: started.append(True))
+        self.assertEqual(started, [])
+        self.assertIn("play jarvis_tts", mci.commands)   # the command went out…
+        self.assertTrue(any(c.startswith("status ") for c in mci.commands))  # …and was watched
+        self.assertEqual(mci.commands[-1], "close jarvis_tts")
+        self.assertFalse(os.path.exists(mci.path))
+
+    def test_unreadable_mci_status_is_never_reported_as_played(self):
+        # A failing "status mode" command leaves the outcome unknown. Unknown is
+        # a failure, not a finished playback, and not a substitute voice.
+        started = []
+        player, mci = self.player([None])
+        with self.assertRaises(OSError):
+            player(b"mp3", threading.Event(), lambda: started.append(True))
+        self.assertEqual(started, [])
+        self.assertEqual(mci.commands[-1], "close jarvis_tts")
+        self.assertFalse(os.path.exists(mci.path))
+
+    def test_playback_that_outlives_the_wait_bound_is_a_failure(self):
+        # A stream stuck in a non-terminal mode must not be signed off as played
+        # when the bound expires; the single worker is freed with a typed error.
+        # The grace window is longer than the bound here, so only the bound can fire.
+        started = []
+        player, mci = self.player(["paused"] * 200, grace_seconds=1.0, wait_seconds=0.05)
+        with self.assertRaises(OSError):
+            player(b"mp3", threading.Event(), lambda: started.append(True))
+        self.assertEqual(started, [])
+        self.assertEqual(mci.commands[-1], "close jarvis_tts")
+        self.assertFalse(os.path.exists(mci.path))
+
+    def test_paused_after_a_real_start_is_not_reported_as_finished(self):
+        # Only "stopped" ends a playback that actually started, so a momentary
+        # pause cannot cut the utterance short and be filed as played.
+        started = []
+        player, mci = self.player(["playing", "paused", "paused", "playing", "stopped"])
+        player(b"mp3", threading.Event(), lambda: started.append(True))
+        self.assertEqual(started, [True])
+        self.assertEqual(mci.commands[-1], "close jarvis_tts")
+        self.assertFalse(os.path.exists(mci.path))
 
 
 if __name__ == "__main__":
