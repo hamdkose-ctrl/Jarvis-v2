@@ -927,185 +927,46 @@ def _source_calls(marker: str) -> list[str]:
     return found
 
 
-class CascadeOrderContractTests(unittest.TestCase):
-    """§11/§25 B: cascade'in kökü tek sıra sözleşmesidir; yüzey kendi mini-router'ını taşımaz.
+class CascadeRetirementTests(pr3a._CanonicalAuthorityHarness):
+    """The retired raw cascade has no production caller or hidden fallback."""
 
-    Ölçülen taban (base `ea2f0b3` üzerinden bu committen önce): `engine_commands.handle` dört
-    ham handler'ı (`_macro_teach/_macro_manage/_macro_run/_extra_commands`) bir tuple döngüsünde
-    sırayla yokluyordu. Aynı sıra `brain_precedence.FRONT_GATES`'te ikinci kez tanımlıydı, yani
-    sıranın iki sahibi vardı ve yüzeyde plan-fencesi yoktu. Kök çözüm: kuyruk aralığı tek
-    sahibinden çağrılır; yüzey gate adlarını hiç anmaz. (Sahiplik envanteri BRAIN-MIG-052 → PR3C;
-    buradaki kilitten sonra bile cascade'in üretim çağıranı yalnız sıralık sözleşmedir.)"""
+    def test_legacy_cascade_and_front_gates_are_physically_absent(self):
+        from modules import brain_precedence, engine_tools, engine_runtime
+        self.assertFalse(hasattr(brain_precedence, "claim_tail"))
+        self.assertFalse(hasattr(brain_precedence, "TAIL_GATES"))
+        self.assertFalse(hasattr(engine_tools, "_extra_commands"))
+        self.assertFalse(hasattr(engine_tools, "_planner_command"))
+        self.assertNotIn("_extra_commands", engine_runtime._HANDLERS["engine_tools"])
+        self.assertNotIn("_planner_command", engine_runtime._HANDLERS["engine_tools"])
+        self.assertEqual(_source_calls("_extra_commands"), [])
+        self.assertEqual(_source_calls("_mail_handle"), [])
 
-    def test_the_tail_is_the_end_of_the_single_order_contract(self):
+    def test_unavailable_model_cannot_execute_unowned_domain_request(self):
+        from modules import brain_model_understanding
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("raw file command")) as file_worker, \
+             patch.object(self.ctx, "_macro_run",
+                          side_effect=AssertionError("raw shortcut")) as macro:
+            entry, out, handler, feedback = self.turn_real(
+                "maillerimi kontrol et", model_understanding=True)
+        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertIn("model", out.casefold())
+        self.assertFalse(handler.called)
+        file_worker.assert_not_called()
+        macro.assert_not_called()
+
+    def test_exact_registered_macro_stays_machine_addressed_not_free_text(self):
         from modules import brain_precedence
-        self.assertEqual(brain_precedence.TAIL_GATES,
-                         brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
-        self.assertEqual(brain_precedence.TAIL_GATES,
-                         ("macro_run", "extra_commands"))
-
-    def _runtime(self, answers=None):
-        from types import SimpleNamespace
-        answers = answers or {}
-        calls: list[tuple[str, tuple]] = []
-
-        def gate(name):
-            def run(*args):
-                calls.append((name, args))
-                return answers.get(name)
-            return run
-
-        return SimpleNamespace(
-            calls=calls, _tr_lower=lambda text: text.casefold(),
-            _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
-            _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
-            _file_command=gate("file_command"), _user_command=gate("user_command"),
-            _user_controls=gate("user_controls"),
-            _planner_command=gate("planner_command"),
-            system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
-            emit=gate("emit"))
-
-    def test_each_tail_gate_is_consulted_once_in_contract_order(self):
-        from modules import brain_precedence
-        runtime = self._runtime()
-        self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
-        self.assertEqual([name for name, _ in runtime.calls],
-                         ["macro_run", "extra_commands"])
-        self.assertEqual([args for _, args in runtime.calls],
-                         [("raporumu telefona gönder",),
-                          ("Raporumu telefona gönder", "raporumu telefona gönder")])
-
-    def test_the_first_answering_gate_stops_the_tail(self):
-        from modules import brain_precedence
-        runtime = self._runtime({"macro_run": "KISAYOL"})
-        self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
-        self.assertEqual([name for name, _ in runtime.calls], ["macro_run"])
-
-    def test_the_tail_never_replays_an_earlier_effect_gate(self):
-        # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini
-        # ikinci kez çalıştıramaz (ikinci taşıma/silme/yayın riski).
-        from modules import brain_precedence
-        runtime = self._runtime()
-        brain_precedence.claim_tail(runtime, "bugün neler var")
-        replayed = {name for name, _ in runtime.calls}
-        self.assertTrue(replayed.isdisjoint({"file_command", "windows_settings", "user_command",
-                                             "planner_command", "emit"}))
-
-    def test_the_full_contract_still_runs_every_gate_from_the_front(self):
-        from modules import brain_precedence
-        runtime = self._runtime()
-        self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
-        self.assertEqual([name for name, _ in runtime.calls],
-                         list(brain_precedence.FRONT_GATES))
-
-
-class CascadeRootTests(_RawDoorHarness):
-    """§25 B ve D: ham anlamsal aday döngüsü yüzeyden kalkar, cascade'in tek üretim çağıranı kalır."""
-
-    def _handle_body(self):
-        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
-        return next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "handle")
-
-    def test_the_surface_carries_no_raw_semantic_candidate_loop(self):
-        handle = self._handle_body()
-        loops = [node for node in ast.walk(handle)
-                 if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.iter, (ast.Tuple, ast.List))]
-        self.assertEqual(loops, [], "engine_commands.handle çoklu ham anlamsal aday döngüsü taşıyamaz (§25 B)")
-
-    def test_the_surface_names_no_cascade_gate(self):
-        handle = self._handle_body()
-        attrs = {node.attr for node in ast.walk(handle) if isinstance(node, ast.Attribute)}
-        self.assertTrue(attrs.isdisjoint({"_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"}),
-                        "sıranın tek sahibi brain_precedence; yüzey gate adlarını tekrar listeleyemez")
-        self.assertIn("claim_tail", attrs)
-
-    def test_the_cascade_has_one_production_call_owner(self):
-        # §25 D'nin PR3B'de ölçülebilir hâli: normal kullanıcı üretim yolunda cascade'i çağıran
-        # tek yer sıra sözleşmesidir. BRAIN-MIG-052'de kollar kanonical parity kazanınca bu son
-        # çağıran da silinir; o gün bu satır [] bekler — başka modüle izin yoktur.
-        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
-
-    def test_the_mail_owner_is_reached_only_from_the_cascade(self):
-        # BRAIN-MIG-051: "bu cümle mail mi?" hükmü yalnız tek cascade kolundadır, yüzeylerde değil.
-        self.assertEqual(_source_calls("_mail_handle"), ["modules/engine_tools.py"])
-
-
-class CascadeReachabilityTests(_RawDoorHarness):
-    """Fence kör değildir: kuyruk devri sonrası eşleşmemiş kometler aynı sahibine ulaşıyor."""
-
-    def setUp(self):
-        super().setUp()
-        from functools import partial
-
-        from modules import engine_tools
-        self.ctx._extra_commands = partial(engine_tools._extra_commands, self.ctx)
-
-    def test_an_unmapped_handoff_request_still_reaches_its_cascade_owner(self):
-        # PR3C-4'ten sonra klasör kapısı cascade'te değil; sıra sözleşmesi hâlâ eşlenmemiş bir
-        # domain kolunu buluyor: "işte neler var" yalnız `_extra_commands` sırasında sahibine varır.
-        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
-        _entry, out, _handle, _ = self.turn("yarın işte neler var")
-        self.assertIn("DEVRAL", str(out))
-        self.seams["modules.handoff.handle"].assert_called_once()
-
-    def test_a_shortcut_answer_stops_the_cascade_behind_it(self):
-        self.ctx.profile.data.setdefault("macros", {})[
-            self.ctx._macro_key("deneme kısayolunu çalıştır")] = {
-                "title": "Deneme", "actions": ["saat kaç"],
-            }
-        self.ctx._macro_run = Mock(return_value="KISAYOL ÇALIŞTI")
-        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
-        _entry, out, _handle, _ = self.turn("deneme kısayolunu çalıştır")
-        self.assertIn("KISAYOL ÇALIŞTI", str(out))
-        self.seams["modules.handoff.handle"].assert_not_called()
-
-    def test_daily_brief_model_outage_fallback_is_exact_and_not_a_substring(self):
-        from modules import engine_tools
-        self.ctx._daily_briefing = Mock(return_value="GÜNLÜK ÖZET")
-        _entry, reply, _handler, _feedback = self.turn("günlük özet")
-        self.assertEqual(reply, "GÜNLÜK ÖZET")
-        self.ctx._daily_briefing.assert_called_once()
-        self.ctx._daily_briefing.reset_mock()
-        for text in ("günlük özet istemiyorum", "bugün ne var demedim",
-                     "arkadaşım 'bugün ne var' dedi", "brifing nasıl çalışıyor"):
-            with self.subTest(text=text):
-                self.assertFalse(engine_tools._daily_brief_fallback_request(text))
-        self.ctx._daily_briefing.assert_not_called()
-
-    def test_model_outage_ocr_exact_fallback_uses_same_privacy_checked_executor(self):
-        from modules import engine_intents
-        self.ctx._screen_ocr = Mock(return_value="GERÇEK EKRAN METNİ")
-        with patch.object(engine_intents, "execute_screen_text",
-                          wraps=engine_intents.execute_screen_text) as executor:
-            _entry, out, _handle, _ = self.turn("ekrandaki metni oku")
-        self.assertEqual(out, "GERÇEK EKRAN METNİ")
-        executor.assert_called_once_with(self.ctx, "read")
-        self.ctx._screen_ocr.assert_called_once()
-        self.ctx.privacy.blocked.assert_any_call("screen")
-
-    def test_model_outage_ocr_quoted_negated_and_explanatory_phrases_do_nothing(self):
-        from modules import engine_tools
-        for phrase in (
-                "ekrandaki metni okuma", "ekrandaki hatayı not alma",
-                "ekrandaki metni oku demedim",
-                "Ali'ye 'ekrandaki metni oku' mesaj at",
-                "ekrandaki metni oku ne demek",
-                "ekrandaki metni kopyala, notları sil"):
-            with self.subTest(phrase=phrase):
-                self.assertIsNone(engine_tools._screen_text_fallback_operation(phrase))
-        for phrase, operation in (
-                ("ekrandaki metni oku", "read"),
-                ("ekrandaki yazıyı kopyala", "copy"),
-                ("ekrandaki hatayı not al", "error_note")):
-            with self.subTest(phrase=phrase):
-                self.assertEqual(engine_tools._screen_text_fallback_operation(phrase), operation)
-
-    def test_an_explicit_mail_request_still_reaches_the_mail_owner(self):
-        # Provider/account kararları domain'de kalır (§12): kanonical mail capability yokken
-        # cümle aynı sahibine gider; PR3B bunu sökmez, yalnız tek kapıya indirir.
-        self.ctx._mail_handle = Mock(return_value="MAİL")
-        _entry, out, _handle, _ = self.turn("maillerimi kontrol et")
-        self.assertIn("MAİL", str(out))
+        self.ctx.profile.data["macros"] = {
+            self.ctx._macro_key("sabah rutini"): {"actions": ["saat kaç"]}}
+        with patch.object(self.ctx, "_macro_run", return_value="KISAYOL") as macro:
+            self.assertEqual(brain_precedence.claim(self.ctx, "sabah rutini"),
+                             ("macro_run", "KISAYOL"))
+            self.assertIsNone(brain_precedence.claim(
+                self.ctx, '"sabah rutini" ne işe yarar?'))
+        macro.assert_called_once_with("sabah rutini")
 
 
 class FinanceAlertEntryScopeTests(unittest.TestCase):
