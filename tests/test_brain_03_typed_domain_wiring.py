@@ -45,8 +45,8 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         for period, utterance in (("this", "Bu haftam nasıl?"),
                                   ("next", "Haftaya ne var?"),
                                   ("seven", "Önümüzdeki yedi gün planı")):
-            with self.subTest(period=period), \\
-                 patch.object(main_planner, "_week_plan", return_value="WEEK RESULT") as week:
+            with (self.subTest(period=period),
+                  patch.object(main_planner, "_week_plan", return_value="WEEK RESULT") as week):
                 entry, output, feedback = self.typed(
                     utterance, "calendar.read", {"view": "week_plan", "period": period})
                 self.assertEqual(brain_entry.core_plan(entry),
