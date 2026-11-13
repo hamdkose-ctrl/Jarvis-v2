@@ -868,6 +868,31 @@ def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"source": source}
 
 
+def _outlook_draft_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """One Outlook unread reply-text draft; model may not select mail effects.
+
+    The selector is an explicitly chosen 1..20 position or an owner-grounded
+    sender string. Neither arbitrary Outlook IDs nor send/forward operations
+    can cross Core. The worker still checks the live unread list for uniqueness.
+    """
+    if set(arguments) - {"original_text", "operation", "index", "sender"}:
+        return None
+    if ("original_text" in arguments
+            and not isinstance(arguments["original_text"], str)):
+        return None
+    if arguments.get("operation") != "reply":
+        return None
+    index, sender = arguments.get("index"), arguments.get("sender")
+    if (index is None) == (sender is None):
+        return None
+    if index is not None:
+        return {"index": index} if type(index) is int and 1 <= index <= 20 else None
+    if (not isinstance(sender, str) or not 2 <= len(sender.strip()) <= 120
+            or any(ord(ch) < 32 for ch in sender)):
+        return None
+    return {"sender": sender.strip()}
+
+
 def _finance_alert_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Validate fields, never classify raw alarm language or accept model rule IDs."""
     if set(arguments) - {"original_text", "operation", "asset", "value",
@@ -1277,6 +1302,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
     "mail.read": ("mail_read", _mail_read_args),
+    "mail.draft": ("outlook_draft", _outlook_draft_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),
     "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
