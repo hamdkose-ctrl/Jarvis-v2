@@ -312,30 +312,62 @@ def add_exam(profile, path, year, period="", session=""):
 
 
 def remove(profile, doc_id):
-    s = _state(profile)
-    before = next((d for d in s.get("docs", []) if int(d.get("id", -1)) == int(doc_id)), None)
-    s["docs"] = [d for d in s.get("docs", []) if int(d.get("id", -1)) != int(doc_id)]
-    if before and before.get("kind") == "exam":
-        s.pop("exam_analysis", None)
-    for ext in (".txt", ".pages.json", ".emb.json", ".exam.json", ".source.pdf"):
-        (_dir(profile) / f"{int(doc_id)}{ext}").unlink(missing_ok=True)
-    if s.get('active_doc')==int(doc_id):s.pop('active_doc',None)
-    if (s.get('source_session') or {}).get('doc_id') == int(doc_id):s.pop('source_session',None)
-    profile.save()
+    from modules import file_resource_guard
+    # Owner state and physical files must be owned together. If another
+    # worker/process holds even one related file, reject before changing
+    # the study catalog; never delete a PDF while another writer reads it.
+    doc_id = int(doc_id)
+    with _jobs_lock:
+        directory = _dir(profile)
+        files = [
+            directory / f"{doc_id}{ext}"
+            for ext in (".txt", ".pages.json", ".emb.json",
+                        ".exam.json", ".source.pdf")
+        ]
+        with file_resource_guard.claim_paths(*files):
+            s = _state(profile)
+            before = next(
+                (d for d in s.get("docs", [])
+                 if int(d.get("id", -1)) == doc_id), None,
+            )
+            s['docs'] = [
+                d for d in s.get('docs', [])
+                if int(d.get('id', -1)) != doc_id
+            ]
+            if before and before.get('kind') == 'exam':
+                s.pop('exam_analysis', None)
+            for path in files:
+                path.unlink(missing_ok=True)
+            if s.get('active_doc') == doc_id:
+                s.pop('active_doc', None)
+            if (s.get('source_session') or {}).get('doc_id') == doc_id:
+                s.pop('source_session', None)
+            profile.save()
 
 
 def clear(profile):
+    from modules import file_resource_guard, resource_leases
     with _jobs_lock:
-        s=_state(profile);s['source_generation']=s.get('source_generation',0)+1
-        s['docs']=[]
-        for key in ('exam_analysis','active_doc','last_topic','lesson_context','quiz_attempt','mock_session','topics','courses','source_session','math_turns'):
-            s.pop(key,None)
-        _LAST_TOPIC.pop(profile.slug,None)
-        # Pending immutable extraction inputs remain until their worker exits.
+        s = _state(profile)
+        s['source_generation'] = s.get('source_generation', 0) + 1
+        s['docs'] = []
+        for key in ('exam_analysis', 'active_doc', 'last_topic',
+                    'lesson_context', 'quiz_attempt', 'mock_session',
+                    'topics', 'courses', 'source_session', 'math_turns'):
+            s.pop(key, None)
+        _LAST_TOPIC.pop(profile.slug, None)
+        # A cancellation/revision fence is committed before removal. Only
+        # file snapshots not held by a concurrent physical owner are cleaned.
+        # A locked file is intentionally left for a later cleanup, not
+        # unlinked behind an active task's source claim.
         for path in _dir(profile).iterdir():
-            if path.is_file():path.unlink(missing_ok=True)
+            try:
+                if path.is_file():
+                    with file_resource_guard.claim_paths(path):
+                        path.unlink(missing_ok=True)
+            except (OSError, resource_leases.LeaseConflict):
+                _record_failure('modules/study.py:clear:busy_file')
         profile.save()
-
 
 def _words(s):
     s = s.replace("I", "ı").replace("İ", "i").lower()
