@@ -811,6 +811,17 @@ def _filesend_transfer_args(arguments: Mapping[str, Any]) -> dict[str, Any] | No
     return {"operation": "search", "query": query.strip()}
 
 
+def _pc_guide_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate one read-only Windows coaching goal, never a PC action."""
+    if set(arguments) - {"original_text", "goal"}:
+        return None
+    goal = arguments.get("goal")
+    if (not isinstance(goal, str) or not goal.strip() or len(goal) > 500
+            or any(ord(char) < 32 for char in goal)):
+        return None
+    return {"goal": goal.strip()}
+
+
 def _notify_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation"}:
         return None
@@ -1319,6 +1330,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "media.search": ("media_search", _media_search_args),
     "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
     "notify.manage": ("notify_manage", _notify_manage_args),
+    "pc.guide.start": ("pc_guide_start", _pc_guide_start_args),
     "handoff.manage": ("handoff_manage", _handoff_manage_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
