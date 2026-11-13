@@ -28,13 +28,40 @@ def spotify_installed() -> bool:
         return False
 
 
-def youtube(query: str) -> str:
-    """İlk sonucu doğrudan açar; bulunamazsa arama sayfasını açar."""
+class BrowserOpenResult(str):
+    """Launcher acceptance, not a claim that the remote website loaded."""
+
+    def __new__(cls, message: str, *, ok: bool):
+        value = super().__new__(cls, message)
+        value.ok = ok
+        return value
+
+
+def youtube(query: str, *, browser: str = "default") -> str:
+    """Use the existing YouTube worker; explicit browser never falls back silently."""
     query = query.strip()
     if not query:
+        if browser not in {"default", "chrome", "firefox"}:
+            return BrowserOpenResult("Tarayıcı tercihi doğrulanamadı; işlem başlatılmadı.", ok=False)
         requests_state.check()
-        webbrowser.open("https://www.youtube.com")
-        return "YouTube'u açıyorum."
+        try:
+            if browser == "default":
+                accepted = bool(webbrowser.open("https://www.youtube.com", new=2))
+            else:
+                # A requested browser is a closed selector, never a command
+                # line or executable path provided by the semantic model.
+                accepted = bool(webbrowser.get(browser).open("https://www.youtube.com", new=2))
+        except (webbrowser.Error, OSError, ValueError):
+            accepted = False
+        if not accepted:
+            name = "varsayılan tarayıcı" if browser == "default" else browser.capitalize()
+            return BrowserOpenResult(
+                f"YouTube için {name} açma isteği kabul edilmedi; sayfayı açtığımı söyleyemem.",
+                ok=False)
+        name = "varsayılan tarayıcı" if browser == "default" else browser.capitalize()
+        return BrowserOpenResult(
+            f"YouTube'u {name} ile açma isteğini ilettim; sayfanın yüklendiğini doğrulamadım.",
+            ok=True)
     try:
         html = requests.get("https://www.youtube.com/results", params={"search_query": query},
                             headers=_UA, timeout=6).text
