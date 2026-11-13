@@ -62,7 +62,49 @@ def run_checks(root=None, *, python=None):
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
-                    return False, '\n'.join(logs)[-16000:]
+                    if name == 'Python testleri':
+                        # A 6000+ test suite can exceed the retained log tail.
+                        # Keep a compact module-by-module failure index so a
+                        # real CI regression cannot be disguised by truncation.
+                        from collections import Counter
+                        failures = re.findall(r'^(?:FAIL|ERROR): (.+)
+                if name == 'Python testleri':
+                    count = re.search(r'Ran (\d+) tests?', output)
+                    if not count or int(count[1]) == 0:
+                        return False, 'Python testleri çalışmadı; doğrulama tamamlanmadı.\n' + output
+        return True, '\n'.join(logs)[-16000:]
+    except subprocess.TimeoutExpired as exc:
+        # The old -q + discarded captured output concealed the offending test:
+        # CI showed only "timed out after 600 seconds". Verbose unittest names
+        # and the last printed test are diagnostic evidence, not a test PASS.
+        def decoded(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8", "replace")
+            return value or ""
+        partial = decoded(exc.stdout) + decoded(exc.stderr)
+        return False, ('\n'.join(logs)[-3500:] + "\nLast test output before timeout:\n"
+                       + partial[-10000:] + "\nDoğrulama tamamlanmadı: " + str(exc))
+    except (OSError, SyntaxError) as exc:
+        return False, '\n'.join(logs)[-12000:] + '\nDoğrulama tamamlanmadı: ' + str(exc)
+
+if __name__ == '__main__':
+    ok, log = run_checks()
+    print(log)
+    print('Tüm test grupları başarılı.' if ok else 'Doğrulama başarısız veya eksik.')
+    sys.exit(0 if ok else 1)
+, output, re.MULTILINE)
+                        modules = Counter()
+                        for item in failures:
+                            match = re.search(r'\\((test_[A-Za-z0-9_]+)\\.', item)
+                            modules[match.group(1) if match else 'unclassified'] += 1
+                        index = '\\n'.join(
+                            f'  {module}: {count}' for module, count in modules.most_common()
+                        )
+                        headline = (f'CI failure index: {len(failures)} failing/error test cases '
+                                    f'in {len(modules)} test modules.\\n{index}\\n'
+                                    'First failures:\\n' + '\\n'.join(failures[:20]))
+                        return False, headline + '\\nLast failure details:\\n' + output[-16000:]
+                    return False, '\\n'.join(logs)[-16000:]
                 if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
