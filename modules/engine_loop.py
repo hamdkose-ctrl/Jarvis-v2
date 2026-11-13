@@ -400,9 +400,17 @@ def main(runtime, ui=None):
                     explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
                     entry = None
                     if explicit_read is None:
-                        entry = brain_entry.prepare(
-                            runtime, owner=owner, request_id=runtime._cur_rid,
-                            text=cmd, source=source, model_understanding=True,
+                        # The primary semantic model may wait before handoff.
+                        # Keep the same owner/request gates while that FIRST
+                        # provider wait lends the microphone back to the listener.
+                        # This is NOT a second execution thread or full §5
+                        # background transfer; subsequent commands remain queued.
+                        entry = _turn_with_listening_foreground(
+                            voice_session,
+                            lambda: brain_entry.prepare(
+                                runtime, owner=owner, request_id=runtime._cur_rid,
+                                text=cmd, source=source, model_understanding=True,
+                            ),
                         )
                         from modules import brain_echo
                         brain_echo.present(runtime, entry)
