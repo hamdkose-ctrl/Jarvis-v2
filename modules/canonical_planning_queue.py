@@ -17,7 +17,7 @@ import time
 
 import release_guard
 from modules import (
-    canonical_goal_flow, core_state_reducer, execution_record, goal_executor,
+    canonical_goal_flow, execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
     goal_state_store, llm, model_wait, requests_state, task_agents,
 )
@@ -80,9 +80,8 @@ def enqueue(owner: str, request_id: str, text: str):
         if not requests_state.register_background(owner, planner_rid, seconds=1800):
             raise ValueError("Background planner request already registered.")
         try:
-            state = goal_state.new(owner=owner, job_id=job_id, goal=text,
-                                   execution_mode="agent", authority="canonical")
-            goal_state_store.create(state_path, state)
+            goal_state_compat.create_canonical_queued_goal(
+                state_path, owner=owner, job_id=job_id, goal=text)
             now = time.time()
             record = {
                 "id": job_id, "owner": owner, "request_id": request_id,
@@ -145,13 +144,9 @@ def _park(root, owner, job_id, *, reason: str):
         if record.get("state") != "planning_running" or "goal_plan" in state:
             return False
         if state["state"] == "pending":
-            next_state = core_state_reducer.apply(state, {
-                "expected_version": state["version"], "op": "set_state",
-                "state": "paused", "reason_code": reason,
-            })
-            goal_state_store.compare_and_swap(
+            goal_state_compat.park_unplanned_canonical_goal(
                 root / (job_id + ".goalstate.json"),
-                expected_version=state["version"], next_state=next_state)
+                owner=owner, job_id=job_id, reason=reason)
         record["state"] = "review"
         record["feedback"] = ["Arka plan planlaması durdu. "
                               "İşlem yürütülmedi; yeniden başlatmak için yeni açık istek gerekli."]
