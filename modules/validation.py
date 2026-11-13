@@ -83,8 +83,20 @@ def run_checks(root=None, *, python=None):
                             r'(?ms)^(?:FAIL|ERROR): .+?(?=^={10,}$|^Ran [0-9]+ tests|\Z)',
                             output,
                         )
-                        first_traces = '\n'.join(part[:2500] for part in details[:6])
-                        return False, (headline + '\nFirst failure tracebacks:\n'
+                        examples = {}
+                        for part in details:
+                            match = re.search(r'\((test_[A-Za-z0-9_]+)\.', part)
+                            key = match.group(1) if match else 'unclassified'
+                            examples.setdefault(key, part)
+                        # One representative traceback per failure-heavy module
+                        # is much more useful than six copies of one broken
+                        # legacy test fixture. The full suite still fails.
+                        selected = [module for module, _count in modules.most_common(15)]
+                        first_traces = '\n'.join(
+                            examples[module][:1900] for module in selected
+                            if module in examples
+                        )
+                        return False, (headline + '\nRepresentative failure tracebacks:\n'
                                        + first_traces + '\nLast failure details:\n'
                                        + output[-12000:])
                     return False, '\n'.join(logs)[-16000:]
