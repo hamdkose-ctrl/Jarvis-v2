@@ -1003,83 +1003,29 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
 def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
                            protected_relation: bool, resolving_file_ambiguity: bool,
                            has_grounded_reference: bool) -> UnderstandingProposal | None:
-    # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
-    # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
-    artifact_context = bool(
-        current.pending_owner is None
-        and current.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
-        and any(ref.kind == "artifact" and ref.id == "last_doc" and ref.owner == current.owner
-                for ref in current.references)
-        and not any(ref.kind in _GOAL_CARD_KINDS for ref in current.references)
-    )
-    free_context = current.pending_owner is None and (
-        current.conversation_relation is ConversationRelation.NEW_REQUEST or artifact_context)
-    model_owned_action = bool(
-        proposed.operation == "direct_action" and len(proposed.actions) == 1
-        and proposed.actions[0].capability_id
-        in _MODEL_OWNED_TYPED_CAPABILITIES | {"documents.export", "system.diagnose"}
-    )
-    model_owned_decision = proposed.operation in {'chat','clarify'} or model_owned_action
-    # Gerçek sahipliği olmayan serbest turda (pending owner yok, hedef/görev kartı yok) model bir
-    # düzeltmeyi sohbet/netleştirme olarak CORRECTION ile adlandırabilir. Etiket kendi anlamıyla
-    # kalır, kanonikal değere yazılmaz: CONTINUE_ACTIVE bekleyen bir etkileşimin sahipliğidir ve
-    # brain_entry._pending_owns_turn CORRECTION turunu bağımsız sayar. Sahiplik yokken bu yalnız
-    # anlam bildirimidir; hiçbir efekt veya yetki taşımaz.
-    if proposed.conversation_relation not in {current.conversation_relation,
-                                              ConversationRelation.NEW_REQUEST}:
-        if not (free_context and proposed.operation in {'chat', 'clarify'}
-                and proposed.conversation_relation is ConversationRelation.CORRECTION):
-            return _reject('RELATION_NOT_CURRENT')
-    if protected_relation and not (free_context and model_owned_decision):
-        # BRAIN-05: hedef işlemleri artık yürütücüsüne bağlıdır, dolayısıyla "henüz bağlanmamış
-        # işlem" kapısı kalktı. Korunan turda bağlayıcı olan şey işlemin ADI değil, tura kimin
-        # sahip olduğudur: ilişki yerinde kalmalı ve bir pending slotun cevabını hedef işlemi
-        # devralamaz. REQUEST_KIND_BY_OPERATION hedef işlemlerini GOAL_CONTROL'e eşler; bu kind
-        # deterministik katmanların ürettiği bir karar değildir, bu yüzden hedef önerisinde kind
-        # eşitliği aranamaz — bağdaşıklık denetimi offered kart kimlikleri üzerinden yapılır.
-        goal_proposal = proposed.operation in GOAL_OPERATIONS
-        if proposed.conversation_relation is not current.conversation_relation:
-            return _reject('PROTECTED_RELATION')
-        if goal_proposal:
-            if current.pending_owner is not None:
-                return _reject('PROTECTED_PENDING_OWNER')
-        elif REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
-            return _reject('PROTECTED_REQUEST_KIND')
-    # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
-    if proposed.operation != 'clarify' and bool(getattr(current, "needs_input", False)) and not (
-            resolving_file_ambiguity and has_grounded_reference):
-        return _reject('UNRESOLVED_TARGET')
+    """Protect real owners/references without giving legacy NLP semantic veto.
+
+    The validated model decides conversation relation and intent. A deterministic
+    guess about request kind, confidence or missing arguments cannot overwrite
+    that decision. Core still validates every capability, target and effect.
+    """
+    if (protected_relation and current.pending_owner is not None
+            and proposed.conversation_relation in {
+                ConversationRelation.ANSWER_TO_PENDING,
+                ConversationRelation.CONTINUE_ACTIVE,
+            }):
+        # A pending ANSWER must stay with its actual owner; an independent
+        # NEW_REQUEST/TOPIC_CHANGE/CORRECTION does not consume pending state.
+        if proposed.operation in GOAL_OPERATIONS:
+            return _reject("PROTECTED_PENDING_OWNER")
+        if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
+            return _reject("PROTECTED_REQUEST_KIND")
     if proposed.operation == "direct_action" and proposed.confidence is Confidence.LOW \
             and not resolving_file_ambiguity:
-        return _reject('ACTION_CONFIDENCE_LOW')
-    if proposed.operation != 'clarify' and resolving_file_ambiguity and not has_grounded_reference:
-        return _reject('FILE_REFERENCE_UNRESOLVED')
-    # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
-    # a deterministic LOW guess is not semantic authority over the validated model decision.
-    # BRAIN-05 hedef işlemi de model-owned'dır: deterministik katmanın hedef anlamı hakkında
-    # hiçbir kararı yoktur (eski sahibi yalnız front-gate grameriydi, o da plan ile yürür).
-    # Dayanak veto yerine geçmez — `target_goal_ids` sunulmuş kartların alt kümesi olmak
-    # zorundadır ve hedefin sözü kullanıcının cümlesidir.
-    goal_operation = proposed.operation in GOAL_OPERATIONS
-    if (_CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]
-            and not (free_context and model_owned_decision) and not goal_operation):
-        if not resolving_file_ambiguity:
-            return _reject('LEGACY_CONFIDENCE_VETO')
-        proposed = UnderstandingProposal(
-            operation=proposed.operation,
-            conversation_relation=proposed.conversation_relation,
-            temporal_need=proposed.temporal_need,
-            confidence=Confidence.MEDIUM,
-            actions=proposed.actions,
-            target_goal_ids=proposed.target_goal_ids,
-            goal=proposed.goal,
-            clarification_required=proposed.clarification_required,
-            clarification_reason_code=proposed.clarification_reason_code,
-            clarification_question=proposed.clarification_question,
-            references=proposed.references,
-        )
+        return _reject("ACTION_CONFIDENCE_LOW")
+    if proposed.operation != "clarify" and resolving_file_ambiguity and not has_grounded_reference:
+        return _reject("FILE_REFERENCE_UNRESOLVED")
     return proposed
-
 
 def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             protected_relation: bool = False,
