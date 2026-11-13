@@ -781,9 +781,10 @@ def _install_job_guard() -> None:
         if entry is not None:
             if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
                 return None
-            if entry.state_gate.matched and not matched_protocol("job.resume", "job.cancel"):
+            if entry.state_gate.matched and not matched_protocol(
+                    "job.resume", "job.cancel", "job.empty_cancel"):
                 return None
-        canonical = matched_protocol("job.resume", "job.cancel")
+        canonical = matched_protocol("job.resume", "job.cancel", "job.empty_cancel")
         return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
 
     job_front._brain_legacy_route = original
