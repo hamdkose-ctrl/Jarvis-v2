@@ -186,19 +186,25 @@ def handoff_to_listen(timeout: float = 0.6) -> bool:
     """Safe push-to-talk handoff: cut speech, verify output stopped, then allow mic.
 
     Returns True only when no speech is outstanding (the player acknowledged the
-    interrupt), so the microphone never opens onto Jarvis's own speaker output.
-    This is half-duplex stop-then-listen, not full-duplex AEC. If the player does
-    not stop within the bound, returns False and the caller keeps its protection.
-    The wait is on local playback acknowledgement only — never model/disk/network.
+    interrupt) AND the newest cut was confirmed by the device, so the microphone
+    never opens onto Jarvis's own speaker output. This is half-duplex
+    stop-then-listen, not full-duplex AEC. If the player does not stop within the
+    bound, or the stop was never confirmed, it returns False and the caller keeps
+    its protection. The wait is on local playback acknowledgement only — never
+    model/disk/network.
     """
     lane = active()
-    if lane is None or not lane.is_busy():
+    if lane is None:
         return True
+    if not lane.is_busy():
+        # Nothing is queued, but a cut the device never confirmed may still be
+        # audible; receipt acknowledgement alone is not proof of silence.
+        return not lane.stop_unconfirmed()
     lane.interrupt()
     deadline = time.monotonic() + max(0.0, timeout)
     while lane.is_busy() and time.monotonic() < deadline:
         time.sleep(0.01)
-    return not lane.is_busy()
+    return not lane.is_busy() and not lane.stop_unconfirmed()
 
 
 def on_owner_switch(previous_owner: str, timeout: float = 0.6) -> bool:
@@ -287,6 +293,9 @@ class VoiceLane:
         self._lock = threading.RLock()
         self._outstanding = {}
         self._last_audible = {}  # owner -> turn id of the speech it last heard
+        # True while a cut the device never confirmed is the newest word about the
+        # speaker; the mic handoff and the UI idle claim both consult it.
+        self._stop_unconfirmed = False
         self.busy_event = threading.Event()
         self._closed = False
         self._coordinator = VoiceCoordinator(
@@ -460,6 +469,9 @@ class VoiceLane:
 
     def _notice_for(self, receipt) -> str | None:
         if receipt.status == "failed":
+            if receipt.reason_code == "VOICE_STOP_UNCONFIRMED":
+                return ("Ses kesilemedi; aygıt kesintiyi doğrulamadı. Başka sese geçilmedi, "
+                        "yanıt yazılı korundu.")
             return "Seçilen ses üretilemedi veya oynatılamadı; başka sese geçilmedi, yanıt yazılı korundu."
         if receipt.status == "rejected":
             if receipt.reason_code == "VOICE_PRIVACY_LOCAL_ONLY":
@@ -478,6 +490,15 @@ class VoiceLane:
         return None
 
     def _receipt(self, receipt):
+        # The device truth is recorded before any presentation decision, so a
+        # stopped-but-unconfirmed cut cannot be answered with an "idle" UI state or
+        # an open microphone while audio may still be on the speaker. A later
+        # playback the device did acknowledge clears it: the newest word wins.
+        with self._lock:
+            if receipt.reason_code == "VOICE_STOP_UNCONFIRMED":
+                self._stop_unconfirmed = True
+            elif receipt.status in {"played", "cancelled"}:
+                self._stop_unconfirmed = False
         self._forget(receipt.request_id)
         if self._closed:
             return
@@ -486,10 +507,15 @@ class VoiceLane:
                 notice = self._notice_for(receipt)
                 if notice:
                     self.runtime.emit("system", notice)
-                if not self.busy_event.is_set():
+                if not self.busy_event.is_set() and not self.stop_unconfirmed():
                     self.runtime.emit("state", "idle")
         except Exception:
             _record_failure("modules/voice_runtime.py:receipt")
+
+    def stop_unconfirmed(self) -> bool:
+        """True while the newest cut of this output owner was never device-confirmed."""
+        with self._lock:
+            return self._stop_unconfirmed
 
     def interrupt(self) -> tuple[str, ...]:
         """Cut audible audio and return exactly the turns that audio belonged to.

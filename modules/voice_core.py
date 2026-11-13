@@ -502,11 +502,23 @@ class VoiceCoordinator:
                             status, reason = "cancelled", self._cancelled_reason()
                             break
                     self._notify(request, status, reason, played=announced_start)
-                except Exception:
+                except Exception as exc:
                     _record_failure('modules/voice_core.py:adapter')
-                    self._notify(request, "cancelled" if cancel.is_set() else "failed",
-                                 self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED",
-                                 played=announced_start)
+                    # An adapter may declare the exact outcome it could not prove
+                    # (a stop the device never confirmed). That declaration can only
+                    # downgrade the receipt: an adapter can never claim "played",
+                    # so an unproven cut cannot be filed as a user interrupt the
+                    # microphone handoff or the UI would then trust.
+                    declared = getattr(exc, "speech_status", "")
+                    declared_reason = getattr(exc, "speech_reason", "")
+                    if (declared in {"failed", "cancelled", "rejected"}
+                            and isinstance(declared_reason, str) and declared_reason.strip()):
+                        self._notify(request, declared, declared_reason,
+                                     played=announced_start)
+                    else:
+                        self._notify(request, "cancelled" if cancel.is_set() else "failed",
+                                     self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED",
+                                     played=announced_start)
             finally:
                 with self._lock:
                     if self._current_cancel is cancel:
