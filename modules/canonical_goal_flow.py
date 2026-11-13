@@ -367,6 +367,21 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
     return goal_executor._parse(answer)
 
 
+def _accepted_user_channel(receipt) -> str | None:
+    """Return an acknowledged owner-facing sink, never log-only success.
+
+    The channel reported sink acceptance, NOT human read/open and NOT an
+    end-to-end exactly-once transport guarantee. Other channel failures do
+    not erase an already accepted owner-visible delivery.
+    """
+    if not isinstance(receipt, dict):
+        return None
+    for channel in ('ui', 'ntfy'):
+        if receipt.get(channel) == 'delivered':
+            return channel
+    return None
+
+
 def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify) -> None:
     """Persist one owner-bound pending question; never mark Goal done or replay a worker.
 
@@ -410,7 +425,8 @@ def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify
     except Exception:
         _record_failure('modules/canonical_goal_flow.py:question_delivery')
         return
-    if not isinstance(receipt, dict) or receipt.get('ui') != 'delivered':
+    accepted_channel = _accepted_user_channel(receipt)
+    if accepted_channel is None:
         return
     with goal_job_control.locked(root, job_id):
         current = execution_record.load(root, owner, job_id)
@@ -418,9 +434,14 @@ def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify
         if (isinstance(dialog, dict) and dialog.get('event_id') == event_id
                 and dialog.get('state') == 'waiting'
                 and dialog.get('delivery') == 'reserved'):
-            dialog['delivery'] = 'ui_accepted'
-            dialog['ui_receipt'] = {'event_id': event_id, 'channel': 'ui',
-                                    'status': 'accepted', 'recorded_at': time.time()}
+            dialog['delivery'] = accepted_channel + '_accepted'
+            evidence = {
+                'event_id': event_id, 'channel': accepted_channel,
+                'status': 'accepted', 'recorded_at': time.time(),
+            }
+            dialog['delivery_receipt'] = evidence
+            if accepted_channel == 'ui':
+                dialog['ui_receipt'] = evidence
             release_guard.atomic(record_path, execution_record.encode(current))
 
 
@@ -589,18 +610,23 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         _record_failure('modules/canonical_goal_flow.py:result_delivery')
         # Could have reached one sink already. Never resend blindly.
         return False
-    # A completed callback alone is not a delivery proof. The engine-owned
-    # event channel must explicitly acknowledge UI sink acceptance.
-    if not isinstance(receipt, dict) or receipt.get('ui') != 'delivered':
+    # Log-only success is not user delivery; UI or user-configured ntfy
+    # acceptance is recorded separately from user read/open acknowledgments.
+    accepted_channel = _accepted_user_channel(receipt)
+    if accepted_channel is None:
         return False
     with goal_job_control.locked(root, job_id):
         saved = execution_record.load(root, owner, job_id)
         if saved.get('_canonical_delivery') == 'reserved':
             saved['_canonical_delivery'] = 'delivered'
-            saved['_canonical_ui_receipt'] = {
-                'event_id': 'canonical:' + job_id, 'channel': 'ui',
+            evidence = {
+                'event_id': 'canonical:' + job_id,
+                'channel': accepted_channel,
                 'status': 'accepted', 'recorded_at': time.time(),
             }
+            saved['_canonical_delivery_receipt'] = evidence
+            if accepted_channel == 'ui':
+                saved['_canonical_ui_receipt'] = evidence
             saved['updated'] = time.time()
             release_guard.atomic(record_path, execution_record.encode(saved))
     return True

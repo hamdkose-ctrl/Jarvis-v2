@@ -161,8 +161,8 @@ def main(runtime, ui=None):
             )
             if result is None:
                 raise PermissionError('Canonical result owner is not registered.')
-            if result.get('ui') != 'delivered':
-                raise RuntimeError('Canonical event was not accepted by the owner UI.')
+            if canonical_goal_flow._accepted_user_channel(result) is None:
+                raise RuntimeError('Canonical event was not accepted by an owner-facing channel.')
             return result
         canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
 

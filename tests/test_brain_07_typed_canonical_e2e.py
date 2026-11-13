@@ -2120,6 +2120,44 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         ))
         self.assertEqual(notified.call_count, 2)
 
+    def test_ntfy_only_delivery_has_exact_channel_receipt(self):
+        """The user may enable phone ntfy without the desktop UI channel."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        phone_sink = Mock(return_value={'ui': 'unavailable',
+                                        'ntfy': 'delivered', 'log': 'delivered'})
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, phone_sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'delivered')
+        receipt = journal['_canonical_delivery_receipt']
+        self.assertEqual(receipt['channel'], 'ntfy')
+        self.assertEqual(receipt['event_id'], 'canonical:' + job_id)
+        self.assertNotIn('_canonical_ui_receipt', journal)
+        phone_sink.assert_called_once()
+
+    def test_log_only_delivery_cannot_claim_owner_acceptance(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        log_sink = Mock(return_value={'log': 'delivered',
+                                      'ui': 'failed:RuntimeError'})
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, log_sink,
+            ))
+        _, journal = self.persisted(job_id)
+        self.assertEqual(journal['_canonical_delivery'], 'reserved')
+        self.assertNotIn('_canonical_delivery_receipt', journal)
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, log_sink,
+        ))
+        log_sink.assert_called_once()
+
     def test_unknown_ui_delivery_never_claims_delivered_or_resends(self):
         job_id = self._accepted_canonical_research_for_crash_test()
         sink = Mock(return_value=None)

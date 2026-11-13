@@ -289,6 +289,79 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertFalse(any(row.get('kind') == 'worker_result'
                              for row in goal_state_store.load(self.path)['evidence']))
 
+    def test_restart_never_replays_started_unknown_after_os_lock_release(self):
+        """A new Scheduler process cannot infer retry authority from OS unlock.
+
+        The journal is persisted as started with no Core output. After a
+        simulated restart its original worker is gone, yet no duplicate
+        provider call, Core evidence or completion callback may be minted.
+        """
+        from types import SimpleNamespace
+        from modules import service_store, task_queue
+
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        for step in journal['steps']:
+            step['state'] = 'running'
+            step['started'] = True
+            step['attempts'] = 1
+        release_guard.atomic(self.record_path, execution_record.encode(journal))
+        snapshot = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual({row.status for row in snapshot.nodes},
+                         {'started_unknown'})
+        self.assertEqual(self.offers(), ())
+
+        class RapidStop:
+            def __init__(self):
+                self.event = threading.Event()
+            def wait(self, _timeout):
+                return self.event.wait(.015)
+            def is_set(self):
+                return self.event.is_set()
+            def set(self):
+                self.event.set()
+
+        stop = RapidStop()
+        worker = Mock(side_effect=AssertionError('unknown worker restarted'))
+        notified = Mock(side_effect=AssertionError('unknown goal completed'))
+        with ExitStack() as stack:
+            for module, name, value in (
+                (service_store, 'ROOT', self.store / 'no-sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+            ):
+                stack.enter_context(patch.object(module, name, value))
+            with patch.object(canonical_scheduler_dispatch, 'discover',
+                              wraps=canonical_scheduler_dispatch.discover) as scan:
+                task_queue.start(
+                    stop, allowed_owners=lambda: {OWNER},
+                    canonical_profile_resolver=lambda name: SimpleNamespace(slug=name),
+                    canonical_result_notify=notified,
+                )
+                try:
+                    until = time.monotonic() + 3
+                    while scan.call_count == 0 and time.monotonic() < until:
+                        time.sleep(.02)
+                    self.assertGreater(scan.call_count, 0)
+                    worker.assert_not_called()
+                    notified.assert_not_called()
+                    self.assertEqual(self.offers(), ())
+                    self.assertEqual(canonical_restart_audit.inspect(
+                        OWNER, JOB).nodes[0].status, 'started_unknown')
+                    self.assertEqual(goal_state_store.load(self.path)['state'],
+                                     'pending')
+                finally:
+                    stop.set()
+                    task_queue._THREAD.join(10)
+                    for active in tuple(task_queue._CANONICAL_WORKERS.values()):
+                        active.join(10)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+
     def test_scheduler_stop_and_unknown_provider_fail_closed_with_distinct_receipts(self):
         """A stopped attempt and an uncertain provider do not create evidence."""
         from types import SimpleNamespace
