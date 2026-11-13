@@ -113,23 +113,66 @@ def _translate_file(runtime, path: str, target: str) -> str:
     return result + '\n\nDosya olarak almak istersen çıktı al de.'
 
 def _keep_photo(runtime, src: str) -> str:
-    """Telefondan gelen fotoğrafı kalıcı klasöre taşır (fotoğraflı notlar için); 30 günden eski, notta olmayanları siler."""
+    """Store a phone photo without clobbering a concurrent file or exposing a partial image."""
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from modules import file_resource_guard, resource_leases
+
     d = runtime._PHOTO_DIR / runtime.profile.slug
+    if d.is_symlink() or d.parent.is_symlink():
+        raise ValueError('Fotoğraf klasörü sembolik bağ olamaz.')
     d.mkdir(parents=True, exist_ok=True)
-    dest = d / (runtime.time.strftime('%Y%m%d_%H%M%S') + '_' + runtime.secrets.token_hex(16) + runtime.os.path.splitext(src)[1].lower())
-    try:
-        runtime.os.replace(src, dest)
-    except OSError:
-        import shutil
-        shutil.copyfile(src, dest)
+    source = Path(src)
+    dest = d / (runtime.time.strftime('%Y%m%d_%H%M%S') + '_' +
+                runtime.secrets.token_hex(16) + source.suffix.lower())
+    # Cross-volume moves must not leave partly copied images at the final
+    # filename. Even on one volume, os.replace could overwrite a foreign file.
+    with file_resource_guard.claim_paths(source, dest):
+        if not source.is_file():
+            raise FileNotFoundError('Fotoğraf kaynağı bulunamadı.')
+        with tempfile.NamedTemporaryFile(
+                mode='wb', dir=d, prefix='.jarvis-photo-', suffix='.tmp',
+                delete=False) as stream:
+            staged = Path(stream.name)
+            try:
+                with source.open('rb') as incoming:
+                    shutil.copyfileobj(incoming, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            except Exception:
+                staged.unlink(missing_ok=True)
+                raise
+        try:
+            os.link(staged, dest)
+        finally:
+            staged.unlink(missing_ok=True)
+        try:
+            source.unlink(missing_ok=True)
+        except OSError:
+            # The original phone temp file may remain open on Windows; the
+            # published complete image is still safe and must not be deleted.
+            pass
     try:
         used = {it.get('photo') for it in runtime.profile.data.get('items', [])}
         for f in d.iterdir():
-            if runtime.time.time() - f.stat().st_mtime > 30 * 86400 and str(f) not in used:
-                f.unlink()
+            if f.is_symlink():
+                continue
+            try:
+                with file_resource_guard.claim_paths(f):
+                    if (f.is_file()
+                            and runtime.time.time() - f.stat().st_mtime > 30 * 86400
+                            and str(f) not in used):
+                        f.unlink()
+            except (OSError, resource_leases.LeaseConflict):
+                # Another owner/process may be using the photo; cleanup is
+                # best effort and may not become a write-race exception.
+                pass
     except OSError:
         pass
     return str(dest)
+
 
 def _photo_action(runtime, path: str, operation: str, *, question: str = "",
                   target: str = "", note_text: str = "") -> str:
