@@ -72,14 +72,24 @@ def handle(runtime, command: str):
     if brain_entry.matched_protocol("session.pending_action.clarify_cancel"):
         runtime._session().pending_action = None
         return "Tamam, işlemi iptal ettim."
+    # State owns bare resume/cancel; a raw "hedef" or "görev" prefix can
+    # never create a GoalState or authorize a worker on a free-language turn.
     from modules import goal_executor, job_front
-    if job_front.wants(cmd_lower):
-        front_result = job_front.route(runtime.profile.slug, lambda *a, **k: runtime.emit(*a, **k), cmd_lower, session, photo_pending=bool(getattr(runtime, '_pending_photo', {}).get(runtime.profile.slug)))
-        if front_result is not None:
-            return front_result
-    if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in goal_executor.RESUME_COMMANDS or cmd_lower.strip(' .!?') in ('evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
-        goal_result=goal_executor.handle(runtime,command)
-        if goal_result is not None:return goal_result
+    if brain_entry.matched_protocol("job.resume", "job.cancel"):
+        outcome = job_front.route(
+            runtime.profile.slug,
+            lambda *a, **k: runtime.emit(*a, **k),
+            cmd_lower, session,
+            photo_pending=bool(getattr(runtime, "_pending_photo", {}).get(runtime.profile.slug)),
+            bounded=True,
+        )
+        if outcome is not None:
+            return outcome
+    if brain_entry.matched_protocol("goal.resume", "goal.cancel", "goal.approval"):
+        outcome = goal_executor.handle(runtime, command)
+        if outcome is not None:
+            return outcome
+
     # Kanonical açıklama turu (Understanding'ın tek EXPLANATION hükmü): cümle bilgi ister, yürütülecek
     # iş değildir. Buradan sonrası ham cümleyi yeniden sınıflandıran cephelerdir — erken dispatch
     # kolları bile bir soruyu kendi akışına çekebilir (ölçüldü: "infografik nedir?" görsel taslağı
@@ -97,9 +107,6 @@ def handle(runtime, command: str):
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
-    if not goal_executor.active():
-        goal_result=goal_executor.handle(runtime,command)
-        if goal_result is not None:return goal_result
     from modules.command_execution import continue_app
     if not session.pending_action and not session.pending_confirm:
         # Açık uygulama seçimi yalnız canonical sahibi o turn'de ham metni tüketir.
