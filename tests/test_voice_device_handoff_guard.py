@@ -127,6 +127,9 @@ class WakeFollowupRaceTests(TestCase):
 
     def test_online_wake_second_capture_drops_if_speaker_just_started(self):
         lane = _session().voice_lane
+        # The production wake loop uses the lane's busy_event as an abort
+        # fence for capture; the test must supply that real contract.
+        lane.busy_event = threading.Event()
         stop = threading.Event()
         runtime = SimpleNamespace(
             stop_event=stop, pause_listening=threading.Event(),
