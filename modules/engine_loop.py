@@ -19,7 +19,7 @@ def _log_core_feedback(runtime, entry):
     return None
 
 
-def _turn_with_listening_foreground(runtime, voice_session, invoke):
+def _turn_with_listening_foreground(voice_session, invoke):
     """Run one engine turn without letting a provider wait close the microphone.
 
     `invoke()` is the existing Brain/Core handoff, so the owner identity lock, the
@@ -27,8 +27,11 @@ def _turn_with_listening_foreground(runtime, voice_session, invoke):
     The seam only tells `model_wait` that while THIS thread is blocked on a bounded
     provider answer, the interaction layer may take the microphone back.
     """
+    hook = getattr(voice_session, "mic_open_during_model_wait", None)
+    if hook is None:
+        return invoke()           # a session without the seam runs exactly as before
     from modules import model_wait
-    with model_wait.foreground(voice_session.mic_open_during_model_wait):
+    with model_wait.foreground(hook):
         return invoke()
 
 
@@ -393,7 +396,7 @@ def main(runtime, ui=None):
                                 out, brain_feedback, brain_job_id = explicit_read, None, None
                             else:
                                 out, brain_feedback, brain_job_id = _turn_with_listening_foreground(
-                                    runtime, voice_session,
+                                    voice_session,
                                     lambda: brain_entry.handoff(runtime, entry, runtime.handle, cmd),
                                 )
                                 runtime.log.info(

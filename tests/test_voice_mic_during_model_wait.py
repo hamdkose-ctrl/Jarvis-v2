@@ -267,9 +267,22 @@ class TurnWiring(unittest.TestCase):
             seen['hook'] = model_wait._FOREGROUND.get()
             return ('out', None, None)
 
-        result = engine_loop._turn_with_listening_foreground(None, session, handoff)
+        result = engine_loop._turn_with_listening_foreground(session, handoff)
         self.assertEqual(result, ('out', None, None))
         self.assertIs(seen['hook'].__func__, VoiceSession.mic_open_during_model_wait)
+        self.assertIsNone(model_wait._FOREGROUND.get())
+
+    def test_a_session_without_the_seam_runs_the_turn_exactly_as_before(self):
+        """Borrowed engine tests hand the loop a stub session; the turn must still run once.
+
+        Reading a missing attribute raised AttributeError inside `engine_loop.main`, whose
+        except path swallowed it and the loop blocked forever on the empty event queue.
+        """
+        calls = []
+        result = engine_loop._turn_with_listening_foreground(
+            SimpleNamespace(), lambda: (calls.append('handoff'), ('out', None, None))[1])
+        self.assertEqual(result, ('out', None, None))
+        self.assertEqual(calls, ['handoff'])
         self.assertIsNone(model_wait._FOREGROUND.get())
 
     def test_the_seam_takes_no_lock_and_no_second_owner(self):
@@ -325,7 +338,7 @@ class LongJobStaysHeard(unittest.TestCase):
             # test reproduces that claim so the microphone cannot be bought by dropping it.
             with runtime._execution_lock:
                 return engine_loop._turn_with_listening_foreground(
-                    runtime, session, lambda: model_wait.ask('plan', seconds=5))
+                    session, lambda: model_wait.ask('plan', seconds=5))
 
         with patch.object(llm, 'ask', side_effect=model):
             thread = threading.Thread(target=turn, daemon=True, name='planner-turn')
