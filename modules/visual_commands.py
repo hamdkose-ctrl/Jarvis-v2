@@ -8,7 +8,9 @@ chat production path bunları çağırmaz.
 """
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,6 +118,23 @@ def create_visual(text: str, content: str, *, slug: str, kind: str | None = None
         raise ValueError("Bu bir görsel üretim isteği gibi görünmüyor.")
     prompt = build_prompt(resolved_kind, content)
     data = image_gen.generate_image(prompt, slug=slug)
+    from modules import file_resource_guard
     dest = _destination(resolved_kind)
-    dest.write_bytes(data)
+    # A timestamp/number-derived name is only a suggestion, not an atomic
+    # reservation. Reserve the exact OS path and create-only publish it.
+    with file_resource_guard.claim_paths(dest):
+        staged = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='wb', prefix='.jarvis-visual-', suffix='.tmp',
+                    dir=dest.parent, delete=False) as stream:
+                staged = Path(stream.name)
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(staged, dest)
+        finally:
+            # On Windows a file cannot be deleted until the stream closes.
+            if staged is not None:
+                staged.unlink(missing_ok=True)
     return VisualResult(kind=resolved_kind, label=LABELS[resolved_kind], path=str(dest))

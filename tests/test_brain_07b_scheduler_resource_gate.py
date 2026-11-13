@@ -5,6 +5,8 @@ permission grant. A ticket is not evidence of a completed task.
 """
 from dataclasses import replace
 import tempfile
+import threading
+from unittest.mock import Mock
 from pathlib import Path
 import unittest
 
@@ -53,6 +55,35 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
     def setUp(self):
         self.now = [100.0]
         self.leases = resource_leases.LeaseTable(clock=lambda: self.now[0])
+
+    def test_account_lease_renewal_cleanup_is_bounded_and_fail_closed(self):
+        stop = Mock()
+        thread = Mock()
+        thread.is_alive.return_value = True
+        leases = Mock()
+        holder = [object()]
+        held = scheduler_resource_gate._stop_renewal_without_voice_block(
+            stop, thread, True, threading.RLock(), holder, leases,
+        )
+        self.assertFalse(held)
+        stop.set.assert_called_once_with()
+        thread.join.assert_called_once_with(timeout=1.0)
+        leases.release.assert_not_called()
+        leases.validate.assert_not_called()
+
+    def test_clean_heartbeat_exits_before_releasing_owned_ticket(self):
+        stop = Mock()
+        thread = Mock()
+        thread.is_alive.return_value = False
+        leases = Mock()
+        leases.validate.return_value = True
+        ticket = object()
+        self.assertTrue(
+            scheduler_resource_gate._stop_renewal_without_voice_block(
+                stop, thread, True, threading.RLock(), [ticket], leases,
+            ),
+        )
+        leases.release.assert_called_once_with(ticket)
 
     def test_existing_scheduler_table_gates_same_desktop_across_owners(self):
         first = snapshot(owner="alice")

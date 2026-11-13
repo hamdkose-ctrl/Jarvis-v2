@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 from config import DATA_DIR
+from modules import file_resource_guard, resource_leases
+from modules.diagnostics import record_failure as _record_failure
 from modules.turkish_text import lower
 
 DIR = DATA_DIR / 'history'
@@ -39,10 +41,17 @@ def append(slug, role, text, source=''):
     try:
         with _LOCK:
             path=_path(slug)
-            with path.open('a',encoding='utf-8') as f:
-                f.write(json.dumps(row,ensure_ascii=False)+'\n')
-            if path.stat().st_size > _MAX_BYTES: trim(slug)
-    except OSError: pass
+            with file_resource_guard.claim_paths(path):
+                with path.open('a',encoding='utf-8') as f:
+                    f.write(json.dumps(row,ensure_ascii=False)+'\n')
+                    f.flush()
+                    os.fsync(f.fileno())
+                if path.stat().st_size > _MAX_BYTES:
+                    _trim_claimed(path)
+    except (OSError, resource_leases.LeaseConflict):
+        _record_failure('modules/history.py:append:resource')
+        # Never claim a durable history receipt when this write was rejected.
+        return None
     return row
 
 def read(slug, query='', limit=300):
@@ -62,8 +71,9 @@ def read(slug, query='', limit=300):
 
 def clear(slug):
     with _LOCK:
-        try: _path(slug).unlink(missing_ok=True)
-        except OSError: pass
+        path = _path(slug)
+        with file_resource_guard.claim_paths(path):
+            path.unlink(missing_ok=True)
 
 
 def delete_day(slug, day, deleted_ids=None):
@@ -75,36 +85,60 @@ def delete_day(slug, day, deleted_ids=None):
         raise ValueError('Geçersiz sohbet tarihi') from None
     with _LOCK:
         path = _path(slug)
-        if not path.exists():
-            return 0
-        fd, temporary = tempfile.mkstemp(prefix='.history-delete-', dir=path.parent)
-        removed = 0
-        try:
-            with os.fdopen(fd, 'wb') as output, path.open('rb') as source:
-                for line in source:
-                    try:
-                        row = json.loads(line)
-                    except (ValueError, UnicodeError):
-                        row = None
-                    if isinstance(row, dict) and str(row.get('ts', '')).startswith(day + ' '):
-                        removed += 1
-                        if deleted_ids is not None and row.get('id'):
-                            deleted_ids.add(row['id'])
-                    else:
-                        output.write(line)
-                output.flush(); os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
-        return removed
+        with file_resource_guard.claim_paths(path):
+            if not path.exists():
+                return 0
+            fd, temporary = tempfile.mkstemp(prefix='.history-delete-', dir=path.parent)
+            removed = 0
+            removed_ids = set()
+            try:
+                with os.fdopen(fd, 'wb') as output, path.open('rb') as source:
+                    for line in source:
+                        try:
+                            row = json.loads(line)
+                        except (ValueError, UnicodeError):
+                            row = None
+                        if isinstance(row, dict) and str(row.get('ts', '')).startswith(day + ' '):
+                            removed += 1
+                            if deleted_ids is not None and row.get('id'):
+                                removed_ids.add(row['id'])
+                        else:
+                            output.write(line)
+                    output.flush(); os.fsync(output.fileno())
+                os.replace(temporary, path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+            # Do not publish UI deletion receipts before durable replacement.
+            if deleted_ids is not None:
+                deleted_ids.update(removed_ids)
+            return removed
+
+
+def _trim_claimed(path):
+    """Caller holds the exact history path claim; never nest a second claim."""
+    lines=[]; size=0
+    for line in _reverse_lines(path):
+        if lines and (len(lines)>=_MAX_LINES or size+len(line)>_MAX_BYTES//2):
+            break
+        lines.append(line);size+=len(line)+1
+    fd, temporary = tempfile.mkstemp(prefix='.history-trim-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(b'\n'.join(reversed(lines))+b'\n')
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary,path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
 
 def trim(slug):
     try:
         with _LOCK:
-            path=_path(slug); lines=[]; size=0
-            for line in _reverse_lines(path):
-                if lines and (len(lines)>=_MAX_LINES or size+len(line)>_MAX_BYTES//2): break
-                lines.append(line);size+=len(line)+1
-            tmp=path.with_suffix('.tmp')
-            tmp.write_bytes(b'\n'.join(reversed(lines))+b'\n');os.replace(tmp,path)
-    except OSError: pass
+            path=_path(slug)
+            if not path.exists():
+                return
+            with file_resource_guard.claim_paths(path):
+                _trim_claimed(path)
+    except (OSError, resource_leases.LeaseConflict):
+        _record_failure('modules/history.py:trim:resource')

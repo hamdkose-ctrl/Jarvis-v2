@@ -20,6 +20,35 @@ class MathTutorTests(unittest.TestCase):
         self.p=SimpleNamespace(slug='alice',data={},save=lambda:None)
         self.reply=json.dumps({'text':'2x + 4 = 10. Önce 4 çıkar: 2x = 6. İkiye böl: x = 3. Kontrol: 2×3+4=10.', 'topic':'Denklem', 'visual':{'kind':'number_line','min':0,'max':5,'values':[3]}},ensure_ascii=False)
 
+    def test_math_attachment_create_only_rejects_existing_file(self):
+        target = self.root/'math.png'
+        target.write_bytes(b'prior student content')
+        with self.assertRaises(FileExistsError):
+            mt._publish_math_attachment(target, b'new math image')
+        self.assertEqual(target.read_bytes(), b'prior student content')
+        self.assertFalse(list(self.root.glob('.jarvis-math-*')))
+
+    def test_math_attachment_failed_publish_leaves_no_partial_target(self):
+        target = self.root/'math.pdf'
+        with patch.object(mt.os, 'link', side_effect=OSError('no link')):
+            with self.assertRaises(OSError):
+                mt._publish_math_attachment(target, b'new math content')
+        self.assertFalse(target.exists())
+        self.assertFalse(list(self.root.glob('.jarvis-math-*')))
+
+    def test_math_profile_save_failure_does_not_leave_new_attachment(self):
+        from PIL import Image
+        source = nxapi.FILES_DIR/'math-source.png'
+        Image.new('RGB', (96, 64), 'white').save(source)
+        self.p.save = lambda: (_ for _ in ()).throw(OSError('disk full'))
+        with patch.object(mt.llm, 'ask_image', return_value=self.reply):
+            with self.assertRaises(OSError):
+                mt.solve(self.p, '', str(source))
+        folder = study._dir(self.p)/'math'
+        self.assertFalse(list(folder.glob('*.png')))
+        self.assertFalse(list(folder.glob('*.pdf')))
+        self.assertFalse(list(folder.glob('.jarvis-math-*')))
+
     def test_region_sends_actual_crop_and_keeps_full_original(self):
         from PIL import Image
         source=nxapi.FILES_DIR/'region.png';Image.new('RGB',(200,100),'white').save(source)

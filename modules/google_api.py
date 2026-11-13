@@ -192,9 +192,25 @@ def health() -> list[str]:
     return out
 
 
+_SERVICE_HTTP_TIMEOUT_SECONDS = 20
+
+
 def _service(name: str, version: str, interactive: bool = False):
+    """Bound Google REST calls without changing the authorized OAuth account.
+
+    Unbounded httplib2 socket reads can strand a canonical worker indefinitely
+    after its Core deadline. The OS resource lease still fences late results;
+    this underlying transport bound also releases a hung request's socket.
+    Credentials are resolved through the existing per-user token contract.
+    """
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
     from googleapiclient.discovery import build
-    return build(name, version, credentials=_creds(interactive=interactive), cache_discovery=False)
+    creds = _creds(interactive=interactive)
+    client = AuthorizedHttp(
+        creds, http=httplib2.Http(timeout=_SERVICE_HTTP_TIMEOUT_SECONDS),
+    )
+    return build(name, version, http=client, cache_discovery=False)
 
 
 def tasks_service(interactive: bool = False):

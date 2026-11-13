@@ -123,6 +123,30 @@ class CreateVisualTests(unittest.TestCase):
                 vc.create_visual("yarın hava nasıl olacak", "x", slug="hamdi", _ask=lambda *a, **k: "hicbiri")
             gen.assert_not_called()
 
+    def test_existing_visual_filename_can_never_be_overwritten(self):
+        destination = self.files_dir / 'Görseller' / 'occupied.png'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b'foreign content')
+        with self._fake_generate(), patch.object(vc, '_destination',
+                                                 return_value=destination):
+            with self.assertRaises(FileExistsError):
+                vc.create_visual('görselleştir', 'x', slug='hamdi',
+                                 kind='visualize')
+        self.assertEqual(destination.read_bytes(), b'foreign content')
+        self.assertFalse(list(destination.parent.glob('.jarvis-visual-*')))
+
+    def test_visual_publish_failure_leaves_no_partial_public_file(self):
+        destination = self.files_dir / 'Görseller' / 'fresh.png'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._fake_generate(), patch.object(vc, '_destination',
+                                                 return_value=destination), \
+             patch.object(vc.os, 'link', side_effect=OSError('no link')):
+            with self.assertRaises(OSError):
+                vc.create_visual('görselleştir', 'x', slug='hamdi',
+                                 kind='visualize')
+        self.assertFalse(destination.exists())
+        self.assertFalse(list(destination.parent.glob('.jarvis-visual-*')))
+
     def test_filename_never_collides(self):
         with self._fake_generate():
             r1 = vc.create_visual("zihin haritası", "x", slug="hamdi")

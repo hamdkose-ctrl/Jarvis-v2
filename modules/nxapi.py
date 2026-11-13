@@ -437,25 +437,47 @@ def save_upload(name: str, data: bytes) -> Path:
 
 
 def save_upload_stream(name: str, source) -> Path:
+    """Complete a streamed user upload before exposing its final filename.
+
+    The old open('xb') path reserved a public name before transfer completed,
+    allowing other readers to observe partially uploaded content. The file
+    claim and OS create-only link now cover publication, not just naming.
+    """
+    import shutil
+    import tempfile
+    from modules import file_resource_guard, resource_leases
+
+    if FILES_DIR.is_symlink():
+        raise ValueError('Yükleme klasörü sembolik bağ olamaz.')
     FILES_DIR.mkdir(parents=True, exist_ok=True)
     name = Path(name).name or "dosya"
-    n = 0
-    while True:
-        dest = FILES_DIR / (name if n == 0 else f"{Path(name).stem}_{n}{Path(name).suffix}")
-        try:
-            stream = dest.open('xb')  # Reserve the filename atomically across upload threads.
-        except FileExistsError:
-            n += 1
-            continue
-        try:
-            with stream:
-                import shutil
-                shutil.copyfileobj(source, stream, length=1 << 20)
-        except BaseException:
-            dest.unlink(missing_ok=True)
-            raise
-        return dest
-
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='wb', prefix='.jarvis-upload-',
+                suffix='.tmp', dir=FILES_DIR, delete=False) as stream:
+            staged = Path(stream.name)
+            shutil.copyfileobj(source, stream, length=1 << 20)
+            stream.flush()
+            os.fsync(stream.fileno())
+        n = 0
+        while n < 10000:
+            dest = FILES_DIR / (name if n == 0 else
+                                f"{Path(name).stem}_{n}{Path(name).suffix}")
+            try:
+                with file_resource_guard.claim_paths(dest):
+                    os.link(staged, dest)
+                    return dest
+            except (FileExistsError, resource_leases.LeaseConflict):
+                # Concurrent uploads must choose another filename instead of
+                # failing because a different thread owns this candidate.
+                # A busy filename is not a license to overwrite or retry that
+                # filename without its physical OS claim.
+                n += 1
+        raise FileExistsError('Yükleme için benzersiz dosya adı bulunamadı.')
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
 
 # ------------------------------------------------------------------ Windows açılışında başlat
 def _startup_file() -> Path | None:

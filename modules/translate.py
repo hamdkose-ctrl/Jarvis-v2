@@ -9,6 +9,7 @@ from .llm import ask
 from .docs import read_document
 from . import output
 from . import requests_state
+from . import file_resource_guard
 
 
 from .translation_targets import target_from_command
@@ -130,7 +131,10 @@ def _cell_batches(cells, max_chars: int = 4500, max_cells: int = 15):
 def translate_excel_document(path: str, target: str) -> str:
     from openpyxl import load_workbook
 
-    workbook = load_workbook(path)
+    # Read a coherent source snapshot under the same OS-account file
+    # arbitration used by native document writers.
+    with file_resource_guard.claim_paths(Path(path)):
+        workbook = load_workbook(path)
     try:
         cells = [
             (worksheet, cell)
@@ -192,15 +196,24 @@ def translate_excel_document(path: str, target: str) -> str:
             completed += len(batch)
             print(f"(Excel çevirisi: {completed}/{len(cells)} hücre)")
 
-        fd, temporary = tempfile.mkstemp(prefix='.jarvis-translate-', suffix='.xlsx', dir=Path(output_path).parent)
-        os.close(fd)
-        try:
-            requests_state.check()
-            workbook.save(temporary)
-            requests_state.check()
-            os.replace(temporary, output_path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        destination = Path(output_path)
+        with file_resource_guard.claim_paths(destination):
+            fd, temporary = tempfile.mkstemp(
+                prefix='.jarvis-translate-', suffix='.xlsx',
+                dir=destination.parent,
+            )
+            os.close(fd)
+            try:
+                requests_state.check()
+                workbook.save(temporary)
+                requests_state.check()
+                with open(temporary, 'rb+') as finished:
+                    os.fsync(finished.fileno())
+                # A save dialog is NOT a lock. Another process could create
+                # this output during the model translation. Never clobber it.
+                os.link(temporary, destination)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
     finally:
         workbook.close()
 

@@ -6,7 +6,7 @@ soru tipi önceliğini belirler. Her profilin kaynakları ve ilerlemesi ayrıdı
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
-import json, logging, math, re, shutil, threading, time, hashlib, uuid
+import copy, json, logging, math, os, re, shutil, tempfile, threading, time, hashlib, uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +40,30 @@ def _dir(profile):
     d = ROOT / profile.slug
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _publish_new_study_file(destination: Path, *, content: bytes | None = None,
+                            source: Path | None = None) -> None:
+    """Create-only publish a fully written study artifact (caller owns OS claims)."""
+    if (content is None) == (source is None):
+        raise ValueError('One study source is required.')
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='wb', prefix='.jarvis-study-', suffix='.tmp',
+                dir=destination.parent, delete=False) as stream:
+            staged = Path(stream.name)
+            if source is not None:
+                with source.open('rb') as incoming:
+                    shutil.copyfileobj(incoming, stream)
+            else:
+                stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(staged, destination)
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
 
 
 def _state(profile):
@@ -156,22 +180,52 @@ def _add(profile, path, kind="book", year=None, period="", session="", *, title=
     with _jobs_lock:
         if generation is not None and generation != _state(profile).get('source_generation',0):
             raise ValueError('Kaynak yüklemesi iptal edildi; kaynaklar temizlendikten sonra yeniden eklenmedi.')
-        item['id']=profile._new_id()
-        if source_hash: item['source_hash']=source_hash
-        (_dir(profile) / f"{item['id']}.txt").write_text(text, encoding="utf-8")
+        from modules import file_resource_guard
+        item['id'] = profile._new_id()
+        if source_hash:
+            item['source_hash'] = source_hash
+        directory = _dir(profile)
+        outputs = [
+            (directory / f"{item['id']}.txt", text.encode('utf-8'), None),
+        ]
         if pages and kind != "exam":
-            # PDF sayfa sınırlarını ayrıca koru; cevaplarda kaynak sayfası gösterilebilsin.
-            (_dir(profile) / f"{item['id']}.pages.json").write_text(
-                json.dumps({"pages": pages}, ensure_ascii=False), encoding="utf-8")
+            outputs.append((
+                directory / f"{item['id']}.pages.json",
+                json.dumps({"pages": pages}, ensure_ascii=False).encode('utf-8'),
+                None,
+            ))
         if p.suffix.lower() == '.pdf' and p.is_file():
-            shutil.copyfile(p, _dir(profile) / f"{item['id']}.source.pdf")
+            outputs.append((directory / f"{item['id']}.source.pdf", None, p))
             item['original_pdf'] = True
-        state = _state(profile)
-        state.setdefault("docs", []).append(item)
-        if kind == "exam":
-            state.pop("exam_analysis", None)
-        profile.save()
-        return item
+        # Cross-process ownership of ALL paths prevents another Jarvis
+        # instance from stealing the same source ID; a duplicate or crashed
+        # orphan is never silently overwritten. No new profile/GoalState store.
+        with file_resource_guard.claim_paths(p, *(row[0] for row in outputs)):
+            written = []
+            state = _state(profile)
+            old_analysis = state.get('exam_analysis')
+            appended = False
+            try:
+                for destination, content, copy_from in outputs:
+                    _publish_new_study_file(
+                        destination, content=content, source=copy_from,
+                    )
+                    written.append(destination)
+                state.setdefault('docs', []).append(item)
+                appended = True
+                if kind == 'exam':
+                    state.pop('exam_analysis', None)
+                profile.save()
+                return item
+            except Exception:
+                _record_failure('modules/study.py:_add:publish')
+                if appended:
+                    state['docs'].remove(item)
+                    if kind == 'exam' and old_analysis is not None:
+                        state['exam_analysis'] = old_analysis
+                for target in reversed(written):
+                    target.unlink(missing_ok=True)
+                raise
 
 
 def add(profile, path):
@@ -258,29 +312,80 @@ def add_exam(profile, path, year, period="", session=""):
 
 
 def remove(profile, doc_id):
-    s = _state(profile)
-    before = next((d for d in s.get("docs", []) if int(d.get("id", -1)) == int(doc_id)), None)
-    s["docs"] = [d for d in s.get("docs", []) if int(d.get("id", -1)) != int(doc_id)]
-    if before and before.get("kind") == "exam":
-        s.pop("exam_analysis", None)
-    for ext in (".txt", ".pages.json", ".emb.json", ".exam.json", ".source.pdf"):
-        (_dir(profile) / f"{int(doc_id)}{ext}").unlink(missing_ok=True)
-    if s.get('active_doc')==int(doc_id):s.pop('active_doc',None)
-    if (s.get('source_session') or {}).get('doc_id') == int(doc_id):s.pop('source_session',None)
-    profile.save()
+    from modules import file_resource_guard
+    # Lock all physical source names before changing owner catalog. Commit
+    # durable catalog removal FIRST: failed profile.save must not destroy
+    # bytes or leave stale in-memory metadata behind.
+    doc_id = int(doc_id)
+    with _jobs_lock:
+        directory = _dir(profile)
+        files = [
+            directory / f"{doc_id}{ext}"
+            for ext in (".txt", ".pages.json", ".emb.json",
+                        ".exam.json", ".source.pdf")
+        ]
+        with file_resource_guard.claim_paths(*files):
+            s = _state(profile)
+            before_state = copy.deepcopy(s)
+            before = next(
+                (d for d in s.get("docs", [])
+                 if int(d.get("id", -1)) == doc_id), None,
+            )
+            s['docs'] = [
+                d for d in s.get('docs', [])
+                if int(d.get('id', -1)) != doc_id
+            ]
+            if before and before.get('kind') == 'exam':
+                s.pop('exam_analysis', None)
+            if s.get('active_doc') == doc_id:
+                s.pop('active_doc', None)
+            if (s.get('source_session') or {}).get('doc_id') == doc_id:
+                s.pop('source_session', None)
+            try:
+                profile.save()
+            except Exception:
+                _record_failure('modules/study.py:remove:profile_save')
+                s.clear()
+                s.update(before_state)
+                raise
+            # Once catalog commit succeeds, cleanup is best-effort. Leftover
+            # orphan bytes are safer than a catalog pointing at deleted data.
+            for path in files:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    _record_failure('modules/study.py:remove:file_cleanup')
 
 
 def clear(profile):
+    from modules import file_resource_guard, resource_leases
     with _jobs_lock:
-        s=_state(profile);s['source_generation']=s.get('source_generation',0)+1
-        s['docs']=[]
-        for key in ('exam_analysis','active_doc','last_topic','lesson_context','quiz_attempt','mock_session','topics','courses','source_session','math_turns'):
-            s.pop(key,None)
-        _LAST_TOPIC.pop(profile.slug,None)
-        # Pending immutable extraction inputs remain until their worker exits.
+        s = _state(profile)
+        before_state = copy.deepcopy(s)
+        s['source_generation'] = s.get('source_generation', 0) + 1
+        s['docs'] = []
+        for key in ('exam_analysis', 'active_doc', 'last_topic',
+                    'lesson_context', 'quiz_attempt', 'mock_session',
+                    'topics', 'courses', 'source_session', 'math_turns'):
+            s.pop(key, None)
+        try:
+            profile.save()
+        except Exception:
+            _record_failure('modules/study.py:clear:profile_save')
+            s.clear()
+            s.update(before_state)
+            raise
+        _LAST_TOPIC.pop(profile.slug, None)
+        # The new generation is durably fenced before any destructive step.
+        # A physical owner may still be using the file; leave that file
+        # orphaned rather than deleting its live source underneath it.
         for path in _dir(profile).iterdir():
-            if path.is_file():path.unlink(missing_ok=True)
-        profile.save()
+            try:
+                if path.is_file():
+                    with file_resource_guard.claim_paths(path):
+                        path.unlink(missing_ok=True)
+            except (OSError, resource_leases.LeaseConflict):
+                _record_failure('modules/study.py:clear:busy_file')
 
 
 def _words(s):
@@ -329,7 +434,14 @@ def _vectors(profile, item, chunks):
         _EMB_FAIL[key] = time.time()
         return None
     if len(vecs) != len(chunks): return None
-    f.write_text(json.dumps({"tag": tag, "v": vecs}), encoding="utf-8")
+    import release_guard
+    from modules import file_resource_guard
+    # Cache updates are intentional replacements, but a private partial JSON
+    # must not leak to another process or overlap a deleted study source.
+    with file_resource_guard.claim_paths(f):
+        release_guard.atomic(
+            f, json.dumps({"tag": tag, "v": vecs}).encode('utf-8'),
+        )
     return vecs
 
 
