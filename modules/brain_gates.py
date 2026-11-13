@@ -295,6 +295,19 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
     if reference.id == "pending_msg":
         if data is not None and data.get("stage") in ("to", "text") and text in _CANCEL:
             return _hit(owner, request_id, "state", "session.pending_msg.cancel", "cancel", "BOUNDED_MESSAGE_CANCEL")
+        if data is not None and data.get("stage") == "to":
+            # Only an EXACT name offered from this owner's current address book
+            # may answer the bounded recipient question. No fuzzy nickname,
+            # substring, arbitrary text, or free-language classification.
+            choices = reference.provenance.get("recipient_candidates")
+            if not isinstance(choices, (tuple, list)):
+                return None
+            matches = [name for name in choices
+                       if isinstance(name, str) and name.strip() and _norm(name) == text]
+            if len(matches) == 1:
+                return _hit(owner, request_id, "state", "session.pending_msg.recipient",
+                            matches[0], "BOUNDED_MESSAGE_RECIPIENT")
+            return None
         if data is None or data.get("stage") != "confirm":
             return None
         answer = _confirmation(text, extra=("gönder", "gonder", "evet gönder", "evet gonder", "gönder gitsin", "gonder gitsin"))
