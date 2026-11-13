@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 from pathlib import Path
 
 from config import DATA_DIR
@@ -181,59 +180,172 @@ def _free_name(dst: Path) -> Path:
     return dst
 
 
-def apply_organize(plan: list[tuple[Path, Path]], owner: str = "") -> int:
-    """Dosyaları taşır ve geri alma kaydını yazar. Taşınan dosya sayısını döndürür."""
-    moved = []
-    for src, dst in plan:
-        try:
-            dst.parent.mkdir(exist_ok=True)
-            final = _free_name(dst)
-            shutil.move(str(src), str(final))
-            moved.append([str(final), str(src)])
-        except OSError:
-            continue
-    undo_file = _undo_file(owner)
-    undo_file.parent.mkdir(parents=True, exist_ok=True)
-    undo_file.write_text(json.dumps(moved, ensure_ascii=False), encoding="utf-8")
-    return len(moved)
+def _move_create_only(source: Path, destination: Path) -> None:
+    """Same-volume file move without ever replacing another path.
+
+    An existing destination (including one created by a non-cooperating
+    process after our preflight) makes os.link fail atomically. Cross-volume
+    moves and filesystems without hard links fail closed rather than falling
+    back to shutil.copy2, which could overwrite a racing destination.
+    The caller writes the intent receipt before this operation: a crash
+    between link and unlink leaves an unknown effect, never an auto-retry.
+    """
+    os.link(source, destination)
+    if not os.path.samefile(source, destination):
+        raise OSError('Source identity changed during create-only move.')
+    source.unlink()
+
+
+def _content_digest(path: Path) -> str:
+    """Content-bound undo identity, stable across a same-bytes restored file."""
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _validated_undo_entries(value):
+    if not isinstance(value, list) or any(
+        not isinstance(row, list) or len(row) not in (2, 3, 4)
+        or any(not isinstance(item, str) or not item for item in row)
+        or (len(row) >= 3 and
+            (len(row[2]) != 64 or any(ch not in '0123456789abcdef' for ch in row[2])))
+        or (len(row) == 4 and row[3] not in {'intent', 'moved'})
+        for row in value
+    ):
+        raise ValueError('Geri alma kaydı bozuk; dosyalara dokunulmadı.')
+    return value
+
+
+def apply_organize(plan: list[tuple[Path, Path]], owner: str = "",
+                   *, expected_stamp: str | None = None) -> int:
+    """Apply a confirmed plan through the same physical claims as file_ops.
+
+    The per-owner undo receipt is held for the entire batch. Every source and
+    actual destination is claimed separately (no 16-path batch limit).
+    A stale preview or a changed file fails before a move; never overwrite
+    somebody else's pending undo receipt or an existing destination.
+    """
+    from contextlib import nullcontext
+    import release_guard
+    from modules import file_resource_guard, resource_leases
+
+    if (not isinstance(plan, list)
+            or any(not isinstance(row, (list, tuple)) or len(row) != 2
+                   for row in plan)):
+        raise ValueError('Düzenleme planı geçersiz; dosyalar taşınmadı.')
+    if expected_stamp is not None and (
+            not isinstance(expected_stamp, str) or len(expected_stamp) != 64):
+        raise ValueError('Düzenleme onayı geçersiz.')
+    receipt = _undo_file(owner)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with file_resource_guard.claim_paths(receipt):
+            if receipt.exists():
+                try:
+                    previous = _validated_undo_entries(json.loads(
+                        receipt.read_text(encoding='utf-8')))
+                except (OSError, ValueError) as exc:
+                    raise ValueError('Önceki geri alma kaydı doğrulanamadı; yeni düzenleme yapılmadı.') from exc
+                if previous:
+                    raise ValueError('Önceki düzenlemenin geri alma kaydı duruyor; önce onu tamamla.')
+            if expected_stamp is not None and plan_stamp(plan) != expected_stamp:
+                raise ValueError('Düzenleme önizlemesindeki dosyalar değişti; yeniden onay gerekli.')
+            # Snapshot BEFORE effects, then revalidate EACH source under its
+            # physical claim to close the preview->move TOCTOU window.
+            original = [(Path(src), Path(dst), _identity(Path(src))) for src, dst in plan]
+            moved = []
+            for source, destination, stamp in original:
+                if stamp == 'yok':
+                    raise ValueError('Düzenlenecek dosya kayboldu; plan yeniden hazırlanmalı.')
+                if destination.parent.is_symlink():
+                    raise ValueError('Düzenleme hedefi sembolik bağ; dosya taşınmadı.')
+                destination.parent.mkdir(exist_ok=True)
+                with file_resource_guard.claim_paths(source, destination):
+                    if (source.is_symlink() or not source.is_file()
+                            or _identity(source) != stamp):
+                        raise ValueError('Dosya değişti; eski düzenleme onayı uygulanmadı.')
+                    final = _free_name(destination)
+                    claim_suffix = (
+                        nullcontext() if final == destination
+                        else file_resource_guard.claim_paths(final)
+                    )
+                    with claim_suffix:
+                        if final.exists() or final.is_symlink():
+                            raise resource_leases.LeaseConflict(
+                                'Organize destination was taken before move.'
+                            )
+                        # Write-ahead: a process death AFTER the physical move
+                        # but BEFORE its completion marker must leave a durable
+                        # intent that prohibits blind replay or a second batch.
+                        pending = [str(final), str(source),
+                                   _content_digest(source), 'intent']
+                        release_guard.atomic(
+                            receipt, json.dumps(moved + [pending],
+                                                ensure_ascii=False).encode('utf-8'),
+                        )
+                        _move_create_only(source, final)
+                        pending[3] = 'moved'
+                        moved.append(pending)
+                        # Mark only a proven move. If this write fails, the
+                        # previous 'intent' remains as a manual-review fence.
+                        release_guard.atomic(
+                            receipt, json.dumps(moved, ensure_ascii=False).encode('utf-8'),
+                        )
+            return len(moved)
+    except resource_leases.LeaseConflict as exc:
+        raise ValueError('Aynı dosyada veya geri alma kaydında başka bir işlem çalışıyor.') from exc
 
 
 def undo_organize(owner: str = "") -> int | None:
-    """Son düzenlemeyi geri alır. Kayıt yoksa None.
+    """Undo only content-verified moves under the same cross-process file claims.
 
-    Yerine dönmeyen her kayıt silinmez: hedefi dolu olan dosya kategoride kalır ve bir sonraki
-    "geri al" denemesi onu yeniden dener; başarı sayısıyla kaybolmayan kayıt sayısı birlikte doğru olur."""
-    undo_file = _undo_file(owner)
-    try:
-        moved = json.loads(undo_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    Two-field legacy receipts remain readable but never authorize a blind move:
+    an unverified old record may refer to a different file now at that path.
+    """
+    import release_guard
+    from modules import file_resource_guard, resource_leases
+
+    receipt = _undo_file(owner)
+    if not receipt.exists() and not receipt.is_symlink():
         return None
-    back = 0
-    blocked = []
-    for new, old in reversed(moved):
-        try:
-            if not os.path.exists(new):
-                # Yerinde olmayan kayıt silinmez: dosya kategoride belki yeniden belirir ve
-                # bir sonraki "geri al" onu tekrar dener.
-                blocked.append([new, old])
-                continue
-            if os.path.exists(old):
-                blocked.append([new, old])
-                continue
-            shutil.move(new, old)
-            back += 1
-        except OSError:
-            blocked.append([new, old])
-    for new, _old in moved:       # boş kalan kategori klasörlerini temizle
-        try:
-            Path(new).parent.rmdir()
-        except OSError:
-            pass
-    if blocked:
-        undo_file.write_text(json.dumps(blocked, ensure_ascii=False), encoding="utf-8")
-    else:
-        try:
-            undo_file.unlink()
-        except OSError:
-            pass
-    return back
+    try:
+        with file_resource_guard.claim_paths(receipt):
+            try:
+                moved = _validated_undo_entries(json.loads(
+                    receipt.read_text(encoding='utf-8')))
+            except (OSError, ValueError):
+                return None
+            restored, blocked = 0, []
+            for entry in reversed(moved):
+                new, old = entry[:2]
+                try:
+                    with file_resource_guard.claim_paths(Path(new), Path(old)):
+                        source, destination = Path(new), Path(old)
+                        if (not source.is_file() or source.is_symlink()
+                                or destination.exists() or destination.is_symlink()
+                                or len(entry) < 3
+                                or (len(entry) == 4 and entry[3] != 'moved')
+                                or _content_digest(source) != entry[2]):
+                            blocked.append(entry)
+                            continue
+                        _move_create_only(source, destination)
+                        restored += 1
+                except (OSError, resource_leases.LeaseConflict):
+                    blocked.append(entry)
+            if blocked:
+                release_guard.atomic(
+                    receipt,
+                    json.dumps(list(reversed(blocked)), ensure_ascii=False).encode('utf-8'),
+                )
+            else:
+                receipt.unlink(missing_ok=True)
+            for new, _old, *_digest in moved:
+                try:
+                    Path(new).parent.rmdir()
+                except OSError:
+                    pass
+            return restored
+    except (OSError, resource_leases.LeaseConflict):
+        return 0

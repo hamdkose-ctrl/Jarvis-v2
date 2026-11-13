@@ -1,9 +1,10 @@
-"""BRAIN-07B: conservative read-only Core-plan / ResourceLease admission.
+"""BRAIN-07 production Core-plan / ResourceLease admission.
 
-This is an adapter for the ONE existing scheduler to call in a later cutover.
-No worker is launched, no task/goal store is created, and acquiring a lease is
-NOT a permission to perform any effect. It deliberately rejects unknown and
-effectful capabilities and dependent steps until verified predecessors exist.
+The ONE existing Scheduler reaches read-only canonical research and account
+workers through this gate and specialist_orchestrator. Core owns authorization,
+accepted predecessor proof and WorkerResult CAS; a lease alone cannot grant
+permission or an effect. Other dependency shapes and effectful canonical nodes
+remain disallowed until independently reviewed and integrated.
 """
 from __future__ import annotations
 

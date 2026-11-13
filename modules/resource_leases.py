@@ -1,10 +1,11 @@
-"""BRAIN-07A: scheduler-owned, in-process ResourceLease fencing primitive.
+"""BRAIN-07: one Scheduler's in-process LeaseTable plus physical OS claims.
 
-The existing Scheduler may own ONE LeaseTable instance. This module does not
-schedule work, store GoalState, grant permission or approve an effect. This
-first slice intentionally has NO production dispatch wiring and is NOT a
-durable cross-process lock. Restart recovery and result-commit fencing require
-later BRAIN-07 slices before any effectful capability can use leases.
+The existing Scheduler owns the per-process LeaseTable, including heartbeat,
+generation and Core WorkerResult admission fencing. process_resource_claim
+also provides cooperative OS-account physical claims for approved native
+adapters; LeaseTable alone is NOT a cross-process lock or an effect approval.
+Read-only canonical research/account workers are wired to production through
+scheduler_resource_gate; effectful canonical workers remain unauthorized.
 """
 from __future__ import annotations
 
