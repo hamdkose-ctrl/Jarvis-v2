@@ -2739,6 +2739,18 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 ref for ref in (() if active_context is None else active_context.goal_candidates)
                 if ref.owner == result.owner
             ),
+            # A successful Core readback records the one fresh owner-bound
+            # level target. Offer that factual observation to the model so
+            # a bare "50" can refer to the previous verified volume/brightness
+            # adjustment without feeding it a legacy regex classification.
+            last_verified_level_property=next(
+                (ref.provenance.get("value")
+                 for ref in (() if active_context is None else active_context.recent_references)
+                 if ref.owner == result.owner and ref.source == "session_state"
+                 and ref.id == "last_property"
+                 and ref.provenance.get("value") in {"volume", "brightness"}),
+                None,
+            ),
             # Recent turns are owner-bound observations, not instructions to
             # the model. Keep the latest eight, short and role-labelled; never
             # ship the full history or credentials through this context path.
