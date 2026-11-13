@@ -155,6 +155,7 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         return f"Bu telefonda kullanıcıyı değiştirmek için sağ üstteki kullanıcı menüsünden {p.name} seç."
     from modules import pc_guide
     pc_guide.stop()
+    previous_owner = runtime.pc_profile().slug   # hoparlörün şu anki sahibi (geçiş öncesi)
     runtime.profile = runtime._get_profile(name)
     runtime.profile.save()
     runtime._llm.set_user_context(runtime.profile.slug)
@@ -164,6 +165,25 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         runtime._guest = runtime.profile.name             # telefondan: yalnızca o telefonun kullanıcısı (bilgisayar etkilenmez)
     runtime._sessions.reset(runtime.profile.slug)
     runtime._sessions._owner.set(runtime.profile.slug)
+    speech_stop = ""
+    if runtime.pc_profile().slug != previous_owner:
+        # The audible speaker owner changed: stop the previous user's queued and
+        # in-progress speech before the new user is greeted, so their audio never
+        # continues into the new session. Called after the profile reassignment so
+        # the per-chunk owner gate also rejects not-yet-started stale speech.
+        from modules import voice_runtime
+        if not voice_runtime.on_owner_switch(previous_owner):
+            # The player did not acknowledge the stop inside the bound. Greeting the
+            # new user as if it had would claim a stop that was not verified, so the
+            # switch says exactly the two things that are true and nothing more: the
+            # audio already in the speaker was not cut and can run on for its own
+            # length, while no further chunk of the previous user's utterance starts
+            # because the owner gate now names this new user. The one output owner
+            # also means the new user's own speech queues behind that leftover
+            # audio rather than playing over it (tests/test_voice_runtime_bridge.py).
+            speech_stop = (" Önceki kullanıcının sesi kesilemedi; çalmakta olan bölüm"
+                           " kısa süre devam edebilir ama kalan bölümleri çalmaz,"
+                           " senin yanıtın da onunla üst üste binmez.")
     from modules import hooks
     hooks.observe("session", {"event": "user_switched", "created": bool(created)}, owner=runtime.profile.slug)
     runtime._session().last_doc = None            # bir kullanıcının analizi diğerine kaydedilmesin
@@ -176,11 +196,12 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
     runtime.log.info("Kullanıcı: %s", runtime.profile.name)
     if created:
         return (f"Merhaba {runtime.profile.name}, senin için yeni bir profil açtım. "
-                "Hedefini söylemek için hedefim, sesini seçmek için sesimi seç de.")
+                "Hedefini söylemek için hedefim, sesini seçmek için sesimi seç de." + speech_stop)
     goals = runtime.profile.data["goals"]
     if goals:
-        return f"Merhaba {runtime.profile.name}. Hedefin: {goals[-1]}. Kaldığımız yerden devam edebiliriz."
-    return f"Merhaba {runtime.profile.name}."
+        return (f"Merhaba {runtime.profile.name}. Hedefin: {goals[-1]}. "
+                f"Kaldığımız yerden devam edebiliriz.{speech_stop}")
+    return f"Merhaba {runtime.profile.name}." + speech_stop
 
 def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
     """Existing sharing and voice controls; profile intent belongs to Core."""
