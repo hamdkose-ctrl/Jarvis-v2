@@ -91,14 +91,23 @@ class GuardTests(unittest.TestCase):
 
 
 class ShareAndClarifyTests(unittest.TestCase):
-    def test_share_stop_phrases_route_to_existing_close(self):
-        control = Mock(return_value='kapatma sonucu')
-        runtime = SimpleNamespace(re=re, set_share=control, _session=lambda: SessionState())
-        for text in ('paylaşımı kapat', 'paylaşımı durdur', 'paylaşımı bitir', 'paylasimi kapat', 'paylaşımı kapatır mısın',
+    def test_share_stop_uses_typed_core_and_one_existing_executor(self):
+        # The removed _user_controls() parser is not an execution interface.
+        # These phrasings are evaluated by the semantic model in production;
+        # this test verifies the one permitted Core/effect contract.
+        from modules import brain_core_map, engine_intents
+        plan = brain_core_map.core_plan("device.share", {"action": "stop"})
+        self.assertEqual(plan, ("share_control", {"action": "stop"}))
+        control = Mock(return_value="kapatma sonucu")
+        runtime = SimpleNamespace(set_share=control)
+        for text in ('paylaşımı kapat', 'paylaşımı durdur', 'paylaşımı bitir',
+                     'paylasimi kapat', 'paylaşımı kapatır mısın',
                      'paylaşmayı durdur'):
-            control.reset_mock()
-            self.assertEqual(engine_context._user_controls(runtime, text, text), 'kapatma sonucu', text)
-            control.assert_called_once_with(None)
+            with self.subTest(text=text):
+                control.reset_mock()
+                result = engine_intents.dispatch(runtime, plan[0], plan[1], text, text.casefold())
+                self.assertEqual(result, "kapatma sonucu")
+                control.assert_called_once_with(None)
 
     def test_set_share_reports_real_result(self):
         def runtime(mode):
