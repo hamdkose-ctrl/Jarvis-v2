@@ -126,6 +126,12 @@ class VoiceSession:
         self.state = {"awake_until": 0.0}
         self.voice_lane = None
         self.voice_core_fault = None
+        # Many queued utterances must share ONE barge-in watcher rather than
+        # leaving a separate microphone contender alive for each speech receipt.
+        self._barge_lock = threading.Lock()
+        self._barge_thread = None
+        self._barge_pending = None
+        self._barge_closed = threading.Event()
         from modules import voice_runtime
         try:
             self.voice_lane, piper_enabled = voice_runtime.maybe_start(runtime)
@@ -139,9 +145,59 @@ class VoiceSession:
             runtime.emit("system", "Yerel Voice Core etkin: ses arka planda oynatılır, seçili ses değişmez.")
 
     def close(self):
+        closed = getattr(self, "_barge_closed", None)
+        if closed is not None:
+            closed.set()
         lane = getattr(self, "voice_lane", None)
         if lane is not None:
             lane.close()
+
+    def _schedule_barge_watch(self, done: threading.Event) -> None:
+        """At most one barge-in microphone contender for this VoiceSession.
+
+        The newest queued receipt is remembered while the current speech is
+        being watched. On a completed receipt, the SAME worker continues to
+        the newest one. Never start N wakeword threads for N progress notices.
+        """
+        with self._barge_lock:
+            if self._barge_closed.is_set():
+                return
+            self._barge_pending = done
+            if self._barge_thread is not None:
+                return
+            worker = self.runtime.threading.Thread(
+                target=self._barge_watch_loop, daemon=True,
+                name="jarvis-voice-barge",
+            )
+            self._barge_thread = worker
+        try:
+            worker.start()
+        except Exception:
+            with self._barge_lock:
+                if self._barge_thread is worker:
+                    self._barge_thread = None
+                    self._barge_pending = None
+            raise
+
+    def _barge_watch_loop(self) -> None:
+        """Coalesce queued speech events, keeping one physical wake claimant."""
+        while True:
+            with self._barge_lock:
+                if self._barge_closed.is_set() or self.runtime.stop_event.is_set():
+                    self._barge_thread = None
+                    self._barge_pending = None
+                    return
+                target = self._barge_pending
+            if target is not None:
+                try:
+                    self._barge_watch(target)
+                except Exception:
+                    self.runtime._record_failure('modules/engine_voice.py:barge_loop')
+            with self._barge_lock:
+                if target is self._barge_pending:
+                    self._barge_thread = None
+                    self._barge_pending = None
+                    return
 
     def submit_voice(self, command: str) -> bool:
         """Only an accepted command leaves listening paused for the event loop."""
@@ -206,7 +262,8 @@ class VoiceSession:
             return
 
         def stopped() -> bool:
-            return done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"]
+            return (done.is_set() or runtime.stop_event.is_set()
+                    or self._barge_closed.is_set() or not runtime.flags["mic"])
 
         # The wake microphone is the same capture device the recorder uses, and the
         # engine owns it under audio_lock. Opening this second stream outside that
@@ -281,9 +338,7 @@ class VoiceSession:
             # "speaking" is claimed by the lane at the real playback_started
             # boundary, not here at enqueue: synthesis/queue acceptance is not
             # audible speech. Barge-in watching still starts for the live utterance.
-            runtime.threading.Thread(
-                target=self._barge_watch, args=(done,), daemon=True,
-            ).start()
+            self._schedule_barge_watch(done)
 
     def offline_wake_step(self) -> bool:
         runtime = self.runtime
