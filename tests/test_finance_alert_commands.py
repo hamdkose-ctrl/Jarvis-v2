@@ -40,14 +40,46 @@ class FinanceAlarmCommandsTests(unittest.TestCase):
         self.assertIn('yok',commands.handle('alice','alarmı sil 99'))
         with self.assertRaises(ValueError):commands.handle('../bob','alarmlarım')
 
-    def test_engine_entry_only_handles_its_own_commands(self):
+    def test_core_bound_alarm_add_list_delete_and_owner_separation(self):
         from types import SimpleNamespace
-        from unittest.mock import Mock
-        from modules import engine_tools
-        runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'),plugins=SimpleNamespace(handle=Mock(return_value='existing route')))
-        result=engine_tools._extra_commands(runtime,"USD 33 TL üstüne çıkarsa haber ver",'')
-        self.assertIn('Alarm kaydedildi',result)
-        runtime.plugins.handle.assert_not_called()
-        del runtime.profile
-        self.assertEqual(engine_tools._extra_commands(runtime,'başka komut','başka komut'),'existing route')
-        runtime.plugins.handle.assert_called_once()
+        from modules import brain_core_map, engine_intents
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug="alice"))
+        def run(arguments, sentence):
+            plan = brain_core_map.core_plan("finance.alert.manage", arguments)
+            self.assertIsNotNone(plan)
+            with patch("modules.requests_state.check"):
+                return engine_intents.dispatch(runtime, *plan,
+                                               sentence, sentence.casefold())
+        self.assertIn("Alarm kaydedildi", run(
+            {"operation": "add", "asset": "USD", "value": "33,50",
+             "direction": "above"}, "USD 33,50 TL üstüne çıkarsa haber ver"))
+        self.assertEqual(store.list_rules("alice")[0]["value"], 33.5)
+        self.assertEqual(store.list_rules("bob"), [])
+        self.assertIn("USD", run({"operation": "list"}, "alarmlarım"))
+        self.assertIn("silindi", run({"operation": "delete", "index": 1},
+                                     "alarmı sil 1"))
+        self.assertEqual(store.list_rules("alice"), [])
+
+    def test_core_rejects_guessed_or_invalid_finance_alarm_payload(self):
+        from modules import brain_core_map
+        for args in (
+            {"operation": "add", "asset": "USD", "value": "0",
+             "direction": "above"},
+            {"operation": "add", "asset": "USD", "value": "12",
+             "direction": "trade"},
+            {"operation": "add", "asset": "USD", "value": "12",
+             "direction": "below", "owner": "bob"},
+            {"operation": "add", "asset": "AAPL", "value": "33",
+             "direction": "above"},
+            {"operation": "delete", "index": "1"},
+            {"operation": "delete", "index": 0},
+            {"operation": "delete", "rule_id": "fake"},
+            {"operation": "list", "index": 1},
+        ):
+            with self.subTest(args=args):
+                self.assertIsNone(brain_core_map.core_plan("finance.alert.manage", args))
+        self.assertEqual(store.list_rules("alice"), [])
+
+
+if __name__ == '__main__':
+    unittest.main()
