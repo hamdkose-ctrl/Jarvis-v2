@@ -48,6 +48,45 @@ def _description(rule):
     return f"{rule['symbol']} · %{amount} {direction}"
 
 
+def execute_typed(owner: str, args: dict) -> str:
+    """Apply a Core-validated alarm operation via the existing owner store.
+
+    Rules stay in finance_alert_store: no second scheduler, model-owned ID,
+    account identity or raw-language interpretation. Deleting by displayed
+    ordinal is resolved atomically under the store's existing RLock.
+    """
+    from modules import requests_state
+    requests_state.check()
+    operation = args["operation"]
+    if operation == "list":
+        rows = finance_alert_store.list_rules(owner)
+        return ("\n".join(f"{i}. {_description(row)}"
+                          for i, row in enumerate(rows, 1))
+                or "Kayıtlı finans alarmın yok.")
+    if operation == "delete":
+        with finance_alert_store._lock:
+            rows = finance_alert_store.list_rules(owner)
+            index = args["index"]
+            if not 1 <= index <= len(rows):
+                return "Bu sırada bir finans alarmı yok."
+            requests_state.check()
+            removed = finance_alert_store.remove_rule(owner, rows[index - 1]["id"])
+        return ("Finans alarmı silindi." if removed else
+                "Finans alarmı değişti; silme işlemi yapılmadı.")
+    if operation != "add":
+        return "Finans alarmı işlemi doğrulanmadı; kayıt değişmedi."
+    requests_state.check()
+    try:
+        row = finance_alert_store.add_rule(
+            owner, {"kind": args["kind"], "symbol": args["symbol"],
+                    "op": args["direction"], "value": args["value"]})
+    except ValueError as exc:
+        return "Alarm kaydedilmedi: " + str(exc)
+    return (f"Alarm kaydedildi: {row['symbol']} {_amount(row['value'])} TL eşiği; "
+            "yalnız fiyat bildirimi. Kontrol aralığı yaklaşık 5 dakikadır; "
+            "sessiz saatlerde bildirim bekletilir.")
+
+
 def handle(owner, command):
     if not isinstance(command,str):
         return None
