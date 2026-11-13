@@ -59,7 +59,7 @@ with browser_agent._browser_claim('alice'):
                 run.assert_not_called()
         finally:
             if child.poll() is None:
-                child.stdin.write('release\\n')
+                child.stdin.write('release\n')
                 child.stdin.flush()
             child.communicate(timeout=20)
         with patch.object(browser_agent, '_run', return_value={'state': 'done'}) as run:
@@ -70,7 +70,7 @@ with browser_agent._browser_claim('alice'):
         @contextmanager
         def busy(*, run_handoff=False):
             yield False
-        with patch.object(desktop_agent, '_desktop_claim', side_effect=busy), \\
+        with patch.object(desktop_agent, '_desktop_claim', side_effect=busy), \
              patch.object(browser_agent, '_run',
                           side_effect=AssertionError('no UI launch')) as run:
             self.assertEqual(
@@ -86,7 +86,7 @@ with browser_agent._browser_claim('alice'):
             'window_action',
             lambda *_args, **_kwargs: self.fail('native action entered'),
         )
-        with patch.object(system_control, '_permission_decision'), \\
+        with patch.object(system_control, '_permission_decision'), \
              patch.object(desktop_agent, '_desktop_claim', side_effect=busy):
             self.assertFalse(facade('Notepad', 'focus')['ok'])
 
@@ -102,7 +102,7 @@ with browser_agent._browser_claim('alice'):
         outer = system_control._permission_instrument(
             'window_shortcut', lambda *_args: inner('Notepad', 'focus'),
         )
-        with patch.object(system_control, '_permission_decision'), \\
+        with patch.object(system_control, '_permission_decision'), \
              patch.object(desktop_agent, '_desktop_claim', side_effect=owned):
             self.assertTrue(outer('Notepad', 'copy')['ok'])
         self.assertEqual(seen, [True, True])
