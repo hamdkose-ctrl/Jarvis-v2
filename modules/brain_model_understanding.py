@@ -103,6 +103,8 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "workbench.followup": frozenset({"format"}),
     "notes.add": frozenset({"text"}),
     "notes.write": frozenset({"text"}),
+    # Photo-derived note text is a write effect: the model cannot invent it.
+    "photo.action": frozenset({"note_text"}),
     "reminders.manage": frozenset({"title", "duration"}),
     "tasks.manage": frozenset({"text"}),
     "kb.query": frozenset({"question"}),
@@ -348,7 +350,8 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
         return {"operation": ["analyze", "translate", "note"],
                 "question": "optional user-provided question for analyze",
                 "target": "supported output language for translate",
-                "note_text": "user-provided note text for note",
+                "note_text": "verbatim user-provided note text for note, never invent",
+                "argument_sources": ["note_text"],
                 "constraint": "select only if current.current_photo_available is true; "
                               "NEVER provide photo, path or ID; Core binds the current "
                               "photo to the request owner"}
