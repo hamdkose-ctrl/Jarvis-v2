@@ -366,6 +366,28 @@ def _mail_handle(runtime, cmd_lower: str) -> str | None:
         reply = "Gmail: " + reply + " İş (Outlook): " + outlook.unread_mail()
     return reply
 
+def _screen_text_fallback_operation(normalized: str) -> str | None:
+    """Exact compatibility forms for model outage, not a second OCR effect owner.
+
+    Fail closed on negation, quotes, surrounding instructions or unrecognized
+    paraphrases; normal free-language requests belong to the model/Core.
+    """
+    import re
+    if not isinstance(normalized, str):
+        return None
+    phrase = normalized.strip(" .!?")
+    if re.fullmatch(r"ekrandaki\s+hata\w*\s+(?:not\s+al|kaydet|nota\s+ekle|not\s+et)", phrase):
+        return "error_note"
+    if re.fullmatch(r"(?:ekrandaki\s+(?:metn\w*|yaz\w*)|ekranın\s+metnini)\s+oku", phrase):
+        return "read"
+    if re.fullmatch(r"(?:ekrandaki\s+(?:metn\w*|yaz\w*)|ekranın\s+metnini)\s+(?:kopyala|al|çıkar)", phrase):
+        return "copy"
+    # Old exact standalone noun meant copy, not read; retain only this bounded form.
+    if phrase == "ekranın metnini":
+        return "copy"
+    return None
+
+
 def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     """Domain cascade'inin tek sırası; §0 envanteri koldan kaleme sınıflandırıldı.
 
@@ -435,25 +457,10 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     kb_reply = runtime.kb.handle(cmd_lower, runtime.profile)           # bilgi tabanı komutu
     if kb_reply:
         return kb_reply
-    if runtime.re.search(r"ekrandaki\s+(?:metn\w*|yaz\w*)\s+(?:kopyala|al|çıkar|oku)\b|ekran(?:ın)?\s+metnini", cmd_lower):
-        text = runtime._screen_ocr("Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini koruyarak yaz. "
-                           "Yorum, başlık ya da açıklama ekleme; yalnızca metin.")
-        if not text:
-            return "Ekranda okunabilir bir metin bulamadım."
-        if runtime.re.search(r"\boku\b", cmd_lower):
-            return text
-        ok = runtime._copy_text(text)
-        head = " ".join(text[:80].split())
-        if not ok:
-            return "Metni çıkardım ama panoya kopyalayamadım."
-        return f"Ekrandaki metni panoya kopyaladım ({len(text)} karakter). Başı: “{head}…”"
-    if runtime.re.search(r"ekrandaki\s+hata\w*\s+(?:not al|kaydet|nota ekle|not et)", cmd_lower):
-        text = runtime._screen_ocr("Ekranda bir hata ya da uyarı mesajı varsa, Türkçe olarak tek cümleyle ne olduğunu ve "
-                           "olası çözümünü yaz. Hata yoksa sadece 'Hata görünmüyor' yaz.")
-        if not text or "Hata görünmüyor" in text:
-            return "Ekranda bir hata görünmüyor."
-        runtime.profile.add_note_item("Ekran hatası: " + " ".join(text.split()))
-        return "Ekrandaki hatayı notlarına ekledim: " + " ".join(text.split())[:200]
+    screen_operation = _screen_text_fallback_operation(cmd_lower)
+    if screen_operation is not None:
+        from modules.engine_intents import execute_screen_text
+        return execute_screen_text(runtime, screen_operation)
     # PR3C-5: file mutations are handled only by canonical Brain -> Core typed proposals.
     # Exact undo was physically retired from this raw cascade.
     # Only Fast Gate fast.file.organize.undo can reach the existing worker.
