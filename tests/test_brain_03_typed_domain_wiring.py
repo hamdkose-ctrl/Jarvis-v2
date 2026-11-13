@@ -499,9 +499,9 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         # The actual profile schema lives in hoca.active; use a spy at that
         # seam but let Brain observe a genuine profile pending reference.
         self.ctx.profile.data["hoca"] = {"lesson": lesson}
-        with patch.object(hoca, "active", return_value=lesson), \\
+        with patch.object(hoca, "active", return_value=lesson), \
              patch.object(hoca, "grade", return_value={
-                 "correct": False, "feedback": "Yanlış", "expected": "Bir yapı"}) as grade, \\
+                 "correct": False, "feedback": "Yanlış", "expected": "Bir yapı"}) as grade, \
              patch("config.load_settings", return_value={"hoca_enabled": True}):
             entry, output, handler, feedback = self.turn_real(
                 "cevap: test", model_understanding=False)
@@ -513,7 +513,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         handler.assert_not_called()
         grade.assert_called_once_with(self.ctx.profile, "test")
         with patch.object(hoca, "active", return_value={
-                 **lesson, "pending": {"step": 1, "question": "Başka soru"}}), \\
+                 **lesson, "pending": {"step": 1, "question": "Başka soru"}}), \
              patch.object(hoca, "grade",
                           side_effect=AssertionError("stale answer graded")) as grade:
             rejected = hoca.control_typed(self.ctx.profile, operation="answer",
