@@ -230,13 +230,21 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(asked(file_read("summarize", ["file_0"]), text, semantic,
                                 file_operation_hint="summarize"))
 
-    def test_ambiguity_resolution_cannot_change_the_requested_read_operation(self):
+    def test_grounded_file_model_operation_is_not_vetoed_by_legacy_keyword_hint(self):
+        # The free-language operation belongs to the model. A deterministic
+        # "summarize" hint must never become a competing semantic veto; Core
+        # still rejects invented paths, unsupported operations and bad slots.
         text = "rapor dosyasını özetle"
-        _, _, semantic = ambiguous_files(
+        first, _, semantic = ambiguous_files(
             r"C:\Users\hamdi\Documents\Rapor\rapor.pdf",
             r"C:\Users\hamdi\Downloads\Rapor\son.pdf", text, "rapor.pdf", "son.pdf")
-        self.assertIsNone(asked(file_read("analyze", ["file_0"]), text, semantic,
-                                file_operation_hint="summarize"))
+        resolved = asked(file_read("analyze", ["file_0"]), text, semantic,
+                         file_operation_hint="summarize")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.references, (first,))
+        self.assertEqual(resolved.actions[0].capability_id, "files.read")
+        self.assertEqual(resolved.actions[0].arguments["operation"], "analyze")
+        self.assertEqual(resolved.actions[0].arguments["path"], first.provenance["path"])
 
     def test_ambiguous_file_open_is_not_resolved_by_the_model(self):
         text = "rapor.pdf'i aç"
