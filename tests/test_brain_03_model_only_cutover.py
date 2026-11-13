@@ -53,6 +53,26 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
         self.assertFalse(candidate.ambiguities)
         self.assertFalse(candidate.pending_owner)
 
+    def test_explicit_engine_fast_controls_reject_negation_and_questions(self):
+        from modules.command_manager import engine_control
+        close, sleep = Mock(return_value="CLOSED"), Mock(return_value="SLEEP")
+        for utterance in ("kendini kapatma", "kendini kapat?", "jarvis'i kapatma",
+                          "uyku moduna geçme", "uyku moduna geç?", "uyu?"):
+            with self.subTest(utterance=utterance):
+                self.assertIsNone(engine_control(
+                    utterance, source="yazı", sleeping=False, close=close,
+                    set_sleep=sleep))
+        close.assert_not_called()
+        sleep.assert_not_called()
+        self.assertEqual(engine_control(
+            "kendini kapat", source="yazı", sleeping=False, close=close,
+            set_sleep=sleep), "CLOSED")
+        self.assertEqual(engine_control(
+            "uyku moduna geç", source="yazı", sleeping=False, close=close,
+            set_sleep=sleep), "SLEEP")
+        close.assert_called_once_with()
+        sleep.assert_called_once_with(True, announce=False)
+
     def test_fast_state_core_is_available_without_general_semantic_model(self):
         # A precise fast lane is NOT a semantic fallback. The real Core worker
         # still owns the action even when the general model cannot answer.
