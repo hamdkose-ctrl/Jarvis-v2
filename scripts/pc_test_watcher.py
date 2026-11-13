@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -248,6 +249,27 @@ def choose_candidate(candidates: list[dict], seen: dict, *, now: float | None = 
 
 def safe_name(ref: str) -> str:
     return ref.replace("refs/remotes/origin/", "").replace("/", "_")
+
+
+def isolated_worktree_path(ref: str, sha: str, *, nonce: str | None = None) -> Path:
+    """Give EACH validation attempt its own checkout (even for the same SHA).
+
+    An older already-running watcher may not use the single_watcher lock.
+    Previously the deterministic branch-SHA directory let a second watcher
+    delete the first validation's live checkout during a 300+ second suite.
+    Never reuse or remove another process's checkout as part of admission.
+    The short suffix also keeps nested branch names below Windows path limits.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("Exact 40-hex commit required for PC validation.")
+    nonce = secrets.token_hex(8) if nonce is None else nonce
+    if not re.fullmatch(r"[0-9a-f]{16}", nonce):
+        raise ValueError("PC validation attempt token invalid.")
+    name = safe_name(ref)
+    if not name or name.startswith((".", "-")) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise ValueError("Remote branch name invalid for isolated PC acceptance.")
+    return (Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" /
+            (name[:48] + "-" + sha[:8] + "-" + nonce))
 
 
 def branch_from_ref(ref: str) -> str:
@@ -586,7 +608,9 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     scope = acceptance_scope(paths or [], desktop=desktop, news=news, local_model=local_model)
     if paths is None:
         scope["source"] = "unavailable"
-    worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
+    # A same-commit concurrent (including OLD-version) watcher must not have
+    # authority to delete this live validation tree. No shared SHA directory.
+    worktree = isolated_worktree_path(target["ref"], target["sha"])
     attempted_at = time.time()
     archived = False
     try:
