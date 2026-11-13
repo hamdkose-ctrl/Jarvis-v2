@@ -1059,6 +1059,23 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         # A note effect/read may target only an id Brain resolved for THIS request, never an arbitrary string.
         if ident is not None and ident not in {ref.id for ref in semantic.references if ref.kind == "note"}:
             return None
+        if plan[0] == "notes_write":
+            # This digest is Core-owned and never provided by the model. Recheck
+            # the persisted record at the exact effect boundary before writing.
+            matches = [ref for ref in semantic.references
+                       if ref.kind == "note" and ref.owner == entry.owner
+                       and ref.id == ident]
+            if len(matches) != 1:
+                return None
+            from modules import main_planner
+            observed = {"id": matches[0].id, **{
+                key: matches[0].provenance.get(key)
+                for key in ("text", "title", "ts", "photo")
+            }}
+            digest = main_planner.note_snapshot_digest(observed)
+            if digest is None:
+                return None
+            plan = ("notes_write", {**plan[1], "expected_note_digest": digest})
     if plan is not None and plan[0] == "file_action":
         allowed = {str(ref.provenance.get("path")) for ref in semantic.references
                    if ref.kind == "file" and isinstance(ref.provenance.get("path"), str)}
