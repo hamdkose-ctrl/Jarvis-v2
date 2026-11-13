@@ -149,17 +149,21 @@ def main(runtime, ui=None):
     def canonical_result_notice(owner, job_id):
         from modules import canonical_goal_flow
         def deliver_verified(verified_owner, verified_job, text):
+            kind, event_id, title = canonical_goal_flow.delivery_metadata(
+                verified_owner, verified_job,
+            )
             result = event_channels.deliver(
                 runtime, verified_owner,
-                {'source': 'canonical_goal', 'kind': 'completed',
+                {'source': 'canonical_goal', 'kind': kind,
                  'payload': {'text': text, 'job_id': verified_job,
-                             'event_id': 'canonical:' + verified_job}},
-                title='Jarvis araştırma sonucu',
+                             'event_id': event_id}},
+                title=title,
             )
             if result is None:
                 raise PermissionError('Canonical result owner is not registered.')
             if result.get('ui') != 'delivered':
-                raise RuntimeError('Canonical result was not delivered to the owner UI.')
+                raise RuntimeError('Canonical event was not accepted by the owner UI.')
+            return result
         canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
 
     task_queue.start(runtime.stop_event,queue_notice,
@@ -356,8 +360,9 @@ def main(runtime, ui=None):
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
-                    # Explicit owner + 16-hex job ID is a read-only protocol.
-                    # It must not invoke Brain, a model, Scheduler or fanout.
+                    # Bounded owner + 16-hex job-ID result read / pending-question
+                    # answer. The answer writes only the existing ExecutionRecord;
+                    # it cannot invoke Brain, model, worker or direct fanout.
                     from modules import canonical_goal_flow
                     explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
                     entry = None

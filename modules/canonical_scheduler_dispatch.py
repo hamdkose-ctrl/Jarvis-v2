@@ -78,7 +78,11 @@ def recoverable_completions(owner: str, *, max_jobs: int = 8,
                 ):
                     continue
                 record = execution_record.load(root, owner, job_id)
+                dialog = record.get('_canonical_dialog')
                 if (record.get("_canonical_delivery")
+                        or (dialog is not None and
+                            (not isinstance(dialog, dict)
+                             or dialog.get('state') != 'answered'))
                         or goal_job_control.fingerprint(record) != snapshot.record_digest):
                     continue
                 offered.append(CompletionRecoveryOffer(

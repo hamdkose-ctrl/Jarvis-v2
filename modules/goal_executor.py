@@ -1185,6 +1185,14 @@ def status_summary(job):
     details = _canonical_recovery_status(job)
     if details:
         summary += '\n' + details
+    dialog = job.get('_canonical_dialog')
+    if isinstance(dialog, dict) and dialog.get('state') == 'waiting':
+        question = dialog.get('question')
+        if isinstance(question, str) and question.strip():
+            summary += ('\nKullanıcı yanıtı bekleniyor: ' + question[:600]
+                        + '\nYanıt: hedef cevap ' + str(job.get('id')) + ' <yanıt>')
+    elif isinstance(dialog, dict) and dialog.get('state') == 'answered':
+        summary += '\nKullanıcı yanıtı alındı; Scheduler tamamlanmayı kontrol edecek.'
     return ('Hedef: ' + request + '\n' if request else '') + summary
 
 
