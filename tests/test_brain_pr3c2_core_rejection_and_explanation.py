@@ -96,21 +96,19 @@ class CoreRejectionFenceTests(_Pr3c2Harness):
         self.ctx.tr.translate.assert_not_called()
         self.run_goal.assert_not_called()
 
-    def test_the_fence_is_not_a_general_none_rejection(self):
-        # Tipli payload yoksa öneri "eksik"tir, ret değildir: meşru eski sahibi çalışmaya devam eder.
-        # Ölçülen taban davranışı korunur: `beni uyar` planner sorusu açar (needs_input),
-        # `dosyayı aç`/`raporda ara` mevcut clarify cevabını döner; hiçbiri ret sayılmaz.
+    def test_incomplete_requests_do_not_reopen_the_old_cascade_on_model_outage(self):
+        from modules import brain_model_understanding
         for text in ("beni uyar", "dosyayı aç", "raporda ara"):
-            with self.subTest(text=text):
+            with self.subTest(text=text), \
+                 patch.object(brain_model_understanding, "propose", return_value=None):
                 self.reset()
-                entry, out, _handle, feedback = self.turn(text)
-                self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
-                self.assertEqual(set(entry.understanding.arguments), {"original_text"})
-                self.assertNotEqual(feedback.reason_code, "CORE_PROPOSAL_REJECTED")
-                self.assertNotEqual(feedback.result_status, "failed")
-                self.assertNotIn(REJECTED_MESSAGE, str(out))
-                self.assertEqual(self.door.call_count, 1)
-                self.ctx._extra_commands.assert_called_once()
+                entry, out, _handler, feedback = self.turn_real(
+                    text, model_understanding=True)
+                self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertEqual(feedback.reason_code, "BRAIN_MODEL_UNAVAILABLE")
+                self.assertIn("model", str(out).casefold())
+                self.ctx._extra_commands.assert_not_called()
                 self.run_goal.assert_not_called()
 
     def test_a_validated_typed_proposal_still_executes_exactly_once(self):
@@ -241,12 +239,16 @@ class DomainOwnerRegressionTests(_Pr3c2Harness):
         # No model proposal in this deterministic harness: it cannot authorize a write.
         self.seams["modules.learning.execute_typed"].assert_not_called()
 
-    def test_an_alarm_sentence_keeps_the_raw_domain_owner(self):
+    def test_an_alarm_sentence_cannot_reach_retired_raw_parser_on_outage(self):
+        from modules import brain_model_understanding
         self.reset()
-        entry, _out, _handle, _ = self.turn("dolar 45 tl üstüne çıkarsa haber ver")
-        self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
-        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
-        self.ctx._extra_commands.assert_called_once()
+        with patch.object(brain_model_understanding, "propose", return_value=None):
+            entry, out, _handle, feedback = self.turn_real(
+                "dolar 45 tl üstüne çıkarsa haber ver", model_understanding=True)
+        self.assertEqual(feedback.reason_code, "BRAIN_MODEL_UNAVAILABLE")
+        self.assertIn("model", str(out).casefold())
+        self.ctx._extra_commands.assert_not_called()
+        self.seams["modules.finance_alert_commands.matches"].assert_not_called()
 
     def test_a_pending_confirmation_is_still_consumed(self):
         self.reset()
