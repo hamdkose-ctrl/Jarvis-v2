@@ -155,6 +155,8 @@ class FileEffectClaimTests(unittest.TestCase):
         accepted = produce()
         self.assertEqual(accepted['state'], 'done')
         self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+        self.assertEqual(list(destination.parent.iterdir()), [destination],
+                         'Report staging bytes must not survive publication')
         # Same generated name is never overwritten, even after the OS lock
         # was released. A preexisting artifact is an effect, not a retry slot.
         with self.assertRaises(FileExistsError):
@@ -176,6 +178,8 @@ class FileEffectClaimTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 task_agents.worker('alice', task, {})
         self.assertFalse(destination.exists(), 'Failed report must not leave a partial file')
+        self.assertEqual(list(destination.parent.iterdir()), [],
+                         'Failed report must not leave a staging file')
         # A later valid invocation can safely create the same generated path.
         with patch.object(nxapi, 'FILES_DIR', root), \
              patch.object(model_wait, 'ask', return_value='Verified report'), \
