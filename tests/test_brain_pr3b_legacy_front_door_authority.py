@@ -36,7 +36,6 @@ EFFECT_SEAMS = (
     "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
-    "modules.finance_alert_commands.matches",
     "modules.media.handle", "modules.filesend.handle",
     "modules.pc_guide.handle", "modules.developer.handle", "modules.task_agents.handle",
 )
