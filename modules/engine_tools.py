@@ -185,10 +185,6 @@ def _add_event(runtime, title: str, when: str) -> str:
     from modules import main_planner
     return main_planner._add_event(runtime, title, when)
 
-def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
-    from modules import main_planner
-    return main_planner._planner_command(runtime, command, cmd_lower)
-
 def load_approve(runtime) -> bool:
     """Hassas işlemlerde (mesaj gönderme, kapatma, dosya taşıma) onay iste. Ayarlar -> approve_sensitive (varsayılan açık)."""
     from config import load_settings
@@ -399,97 +395,3 @@ _DAILY_BRIEF_FALLBACK = frozenset({
 def _daily_brief_fallback_request(normalized: str) -> bool:
     """Exact model-outage protocol, not a substring classifier over user data."""
     return isinstance(normalized, str) and normalized.strip(" .!?") in _DAILY_BRIEF_FALLBACK
-
-
-def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
-    """Domain cascade'inin tek sırası; §0 envanteri koldan kaleme sınıflandırıldı.
-
-    Bu cascade tek bir yerden çağrılır: `engine_commands.handle` kuyruğu
-    `brain_precedence.claim_tail` üzerinden sıra sözleşmesine devredildi (§25 B) ve başka üretim
-    çağıranı yoktur (§25 D kilidi
-    `CascadeRootTests.test_the_cascade_has_one_production_call_owner`). Her kol kendi
-    tanırıcısıyla ilk-yanıt-verir; sınıflar A KEEP_STATE / B KEEP_EXACT_ADMIN / C
-    KEEP_DOMAIN_EXECUTION / D RETIRE_RAW_FRONT_DOOR:
-
-    1. `finance_alert_commands` (B): kalıp `fullmatch`/tam küme üyeliğidir, cümlenin *içinde*
-       alan aramaz — ölçüldü, §13'ün "global semantic selection" ön kabulu kod gerçeği değil.
-       Kalan iş alarmın kanonical öneri/Core eşlemesi (BRAIN-MIG-053 → PR3C).
-    2. `plugins` (D → PR3C): kullanıcı eklentileri ham cümleyi sırayla yoklar; kanonical sahibi
-       ve capability sözlüğü yok. Kaldırmak ürün gerilemesidir, parity ile sökülecek.
-    3. `handoff` (D → PR3C): "işte neler var / evde neler var" `re.search` ile sabit-önek değil.
-    4. `folder_analysis` (D, PR3C-4 kapandı): ham kalıp ve `_NOT_THIS` vetosu artık yok; karar
-       `brain_understanding.folder_analysis_request` → Core `folder_analyze` → `engine_intents` →
-       `folder_analysis.analyze_turn` zincirinde yürür. İzinli kökler, derinlik/okuma sınırları, gizli
-       dosya ve yalnız-çevrimiçi korumaları ile KB dizine ekleme + en çok bir model çağrısı yürüticide
-       olduğu gibi kaldı; tek dosya isteği (`files.read`) karışmaz.
-    5. `browser` (C): URL + özetleme ya da sabit "… ara" kalıbı; effekte gitmeden önce privacy
-       kapısı var. Kanonical sayfa-okuma capability'si yok → PR3C.
-    6. `günlük özet` (D → PR3C, §21): cümlenin içinde aranan fazlasıyla uzun bir sözcük listesi;
-       briefing'i ayrı bir alt sistem kurmadan en yakın kanonical okuma yeteneğine bağlama kararı
-       PR3C'nindir.
-    7. `tasks` ve 8. `kb` (C): eklemeler `re.match` ile kalıba bağlı; kb'nin "hangi dosyada"
-       doğal soruları domain-owned. Görev yönetimi/kanonical `task` eşlemesi BRAIN-MIG-070 → PR3C.
-    9. ekran metni kopyala/oku ve 10. ekran hatası → not (D → PR3C, §20): typed
-       `screen.text.read` / `screen.text.copy` / `screen.error.note` kararı bekliyor; OCR ve
-       nota-yazma yürütmesi mevcut domain sahibinde kalır.
-    11. `file_ops` (C) tek dosya taşı/yeniden adlandır/oluştur/geri al; 12. düzenlemeyi geri al
-        ve 13. klasör düzenleme planı (C, §22 bounded onay akışı) → BRAIN-MIG-052/048 PR3C.
-    14. `filesend` (C): Taildrop dosya gönderimi; "hangisi?" cevabını kendi 180 sn'lik modül-içi
-        bekleyen listesiyle tüketir — artık State Gate `filesend.pending.*` ve Core üzerinden owner/expiry/file-proof
-        doğrulamasından sonra tüketilir. İlk transfer isteği model fallback'inde kalır.
-    15. `worktrack`, 16. `files`, 17. `media`, 18. `_mail_handle`, 19. `notify` (C): alanların
-        kendi yürütme kapıları; hiçbiri kanonical karar sonrası genel domain seçimi yapmamalı,
-        kanonical capability'leri gelene kadar PR3C envanterindedir.
-
-    §33: buradaki kalıplar başka bir helper'a taşınarak "emekli" ilan edilmez; bir kol ancak
-    kanonical capability + Core eşlemesi + owner testleri parite verdiğinde bu sıradan silinir.
-    """
-    from modules import finance_alert_commands
-    if finance_alert_commands.matches(command):
-        return finance_alert_commands.handle(runtime.profile.slug, command)
-    plug = runtime.plugins.handle(command, cmd_lower)
-    if plug:
-        return plug
-    try:                                              # ev/iş devir listesi: "yarın işte … bakayım", "evde neler var"
-        from modules import handoff
-        hand = handoff.handle(command, cmd_lower)
-        if hand:
-            return hand
-    except Exception:
-        runtime._record_failure('main.py:_extra_commands')
-    web = runtime.browser.handle(cmd_lower)
-    if web:
-        return web
-    if _daily_brief_fallback_request(cmd_lower):
-        return runtime._daily_briefing()
-    # Ekrandaki metni kopyala / oku / hatayı nota ekle
-    tasks_reply = runtime.tasks.handle(cmd_lower, runtime.profile)     # görev listesi komutu
-    if tasks_reply:
-        return tasks_reply
-    kb_reply = runtime.kb.handle(cmd_lower, runtime.profile)           # bilgi tabanı komutu
-    if kb_reply:
-        return kb_reply
-    screen_operation = _screen_text_fallback_operation(cmd_lower)
-    if screen_operation is not None:
-        from modules.engine_intents import execute_screen_text
-        return execute_screen_text(runtime, screen_operation)
-    # PR3C-5: file mutations are handled only by canonical Brain -> Core typed proposals.
-    # Exact undo was physically retired from this raw cascade.
-    # Only Fast Gate fast.file.organize.undo can reach the existing worker.
-    from modules import filesend, worktrack
-    sent = filesend.handle(cmd_lower, owner=runtime.profile.slug)  # Taildrop: only initial request, not pending choice
-    if sent is not None:
-        return sent
-    work = worktrack.handle(cmd_lower, runtime.profile)       # iş takibi: proje durumu, cevap bekleyenler, tarihli işler
-    if work is not None:
-        return work
-    files_reply = runtime.files.handle(cmd_lower)     # "indirilenlerdeki son dosyayı aç", "masaüstünü aç"
-    if files_reply is not None:
-        return files_reply
-    media_reply = runtime.media.handle(cmd_lower)     # "youtube'da türkü aç", "spotify'da podcast aç"
-    if media_reply is not None:
-        return media_reply
-    mail_reply = runtime._mail_handle(cmd_lower)      # BRAIN-MIG-051: provider kararları domain'de
-    if mail_reply is not None:
-        return mail_reply
-    return runtime.notify.handle(cmd_lower, runtime.profile.data["prefs"], runtime.profile.save)
