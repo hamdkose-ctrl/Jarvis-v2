@@ -141,54 +141,57 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(feedback.result_status, "handled")
         file_gate.assert_called_once_with(command)
 
-    def test_legacy_negative_and_quoted_note_clear_never_mutates_in_model_fallback(self):
+    def test_model_outage_negative_or_quoted_note_clear_never_mutates(self):
+        from modules import brain_model_understanding
         note = self.ctx.profile.add_note_item("ASIL NOT")
-        from modules import main_planner
-        with patch.object(self.ctx.profile, "clear_note_items",
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("negative note deletion")) as clear:
             for command in ("notları silme", "Ali'ye 'tüm notları sil' mesaj gönder",
                             "notları sil demedim"):
                 with self.subTest(command=command):
-                    reply = main_planner._planner_command(
-                        self.ctx, command, self.ctx._tr_lower(command))
-                    self.assertNotEqual(reply, "Tüm notlarını sildim.")
-        self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]],
-                         [note["id"]])
+                    entry, reply, _handler, feedback = self.turn_real(
+                        command, model_understanding=True)
+                    self.assertEqual(feedback.result_status, "failed")
+                    self.assertIn("model", reply.casefold())
+        self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [note["id"]])
         clear.assert_not_called()
-
-    def test_legacy_exact_note_clear_requires_owner_bound_state_confirmation(self):
+    def test_typed_note_clear_requires_owner_bound_snapshot_confirmation(self):
         note = self.ctx.profile.add_note_item("ASIL NOT")
         from modules import main_planner
         command = "tüm notları sil"
-        with patch.object(self.ctx.profile, "clear_note_items",
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=self.propose("notes.manage", {"operation": "clear_all"})), \
+             patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("clear before approval")) as clear:
-            response = main_planner._planner_command(self.ctx, command, command)
+            _entry, response, _handler, feedback = self.turn_real(
+                command, model_understanding=True)
+        self.assertEqual(feedback.result_status, "needs_input")
         self.assertIn("onaylıyor musun", response)
         clear.assert_not_called()
         proposal = self.ctx._session().pending_confirm
         self.assertEqual(proposal["action"], "notes_clear")
         self.assertEqual(proposal["owner"], self.owner)
-        with patch.object(self.ctx.profile, "clear_note_items") as do_clear:
-            self.assertIn("sildim", main_planner.clear_notes_confirmed(self.ctx, proposal))
-        do_clear.assert_called_once()
         invalid = {**proposal, "owner": "foreign"}
         self.assertIn("geçersiz", main_planner.clear_notes_confirmed(self.ctx, invalid))
-
-    def test_legacy_exact_ordinal_note_delete_still_works_but_negation_does_not(self):
-        from modules import main_planner
+        self.assertEqual([row["id"] for row in self.ctx.profile.data["items"]],
+                         [note["id"]])
+    def test_numbered_note_delete_cannot_be_guessed_on_model_outage(self):
+        from modules import brain_model_understanding, main_planner
         first = self.ctx.profile.add_note_item("SİLİNECEK")
         second = self.ctx.profile.add_note_item("KALACAK")
-        with patch.object(self.ctx.profile, "delete_note_item",
-                          wraps=self.ctx.profile.delete_note_item) as delete:
-            self.assertIsNone(main_planner._planner_command(
-                self.ctx, "2. notu silme", "2. notu silme"))
-            self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]],
-                             [first["id"], second["id"]])
-            reply = main_planner._planner_command(self.ctx, "1. notu sil", "1. notu sil")
-        self.assertIn("Notu sildim", reply)
-        delete.assert_called_once_with(first["id"])
-        self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [second["id"]])
-
+        self.assertFalse(hasattr(main_planner, "_planner_command"))
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx.profile, "delete_note_item",
+                          side_effect=AssertionError("legacy ordinal deletion")) as delete:
+            for command in ("2. notu silme", "1. notu sil"):
+                _entry, reply, _handler, feedback = self.turn_real(
+                    command, model_understanding=True)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("model", reply.casefold())
+        delete.assert_not_called()
+        self.assertEqual([row["id"] for row in self.ctx.profile.data["items"]],
+                         [first["id"], second["id"]])
     def test_legacy_named_note_update_negative_must_not_change_profile(self):
         from modules import brain_model_understanding
         note = self.ctx.profile.add_note_item("Market alışverişi")
@@ -314,11 +317,11 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(len(self.ctx.profile.data["items"]), 1)
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
-    def test_failed_model_exact_note_clear_requires_real_state_gate_confirmation(self):
-        from modules import brain_model_understanding
+    def test_validated_note_clear_uses_real_bounded_state_confirmation(self):
         old = self.ctx.profile.add_note_item("KORUNACAK")
-        with patch.object(brain_model_understanding, "propose", return_value=None):
-            entry, answer, handler, feedback = self.turn_real(
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=self.propose("notes.manage", {"operation": "clear_all"})):
+            entry, answer, _handler, feedback = self.turn_real(
                 "tüm notları sil", model_understanding=True)
         self.assertIn("onaylıyor musun", answer)
         self.assertEqual(feedback.result_status, "needs_input")
@@ -331,14 +334,17 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertIn("Tüm notlarını sildim", outcome)
         self.assertEqual(approved_feedback.result_status, "handled")
         self.assertEqual(self.ctx.profile.data["items"], [])
-
-    def test_unplanned_control_still_has_its_existing_owner(self):
-        with patch.object(self.ctx, "_file_command", return_value=None), \
-             patch.object(self.ctx, "_user_controls", return_value="PAYLASIM", create=True) as controls:
-            claimed = brain_precedence.claim(self.ctx, "ekranı paylaş")
-        self.assertEqual(claimed, ("user_controls", "PAYLASIM"))
-        controls.assert_called_once_with("ekranı paylaş", "ekranı paylaş")
-
+    def test_typed_control_uses_the_existing_single_screen_share_worker(self):
+        from modules import brain_core_map, engine_intents
+        plan = brain_core_map.core_plan("device.share", {"action": "screen"})
+        self.assertEqual(plan, ("share_control", {"action": "screen"}))
+        with patch("modules.requests_state.check"), \
+             patch.object(self.ctx, "set_share", return_value="PAYLASIM") as worker:
+            response = engine_intents.dispatch(
+                self.ctx, *plan, "ekranı paylaş", "ekranı paylaş")
+        self.assertEqual(response, "PAYLASIM")
+        worker.assert_called_once_with("screen")
+        self.assertFalse(hasattr(self.ctx, "_user_controls"))
     def test_explicit_quoted_file_ui_keeps_priority_over_core(self):
         ui = '"C:\\Temp\\report.docx" özetle'
         self.assertIsNotNone(self.ctx._FILE_CMD.match(ui))
