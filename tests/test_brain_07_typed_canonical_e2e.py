@@ -2292,6 +2292,67 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.persisted(job_id)[1]['_canonical_dialog']['state'],
                          'answered')
 
+    def test_scheduler_stop_during_semantic_model_never_completes_or_notifies(self):
+        """An accepted model response after shutdown cannot commit Goal success."""
+        from modules import runtime_worker_result
+        job_id = self._accepted_canonical_research_for_crash_test()
+        stop = threading.Event()
+        delivered = Mock(return_value={'ui': 'delivered'})
+
+        def stopped_semantic(owner, journal, nodes):
+            stop.set()
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=stopped_semantic):
+            with runtime_worker_result.scheduler_stop_scope(stop):
+                with self.assertRaises(
+                        runtime_worker_result.CanonicalSchedulerStopped):
+                    canonical_goal_flow.complete_and_deliver(
+                        self.owner, job_id, delivered,
+                    )
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        self.assertNotIn('_canonical_delivery', journal)
+        delivered.assert_not_called()
+        with patch.object(task_agents, 'worker',
+                          side_effect=AssertionError('worker replay')) as worker, \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, delivered,
+            ))
+            worker.assert_not_called()
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
+        delivered.assert_called_once()
+
+    def test_scheduler_stop_during_semantic_ask_never_notifies_or_waits(self):
+        """An interrupted semantic question may not enter user-wait state."""
+        from modules import runtime_worker_result
+        job_id = self._accepted_canonical_research_for_crash_test()
+        stop = threading.Event()
+        notified = Mock(return_value={'ui': 'delivered'})
+
+        def interrupted_ask(owner, journal, nodes):
+            stop.set()
+            return {'action': 'ask', 'question': 'Which period?'}
+
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=interrupted_ask):
+            with runtime_worker_result.scheduler_stop_scope(stop):
+                with self.assertRaises(
+                        runtime_worker_result.CanonicalSchedulerStopped):
+                    canonical_goal_flow.complete_and_deliver(
+                        self.owner, job_id, notified,
+                    )
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        self.assertNotIn('_canonical_dialog', journal)
+        notified.assert_not_called()
+
     def test_first_legacy_safe_plan_is_forwarded_without_second_model_plan(self):
         """A read-only/replay-safe but non-canonical worker stays permissioned.
 

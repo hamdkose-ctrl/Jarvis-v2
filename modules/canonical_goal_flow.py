@@ -391,10 +391,13 @@ def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify
     """
     if not isinstance(question, str) or not question.strip() or len(question) > 600:
         return
+    from modules import runtime_worker_result
+    runtime_worker_result.require_scheduler_active()
     root = goal_executor._owner_root(owner)
     record_path = execution_record.path_for(root, job_id)
     state_path = root / (job_id + '.goalstate.json')
     with goal_job_control.locked(root, job_id):
+        runtime_worker_result.require_scheduler_active()
         state = goal_state_store.load(state_path)
         current = execution_record.load(root, owner, job_id)
         if (state['owner'] != owner or state['job_id'] != job_id
@@ -420,6 +423,7 @@ def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify
         release_guard.atomic(record_path, execution_record.encode(current))
     message = ('Bu hedefi tamamlamak için ek bilgi gerekiyor: ' + question.strip()
                + f'\nYanıtlamak için: hedef cevap {job_id} <yanıt>')
+    runtime_worker_result.require_scheduler_active()
     try:
         receipt = notify(owner, job_id, message)
     except Exception:
@@ -506,6 +510,8 @@ def delivery_metadata(owner: str, job_id: str) -> tuple[str, str, str]:
 
 def _complete_once(owner: str, job_id: str, notify) -> bool:
     """Attempt only one evidence-verified Core completion and event delivery."""
+    from modules import runtime_worker_result
+    runtime_worker_result.require_scheduler_active()
     try:
         proof = canonical_plan_evidence.certify_projected_plan(owner, job_id)
     except (canonical_plan_evidence.PlanEvidenceError, ValueError, OSError):
@@ -531,6 +537,9 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         _record_failure('modules/canonical_goal_flow.py:semantic_completion')
         # A model/provider failure never becomes a successful Goal.
         return False
+    # The model may have finished after stop/deadline. Its proposed success
+    # does not grant a terminal Core transition or a new user question.
+    runtime_worker_result.require_scheduler_active()
     if proposal.get('action') == 'ask':
         _ask_for_clarification(owner, job_id, proof, proposal.get('question'), notify)
         return False
@@ -566,6 +575,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     state_path = root / (job_id + '.goalstate.json')
     record_path = execution_record.path_for(root, job_id)
     with goal_job_control.locked(root, job_id):
+        runtime_worker_result.require_scheduler_active()
         state = goal_state_store.load(state_path)
         current = execution_record.load(root, owner, job_id)
         if (state['owner'] != owner or state['job_id'] != job_id
@@ -604,6 +614,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         completed['_canonical_delivery'] = 'reserved'
         completed['updated'] = time.time()
         release_guard.atomic(record_path, execution_record.encode(completed))
+    runtime_worker_result.require_scheduler_active()
     try:
         receipt = notify(owner, job_id, message)
     except Exception:
