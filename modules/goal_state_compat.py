@@ -434,6 +434,18 @@ def sync(job: dict, path, *, expected_version=None) -> dict:
         and any(row['reason_code'] == 'OPERATOR_CUTOVER_PROMOTED' for row in current['audit'])
     ):
         return current
+    # A born-canonical GoalPlan belongs to Core and its verified semantic
+    # completion adapter, not to a legacy execution-journal state string.
+    # The ordinary legacy save hook may still propagate an explicit user
+    # cancellation and maintain compatible nonterminal projections, but it
+    # cannot synthesize global done without projected, accepted WorkerResults.
+    if (goal_state.authority(current) == 'canonical'
+            and current.get('goal_plan') is not None
+            and current['state'] not in {'done', 'cancelled'}
+            and job.get('state') == 'done'):
+        raise ReconcilePolicyError(
+            'Planned canonical goal completion requires verified Core evidence.'
+        )
     next_state = advance(current, job)
     if next_state['version'] == current['version']:
         return current

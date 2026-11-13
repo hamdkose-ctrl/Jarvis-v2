@@ -218,6 +218,36 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertIn('Scheduler yürütür', reply)
         self.assertEqual(self.persisted(job_id), before)
 
+    def test_legacy_save_cannot_mark_canonical_plan_done_without_worker_proof(self):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        before = self.persisted(job_id)
+        unsound = goal_executor.read_job(self.owner, job_id)
+        unsound['state'] = 'done'
+        unsound['goals'][0]['state'] = 'done'
+        # The actual production save hook must reject this forged legacy
+        # completion before either the Core state or ExecutionRecord changes.
+        with self.assertRaises(goal_state_compat.ReconcilePolicyError):
+            goal_executor._save(unsound, move_pointer=False)
+        self.assertEqual(self.persisted(job_id), before)
+
+    def test_targeted_cancel_of_canonical_plan_is_a_core_terminal_fence(self):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        before_state, before_record = self.persisted(job_id)
+        self.assertEqual(before_record['state'], 'running')
+        with patch('modules.service_store.identity', return_value=self.owner):
+            reply = goal_executor.cancel_job(self.owner, job_id)
+        self.assertIn('İptal kaydedildi', reply)
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['state'], 'cancelled')
+        self.assertGreater(state['version'], before_state['version'])
+        self.assertEqual(record['state'], 'cancelled')
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
+        self.run_goal.assert_not_called()
+
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
         with patch.object(model_wait, 'ask',
                           return_value=json.dumps(research_tasks('first'))) as planner:
