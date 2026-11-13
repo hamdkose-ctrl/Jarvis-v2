@@ -276,3 +276,38 @@ class QueuedAudioIdleSafetyTests(TestCase):
             runtime, ("audio", "cached.wav", "telefon", "desktop-owner", None),
             session)
         runtime.emit.assert_called_once_with("state", "idle")
+
+
+class VoiceSessionIdleProofTests(TestCase):
+    def session(self, *, busy, unconfirmed, accepted):
+        lane = _session(busy=busy, unconfirmed=unconfirmed).voice_lane
+        pause = threading.Event()
+        pause.set()
+        runtime = SimpleNamespace(
+            pause_listening=pause, emit=Mock(),
+            submit=Mock(return_value=accepted),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.voice_lane = lane
+        return session, runtime
+
+    def test_rejected_voice_command_does_not_claim_idle_after_failed_stop(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=True, accepted=False)
+        self.assertFalse(session.submit_voice("sus"))
+        self.assertFalse(runtime.pause_listening.is_set())
+        runtime.emit.assert_not_called()
+
+    def test_rejected_voice_command_claims_idle_after_confirmed_silence(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=False, accepted=False)
+        self.assertFalse(session.submit_voice("sus"))
+        runtime.emit.assert_called_once_with("state", "idle")
+
+    def test_accepted_voice_command_remains_paused_for_existing_event_loop(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=False, accepted=True)
+        self.assertTrue(session.submit_voice("araştır"))
+        self.assertTrue(runtime.pause_listening.is_set())
+        runtime.emit.assert_not_called()
