@@ -233,10 +233,10 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         stack.enter_context(patch("modules.goal_executor.active", return_value=False))
         stack.enter_context(patch("modules.goal_executor.handle", return_value=None))
         stack.enter_context(patch("modules.command_execution.continue_app", return_value=None))
-        if getattr(runtime, "_steps", None) is not None:
-            # Bu testler adımı çalıştırmaz; çok adımlı tura durmasını bekledikleri noktada
-            # kanonical adım planını hazır değerle besler (gerçek gramer testi PR3B kilidindedir).
-            stack.enter_context(patch("modules.brain_entry.step_plan", return_value=runtime._steps))
+        # The old brain_entry.step_plan second parser was retired. A raw Engine
+        # command cannot fabricate a step plan even if a stale test fixture has
+        # runtime._steps. Only canonical Brain/Core may schedule typed steps.
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
         if not dispatch:
             stack.enter_context(patch("modules.command_manager.dispatch", return_value=None))
         stack.enter_context(requests_state.activate(entry.owner, entry.request_id))
@@ -251,7 +251,9 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
         result = self._handle(runtime, entry, "analiz et")
 
-        self.assertEqual(result, "CONTINUED")
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "PHOTO_ACTION")
+        runtime._run_steps.assert_not_called()
         runtime._photo_action.assert_not_called()
         # Core plan yürütülmeden ham metin pending fotoğrafı tüketmez.
         self.assertIn(runtime.profile.slug, runtime._pending_photo)
@@ -263,7 +265,9 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
         result = self._handle(runtime, entry, text)
 
-        self.assertEqual(result, "CONTINUED")
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "PHOTO_ACTION")
+        runtime._run_steps.assert_not_called()
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
 
@@ -272,7 +276,9 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
         result = self._handle(runtime, entry, "analiz et", bind=False)
 
-        self.assertEqual(result, "CONTINUED")
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "PHOTO_ACTION")
+        runtime._run_steps.assert_not_called()
         runtime._photo_action.assert_not_called()
         self.assertIn(runtime.profile.slug, runtime._pending_photo)
 
@@ -286,7 +292,9 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
         result = self._handle(runtime, ambiguous, "analiz et")
 
-        self.assertEqual(result, "CONTINUED")
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "PHOTO_ACTION")
+        runtime._run_steps.assert_not_called()
         runtime._photo_action.assert_not_called()
         self.assertIn(runtime.profile.slug, runtime._pending_photo)
 
@@ -306,7 +314,9 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
         result = self._handle(runtime, entry, "analiz et")
 
-        self.assertEqual(result, "CONTINUED")
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "PHOTO_ACTION")
+        runtime._run_steps.assert_not_called()
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
 
