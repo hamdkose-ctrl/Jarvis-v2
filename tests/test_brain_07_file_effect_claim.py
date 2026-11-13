@@ -236,6 +236,32 @@ class FileEffectClaimTests(unittest.TestCase):
         finally:
             self.close_holder(child)
 
+    def test_studio_audio_source_is_claimed_before_ffmpeg(self):
+        """A second process owning the audio source must block studio render."""
+        from modules import media_studio, nxapi
+        root = self.base / 'studio-audio-claims'
+        root.mkdir()
+        audio = root / 'voice.wav'
+        audio.write_bytes(b'verified source audio')
+        digest = media_studio.task_results.file_digest(audio)
+        output = root / 'Jarvis Görevler' / 'alice'
+        output.mkdir(parents=True)
+        calls = []
+        child = self.holder(audio, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_studio.subprocess, 'run',
+                              side_effect=lambda *args, **kwargs: calls.append(args)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_studio.run('alice', {
+                        'scenes': [{'caption': 'Hello', 'duration': 1}],
+                        'audio': str(audio), 'audio_sha256': digest,
+                    }, 'ffmpeg', output)
+            self.assertEqual(calls, [], 'FFmpeg started before audio claim')
+            self.assertEqual(audio.read_bytes(), b'verified source audio')
+        finally:
+            self.close_holder(child)
+
     def test_studio_final_publish_failure_leaves_no_partial_video(self):
         """A failed final copy is never a successful video artifact."""
         from modules import media_studio
