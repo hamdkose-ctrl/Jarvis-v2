@@ -120,6 +120,30 @@ class OriginalPageTests(unittest.TestCase):
         self.assertEqual(self.profile.data['study']['docs'], [])
         self.assertEqual(self.profile.data['study']['source_generation'], 1)
 
+    def test_study_remove_failed_catalog_save_does_not_destroy_source(self):
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Keep this source on disk', encoding='utf8')
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('catalog fsync failure'))
+        with self.assertRaises(OSError):
+            study.remove(self.profile, item['id'])
+        self.assertEqual(source.read_text(encoding='utf8'), 'Keep this source on disk')
+        self.assertIn(item, self.profile.data['study']['docs'])
+
+    def test_study_clear_failed_catalog_save_preserves_sources_and_generation(self):
+        item = self.legacy_source()
+        source = study._dir(self.profile)/'1.txt'
+        source.write_text('Do not erase before catalog commit', encoding='utf8')
+        before = self.profile.data['study'].copy()
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('catalog fsync failure'))
+        with self.assertRaises(OSError):
+            study.clear(self.profile)
+        self.assertEqual(source.read_text(encoding='utf8'),
+                         'Do not erase before catalog commit')
+        self.assertIn(item, self.profile.data['study']['docs'])
+        self.assertEqual(self.profile.data['study'].get('source_generation'),
+                         before.get('source_generation'))
+
     def test_bad_page_stale_key_and_foreign_profile_do_not_reach_model(self):
         with patch.object(mt.llm, 'ask_image', return_value=self.reply): mt.solve(self.profile, '', str(self.path))
         view = mt.preview(self.profile, 1)
