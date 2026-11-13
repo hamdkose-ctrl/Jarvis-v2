@@ -217,7 +217,7 @@ class FrontGatePrecedenceTests(_Pipeline):
     def test_unregistered_free_language_never_calls_file_or_macro_worker(self):
         self.ctx.profile.data["macros"] = {}
         with patch.object(self.ctx, "_file_command",
-                          side_effect=AssertionError("raw file classification")) as file_worker, \\
+                          side_effect=AssertionError("raw file classification")) as file_worker, \
              patch.object(self.ctx, "_macro_run",
                           side_effect=AssertionError("unregistered shortcut")) as macro:
             self.assertIsNone(brain_precedence.claim(self.ctx, "hava nasıl"))
