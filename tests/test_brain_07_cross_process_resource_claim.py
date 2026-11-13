@@ -94,7 +94,7 @@ class CrossProcessReadOnlyResourceClaimTests(unittest.TestCase):
         def denied_fdopen(*args, **kwargs):
             return DeniedInitializer(raw_fdopen(*args, **kwargs))
 
-        key = resource_leases.resource_key('file', 'x' * 64)
+        key = resource_leases.resource_key('file', 'a' * 64)
         with patch.object(resource_leases.os, 'fdopen', side_effect=denied_fdopen):
             with self.assertRaises(resource_leases.LeaseConflict):
                 with resource_leases.process_resource_claim(self.owner_root, key):
