@@ -248,3 +248,31 @@ class LateWakeResultFenceTests(TestCase):
             session._barge_watch(done)
         speaker.stop_speaking.assert_not_called()
         self.assertEqual(session.state["awake_until"], 0.0)
+
+
+class QueuedAudioIdleSafetyTests(TestCase):
+    def runtime(self):
+        return SimpleNamespace(
+            slugify=lambda name: name,
+            pc_profile=lambda: SimpleNamespace(name="desktop-owner"),
+            _record_failure=Mock(), _reject_queued_input=Mock(),
+            os=SimpleNamespace(remove=Mock()), emit=Mock(),
+        )
+
+    def test_phone_audio_error_does_not_claim_idle_over_unconfirmed_speaker(self):
+        runtime = self.runtime()
+        session = _session(busy=False, unconfirmed=True)
+        engine_loop._queued_audio(
+            runtime, ("audio", "cached.wav", "telefon", "desktop-owner", None),
+            session)
+        runtime._reject_queued_input.assert_called_once()
+        runtime.emit.assert_not_called()
+        runtime.os.remove.assert_called_once_with("cached.wav")
+
+    def test_phone_audio_error_releases_idle_when_speaker_is_silent(self):
+        runtime = self.runtime()
+        session = _session(busy=False, unconfirmed=False)
+        engine_loop._queued_audio(
+            runtime, ("audio", "cached.wav", "telefon", "desktop-owner", None),
+            session)
+        runtime.emit.assert_called_once_with("state", "idle")
