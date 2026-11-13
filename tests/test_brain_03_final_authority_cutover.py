@@ -224,7 +224,7 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
              patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("note cleared")) as clear:
             entry, output, _handler, feedback = self.turn_real(
-                "Şehrimi İzmir yap; tüm notları sil", model_understanding=True)
+                "İzmir hava durumuna bak: kamerayı aç", model_understanding=True)
         self.assertIsNone(brain_entry.core_plan(entry))
         self.assertIn("işlem başlatılmadı", output)
         self.assertEqual(feedback.result_status, "failed")
@@ -233,6 +233,8 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         planner.assert_not_called()
         cascade.assert_not_called()
         clear.assert_not_called()
+        self.ctx._weather.assert_not_called()
+        self.ctx.system_control.open_application.assert_not_called()
 
     def test_note_mutation_grammar_requires_whole_imperative_not_negative(self):
         from modules.brain_understanding import _note_write_request
