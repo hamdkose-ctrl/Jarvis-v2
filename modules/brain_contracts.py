@@ -235,12 +235,15 @@ class ActiveContext(_JsonContract):
     memory_references: tuple[ContextReference, ...] = ()
     # Core-observed local clock, never a selectable business reference.
     current_time: str | None = None
+    development_active: bool = False
 
     def __post_init__(self) -> None:
         _require_text("ActiveContext.owner", self.owner)
         _require_text("ActiveContext.request_id", self.request_id)
         _optional_text("ActiveContext.topic", self.topic)
         _optional_text("ActiveContext.current_time", self.current_time)
+        if type(self.development_active) is not bool:
+            raise ValueError("development_active bool olmalı.")
         for name in (
             "active_goal_references", "goal_candidates", "active_task_references",
             "recent_references", "active_artifacts", "pending_references", "memory_references",

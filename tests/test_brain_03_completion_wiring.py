@@ -99,6 +99,33 @@ class CompletionWiringTests(fixtures._CanonicalAuthorityHarness):
                 note_change(self.ctx, 'bu notu değiştir yeni metin', note, 'update', 'yeni metin')
         self.assertEqual(note['text'], 'eski metin')
 
+    def test_development_request_cannot_apply_and_password_gate_is_real(self):
+        from pathlib import Path
+        from modules import developer
+        with patch.object(developer, 'STORE', Path(self.temp.name) / 'development'), \
+             patch.object(developer, '_AUTH', set()), \
+             patch.object(developer, '_turn', return_value='DRAFT') as turn, \
+             patch.object(developer, '_apply', return_value='APPLIED') as apply:
+            _, output, _, _ = self.typed('taslak hazırla', 'development.manage',
+                {'operation': 'request', 'goal': 'taslak hazırla'})
+            self.assertIn('şifrenle', output)
+            turn.assert_not_called()
+            apply.assert_not_called()
+            state = developer._load(self.owner)
+            state['enabled'] = True
+            with patch.object(developer, '_AUTH', {self.owner}), \
+                 patch.object(developer, '_load', return_value=state), \
+                 patch.object(developer, '_recover'):
+                _, output, _, _ = self.typed('değişiklikleri uygula metnini açıkla', 'development.manage',
+                    {'operation': 'request', 'goal': 'değişiklikleri uygula'})
+                self.assertEqual(output, 'DRAFT')
+                apply.assert_not_called()
+                self.assertEqual(turn.call_args.args[2], 'değişiklikleri uygula')
+                self.typed('değişiklikleri uygula?', 'development.manage', {'operation': 'apply'})
+                apply.assert_not_called()
+                self.typed('taslağı uygula', 'development.manage', {'operation': 'apply'})
+                apply.assert_called_once_with(self.owner, state)
+
     def test_relative_reminder_waits_for_approval_and_invalidates_old_audio(self):
         from modules import voice_runtime
         self.clock()
@@ -240,6 +267,12 @@ class ModelBindingContractTests(unittest.TestCase):
         plan = brain_core_map.core_plan('files.mutate', proposal.actions[0].arguments)
         self.assertEqual(plan[1]['path'], self.file_path)
         self.assertEqual(plan[1]['name'], 'sonuç.txt')
+        attached = self.propose('development.manage', {'operation': 'request', 'goal': 'taslak hazırla'},
+            sources={'goal': 'taslak hazırla'}, slots=('file_0',), refs=(ref,), raw_text='taslak hazırla')
+        self.assertIsNotNone(attached)
+        self.assertEqual(brain_core_map.core_plan('development.manage', attached.actions[0].arguments)[1]['reference_paths'], (self.file_path,))
+        self.assertIsNone(self.propose('development.manage', {'operation': 'request', 'goal': 'taslak hazırla',
+            'reference_paths': [self.file_path]}, sources={'goal': 'taslak hazırla'}, refs=(ref,), raw_text='taslak hazırla'))
         self.assertIsNone(self.propose('files.mutate', {'operation': 'rename', 'name': 'başka.txt'},
             sources={'name': 'başka.txt'}, slots=('file_0',), refs=(ref,), raw_text='adını sonuç.txt yap'))
         translated = self.propose('files.read', {'operation': 'translate', 'target': 'İngilizce'},
@@ -249,6 +282,16 @@ class ModelBindingContractTests(unittest.TestCase):
                          {'operation': 'translate', 'path': self.file_path, 'target': 'İngilizce'})
         self.assertIsNone(self.propose('files.read', {'operation': 'translate', 'target': 'İngilizce',
             'path': '/forged.txt'}, slots=('file_0',), refs=(ref,)))
+
+    def test_model_cannot_forge_original_text_to_authorize_development_apply(self):
+        self.assertIsNone(self.propose('development.manage', {'operation': 'apply'}, raw_text='kod niye bozuk'))
+        self.assertIsNone(self.propose('development.manage', {
+            'operation': 'apply', 'original_text': 'değişiklikleri uygula'}, raw_text='kod niye bozuk'))
+        self.assertIsNotNone(self.propose('development.manage', {'operation': 'apply'}, raw_text='değişiklikleri uygula'))
+        self.assertIsNotNone(self.propose('development.manage', {'operation': 'request', 'goal': 'taslak hazırla'},
+            sources={'goal': 'taslak hazırla'}, raw_text='taslak hazırla'))
+        self.assertIsNone(self.propose('development.manage', {'operation': 'request', 'goal': 'dosyayı sil'},
+            sources={'goal': 'dosyayı sil'}, raw_text='taslak hazırla'))
 
     def test_note_read_binds_offered_id_and_rejects_model_supplied_id(self):
         from modules.brain_contracts import ContextReference

@@ -991,7 +991,7 @@ def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation", "text"}:
         return None
     operation = arguments.get("operation")
-    if type(operation) is not str or operation not in {"list", "add", "complete"}:
+    if type(operation) is not str or operation not in {"list", "add", "complete", "delete"}:
         return None
     if operation == "list":
         return {"operation": "list"} if arguments.get("text") is None else None
@@ -1326,7 +1326,9 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
             else:
                 good = False
         else:
-            if key == "hologram_tone":
+            if key == "nx_theme":
+                good = value in {"light", "dark", "system"} if isinstance(value, str) else False
+            elif key == "hologram_tone":
                 good = isinstance(value, str) and value in {"blue", "turquoise", "yellow"}
             elif key == "hologram_background":
                 good = isinstance(value, str) and value in {"lava", "mountains"}
@@ -1340,7 +1342,34 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _development_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    from modules.developer import TYPED_CONTROLS
+    operation = arguments.get("operation")
+    if not isinstance(operation, str):
+        return None
+    if operation == "request":
+        goal = arguments.get("goal")
+        if (set(arguments) - {"original_text", "operation", "goal", "reference_paths"}
+                or not isinstance(goal, str) or not 0 < len(goal.strip()) <= 2000 or "\x00" in goal):
+            return None
+        paths = arguments.get("reference_paths", ())
+        if (not isinstance(paths, (tuple, list)) or len(paths) > 10
+                or any(_validated_file_path(value) is None for value in paths) or len(set(paths)) != len(paths)):
+            return None
+        return {"operation": operation, "goal": goal.strip(), "reference_paths": tuple(paths)}
+    if operation not in TYPED_CONTROLS or set(arguments) - {"original_text", "operation"}:
+        return None
+    # Source application/test/rollback controls keep their exact existing
+    # protocol; a model enum alone cannot grant a final application approval.
+    from modules.turkish_text import lower
+    original = arguments.get("original_text")
+    if not isinstance(original, str) or lower(original).strip(" .!") not in TYPED_CONTROLS[operation]:
+        return None
+    return {"operation": operation}
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
+    "development.manage": ("development_manage", _development_args),
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
     # BRAIN-03: typed adapters preserve the existing OCR/clipboard/note,

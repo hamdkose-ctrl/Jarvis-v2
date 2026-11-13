@@ -39,6 +39,7 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 | Workbench | `workbench.followup` → `workbench.followup_typed` → aynı `handle` | Kullanıcıya ait süreli digest, izinli kaynak tekrar denetimi; serbest raw followup emekli |
 | Finans alarmı | `finance.alert.manage` → `finance_alert_commands.execute_typed` → mevcut `finance_alert_store` | Ham finans alarmı `matches/handle` grameri fiziksel kaldırıldı; dayanaklı asset/eşik/sıra; kullanıcı listesi atomik çözüm |
 | Gmail/Outlook okuma | `mail.read` → `engine_tools.mail_read_typed` → aynı `google_api`/`outlook` worker'ı | Ham `_mail_handle` kaldırıldı; salt-okuma, taslak/gönderim yeni yetki kazanmaz |
+| Şifreli geliştirme | `development.manage` → `developer.execute_typed` → aynı korumalı taslak/test/release işçisi | Request kontrol olarak yeniden yorumlanmaz; apply/undo exact özgün Core cümlesi ve mevcut UI şifresiyle sınırlı; ek yolları modelden gelmez |
 | Diğer mevcut tipli domainler | Dosya, tarayıcı, mesaj/kişi, görev, KB, iştakip, media, handoff, notify, model-goal | Eski genel cascade'in effect seçimi yok; mevcut worker'lar korunur |
 
 ## Son parite ve model sözleşmesi bağlantıları
@@ -47,6 +48,7 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 - Takvim `meeting_prep`, mail `awaiting_*`/ilk mail ekleri, not count/one, konuşma tablosu, dosya çeviri/dönüşüm/mutasyon ve geçmiş cevabın tam metin çevirisi mevcut worker'larına bağlıdır. Prompt yalnız önizleme alır; çeviri Core'un owner/rol/turn ID bağlı tam kaynağını kullanır. Tarihli öneriler gözlenen yerel saatten üretilir. Saat `ActiveContext.current_time` metadata'sıdır; iş/dosya/referans adayı değildir ve artifact/pending bağlanırken korunur.
 - Hatırlatma değişikliği Profile kilidi içinde exact snapshot onayıyla yapılır; sıradaki tekrar, base saati ve fired snooze ayrılır, değişen olayın eski ses kuyruğu geçersizleşir.
 - Desktop açık soru cevabı exact native job/soru/aktif PC sahibine bağlanır. Goal açık soru cevabı model ilişkisinden aynı hedefin mevcut resolver/control çitine gider; canonical Scheduler yerine ikinci run açılmaz.
+- Görev silme tam owner başlığından mevcut State onayına; tema değişimi mevcut UI ayar sahibine bağlıdır. Geliştirme request/control ve owner ek bağlama paritesi ayrı typed sözleşmeyle korunur; hiçbir model alanı özgün onay metnini değiştiremez.
 - Eski testler raw fallback yerine açık model önerisiyle gerçek prepare/handoff/Core/domain hattını sürer. Bounded `boşver` hedef yokken `job.empty_cancel` no-op olarak ölçülür; eski baseline sonuçları yeniden yazılmaz.
 - Saf eski `understand` fonksiyonu `model_understanding=False` karakterizasyon yüzeyinde kalır. Talimatsız fotoğrafın “ne yapayım?” meta bekleme turu da model çağırmaz; burada kullanıcı komutu yürütülmez. Serbest talimat içeren üretim text/live/photo ve iç adımlar birincil modele gider; kaynak/caller guard'ları bu sınırı denetler.
 

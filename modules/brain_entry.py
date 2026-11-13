@@ -287,7 +287,14 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     from datetime import datetime
     clock = getattr(runtime, "datetime", datetime)
     now = clock.now().astimezone().isoformat(timespec="seconds")
-    active = replace(active, current_time=now)
+    from modules import developer
+    try:
+        development = developer.status(owner)
+    except (ValueError, OSError):
+        _record_failure("modules/brain_entry.py:development_observation")
+        development = {}
+    active = replace(active, current_time=now, development_active=(
+        development.get("enabled") is True and development.get("unlocked") is True))
     active = _with_app_target_evidence(active, runtime)
     active = _with_recipient_evidence(active, runtime)
     # An ephemeral Workbench job is a canonical owner-scoped artifact by
@@ -1013,7 +1020,11 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    arguments = semantic.arguments
+    if semantic.capability_hint == "development.manage":
+        # Approval source is the immutable Core entry, never a model field.
+        arguments = {**arguments, "original_text": entry.text}
+    plan = brain_core_map.core_plan(semantic.capability_hint, arguments)
     if plan is not None and plan[0] == "document_export":
         artifacts = [ref for ref in entry.active_context.active_artifacts
                      if ref.owner == entry.owner and ref.kind == "artifact"
@@ -1082,6 +1093,11 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         allowed = {ref.provenance.get("path") for ref in semantic.references
                    if ref.owner == entry.owner and ref.kind == "file"}
         if plan[1].get("path") not in allowed:
+            return None
+    if plan is not None and plan[0] == "development_manage":
+        allowed = {ref.provenance.get("path") for ref in semantic.references
+                   if ref.owner == entry.owner and ref.kind == "file"}
+        if any(path not in allowed for path in plan[1].get("reference_paths", ())):
             return None
     if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
         return None

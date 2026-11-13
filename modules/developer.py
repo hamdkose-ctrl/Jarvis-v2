@@ -856,6 +856,61 @@ def deliver_code(owner, request):
                 'test_log':str(log), 'test_log_sha256':task_results.file_digest(log)}
 
 
+# Closed Core operations. These are machine commands of the existing protected
+# workspace, never a natural-language selector or an unlock/permission grant.
+TYPED_CONTROLS = {
+    'enable_hint': ('geliştirme modunu aç', 'geliştirme modu', 'jarvis geliştirme modunu aç'),
+    'exit': ('normal sohbete dön', 'geliştirme modunu kapat'),
+    'draft_only': ('taslakta çalış', 'otomatik geliştirmeyi kapat'),
+    'auto_hint': ('otomatik uygula', 'otomatik geliştirmeyi aç'),
+    'apply': ('değişiklikleri uygula', 'taslağı uygula'),
+    'undo': ('son geliştirmeyi geri al', 'geliştirmeyi geri al'),
+    'cancel_draft': ('taslağı iptal et', 'değişiklikleri iptal et'),
+    'show_draft': ('taslağı göster', 'değişiklikleri göster'),
+    'test_draft': ('taslağı test et', 'geliştirmeyi test et'),
+    'visuals': ('geliştirme görsellerini listele', 'görsellerimi listele'),
+    'last_visual': ('son görseli göster', 'görseli tekrar göster'),
+    'clear_history': ('geliştirme geçmişini temizle',),
+}
+
+
+def execute_typed(owner, operation, *, goal=None, reference_paths=(), emit=lambda *args: None):
+    """Apply a Core-selected operation with the existing password/draft gates."""
+    requests_state.check()
+    request = requests_state._current.get()
+    if request is not None and request[0] != owner:
+        raise PermissionError('Geliştirme ve istek kullanıcısı eşleşmiyor.')
+    if not isinstance(operation, str) or not isinstance(reference_paths, (tuple, list)) or len(reference_paths) > 10:
+        raise ValueError('Geliştirme işlemi doğrulanmadı.')
+    if operation in TYPED_CONTROLS:
+        if goal is not None or reference_paths:
+            raise ValueError('Geliştirme kontrolüne yeni görev eklenemez.')
+        result = handle(owner, TYPED_CONTROLS[operation][0], emit)
+        return result if result is not None else 'Geliştirme alanı açık değil; arayüz düğmesinden şifrenle aç.'
+    if operation != 'request' or not isinstance(goal, str) or not 0 < len(goal.strip()) <= 2000 or '\x00' in goal:
+        raise ValueError('Geliştirme isteği doğrulanmadı.')
+    with _LOCK:
+        state = _load(owner)
+        if not state['enabled'] or owner not in _AUTH:
+            return 'Geliştirme alanını arayüz düğmesinden şifrenle aç; kaynaklara işlem yapmadım.'
+        _recover(owner)
+        state = _load(owner)
+        try:
+            preview = ''
+            for source in reference_paths:
+                requests_state.check()
+                item = _reference(owner, state, source)
+                if item.get('preview'):
+                    preview += '\n\n![' + item['name'].replace('[', '').replace(']', '').replace('\n', ' ') + '](' + item['preview'] + ')'
+            # A draft request cannot reinterpret its text as apply/undo/exit.
+            return _turn(owner, state, goal, emit) + preview
+        except requests_state.Cancelled:
+            raise
+        except Exception:
+            _record_failure('modules/developer.py:typed_turn')
+            return 'Model yanıtı tamamlanamadı. İsteğin ve önceki taslaklar saklandı; tekrar devam et diyebilirsin.'
+
+
 def handle(owner, command, emit=lambda *args: None, *, raise_errors=False, require_draft=False):
     c = command.translate(str.maketrans('İI', 'iı')).lower().strip(' .!?')
     with _LOCK:

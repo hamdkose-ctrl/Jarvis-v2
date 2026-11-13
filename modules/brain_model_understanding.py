@@ -84,7 +84,7 @@ _GOAL_CARD_KINDS = GOAL_CARD_KINDS
 # photo turunda modelin uydurduğu yol, canonical artifact eşitliği çitinde tüm isteği
 # PHOTO_TARGET_NOT_VALIDATED'a düşürürdü; bu yüzden öneri burada tümüyle reddedilir.
 _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
-    "path", "paths", "photo", "token", "credential", "approval", "approval_id",
+    "path", "paths", "photo", "token", "credential", "approval", "approval_id", "original_text", "reference_paths",
     "account", "account_id",
 })
 
@@ -106,6 +106,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "weather.city.set": frozenset({"location"}),
     "files.mutate": frozenset({"name", "content"}),
     "calendar.read": frozenset({"query"}),
+    "development.manage": frozenset({"goal"}),
     # Photo-derived note text is a write effect: the model cannot invent it.
     "photo.action": frozenset({"note_text"}),
     "reminders.manage": frozenset({"title", "duration", "schedule", "on_date"}),
@@ -298,6 +299,12 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "named": ["", *sorted(FOLDER_KEYS)], "name": "one user-supplied subfolder name or empty, never a path"}
     if capability_id in _BASE_ARGUMENT_SHAPES:
         return dict(_BASE_ARGUMENT_SHAPES[capability_id])
+    if capability_id == "development.manage":
+        from modules.developer import TYPED_CONTROLS
+        return {"operation": ["request", *TYPED_CONTROLS], "goal": "verbatim complete development request, request only",
+                "argument_sources": ["goal"], "controls": dict(TYPED_CONTROLS),
+                "reference_slots": "request may select observed file_N attachments; no paths may be supplied",
+                "constraint": "request drafts only in the password-unlocked UI workspace; each control requires its exact original full command; never unlock or apply from a draft request"}
     if capability_id == "conversation.table":
         return {"arguments": {}, "constraint": "only reformat the latest assistant answer of this owner as an in-chat table; no file write or inferred business action"}
     from modules.brain_core_map import CORE_INTENTS
@@ -363,7 +370,7 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                               "Core fetches a bounded public source, never accept model URL, file or course ID; "
                               "ordinary lesson research=false"}
     if capability_id == "tasks.manage":
-        return {"operation": ["list", "add", "complete"],
+        return {"operation": ["list", "add", "complete", "delete"],
                 "text": "verbatim user-provided task title; omit on list",
                 "argument_sources": ["text"],
                 "constraint": "complete only exactly one currently open task title; do not infer by substring"}
@@ -447,7 +454,7 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "wake_beep": [True, False], "learn_from_chat": [True, False],
                 "widget": [True, False], "window_mode": ["full", "window"],
             },
-            "ui": {"hologram_tone": ["blue", "turquoise", "yellow"],
+            "ui": {"nx_theme": ["light", "dark", "system"], "hologram_tone": ["blue", "turquoise", "yellow"],
                    "hologram_background": ["lava", "mountains"],
                    "replay": [True], "home_animation": [True, False]},
         }}
@@ -959,6 +966,20 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
                       file_operation_hint: str | None, file_refs: list[Any],
                       owner: str, photo_path: str | None = None,
                       turn_candidates: tuple[Any, ...] = ()) -> tuple[dict[str, Any], tuple[Any, ...]] | None:
+    if capability_id == "development.manage":
+        if set(supplied) - {"operation", "goal"}:
+            return None
+        selected = tuple(by_slot[slot] for slot in slots)
+        if (len(selected) > 10 or any(ref.owner != owner or ref.kind != "file" for ref in selected)
+                or (slots and supplied.get("operation") != "request")):
+            return None
+        if len(file_refs) > len(selected) and any(
+                not _selected_file_candidate_is_grounded(text, ref, file_refs) for ref in selected):
+            return None
+        payload = {"original_text": text, **dict(supplied)}
+        if supplied.get("operation") == "request":
+            payload["reference_paths"] = [ref.provenance.get("path") for ref in selected]
+        return payload, selected
     if capability_id == "text.translate":
         if slots or set(supplied) != {"translate"} or not isinstance(supplied["translate"], Mapping):
             return None
@@ -1264,7 +1285,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             last_verified_level_property: str | None = None,
             photo_path: str | None = None,
             turn_candidates: tuple[Any, ...] = (),
-            current_time: str | None = None) -> UnderstandingProposal | None:
+            current_time: str | None = None,
+            development_active: bool = False) -> UnderstandingProposal | None:
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
     Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
@@ -1299,6 +1321,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "response_schema": _response_schema(offered_capabilities),
             "utterance": text[:2000],
             "current_time": current_time,
+            "development_active": development_active,
             "current": {
                 # Legacy lexical hypotheses are intentionally not given to
                 # the semantic model as a suggested answer. Factual pending
@@ -1370,9 +1393,12 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "rename/move select exactly one file_N; create/undo selects none. For notes.write "
             "select exactly one note_N. For notes.read one selects one note_N; summary may select "
             "one or none. Never invent an ID or slot; clarify absent or ambiguous targets. "
+            "For development.manage request, select zero to ten explicitly selected file_N slots for references; controls use none. "
             "All other capabilities use empty reference_slots. For text.translate with origin "
             "assistant/user select an offered recent_turns id and omit text: Core binds the "
             "complete stored source. Inline translation must quote the exact user text. "
+            "development_active is a Core observation of the UI password workspace, never a permission grant; "
+            "when active, explicit source/draft/visual development requests use development.manage rather than unrelated tools. "
             "current_time is the observed local clock; temporal reminders must use it rather "
             "than guessing a date. If it is unavailable, clarify time instead of inventing it. "
             "Simple semantic values the schema allows are yours to fill: query, city, number, closed "

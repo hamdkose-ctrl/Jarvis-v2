@@ -284,6 +284,13 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return message
             except hoca.HocaError as exc:
                 return str(exc)
+        case "development_manage":
+            from modules import developer
+            result = developer.execute_typed(runtime.profile.slug, a["operation"],
+                goal=a.get("goal"), reference_paths=a.get("reference_paths", ()), emit=runtime.emit)
+            if isinstance(result, str) and (len(result) > 300 or 'data:image' in result):
+                runtime._session().speech_override = "Geliştirme sonucu sohbet ekranında hazır."
+            return result
         case "tasks_manage":
             from modules import tasks
             operation = a["operation"]
@@ -292,6 +299,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if operation == "add":
                 task = tasks.add(runtime.profile, a["text"])
                 return f"Görev ekledim: {task['text']}."
+            if operation == "delete":
+                from modules import personalization
+                with personalization._LOCK:
+                    matches = [task for task in runtime.profile.data.get("tasks", [])
+                               if task.get("text") == a["text"]]
+                    if len(matches) != 1:
+                        return "Bu adla tek bir görev bulamadım; hiçbir görev silinmedi."
+                    return app_actions.voice({"action": "task_delete", "params": {"tid": matches[0]["id"]}},
+                        runtime._session(), runtime.profile, runtime.emit, command)
             completed = tasks.complete_exact(runtime.profile, a["text"])
             if completed is None:
                 return ("Bu adla tek bir açık görev bulamadım; "

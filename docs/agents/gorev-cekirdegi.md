@@ -3,6 +3,7 @@
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
 
 - Üretim text/live/nested girişler nötr gözlemden tek model kararı alır. Genel raw cascade, ikinci typo/sequence yorumlayıcısı ve Study callback'i emeklidir. `model_understanding=False` eski saf karakterizasyon ve talimatsız fotoğrafın “ne yapayım?” bekleme metadatası içindir; serbest kullanıcı talimatını yürütmez.
+- `tasks.manage.delete` yalnız tam metinle tek owner görevini seçer; mevcut `app_actions.voice(task_delete)` State onayı olmadan silmez. Tema seçimi `jarvis.selfctl` kapalı `nx_theme` değeriyle mevcut `nxapi.ui_set` sahibine gider.
 - Core kataloğunun her yeteneği modele alan/enum/kısıt sözleşmesiyle sunulur. Şehir set/reset için eski deterministik istisna kalmaz; set alanı kullanıcı sözünden alıntılı dayanak ister. Geçmiş konuşma ID'leri ve yerel güncel saat Core gözlemidir; model önerisi kimlik/izin üretmez.
 - Pending app seçimi, etkinlik zaman cevabı ve masaüstü sorusu gerçek ActiveContext sahibine bağlanır. Gözlenmiş pending varken CORRECTION eylem önerisi eski state'i yazamaz; ownersız ANSWER_TO_PENDING açık soru üretir.
 - Bir hedefin gerçek soru cevabı yalnız continue_goal + ANSWER_TO_PENDING + sunulmuş goal ID ile mevcut resolver'a gider; özgün kullanıcı metni, aynı version/control snapshot ve domain worker korunur. Düz devam/resume cevap uydurmaz. Canonical planlı hedefi yine Scheduler yürütür.

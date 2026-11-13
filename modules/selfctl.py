@@ -95,6 +95,12 @@ def _setting(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
 
 def _ui(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
     key, value = action.get("key"), action.get("value")
+    if key == "nx_theme" and value in {"light", "dark", "system"}:
+        # Same persisted setting used by the existing UI Bridge.
+        from modules import nxapi
+        nxapi.ui_set("nx_theme", value)
+        emit("action", "nx_set")
+        return "Temayı " + {"light": "açık", "dark": "koyu", "system": "sisteme göre"}[value] + " yaptım."
     if key == "hologram_tone" and value in TONES:
         emit("ui", f"hologramtone|{value}")
         return f"Hologram rengini {TONES[value].lower()} yaptım."

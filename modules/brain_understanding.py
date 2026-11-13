@@ -2801,6 +2801,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 and isinstance(ref.provenance.get("text"), str)
             )[-8:],
             current_time=active_context.current_time if active_context is not None else None,
+            development_active=active_context.development_active if active_context is not None else False,
             pending_context=tuple(
                 str(ref.provenance.get("field") or ref.id)
                 + (
