@@ -314,7 +314,7 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "argument_sources": ["sender"],
                 "constraint": "exactly one of index or grounded sender; ONLY return drafted reply text; never send, save, forward or alter Outlook"}
     if capability_id == "meeting.prepare":
-        return {"hint": "optional verbatim attendee or meeting name supplied by user; empty if not supplied",
+        return {"hint": "optional verbatim attendee or meeting name supplied by user; OMIT when not supplied",
                 "argument_sources": ["hint"],
                 "constraint": "read-only calendar and email headers; never read mail body, send or modify records"}
     if capability_id == "mail.read":
