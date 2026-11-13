@@ -1322,6 +1322,15 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     if _runtime_owner(runtime) != entry.owner:
         raise ValueError("Core handoff owner eşleşmiyor.")
     semantic = entry.understanding
+    # The last verified volume/brightness target belongs only to an adjacent
+    # level-setting conversation. A different canonical turn (including chat,
+    # web navigation, exact controls, model outage or clarification) closes
+    # that context before it can leak into a later bare-number request.
+    if not (entry.stage == "understanding" and semantic is not None
+            and semantic.capability_hint == "pc.level.set"
+            and "MODEL_DECIDED" in semantic.reason_codes):
+        from modules import session_state
+        session_state.clear_property(runtime._session())
     if (entry.stage == "understanding" and semantic is not None
             and "MODEL_UNAVAILABLE" in semantic.reason_codes):
         # State and Fast lanes have their own exact Core protocols. They never
