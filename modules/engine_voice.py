@@ -297,7 +297,9 @@ class VoiceSession:
         except Exception:
             runtime._record_failure('main.py:_barge_watch')
             return
-        if hit is not None and not done.is_set():
+        # A wake result delivered after shutdown/mic-off/receipt completion
+        # must not stop the next owner's or next session's speech.
+        if hit is not None and not stopped():
             runtime.voice.stop_speaking()
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS   # şimdi söyleneni ad beklemeden dinle
             runtime.log.info("Konuşma kesildi: Hey Jarvis")
