@@ -251,9 +251,8 @@ class SmartRouterTests(unittest.TestCase):
             self.assertIn('Gizli',llm.ask_image('missing.png','x'))
 
     def test_auxiliary_gemini_calls_cannot_bypass_budget_policy(self):
-        from modules import live
         with patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',side_effect=AssertionError('cloud')):
-            self.assertFalse(llm.gemini_aux_allowed());self.assertFalse(live.enabled())
+            self.assertFalse(llm.gemini_aux_allowed())
             self.assertEqual(llm.model_check()['state'],'budget')
             with self.assertRaises(ValueError):llm.embed(['x'])
             with self.assertRaises(RuntimeError):llm.transcribe(data=b'wav')

@@ -41,20 +41,18 @@ class PrivacyVoiceTests(unittest.TestCase):
         with patch.object(voice.privacy, "mode", return_value="normal"):
             self.assertIn(voice._engine(), ("gemini", "google"))
 
-    def test_live_mode_off_in_private_modes(self):
-        src = (ROOT / "modules" / "live.py").read_text(encoding="utf-8")
-        body = src[src.index("def enabled()"):src.index("def parse_fixes")]
-        self.assertIn('return False', body)   # ses özel: Live her modda kapalı (Provider Routing Policy v1)
-        try:
-            from modules import live
-        except Exception as exc:   # noqa: BLE001 - Gemini kütüphanesi bu ortamda yoksa yalnızca kaynak denetimi
-            self.skipTest(f"live içe aktarılamadı: {exc}")
-        with patch("modules.privacy.mode", return_value="yerel"):
-            self.assertFalse(live.enabled())
-        with patch("modules.privacy.mode", return_value="gizli"):
-            self.assertFalse(live.enabled())
-        with patch("modules.privacy.mode", return_value="normal"):
-            self.assertFalse(live.enabled())
+    def test_no_continuous_microphone_stream_can_exist(self):
+        # "Ses özel" hükmü eskiden live.enabled()'in her modda False dönmesiyle korunuyordu.
+        # Canlı akış hattı emekli olduktan sonra hükmün taşıyıcısı kalmamıştır: üretimde
+        # sürekli mikrofon akışı üreten kod bulunamaz (tests/test_live_retirement.py).
+        for name in list(sys.modules):
+            if name.startswith('modules.live') or name in ('modules.voice_timing',
+                                                           'modules.speech_activity',
+                                                           'modules.audio_diagnostics'):
+                self.fail(f'emekli olan canlı ses hattı hâlâ içe aktarılmış: {name}')
+        for path in sorted((ROOT / 'modules').glob('*.py')):
+            with self.subTest(module=path.name):
+                self.assertNotIn('input_audio_buffer', path.read_text(encoding='utf-8'))
 
 
 

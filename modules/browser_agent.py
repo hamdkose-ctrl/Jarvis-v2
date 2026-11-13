@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
 import re
 import threading
@@ -10,10 +12,15 @@ import time
 from urllib.parse import urlsplit
 import uuid
 from config import DATA_DIR
-from modules import privacy, requests_state
+from modules import privacy, requests_state, resource_leases
+import release_guard
 from modules.diagnostics import record_failure as _record_failure
 
 STORE = DATA_DIR / 'browser_agent'
+# Browser profile locks are OS-account-stable, not an in-process RLock.
+# Different data roots may have independent profiles, but processes using
+# the same physical profile must never launch conflicting Playwright sessions.
+_BROWSER_CLAIM_ROOT = Path.home() / '.jarvis' / 'browser-session-claims'
 _LOCK = threading.RLock()
 _ALLOWED = {'goto','read','click','fill','select','press','screenshot'}
 
@@ -21,6 +28,26 @@ _ALLOWED = {'goto','read','click','fill','select','press','screenshot'}
 def _root(owner):
     if not re.fullmatch(r'[\w-]{1,100}', owner or ''): raise ValueError('Kullanıcı geçersiz.')
     root = STORE / owner; root.mkdir(parents=True,exist_ok=True); return root
+
+
+@contextmanager
+def _browser_claim(owner):
+    root = _root(owner)
+    profile = root / 'profile'
+    if root.is_symlink() or profile.is_symlink():
+        raise resource_leases.LeaseConflict('Browser profile path is untrusted.')
+    claim_root = _BROWSER_CLAIM_ROOT
+    if claim_root.parent.is_symlink() or claim_root.is_symlink():
+        raise resource_leases.LeaseConflict('Shared browser claim directory untrusted.')
+    claim_root.mkdir(parents=True, exist_ok=True)
+    identity = os.path.normcase(str(profile.resolve(strict=False)))
+    key = resource_leases.resource_key(
+        'browser_session', hashlib.sha256(os.fsencode(identity)).hexdigest(),
+    )
+    with resource_leases.process_resource_claim(claim_root, key):
+        if root.is_symlink() or profile.is_symlink():
+            raise resource_leases.LeaseConflict('Browser profile changed before launch.')
+        yield
 
 
 def _url(url):
@@ -141,7 +168,7 @@ def _save_pending(root, page, actions, item, permission_asks=None):
     token=uuid.uuid4().hex[:12]
     pending={'id':token,'created':time.time(),'url':page.url,'digest':_digest(page),
              'signature':_signature(item),'actions':actions}
-    path=root/'pending.json'; path.write_text(json.dumps(pending,ensure_ascii=False),encoding='utf-8')
+    path=root/'pending.json'; release_guard.atomic(path, json.dumps(pending,ensure_ascii=False).encode('utf-8'))
     note=''
     if permission_asks:
         note=' İzin kapısı onay notu: '+'; '.join(permission_asks)+'.'
@@ -196,8 +223,19 @@ def _execute(page, root, actions, approved=None, *, owner=None, read_only=False)
 
 
 def run(owner, actions=None, approval=None, *, headless=False, read_only=False):
-    with _LOCK:
-        return _run(owner,actions,approval,headless=headless,read_only=read_only)
+    with _LOCK, _browser_claim(owner):
+        if not headless:
+            # A visible browser occupies the same physical Windows desktop as
+            # native UI automation, including in a second Jarvis installation.
+            from modules import desktop_agent
+            with desktop_agent._desktop_claim(run_handoff=True) as owned:
+                if not owned:
+                    return {'state': 'blocked',
+                            'message': 'Masaüstü başka görevde; ikinci tarayıcı işi başlatılmadı.'}
+                return _run(owner, actions, approval,
+                            headless=headless, read_only=read_only)
+        return _run(owner, actions, approval,
+                    headless=headless, read_only=read_only)
 
 
 def _run(owner, actions=None, approval=None, *, headless=False, read_only=False):
@@ -237,7 +275,7 @@ def _run(owner, actions=None, approval=None, *, headless=False, read_only=False)
 
 
 def cancel(owner, *, expected_token=None):
-    with _LOCK:
+    with _LOCK, _browser_claim(owner):
         path = _root(owner)/'pending.json'
         if expected_token is not None:
             if not isinstance(expected_token, str) or not expected_token:

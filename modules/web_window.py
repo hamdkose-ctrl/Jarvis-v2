@@ -253,8 +253,8 @@ def _show_main(runtime) -> None:
 def _set_mic(runtime, on: bool) -> bool:
     """Mikrofonun tek merkezi anahtarı. Küçük pencere, tepsi ve web arayüzü aynı yolu kullanır.
 
-    Kapatırken açık Gemini Live oturumunu da sonlandırır; yalnız bayrağı değiştirmek
-    aktif dinleme oturumunu ekranda açık bırakabiliyordu.
+    Kapanırken süren kayıtları ortak iptal olayıyla (mic_cancel) keser ve uyandırma sayacını
+    sıfırlar; yalnız bayrağı değiştirmek aktif dinlemeyi ekranda açık bırakabiliyordu.
     """
     on = bool(on)
     if on:
@@ -273,12 +273,6 @@ def _set_mic(runtime, on: bool) -> bool:
         _record_failure('web.py:_set_mic')
         pass
     if not on:
-        try:
-            lv = runtime.engine.live.get()
-            if lv is not None and lv.active():
-                lv.close()
-        except Exception:
-            _record_failure('web.py:_set_mic')
         try:
             from modules import wakeword as _ww
             _ww.reset()

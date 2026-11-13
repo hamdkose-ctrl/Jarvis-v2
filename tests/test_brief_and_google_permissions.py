@@ -134,11 +134,14 @@ class BackgroundSpeechNotDuplicatedTests(unittest.TestCase):
 
     def test_owner_tagged_say_events_are_marked_shown(self):
         src = (ROOT / 'modules' / 'engine_loop.py').read_text(encoding='utf-8')
-        self.assertIn('voice_session.speak(event[1], slow=(kind == "say_slow"), shown=len(event) > 2)', src)
+        self.assertIn('voice_session.speak(event[1], slow=(kind == "say_slow"),', src)
+        self.assertIn('shown=len(event) > 2, identity=identity)', src)
+        self.assertIn('identity = event[3] if len(event) > 3 else None', src,
+                      'sahibi olan bildirim, anlattığı sonucu da taşımalı')
         for path in ('modules/main_planner.py', 'modules/engine_background.py', 'modules/engine_tools.py'):
             text = (ROOT / path).read_text(encoding='utf-8')
             for line in re.findall(r"events\.put\(\(['\"]say['\"],[^\n]*", text):
-                self.assertRegex(line, r"\.slug\)\)", f'{path}: arka plan say olayı sahibini taşımalı')
+                self.assertRegex(line, r"\.slug[,)]", f'{path}: arka plan say olayı sahibini taşımalı')
 
     def test_shutdown_stops_background_before_releasing_instance_lock(self):
         src = (ROOT / 'web.py').read_text(encoding='utf-8')

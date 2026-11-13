@@ -14,7 +14,7 @@ Kilit dosyasına tahmini sürüm eklenmedi. Çalışan PC ortamında kurulum ve 
 4. Ses tanımada **Yerel · yalnız Konuş düğmesi** seç, Kaydet ve Jarvis'i yeniden başlat.
 5. Konuş düğmesini kullan. İlk model yüklemesi sonraki komutlardan daha yavaş olabilir.
 
-Yerel denemede Hey Jarvis dinlemesi ve Gemini Live açılmaz; mikrofon yalnız düğmede dinlenir. Eski akışa dönmek için Gemini/Google seç, Kaydet ve yeniden başlat. Ses tanıma tercihi bilgisayar ayarıdır; yalnız PC kullanıcısının mevcut komut motoruna gönderilir, Android değiştirilmedi.
+Yerel denemede Hey Jarvis dinlemesi açılmaz; mikrofon yalnız düğmede dinlenir. Seçim **ses tanıma motorunu** değiştirir (bulut `voice.recognize` ↔ yerel Whisper): Gemini Live hat olarak 11 Kasım 2026'da emekli edildi (`tests/test_live_retirement.py`), yani "canlı oturuma dönme" diye bir yol yoktur ve hiçbiri açılmaz. Yerelden buluta dönmek için Gemini/Google seç, Kaydet ve yeniden başlat. Ses tanıma tercihi bilgisayar ayarıdır; yalnız PC kullanıcısının mevcut komut motoruna gönderilir, Android değiştirilmedi.
 
 ## Gizlilik ve sınırlar
 

@@ -7,6 +7,41 @@ from modules import file_worker_extensions as ext
 
 
 class FileWorkerExtensionsTests(unittest.TestCase):
+    def setUp(self):
+        self.claim_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.claim_tmp.cleanup)
+        from modules import file_resource_guard
+        guard = patch.object(
+            file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+            Path(self.claim_tmp.name) / 'claims',
+        )
+        guard.start()
+        self.addCleanup(guard.stop)
+
+    def test_pptx_create_refuses_existing_artifact_before_writer_runs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'existing.pptx'
+            target.write_bytes(b'original artifact')
+            calls = []
+            with self.assertRaises(FileExistsError):
+                ext.create_pptx(
+                    str(target), [{'title': 'New', 'body': 'Text'}],
+                    writer=calls.append,
+                )
+            self.assertEqual(calls, [])
+            self.assertEqual(target.read_bytes(), b'original artifact')
+
+    def test_text_patch_does_not_truncate_original_when_atomic_write_fails(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'original.txt'
+            target.write_text('important original', encoding='utf-8')
+            with patch.object(ext.release_guard, 'atomic',
+                              side_effect=OSError('simulated disk write failure')):
+                with self.assertRaises(OSError):
+                    ext.patch_text(target, {'original': 'updated'})
+            self.assertEqual(target.read_text(encoding='utf-8'), 'important original')
+
+
     def test_extracts_obligations_and_deadlines(self):
         rows = ext.extract_obligations("Raporu 2026-11-05 tarihine kadar göndermelisin. Ek dosyayı kontrol et.")
         self.assertEqual(rows[0]["due"], "2026-11-05")

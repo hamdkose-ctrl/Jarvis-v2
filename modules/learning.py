@@ -50,11 +50,11 @@ def learn_mishearing(wrong: str, right: str) -> str:
                 "Kısa bir ifadeyi yanlış duyarsam söyle, onu öğrenirim.")
     if len(right.split()) > 10:
         return "Kaydedemedim: doğru söz çok uzun; kısa bir ifade söylersen öğrenirim."
-    from modules import live
+    from modules import stt_fixes
     raw = load_settings().get("stt_fixes")
-    pairs = live.parse_fixes(raw)
+    pairs = stt_fixes.parse_fixes(raw)
     pairs = [(a, b) for a, b in pairs if _low(a) != _low(wrong)] + [(_low(wrong), right)]
-    save_settings(stt_fixes=", ".join(f"{a}={b}" for a, b in pairs))
+    save_settings(stt_fixes=stt_fixes.format_fixes(pairs))
     log.info("İşlem kaydı: %s", 'modules/learning.py:learn_mishearing')
     return f"Öğrendim: “{wrong}” diye duyduğum şey aslında “{right}”. Bundan sonra böyle anlayacağım."
 

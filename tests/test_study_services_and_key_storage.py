@@ -168,8 +168,7 @@ class YoutubeStorageTests(unittest.TestCase):
         config.save_settings(youtube_key='legacy-secret',youtube_key_protected='dpapi:protected-secret',fullscreen=True)
         ns={'config':config,'DATA_DIR':config.DATA_DIR,'_aname':lambda:'Jarvis',
             'llm':SimpleNamespace(model_names=lambda owner:['test-model']), '_p':lambda:SimpleNamespace(slug='test'),
-            '_wakeword':lambda:SimpleNamespace(mode=lambda:'off'),'_wake_note':lambda:'',
-            '_live':lambda:SimpleNamespace(DEFAULT_FIXES='')}
+            '_wakeword':lambda:SimpleNamespace(mode=lambda:'off'),'_wake_note':lambda:''}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[method],type_ignores=[])),str(source),'exec'),ns)
         response=ns['settings'](object())
         serialized=json.dumps(response)

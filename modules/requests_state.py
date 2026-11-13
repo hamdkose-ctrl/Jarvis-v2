@@ -201,3 +201,43 @@ def is_cancelled(user,rid):
     with _lock:
         record=_records.get((user,rid))
         return bool(record and (record['state']=='cancelled' or time.monotonic()>=record['deadline'])) or (record is None and _archived((user,rid)))
+
+
+def mute_speech(user, rid=None):
+    """Speech-only mute for one request, or for all a user has in flight; returns their ids.
+
+    This is deliberately NOT `cancel`: the command keeps running, Core keeps the
+    written result and the GoalState, and only the audible presentation of those
+    answers is dropped. Callers bound the scope with `rid` — "sus" mutes only the
+    turn whose audio it stopped, so an unrelated background job keeps its future
+    spoken result. Nothing is journaled — a mute belongs to the turn that asked for
+    quiet, never to a restart.
+
+    A named turn is muted even when its request already finished: the answer is
+    marked `done` when the handler returns, while its audio can still be on the
+    speaker for seconds after that. Tying the mute to the request lifecycle would
+    let the next utterance of that very turn start speaking again after the user
+    asked for quiet. The unscoped form keeps its original in-flight-only scope, so
+    no finished request is ever marked by a sweep.
+    """
+    with _lock:
+        muted = []
+        for key, record in _records.items():
+            if key[0] != user or record['state'] == 'cancelled':
+                continue
+            if rid is None:
+                if record['state'] not in ('queued', 'running'):
+                    continue
+            elif key[1] != rid:
+                continue
+            record['speech'] = True
+            muted.append(key[1])
+        return tuple(muted)
+
+
+def speech_muted(user, rid):
+    """True once the user stopped speech for this exact request id."""
+    if not rid:
+        return False
+    with _lock:
+        return bool(_records.get((user, rid), {}).get('speech'))

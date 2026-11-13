@@ -915,6 +915,18 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             raise ValueError('Seçilen hedef değişmiş; başka hedefe işlem uygulanmadı.')
         if expected_control is not None and (not job or control_key(job)!=expected_control):
             raise ValueError('Hedefin sorusu veya onay işlemi değişmiş; ekranı yenileyip tekrar seç.')
+        if job is not None and (resume or approve):
+            # Last-resort production authority fence. A bounded legacy
+            # "hedef devam <id> <control>" can bypass Goal Resolver entirely.
+            # Canonical-born DAGs belong to the background Scheduler; neither
+            # this direct legacy command nor a retry may enter its model loop.
+            from modules import goal_state
+            state = goal_job_control.canonical(_owner_root(owner), owner, job['id'])
+            if (state is not None and goal_state.authority(state) == 'canonical'
+                    and state.get('goal_plan') is not None):
+                return (status_summary(job)
+                        + '\n\nBu arka plan hedefini Scheduler yürütür; '
+                          'ikinci bir yürütme başlatılmadı.')
         if job and job['state']=='review' and job['steps']:
             step=job['steps'][-1];output=job['outputs'].get(step['id'],{})
             if (step['tool']=='coder' and step['state']=='failed' and output.get('state')=='failed' and

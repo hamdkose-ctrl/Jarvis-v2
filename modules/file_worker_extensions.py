@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 import re
 import stat
+import tempfile
 from pathlib import Path
+
+import release_guard
 
 from modules import file_resource_guard, resource_leases
 
@@ -63,8 +66,14 @@ def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
     if writer is not None and not callable(writer):
         raise ValueError("PPTX yazıcısı callable olmalı.")
     try:
-        with file_resource_guard.claim_paths(Path(destination)):
+        target = Path(destination)
+        with file_resource_guard.claim_paths(target):
+            # Creating an artifact is not authority to clobber an earlier one.
+            if target.exists() or target.is_symlink():
+                raise FileExistsError('PPTX output already exists; no overwrite.')
             if writer is not None:
+                # Injected writer preserves its existing contract; production
+                # PPTX output uses the complete-temp + no-replace path below.
                 writer(payload)
             else:
                 from pptx import Presentation
@@ -73,7 +82,17 @@ def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
                     page = presentation.slides.add_slide(presentation.slide_layouts[1])
                     page.shapes.title.text = slide["title"]
                     page.placeholders[1].text = slide["body"]
-                presentation.save(destination)
+                # PPTX libraries write multiple ZIP entries. Never expose a
+                # partially written final artifact or replace an existing one.
+                with tempfile.NamedTemporaryFile(
+                        dir=target.parent, prefix='.jarvis-pptx-', suffix='.pptx',
+                        delete=False) as opened:
+                    temporary = Path(opened.name)
+                try:
+                    presentation.save(str(temporary))
+                    os.link(temporary, target)  # atomic create-only, same volume
+                finally:
+                    temporary.unlink(missing_ok=True)
     except resource_leases.LeaseConflict as exc:
         raise FileWorkerExtensionError("PPTX dosyası başka görev tarafından kullanılıyor.") from exc
     return {"destination": destination, "slides": len(payload["slides"]), "state": "written"}
@@ -120,7 +139,9 @@ def patch_text(path: str | Path, replacements: dict[str, str]) -> str:
                 if old not in updated:
                     raise FileWorkerExtensionError("Yama hedef metni bulunamadı.")
                 updated = updated.replace(old, new, 1)
-            target.write_text(updated, encoding="utf-8")
+            # The complete new text is atomically published under the same
+            # physical identity claim; a crash cannot truncate the old file.
+            release_guard.atomic(target, updated.encode("utf-8"))
             return updated
     except resource_leases.LeaseConflict as exc:
         raise FileWorkerExtensionError("Metin dosyası başka görev tarafından kullanılıyor.") from exc
