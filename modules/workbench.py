@@ -32,17 +32,6 @@ _TABLE = re.compile(r"tablo\w*\s+(?:\w+\s+)?(?:yap|oluştur|olustur|hazırla|haz
 # Excel/CSV işlemleri: yalnız tüm dosyalar tablo ise
 _TABLE_OPS = re.compile(r"birleştir|birlestir|grupla|göre\s+topla|toplamını|tekrar\s*ed|tekrarlan|mükerrer|"
                         r"çift\s+(?:satır|kayıt)|sütun\w*\s+(?:\w+\s+)?birleştir", re.I)
-# Legacy fallback is an explicit, whole-utterance compatibility protocol, not
-# a second semantic classifier. In particular, negative -ma/-me forms and quoted
-# requests embedded in discussion must not trigger a new file or model call.
-_FOLLOW_COLUMN = r"(?:[\wçğıöşü]+\s+){0,3}(?:sütun\w*|kolon\w*)\s+(?:ekle|çıkar|kaldır|sil)"
-_FOLLOW_FORMAT = (r"tabloyu\s+(?:excel|word|pdf)(?:['’]?(?:e|a|de|da))?"
-                  r"(?:\s+olarak)?\s+(?:ver|hazırla|kaydet|dönüştür)")
-_FOLLOW = re.compile(
-    rf"(?:{_FOLLOW_COLUMN}|tabloya\s+[\wçğıöşü]+(?:\s+[\wçğıöşü]+){{0,3}}\s+ekle|"
-    rf"tabloyu\s+(?:güncelle|yenile|düzelt)|{_FOLLOW_FORMAT})(?:,\s*{_FOLLOW_COLUMN})?",
-    re.I,
-)
 FOLLOW_SECONDS = 1800   # "şu sütunu ekle" son tabloya 30 dakika bağlanır
 
 
@@ -579,21 +568,3 @@ def followup_typed(owner: str, command: str, *, expected_digest: str,
     requests_state.check()
     return handle(owner, paths, row["instruction"] + ". Ek istek: " + command,
                   fmt if fmt is not None else row["ext"])
-
-
-def followup(owner: str, command: str) -> str | None:
-    """Strict, model-outage-only compatibility adapter to the SAME Core worker.
-
-    Only an entire explicit revision phrase is eligible. Source paths, expiry,
-    snapshot identity and allowed-folder checks live exclusively in followup_typed.
-    A refusal never falls through to the old unvalidated file writer.
-    """
-    if (not isinstance(command, str) or len(command) > 500
-            or _FOLLOW.fullmatch(command.strip(" .!?")) is None):
-        return None
-    digest = snapshot_digest(owner)
-    if digest is None:
-        return None
-    requested_format = re.search(r"\b(?:excel|word|pdf)\b", command, re.I)
-    fmt = output_ext(command) if requested_format else None
-    return followup_typed(owner, command, expected_digest=digest, fmt=fmt)
