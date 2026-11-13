@@ -3,7 +3,7 @@ import logging
 import unittest
 from datetime import datetime
 
-from modules import reminder_parse
+from modules import main_planner, reminder_parse
 from test_brain_b3c2 import Pipeline
 
 
@@ -45,14 +45,17 @@ class SavedEventTests(Pipeline):
         # Windows file handles before the temp directory is removed.
         self.addCleanup(close_created_handlers)
 
-    def test_saved_event_title_is_clean_through_brain_and_legacy_planner(self):
+    def test_saved_event_title_is_clean_through_brain_and_typed_reminder_core(self):
         text = "cuma günü 14:30'da dişçiyi hatırlat"
         self.through_brain(text)
         self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["dişçiyi"])
 
         self.ctx.profile.data["events"] = []
-        self.ctx._planner_command(text, self.ctx._tr_lower(text))
+        typed = reminder_parse.parse(text, datetime(2026, 10, 31, 12, 0))
+        self.assertEqual(typed["title"], "dişçiyi")
+        main_planner.reminder_core(self.ctx, typed, text, self.ctx._tr_lower(text))
         self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["dişçiyi"])
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
 
 
 if __name__ == "__main__":
