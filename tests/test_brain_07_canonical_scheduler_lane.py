@@ -1197,55 +1197,62 @@ class SchedulerOfferTests(unittest.TestCase):
         )
 
     def test_two_independent_goals_same_owner_overlap_on_real_scheduler(self):
-        """Read-only canonical goals run concurrently without legacy _ACTIVE.
+        self._assert_independent_goal_capacity(2)
 
-        One existing Scheduler and two separate on-disk GoalState/records;
-        only the external research provider transport is synthetic.
+    def test_three_independent_goals_same_owner_overlap_on_real_scheduler(self):
+        self._assert_independent_goal_capacity(3)
+
+    def _assert_independent_goal_capacity(self, count):
+        """Real single Scheduler, Core CAS and on-disk projections; provider mocked.
+
+        Three independent goals from one owner must overlap while the global
+        pool still has a free slot for another owner. No legacy _ACTIVE gate.
         """
         from types import SimpleNamespace
         from modules import service_store, task_queue
 
-        first = goal_state_store.load(self.path)
-        one_node = [node('left')]
-        updated = core_state_reducer.apply(first, {
+        self.assertGreaterEqual(task_queue._MAX_CANONICAL_PER_OWNER, 3)
+        self.assertGreaterEqual(task_queue._MAX_CANONICAL_WORKERS -
+                                task_queue._MAX_CANONICAL_PER_OWNER, 1)
+        initial = goal_state_store.load(self.path)
+        updated = core_state_reducer.apply(initial, {
             'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
-            'expected_version': first['version'],
-            'plan': {'plan_version': 2, 'nodes': one_node},
+            'expected_version': initial['version'],
+            'plan': {'plan_version': 2, 'nodes': [node('left')]},
         })
         goal_state_store.compare_and_swap(
-            self.path, expected_version=first['version'], next_state=updated,
+            self.path, expected_version=initial['version'], next_state=updated,
         )
-        first_record = execution_record.load(self.owner_root, OWNER, JOB)
-        first_record['steps'] = first_record['steps'][:1]
-        release_guard.atomic(self.record_path, execution_record.encode(first_record))
+        record = execution_record.load(self.owner_root, OWNER, JOB)
+        record['steps'] = record['steps'][:1]
+        release_guard.atomic(self.record_path, execution_record.encode(record))
 
-        second_id = 'fedcba9876543210'
-        second_node = node('other')
-        second_state = goal_state.new(
-            owner=OWNER, job_id=second_id, goal='Read a different source',
-            authority='canonical',
-        )
-        second_state = core_state_reducer.apply(second_state, {
-            'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
-            'expected_version': second_state['version'],
-            'plan': {'plan_version': 1, 'nodes': [second_node]},
-        })
-        goal_state_store.create(
-            self.owner_root / (second_id + '.goalstate.json'), second_state,
-        )
-        second_record = {
-            'id': second_id, 'owner': OWNER,
-            'request': 'Read a different source', 'state': 'running',
-            'goals': [], 'outputs': {},
-            'steps': [{
-                'id': 'other', 'tool': 'research', 'input': dict(DATA),
-                'depends': [], 'state': 'queued',
-            }],
-        }
-        release_guard.atomic(
-            execution_record.path_for(self.owner_root, second_id),
-            execution_record.encode(second_record),
-        )
+        identities = [(JOB, 'left')]
+        for index, name in enumerate(('other', 'third')[:count - 1]):
+            ident = f'fedcba987654321{index}'
+            request = 'Read independent source ' + str(index)
+            state = goal_state.new(
+                owner=OWNER, job_id=ident, goal=request, authority='canonical',
+            )
+            state = core_state_reducer.apply(state, {
+                'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
+                'expected_version': state['version'],
+                'plan': {'plan_version': 1, 'nodes': [node(name)]},
+            })
+            goal_state_store.create(
+                self.owner_root / (ident + '.goalstate.json'), state,
+            )
+            release_guard.atomic(
+                execution_record.path_for(self.owner_root, ident),
+                execution_record.encode({
+                    'id': ident, 'owner': OWNER, 'request': request,
+                    'state': 'running', 'goals': [], 'outputs': {},
+                    'steps': [{'id': name, 'tool': 'research',
+                               'input': dict(DATA), 'depends': [],
+                               'state': 'queued'}],
+                }),
+            )
+            identities.append((ident, name))
 
         class RapidStop:
             def __init__(self):
@@ -1258,7 +1265,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.event.set()
 
         stop = RapidStop()
-        barrier = threading.Barrier(2, timeout=12)
+        barrier = threading.Barrier(count, timeout=15)
         observed = []
         lock = threading.Lock()
 
@@ -1287,58 +1294,48 @@ class SchedulerOfferTests(unittest.TestCase):
             ):
                 stack.enter_context(patch.object(module, attribute, value))
             task_queue.start(
-                stop,
-                allowed_owners=lambda: {OWNER},
+                stop, allowed_owners=lambda: {OWNER},
                 canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
             )
             try:
-                # Two overlapping provider returns are not durable Core
-                # acceptance. Give the loaded Windows runner a bounded
-                # interval for both real Scheduler dispatches and projections.
-                # Do not silently pass just because both workers were entered.
+                # All workers must reach the provider barrier before any one
+                # can complete; a 2-slot owner cap would deadlock this test.
                 for _ in range(600):
-                    one = execution_record.load(self.owner_root, OWNER, JOB)
-                    two = execution_record.load(self.owner_root, OWNER, second_id)
-                    if (one['steps'][0]['state'] == 'done'
-                            and two['steps'][0]['state'] == 'done'
-                            and 'left' in one['outputs']
-                            and 'other' in two['outputs']):
+                    records = [
+                        execution_record.load(self.owner_root, OWNER, ident)
+                        for ident, _ in identities
+                    ]
+                    if all(row['steps'][0]['state'] == 'done' and
+                           name in row['outputs']
+                           for row, (_, name) in zip(records, identities)):
                         break
                     threading.Event().wait(.05)
-                self.assertEqual(set(observed), {'left', 'other'})
-                self.assertEqual(
-                    one['steps'][0]['state'], 'done',
-                    'First goal has no durable worker projection: '
-                    + repr((one['steps'], list(one['outputs']))),
-                )
-                self.assertEqual(
-                    two['steps'][0]['state'], 'done',
-                    'Second goal has no durable worker projection: '
-                    + repr((two['steps'], list(two['outputs']))),
-                )
-                self.assertIn('left', one['outputs'])
-                self.assertIn('other', two['outputs'])
-                self.assertEqual(
-                    {row['step_id'] for row in
-                     goal_state_store.load(self.path)['evidence']
-                     if row.get('kind') == 'worker_result'},
-                    {'left'},
-                )
-                self.assertEqual(
-                    {row['step_id'] for row in goal_state_store.load(
-                        self.owner_root / (second_id + '.goalstate.json')
-                    )['evidence'] if row.get('kind') == 'worker_result'},
-                    {'other'},
-                )
+                self.assertEqual(set(observed), {name for _, name in identities})
+                self.assertEqual(len(observed), count)
+                for record, (ident, name) in zip(records, identities):
+                    self.assertEqual(
+                        record['steps'][0]['state'], 'done',
+                        'Canonical worker output not projected: ' +
+                        repr((ident, record['steps'], list(record['outputs']))),
+                    )
+                    self.assertIn(name, record['outputs'])
+                    state = goal_state_store.load(
+                        self.owner_root / (ident + '.goalstate.json'),
+                    )
+                    self.assertEqual(
+                        {row['step_id'] for row in state['evidence']
+                         if row.get('kind') == 'worker_result'},
+                        {name},
+                    )
             finally:
                 stop.set()
                 barrier.abort()
                 task_queue._THREAD.join(10)
-                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
-                    thread.join(10)
+                for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    worker.join(10)
                 self.assertFalse(any(
-                    thread.is_alive()
-                    for thread in task_queue._CANONICAL_WORKERS.values()
+                    worker.is_alive()
+                    for worker in task_queue._CANONICAL_WORKERS.values()
                 ), 'Canonical goal worker leaked after stop')
 
     def test_canonical_workers_pin_owner_and_profile_before_delayed_thread_start(self):

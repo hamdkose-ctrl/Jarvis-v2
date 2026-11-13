@@ -17,14 +17,15 @@ _THREAD=None
 _OWNER_TICKS={}
 _LAST_ADMITTED={}
 # Read-only canonical workers belong to this same scheduler loop, not another
-# background poller. No owner may monopolize the bounded global pool.
+# background poller. One owner may run at least three independent jobs while
+# a fourth global slot is reserved for another owner under sustained load.
 _CANONICAL_WORKERS={}
 # A recovered completion is attempted once per Scheduler process/snapshot.
 # No repeated model billing every five seconds on semantic rejection/failure.
 _CANONICAL_RESUME_ATTEMPTED=set()
 _LAST_CANONICAL_ADMITTED={}
-_MAX_CANONICAL_WORKERS=3
-_MAX_CANONICAL_PER_OWNER=2
+_MAX_CANONICAL_WORKERS=4
+_MAX_CANONICAL_PER_OWNER=3
 # Soft timeout for each read-only worker. Expiry fences Core CAS but cannot
 # forcibly abort a provider call; keep its OS resource claim until return.
 _CANONICAL_WORKER_DEADLINE_SECONDS=300
