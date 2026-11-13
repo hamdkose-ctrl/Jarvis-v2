@@ -165,13 +165,12 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "system_control.windows_settings": set(),  # typed Windows Core adapter
         "selfctl.handle": set(),  # typed Jarvis-control Core adapter
         "_user_command": set(),
-        "_user_controls": {"modules/brain_precedence.py", "modules/engine_commands.py"},
-        "_planner_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
-                             "modules/engine_tools.py"},
+        "_user_controls": set(),
+        "_planner_command": set(),
         "_macro_teach": set(),
         "_macro_manage": set(),
         "_macro_run": {"modules/brain_precedence.py", "modules/engine_tools.py"},
-        "_extra_commands": {"modules/brain_precedence.py"},
+        "_extra_commands": set(),
         # `job_front.wants`, `goal_executor.handle` ve `continue_app` §13.2'nin KEEP satırlarıdır
         # (bounded protokol sahibidir, capability seçmez); burada sayılmalarının nedeni yüzeylerinin
         # sessizce büyümesini durdurmak. Altındaki `_study_intent` ise §13.1/105'in taşınacak kapısıdır.
@@ -181,18 +180,18 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "_study_intent": {"modules/engine_commands.py"},
         "hoca.handle": {"modules/engine_tools.py"},
         # `_extra_commands` zincirinin kolları: tek üretim çağıranı zincirin kendisidir.
-        "plugins.handle": {"modules/engine_tools.py"},
-        "handoff.handle": {"modules/engine_tools.py"},
-        "browser.handle": {"modules/engine_tools.py"},
-        "tasks.handle": {"modules/engine_tools.py"},
-        "kb.handle": {"modules/engine_tools.py"},
-        "filesend.handle": {"modules/engine_tools.py"},
-        "worktrack.handle": {"modules/engine_tools.py"},
-        "files.handle": {"modules/engine_tools.py"},
-        "media.handle": {"modules/engine_tools.py"},
-        "_mail_handle": {"modules/engine_tools.py"},
-        "notify.handle": {"modules/engine_tools.py"},
-        "_screen_ocr": {"modules/engine_tools.py", "modules/engine_intents.py"},
+        "plugins.handle": set(),
+        "handoff.handle": set(),
+        "browser.handle": set(),
+        "tasks.handle": set(),
+        "kb.handle": set(),
+        "filesend.handle": set(),
+        "worktrack.handle": set(),
+        "files.handle": set(),
+        "media.handle": set(),
+        "_mail_handle": set(),
+        "notify.handle": set(),
+        "_screen_ocr": {"modules/engine_intents.py"},
     }
 
     def test_every_raw_semantic_door_has_exactly_its_pinned_production_owner(self):
@@ -200,28 +199,15 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
             with self.subTest(door=marker):
                 self.assertEqual(set(production_callers(marker)), owners)
 
-    def test_the_census_covers_every_front_gate_and_cascade_arm(self):
-        # Defterin kendisi eksiltilmesin: sıra sözleşmesinin her kolu ve cascade'in her arm'ı
-        # yukarıda bir satır olarak durmalıdır.
-        from modules import brain_precedence
-        gate_doors = {"file_command": "_file_command",
-                      "user_controls": "_user_controls",
-                      "planner_command": "_planner_command",
-                      "macro_run": "_macro_run",
-                      "extra_commands": "_extra_commands"}
-        self.assertEqual(set(brain_precedence.FRONT_GATES), set(gate_doors))
-        for gate in brain_precedence.FRONT_GATES:
-            with self.subTest(gate=gate):
-                self.assertIn(gate_doors[gate], self.RAW_SEMANTIC_DOORS)
-
-        # engine_commands.handle cascade'inin ham dil arm'ları (migration map §13.1 satırları).
-        # Mesaj/rehber kolları dilim 2'de emekli edildi; kalan canlı kollar aşağıdadır.
-        cascade_arms = {"learning.handle",
-                        "_file_command", "job_front.wants", "goal_executor.handle",
-                        "continue_app", "_study_intent", "_screen_ocr",
-                        "_mail_handle"}
-        self.assertTrue(cascade_arms <= set(self.RAW_SEMANTIC_DOORS),
-                        msg=str(sorted(cascade_arms - set(self.RAW_SEMANTIC_DOORS))))
+    def test_only_exact_front_gates_survive_and_no_raw_cascade_is_exported(self):
+        from modules import brain_precedence, engine_runtime
+        self.assertEqual(set(brain_precedence.FRONT_GATES), {"file_command", "macro_run"})
+        self.assertNotIn("_extra_commands", engine_runtime._HANDLERS["engine_tools"])
+        self.assertNotIn("_planner_command", engine_runtime._HANDLERS["engine_tools"])
+        self.assertNotIn("_user_controls", engine_runtime._HANDLERS["engine_context"])
+        self.assertEqual(production_callers("_extra_commands"), [])
+        self.assertEqual(production_callers("_planner_command"), [])
+        self.assertEqual(production_callers("_user_controls"), [])
 
     def test_taildrop_global_pending_and_raw_choice_parser_are_physically_gone(self):
         source = (ROOT / "modules" / "filesend.py").read_text(encoding="utf-8")
@@ -237,14 +223,11 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         self.assertIn('case "filesend_select"', core_source)
 
     def test_exact_undo_has_one_core_worker_caller_and_no_raw_parser(self):
-        # This is a real AST caller-zero retirement (not a renamed handler).
         self.assertEqual(set(production_callers("undo_organize")),
                          {"modules/engine_intents.py"})
         source = (ROOT / "modules" / "engine_tools.py").read_text(encoding="utf-8")
-        start = source.index("def _extra_commands(")
-        body = source[start:source.find("\ndef ", start + 1)]
-        self.assertNotIn("undo_organize(", body)
-        self.assertNotIn("düzenlemey[ie] geri al", body)
+        self.assertNotIn("def _extra_commands(", source)
+        self.assertNotIn("undo_organize(", source)
 
     def test_the_retired_city_door_has_no_production_owner_left(self):
         # BRAIN-03 dilim 1: şehir set/reset effect'inin yazma dikişi iki sahibe iner —
