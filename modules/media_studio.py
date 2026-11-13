@@ -131,35 +131,36 @@ def run(owner,data,ffmpeg,output):
             if (metadata['width'],metadata['height'])!=size or abs(metadata['duration']-total)>1 or metadata['has_audio']!=bool(audio):raise ValueError('Stüdyo video kontrolü başarısız.')
             # No other Jarvis process may race this destination; exclusive create
             # and digest are inside the same OS-account physical file claim.
-            with file_resource_guard.claim_paths(final):
-                if final.exists() or final.is_symlink():
-                    raise resource_leases.LeaseConflict('Studio output already exists.')
-                # Stage complete bytes on the SAME filesystem before publishing
-                # the final name via an atomic, no-overwrite hard link. A power
-                # loss during copy can leave only a private temp file, never a
-                # misleading partial public video. Keep this inside the existing
-                # OS-account physical-file claim (not a new scheduler).
-                staged = None
-                published = False
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        dir=output, prefix='.jarvis-studio-', suffix='.mp4',
-                        delete=False,
-                    ) as dst:
-                        staged = Path(dst.name)
-                        with completed.open('rb') as src:
-                            __import__('shutil').copyfileobj(src, dst)
-                        dst.flush()
-                        os.fsync(dst.fileno())
-                    os.link(staged, final)
-                    published = True
-                    digest = task_results.file_digest(final)
-                    return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
-                            'file':str(final),'sha256':digest,'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
-                except BaseException:
-                    if published:
-                        final.unlink(missing_ok=True)
-                    raise
-                finally:
-                    if staged is not None:
-                        staged.unlink(missing_ok=True)
+            # The outer claim already owns the public target and inputs;
+            # reacquiring it here can fail on Windows non-reentrant OS locks.
+            if final.exists() or final.is_symlink():
+                raise resource_leases.LeaseConflict('Studio output already exists.')
+            # Stage complete bytes on the SAME filesystem before publishing
+            # the final name via an atomic, no-overwrite hard link. A power
+            # loss during copy can leave only a private temp file, never a
+            # misleading partial public video. Keep this inside the existing
+            # OS-account physical-file claim (not a new scheduler).
+            staged = None
+            published = False
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=output, prefix='.jarvis-studio-', suffix='.mp4',
+                    delete=False,
+                ) as dst:
+                    staged = Path(dst.name)
+                    with completed.open('rb') as src:
+                        __import__('shutil').copyfileobj(src, dst)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                os.link(staged, final)
+                published = True
+                digest = task_results.file_digest(final)
+                return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
+                        'file':str(final),'sha256':digest,'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+            except BaseException:
+                if published:
+                    final.unlink(missing_ok=True)
+                raise
+            finally:
+                if staged is not None:
+                    staged.unlink(missing_ok=True)
