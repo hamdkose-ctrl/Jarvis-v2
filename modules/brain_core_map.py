@@ -1117,10 +1117,10 @@ def _windows_settings_args(arguments: Mapping[str, Any]) -> dict[str, Any] | Non
 
 
 _SELFCTL_SETTING_KEYS = frozenset({
-    "wake_sensitivity", "response_speed", "wake_beep", "learn_from_chat",
-    "live_mode", "idle_seconds", "widget", "window_mode",
+    "wake_sensitivity", "wake_beep", "learn_from_chat",
+    "widget", "window_mode",
 })
-_SELFCTL_READ_KEYS = frozenset({"wake_sensitivity", "response_speed", "idle_seconds"})
+_SELFCTL_READ_KEYS = frozenset({"wake_sensitivity"})
 
 
 def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -1150,16 +1150,14 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if not isinstance(key, str):
             return None
         if kind == "setting":
+            if key not in _SELFCTL_SETTING_KEYS:
+                return None
             if key == "wake_sensitivity":
                 good = (type(value) is int and 1 <= value <= 5) or (isinstance(value, str) and value in {"increase", "decrease"})
-            elif key == "response_speed":
-                good = isinstance(value, str) and value in {"fast", "balanced", "patient"}
-            elif key in {"wake_beep", "learn_from_chat", "live_mode", "widget"}:
+            elif key in {"wake_beep", "learn_from_chat", "widget"}:
                 good = type(value) is bool
             elif key == "window_mode":
                 good = isinstance(value, str) and value in {"full", "window"}
-            elif key == "idle_seconds":
-                good = type(value) is int and 15 <= value <= 600
             else:
                 good = False
         else:
