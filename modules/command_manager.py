@@ -143,15 +143,18 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None,
 def engine_control(normalized, *, source, sleeping, close, set_sleep):
     """Explicit engine controls bypass conversational guides and model routing."""
     normalized = normalized.replace('’', "'")
+    # Fast control is an explicitly addressed, whole-utterance protocol.
+    # Do not accept suffixes like "kapatma" ("do not close") or a question
+    # mark ("kendini kapat?") as an immediate destructive shutdown request.
     self_close = re.fullmatch(
         r"\s*(?:(?:hey\s+)?jarvis(?:'i|i)?|kendini|uygulamayı|uygulamayi)\s+"
-        r"(?:kapat|kapan|çık|cik|sonlandır|sonlandir)\w*\s*[.!?]*", normalized)
-    if self_close and not re.search(r"\b(?:bilgisayar|pc|windows|sistem)\b", normalized):
+        r"(?:kapat|kapan|çık|cik|sonlandır|sonlandir)\s*[.!]*", normalized)
+    if self_close:
         if source == 'telefon':
             return 'Jarvis’i kapatma işlemini bilgisayarından yapabilirsin.'
         return close()
-    if re.fullmatch(r"\s*(?:uyu|uyku moduna geç|uyku modu|hazırda bekle|beklemeye geç|bekleme moduna geç)\w*[\s.!]*", normalized):
+    if re.fullmatch(r"\s*(?:uyu|uyku moduna geç|uyku modu|hazırda bekle|beklemeye geç|bekleme moduna geç)[\s.!]*", normalized):
         return set_sleep(True, announce=False)
-    if sleeping and re.fullmatch(r"\s*(?:uyan|kalk|uyku modundan çık)\w*[\s.!]*", normalized):
+    if sleeping and re.fullmatch(r"\s*(?:uyan|kalk|uyku modundan çık)[\s.!]*", normalized):
         return set_sleep(False, announce=False)
     return None
