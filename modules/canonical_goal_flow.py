@@ -758,6 +758,13 @@ def read_result_command(owner: str, text: str) -> str | None:
     try:
         return read_completed_result(owner, match.group(1).lower())
     except (FileNotFoundError, ValueError, PermissionError, OSError, TypeError, KeyError):
+        # New queued first-plan records use the SAME owner-bound GoalState and
+        # ExecutionRecord, but are intentionally not completed results.
+        # A status query is read-only and can never dispatch the model again.
+        from modules import canonical_planning_queue
+        pending = canonical_planning_queue.status(owner, match.group(1).lower())
+        if pending is not None:
+            return pending
         return ('Bu kimliğe ait doğrulanmış tamamlanmış sonuç henüz görüntülenemiyor. '
                 'Hiçbir iş yeniden başlatılmadı ve bildirim tekrar gönderilmedi.')
 

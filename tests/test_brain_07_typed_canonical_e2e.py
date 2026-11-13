@@ -2315,8 +2315,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 _, _, feedback, second = self.typed_turn('İkinci bağımsız kaynağı araştır.')
                 self.assertLess(time.monotonic() - started, 8)
                 self.assertNotEqual(first, second)
-                self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
-                self.assertEqual(self.persisted(second)[0]['state'], 'pending')
+                # With the real engine Scheduler already active, the next
+                # typed CREATE is durably admitted for FIRST planning rather
+                # than waiting for another provider on this foreground turn.
+                self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_PLANNING_QUEUED')
+                state, record = self.persisted(second)
+                self.assertEqual(state['state'], 'pending')
+                self.assertIn(record['state'], ('planning_queued', 'planning_running', 'running'))
                 self.run_goal.assert_not_called()
             finally:
                 release.set()

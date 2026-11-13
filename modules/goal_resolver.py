@@ -107,6 +107,23 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
                          "GOAL_CANCELLATION_NEGATED")
 
     if operation is GoalOperation.CREATE:
+        # The running engine Scheduler may claim the FIRST planning attempt in
+        # its pinned-owner worker pool. Until planning completes, the foreground
+        # turn is free to accept another command. No generic thread pool, model
+        # text classifier, second job store or new Scheduler is introduced.
+        # Without the real engine poll loop (e.g. isolated unit tests), preserve
+        # the original synchronous typed admission contract.
+        if getattr(entry, 'source', None) in {'yazı', 'ses', 'telefon', 'canlı'}:
+            from modules import task_queue
+            if task_queue.scheduler_active():
+                from modules import canonical_planning_queue
+                job_id, message = canonical_planning_queue.enqueue(
+                    owner, str(entry.request_id), text,
+                )
+                return Resolution(
+                    message=message, result_status='handled',
+                    reason_code='GOAL_CANONICAL_PLANNING_QUEUED', job_id=job_id,
+                )
         # Only real typed-entry turns opt into the supported canonical read-only
         # background lane. Unsupported DAGs remain on the existing permissioned
         # legacy path; this is a transport boundary, not a free-text classifier.

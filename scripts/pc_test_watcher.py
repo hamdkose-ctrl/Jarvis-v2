@@ -4,11 +4,13 @@ import argparse
 import json
 import re
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 # The expensive run is restricted by ``open_pr_refs`` below.  Do not restrict
@@ -20,17 +22,57 @@ STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
 
 
-def run(cmd, *, cwd: Path, check: bool = True, capture: bool = False):
+def run(cmd, *, cwd: Path, check: bool = True, capture: bool = False, stdin=None):
     return subprocess.run(
         cmd,
         cwd=str(cwd),
         check=check,
+        stdin=stdin,
         text=True,
         encoding="utf-8",
         errors="replace",
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.STDOUT if capture else None,
     )
+
+
+class WatcherAlreadyRunning(RuntimeError):
+    """Another real PC watcher owns this machine's acceptance run."""
+
+
+@contextmanager
+def single_watcher(lock_path: Path):
+    """OS-held, crash-released lock across independent Scheduled Task launches.
+
+    The lock file is intentionally never removed: unlinking it while another
+    process holds the handle allows two different files to claim exclusivity.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise WatcherAlreadyRunning(
+                "Ayrı bir Jarvis PC watcher zaten çalışıyor; ikinci kabul başlatılmadı."
+            ) from exc
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def git_root() -> Path:
@@ -209,23 +251,60 @@ def safe_name(ref: str) -> str:
     return ref.replace("refs/remotes/origin/", "").replace("/", "_")
 
 
+def isolated_worktree_path(ref: str, sha: str, *, nonce: str | None = None) -> Path:
+    """Give EACH validation attempt its own checkout (even for the same SHA).
+
+    An older already-running watcher may not use the single_watcher lock.
+    Previously the deterministic branch-SHA directory let a second watcher
+    delete the first validation's live checkout during a 300+ second suite.
+    Never reuse or remove another process's checkout as part of admission.
+    The short suffix also keeps nested branch names below Windows path limits.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("Exact 40-hex commit required for PC validation.")
+    nonce = secrets.token_hex(8) if nonce is None else nonce
+    if not re.fullmatch(r"[0-9a-f]{16}", nonce):
+        raise ValueError("PC validation attempt token invalid.")
+    # A valid Git branch may contain Unicode or '+'; sanitize only the local
+    # directory component instead of rejecting otherwise eligible open PRs.
+    raw = safe_name(ref)
+    if not raw or raw == ref:
+        raise ValueError("Remote branch ref invalid for isolated PC acceptance.")
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._-")
+    if not name:
+        name = "branch"
+    return (Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" /
+            (name[:48] + "-" + sha[:8] + "-" + nonce))
+
+
 def branch_from_ref(ref: str) -> str:
     prefix = "refs/remotes/origin/"
     return ref[len(prefix):] if ref.startswith(prefix) else ref
 
 
 def add_worktree(root: Path, sha: str, target: Path) -> None:
-    if target.exists():
-        # Never delete a registered worktree directly: its .git indirection
-        # must be removed first or a later detached checkout can be partial.
+    if target.exists() or target.is_symlink():
+        # Windows can hold a file handle open after a previous validation run.
+        # Git's interactive "Should I try again?" prompt MUST NOT be answered
+        # repeatedly, and a half-deleted checkout is not valid evidence.
         remove_worktree(root, target)
+    if target.exists() or target.is_symlink():
+        raise RuntimeError("Önceki test worktree klasörü hâlâ açık; eksik checkout ile test yapılmadı.")
     run(["git", "worktree", "prune"], cwd=root, check=False)
     run(["git", "worktree", "add", "--detach", str(target), sha], cwd=root)
 
 
 def remove_worktree(root: Path, target: Path) -> None:
-    run(["git", "worktree", "remove", "--force", str(target)], cwd=root, check=False)
+    # Never prompt a Scheduled Task operator for y/n. A locked file is a
+    # failed cleanup, not permission to continue with a torn source tree.
+    result = run(["git", "worktree", "remove", "--force", str(target)],
+                 cwd=root, check=False, capture=True, stdin=subprocess.DEVNULL)
     shutil.rmtree(target, ignore_errors=True)
+    if target.exists() or target.is_symlink():
+        raise RuntimeError(
+            "Windows test worktree temizlenemedi (dosya kullanımda olabilir): "
+            + str(target) + ". Çalışan test/Watcher süreçlerini kontrol et."
+        )
 
 
 def acceptance_details(worktree: Path) -> list[dict]:
@@ -534,7 +613,9 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     scope = acceptance_scope(paths or [], desktop=desktop, news=news, local_model=local_model)
     if paths is None:
         scope["source"] = "unavailable"
-    worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
+    # A same-commit concurrent (including OLD-version) watcher must not have
+    # authority to delete this live validation tree. No shared SHA directory.
+    worktree = isolated_worktree_path(target["ref"], target["sha"])
     attempted_at = time.time()
     archived = False
     try:
@@ -591,29 +672,34 @@ def main() -> int:
         summary = queue_status(root, state_path, report_path, args.pattern)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0 if summary["state"] == "ok" else 1
-    print(f"Jarvis PC test watcher başladı: {root}")
-    print(f"İzlenen ref: {args.pattern}")
-    print(f"Sonuç: {report_path}")
-    while True:
-        try:
-            changed = once(
-                root, state_path, report_path, args.pattern,
-                desktop=args.desktop, news=args.news, local_model=args.local_model,
-            )
-            if not changed:
-                print("Yalnız açık PR dallarında yeni test adayı yok.")
-        except KeyboardInterrupt:
-            return 0
-        except Exception as exc:
-            error = {"status": "watcher_error", "error": f"{type(exc).__name__}: {exc}", "time": time.time()}
-            save_json(report_path, error)
-            print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
-            if args.once:
-                return 1
-        if args.once:
-            return 0
-        time.sleep(max(10, args.interval))
-
+    try:
+        with single_watcher(local_dir / "pc_test_watcher.lock"):
+            print(f"Jarvis PC test watcher başladı: {root}")
+            print(f"İzlenen ref: {args.pattern}")
+            print(f"Sonuç: {report_path}")
+            while True:
+                try:
+                    changed = once(
+                        root, state_path, report_path, args.pattern,
+                        desktop=args.desktop, news=args.news, local_model=args.local_model,
+                    )
+                    if not changed:
+                        print("Yalnız açık PR dallarında yeni test adayı yok.")
+                except KeyboardInterrupt:
+                    return 0
+                except Exception as exc:
+                    error = {"status": "watcher_error", "error": f"{type(exc).__name__}: {exc}", "time": time.time()}
+                    save_json(report_path, error)
+                    print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
+                    if args.once:
+                        return 1
+                if args.once:
+                    return 0
+                time.sleep(max(10, args.interval))
+    
+    except WatcherAlreadyRunning as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
 if __name__ == "__main__":
     raise SystemExit(main())

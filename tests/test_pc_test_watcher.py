@@ -160,12 +160,94 @@ class PcTestWatcherTests(unittest.TestCase):
 
     def test_existing_worktree_is_git_removed_before_filesystem_cleanup(self):
         root = Path('repo'); target = Path('existing-worktree')
-        with mock.patch.object(watcher.Path, 'exists', return_value=True), \
+        with mock.patch.object(watcher.Path, 'exists', side_effect=[True, False]), \
+                mock.patch.object(watcher.Path, 'is_symlink', return_value=False), \
                 mock.patch.object(watcher, 'remove_worktree') as remove, \
                 mock.patch.object(watcher, 'run') as run:
             watcher.add_worktree(root, 'a'*40, target)
         remove.assert_called_once_with(root, target)
         self.assertEqual(run.call_args_list[-1].args[0][:3], ['git', 'worktree', 'add'])
+
+    def test_locked_previous_worktree_refuses_checkout_instead_of_partial_validation(self):
+        root = Path('repo'); target = Path('existing-worktree')
+        with mock.patch.object(watcher.Path, 'exists', return_value=True), \
+                mock.patch.object(watcher.Path, 'is_symlink', return_value=False), \
+                mock.patch.object(watcher, 'remove_worktree') as remove, \
+                mock.patch.object(watcher, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'hâlâ açık'):
+                watcher.add_worktree(root, 'a'*40, target)
+        remove.assert_called_once_with(root, target)
+        run.assert_not_called()
+
+    def test_duplicate_watcher_process_fails_os_lock_without_running_a_second_test(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / 'watcher.lock'
+            with watcher.single_watcher(lock):
+                with self.assertRaises(watcher.WatcherAlreadyRunning):
+                    with watcher.single_watcher(lock):
+                        self.fail('second watcher obtained same lock')
+            with watcher.single_watcher(lock):
+                self.assertTrue(lock.is_file(), 'lock file survives for stable inode identity')
+
+    def test_isolated_checkout_paths_do_not_reuse_a_live_same_sha_directory(self):
+        sha = 'f' * 40
+        ref = 'refs/remotes/origin/gpt/voice-first-scheduler-planner-handoff'
+        first = watcher.isolated_worktree_path(ref, sha)
+        second = watcher.isolated_worktree_path(ref, sha)
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.parent, second.parent)
+        self.assertIn(sha[:8], first.name)
+        self.assertLess(len(first.name), 100)
+        unicode_ref = 'refs/remotes/origin/feature/çağrı+test'
+        unicode_path = watcher.isolated_worktree_path(unicode_ref, sha)
+        self.assertTrue(unicode_path.name.startswith('feature_'))
+        self.assertNotIn('+', unicode_path.name)
+        # Every attempt can remove only its own destination; it never owns
+        # another process's same-SHA test tree.
+        with self.assertRaises(ValueError):
+            watcher.isolated_worktree_path(ref, 'not-an-exact-sha')
+        with self.assertRaises(ValueError):
+            watcher.isolated_worktree_path(ref, sha, nonce='../foreign')
+
+    def test_two_same_sha_acceptance_runs_never_add_or_remove_same_worktree(self):
+        ref = 'refs/remotes/origin/gpt/test'
+        sha = 'f' * 40
+        candidate = {'ref': ref, 'sha': sha, 'time': 1}
+        paths = []
+        with mock.patch.object(watcher, 'load_state', return_value={'seen': {}}), \
+             mock.patch.object(watcher, 'open_pr_refs', return_value={ref}), \
+             mock.patch.object(watcher, 'remote_heads', return_value=[candidate]), \
+             mock.patch.object(watcher, 'reconcile_archived_reports', return_value=False), \
+             mock.patch.object(watcher, 'choose_candidate', return_value=candidate), \
+             mock.patch.object(watcher, 'changed_paths', return_value=[]), \
+             mock.patch.object(watcher, 'add_worktree') as add, \
+             mock.patch.object(watcher, 'remove_worktree') as remove, \
+             mock.patch.object(watcher, 'run_suite', return_value={'status': 'passed', 'validation': {'exit_code': 0}}), \
+             mock.patch.object(watcher, 'archive_report'), \
+             mock.patch.object(watcher, 'publish_pr_comment', return_value={'state': 'published'}), \
+             mock.patch.object(watcher, 'save_json'):
+            for _ in range(2):
+                self.assertTrue(watcher.once(
+                    Path('repo'), Path('state.json'), Path('report.json'),
+                    watcher.DEFAULT_PATTERN, desktop=False, news=False))
+            paths = [call.args[2] for call in add.call_args_list]
+            self.assertEqual(paths, [call.args[1] for call in remove.call_args_list])
+        self.assertEqual(len(set(paths)), 2)
+        self.assertTrue(all(path.name.startswith('gpt_test-' + sha[:8])
+                            for path in paths))
+
+    def test_git_worktree_cleanup_never_prompts_when_locked(self):
+        root = Path('repo'); target = Path('existing-worktree')
+        with mock.patch.object(watcher, 'run', return_value=mock.Mock(returncode=1, stdout='locked')) as run, \
+                mock.patch.object(watcher.shutil, 'rmtree'), \
+                mock.patch.object(watcher.Path, 'exists', return_value=True), \
+                mock.patch.object(watcher.Path, 'is_symlink', return_value=False):
+            with self.assertRaisesRegex(RuntimeError, 'temizlenemedi'):
+                watcher.remove_worktree(root, target)
+        self.assertEqual(run.call_args.kwargs['stdin'], watcher.subprocess.DEVNULL)
+        self.assertTrue(run.call_args.kwargs['capture'])
+
 
     def test_normal_suite_does_not_run_news(self):
         validation = mock.Mock(returncode=0, stdout='OK')
