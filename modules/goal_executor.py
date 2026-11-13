@@ -935,11 +935,9 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             # "hedef devam <id> <control>" can bypass Goal Resolver entirely.
             # Canonical-born DAGs belong to the background Scheduler; neither
             # this direct legacy command nor a retry may enter its model loop.
-            from modules import goal_state
-            state = goal_job_control.canonical(_owner_root(owner), owner, job['id'])
-            if (state is not None and goal_state.authority(state) == 'canonical'
-                    and state.get('goal_plan') is not None):
-                return (status_summary(job)
+            canonical_status = canonical_scheduler_status(owner, job['id'], job)
+            if canonical_status is not None:
+                return (canonical_status
                         + '\n\nBu arka plan hedefini Scheduler yürütür; '
                           'ikinci bir yürütme başlatılmadı.')
         if job and job['state']=='review' and job['steps']:
@@ -1170,6 +1168,28 @@ def _canonical_recovery_status(job):
     if counts['queued_unstarted']:
         lines.append('Henüz başlamamış: ' + str(counts['queued_unstarted']) + ' adım.')
     return '\n'.join(lines)
+
+
+def canonical_scheduler_status(owner, identity, job=None):
+    """One read-only authority check shared by both legacy and typed entries.
+
+    Canonical-born planned goals belong only to the existing Scheduler and
+    Core. An independent legacy goal still uses the old executor until that
+    tool's feature parity is proven. This checks durable owner/plan authority;
+    it never mutates a GoalState or launches any worker.
+    """
+    from modules import goal_state
+    root = _owner_root(owner)
+    state = goal_job_control.canonical(root, owner, identity)
+    if (state is None or goal_state.authority(state) != 'canonical'
+            or state.get('goal_plan') is None):
+        return None
+    current = job if job is not None else read_job(owner, identity)
+    if (not isinstance(current, dict)
+            or current.get('owner') != owner
+            or current.get('id') != identity):
+        raise ValueError('Canonical hedef kaydı sahibi doğrulanamadı.')
+    return status_summary(current)
 
 
 def status_summary(job):

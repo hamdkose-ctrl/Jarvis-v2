@@ -233,18 +233,11 @@ def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOpera
         # Sending "continue" into the legacy planner would create a second
         # execution authority for the same persisted job. Read status only;
         # never reopen a worker, call a model, or mutate either journal here.
-        from modules import goal_state
-        canonical = goal_executor.goal_job_control.canonical(
-            goal_executor._owner_root(owner), owner, ident,
-        )
-        if (canonical is not None
-                and goal_state.authority(canonical) == 'canonical'
-                and canonical.get('goal_plan') is not None):
-            return (
-                goal_executor.status_summary(goal_executor.read_job(owner, ident))
-                + '\n\nBu canonical arka plan hedefini Scheduler yürütüyor; '
-                  'devam komutu ikinci bir çalışma başlatmadı.'
-            )
+        canonical_status = goal_executor.canonical_scheduler_status(owner, ident)
+        if canonical_status is not None:
+            return (canonical_status
+                    + '\n\nBu canonical arka plan hedefini Scheduler yürütüyor; '
+                      'devam komutu ikinci bir çalışma başlatmadı.')
         return goal_executor.run(runtime, _CONTINUE_TOKEN, resume=True, job_id=ident,
                                  expected_job_id=ident, expected_control=snapshot.get('control_key'))
     if operation is GoalOperation.REVISE:
