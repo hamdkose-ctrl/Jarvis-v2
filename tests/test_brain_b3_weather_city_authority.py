@@ -564,26 +564,22 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
             return model.propose(owner=self.OWNER, text=understanding._norm(text),
                                  current=current, arguments=dict(current.arguments))
 
-    def test_a_model_proposed_preference_write_is_not_a_valid_proposal(self):
-        for capability, arguments in (
-                (understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "çok sıcak"}),
-                (understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "izmir"}),
-                (understanding.WEATHER_CITY_RESET_CAPABILITY, {})):
-            with self.subTest(capability=capability):
-                self.assertIsNone(self._ask("bugün hava nasıl", self._envelope(capability, arguments)))
-
-    def test_the_denial_is_a_closed_capability_set_not_an_argument_key_rule(self):
-        # `location` anahtarını yasaklamak hava OKUMASını da vururdu; yasak yetenek düzeyindedir
-        # ve küme kapalıdır — kelime taraması, regex veya modelden gelen bir ad değildir.
-        # BRAIN-03 dilim 2: mesaj/rehber yetenekleri kümeden ÇIKTI. Onlar artık modelin önerebilir
-        # kararlarıdır; uydurma alan tehlikesi yetenek yasağıyla değil, kullanıcının kendi cümlesinden
-        # alıntılanmış DAYANAK denetimiyle kapatılır (`message.send` zarfı → `argument_sources`).
-        # Kalıcı şehir tercihi ise kullanıcı cümlesinin kendisiyle doğan bir yazmadır ve yasağı
-        # sürer. Küme kapalı kalır: yeni bir ad eklendiğinde/çıktığında bu satır RED verir.
+    def test_preference_write_requires_words_from_the_current_user(self):
         from modules import brain_model_understanding as model
-        self.assertEqual(
-            set(model._MODEL_DENIED_CAPABILITIES),
-            {understanding.WEATHER_CITY_SET_CAPABILITY, understanding.WEATHER_CITY_RESET_CAPABILITY})
+        self.assertIsNone(self._ask("bugün hava nasıl", self._envelope(
+            "weather.city.set", {"location": "izmir"})))
+        row = json.loads(self._envelope("weather.city.set", {"location": "izmir"}))
+        row["actions"][0]["argument_sources"] = {"location": "İzmir"}
+        proposal = self._ask("şehrim İzmir olsun", json.dumps(row))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.actions[0].arguments["location"], "izmir")
+        row["actions"][0]["argument_sources"] = {"location": "Ankara"}
+        self.assertIsNone(self._ask("şehrim İzmir olsun", json.dumps(row)))
+
+    def test_final_cutover_has_no_legacy_city_exception(self):
+        from modules import brain_model_understanding as model
+        self.assertEqual(set(model._MODEL_DENIED_CAPABILITIES), set())
+        self.assertEqual(model._supplied_schema("weather.city.set")["argument_sources"], ["location"])
 
     def test_a_model_proposed_weather_read_is_still_allowed(self):
         # Yasak yalnız tercih YAZMASI/SİLMESİ içindir: okuma zarf kararının normal yeteneğidir.
@@ -592,24 +588,11 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(proposal.actions[0].capability_id, "weather.read")
 
-    def test_denying_an_echoed_city_set_leaves_the_users_own_sentence_untouched(self):
-        # Yasağın kullanıcı yüzü: "şehrim İzmir"de deterministik satır ZATEN weather.city.set
-        # taşıyor. Model aynı yeteneği yankılarsa zarf öneriyi düşürür, `apply_model_understanding`
-        # deterministik sonucu olduğu gibi korur — yani gerçek cümlelerin etkisi değişmez.
-        text = "şehrim İzmir"
-        deterministic = self._current(text)
-        self.assertEqual(deterministic.capability_hint, understanding.WEATHER_CITY_SET_CAPABILITY)
-        echoed = self._envelope(understanding.WEATHER_CITY_SET_CAPABILITY,
-                                {"location": "İzmir"})
-        with patch("modules.llm.current_user", return_value=self.OWNER), \
-                patch("modules.llm.provider", return_value="groq"), \
-                patch("modules.llm.privacy.mode", return_value="normal"), \
-                patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", return_value=echoed):
-            adopted = understanding.apply_model_understanding(deterministic, text)
-        self.assertEqual(adopted, deterministic)
-        self.assertEqual(adopted.capability_hint, understanding.WEATHER_CITY_SET_CAPABILITY)
-        self.assertEqual(adopted.arguments.get("location"), "izmir")
+    def test_city_reset_is_an_explicit_typed_empty_argument_action(self):
+        proposal = self._ask("kayıtlı şehrimi sil", self._envelope("weather.city.reset", {}))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.actions[0].capability_id, "weather.city.reset")
+        self.assertEqual(brain_core_map.core_plan("weather.city.reset", proposal.actions[0].arguments), ("city_reset", {}))
 
     def test_the_prompt_catalogue_does_not_advertise_a_denied_capability(self):        # Zarf yasakları modelden GELSE bir değeri reddeder; prompt yasağı olmayan bir yeteneği
         # "seçebilirsin" diye ilan ederse sözleşme içten tutarsız olur ve her seçim fail-closed

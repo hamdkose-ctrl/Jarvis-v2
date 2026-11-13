@@ -219,7 +219,7 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
             entry, output, _handler, feedback = self.turn_real(
                 "İzmir hava durumuna bak: kamerayı aç", model_understanding=True)
         self.assertIsNone(brain_entry.core_plan(entry))
-        self.assertIn("işlem başlatılmadı", output)
+        self.assertIn("işlem başlatmadım", output)
         self.assertEqual(feedback.result_status, "failed")
         self.assertEqual([row["id"] for row in self.ctx.profile.data["items"]],
                          [original["id"]])

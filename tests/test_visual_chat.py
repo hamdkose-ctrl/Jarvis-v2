@@ -22,7 +22,7 @@ def _ctx(session=None, history=None):
     return CommandContext(
         profile=_Profile(), session=session or SessionState(), emit=lambda *a, **k: None,
         table_chat=lambda: None, history_read=lambda owner, q, limit: history,
-        study_intent=lambda t: None, conversation_summary=lambda: None,
+        conversation_summary=lambda: None,
     )
 
 

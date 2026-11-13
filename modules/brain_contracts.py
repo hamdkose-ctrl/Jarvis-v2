@@ -65,6 +65,9 @@ class PendingOwner(str, Enum):
     MESSAGE_TO = "session.pending_msg.to"
     MESSAGE_TEXT = "session.pending_msg.text"
     APP_CLARIFY = "session.pending_action.clarify"
+    APP_SELECTION = "session.pending_app"
+    EVENT_TIME = "session.pending_event_title"
+    DESKTOP_REPLY = "session.pending_desktop"
 
 
 class TemporalNeed(str, Enum):
@@ -230,11 +233,14 @@ class ActiveContext(_JsonContract):
     active_artifacts: tuple[ContextReference, ...] = ()
     pending_references: tuple[ContextReference, ...] = ()
     memory_references: tuple[ContextReference, ...] = ()
+    # Core-observed local clock, never a selectable business reference.
+    current_time: str | None = None
 
     def __post_init__(self) -> None:
         _require_text("ActiveContext.owner", self.owner)
         _require_text("ActiveContext.request_id", self.request_id)
         _optional_text("ActiveContext.topic", self.topic)
+        _optional_text("ActiveContext.current_time", self.current_time)
         for name in (
             "active_goal_references", "goal_candidates", "active_task_references",
             "recent_references", "active_artifacts", "pending_references", "memory_references",

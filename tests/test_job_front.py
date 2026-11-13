@@ -11,7 +11,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime
-from modules import goal_executor, task_agents
+from modules import brain_context, goal_executor, task_agents
 from modules.diagnostics import record_failure as _record_failure
 
 NOW = time.time()
@@ -64,7 +64,8 @@ class JobFrontTests(ProfileCase):
         # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi model kapılarının
         # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmez.
         model = Mock(side_effect=RuntimeError('sohbete düştü'))
-        with patch.object(goal_executor, 'latest', return_value=g), \
+        with patch.object(brain_context, '_default_goal_reader', return_value=g), \
+                patch.object(goal_executor, 'latest', return_value=g), \
                 patch.object(goal_executor, 'run', side_effect=lambda *a, **k: calls.append('goal.run') or 'G'), \
                 patch.object(goal_executor, '_save', side_effect=goal_save), \
                 patch.object(goal_executor, 'render', return_value='G-render'), \

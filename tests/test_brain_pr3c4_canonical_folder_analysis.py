@@ -461,12 +461,11 @@ class CoreValidationTests(_FolderHarness):
 
     def test_precedence_keeps_the_legacy_gates_off_a_validated_folder_plan(self):
         plan = ("folder_analyze", {"operation": FOLDER_ANALYSIS_OPERATION, "folder": "downloads"})
-        gates = brain_precedence._gates(self.ctx, "indirilenler klasörünü incele",
-                                        "indirilenler klasörünü incele", plan)
-        with patch.object(engine_tools, "_extra_commands", Mock(return_value=None)) as extra:
-            self.assertIsNone(gates["extra_commands"]())
-            self.assertIsNone(gates["planner_command"]())
-        extra.assert_not_called()
+        self.assertEqual(brain_precedence.FRONT_GATES, ("file_command", "macro_run"))
+        self.assertFalse(hasattr(brain_precedence, "_gates"))
+        self.assertFalse(hasattr(engine_tools, "_extra_commands"))
+        self.assertIsNone(brain_precedence.claim(self.ctx, "indirilenler klasörünü incele", plan))
+
 
 
 class RawDoorRetirementTests(unittest.TestCase):

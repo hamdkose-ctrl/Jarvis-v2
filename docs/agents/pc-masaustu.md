@@ -1,5 +1,9 @@
 # PC ve masaüstü kontrolü (AGENTS.md alan notları)
 
+## BRAIN-03 son karar — #613, 13 Kasım 2026
+
+Modelin ANSWER_TO_PENDING kararı yalnız gerçekten gözlenmiş pending_desktop sahibine bağlanır. `desktop_agent.answer_typed` gözlenen job ID + question metnini aktif kullanıcı kaydıyla kilit altında yeniden karşılaştırır; durum question değilse, kimlik/soru değişmişse veya kaynak telefon/başka PC kullanıcısıysa native run başlamaz. Açık devam, onay ve izin protokolleri mevcut worker/permission kapılarındadır. Bu adaptör yeni masaüstü motoru veya Brain-07 yürütme sahibi değildir.
+
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
 ## Altyapı tamamlama ve kabul paketi — 14 Ekim 2026

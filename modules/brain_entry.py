@@ -132,18 +132,7 @@ def _append_artifact(active: ActiveContext, artifact: ContextReference | None) -
     artifacts = active.active_artifacts
     if not any(row is artifact or (row.kind, row.id) == (artifact.kind, artifact.id) for row in artifacts):
         artifacts = artifacts + (artifact,)
-    return ActiveContext(
-        owner=active.owner,
-        request_id=active.request_id,
-        topic=active.topic,
-        active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
-        active_task_references=active.active_task_references,
-        recent_references=active.recent_references,
-        active_artifacts=artifacts,
-        pending_references=active.pending_references,
-        memory_references=active.memory_references,
-    )
+    return replace(active, active_artifacts=artifacts)
 
 
 def _append_pending(active: ActiveContext, pending: ContextReference | None) -> ActiveContext:
@@ -155,18 +144,7 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
     if not any(row is pending or (row.source, row.kind, row.id) == (pending.source, pending.kind, pending.id)
                for row in refs):
         refs = refs + (pending,)
-    return ActiveContext(
-        owner=active.owner,
-        request_id=active.request_id,
-        topic=active.topic,
-        active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
-        active_task_references=active.active_task_references,
-        recent_references=active.recent_references,
-        active_artifacts=active.active_artifacts,
-        pending_references=refs,
-        memory_references=active.memory_references,
-    )
+    return replace(active, pending_references=refs)
 
 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
@@ -305,6 +283,11 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     )
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
+    # Clock is a Core observation, never inferred from the utterance.
+    from datetime import datetime
+    clock = getattr(runtime, "datetime", datetime)
+    now = clock.now().astimezone().isoformat(timespec="seconds")
+    active = replace(active, current_time=now)
     active = _with_app_target_evidence(active, runtime)
     active = _with_recipient_evidence(active, runtime)
     # An ephemeral Workbench job is a canonical owner-scoped artifact by
@@ -364,10 +347,12 @@ def _state_refs(runtime: Any, owner: str, request_id: str, active: ActiveContext
     except Exception:
         _record_failure("modules/brain_entry.py:desktop_consent_observe")
         desktop = None
-    if isinstance(desktop, dict) and desktop.get("status") == "consent":
+    if isinstance(desktop, dict) and desktop.get("status") not in {"done", "cancelled"}:
         rows.append(ContextReference(
-            id="consent", kind="pending_state", source="desktop_agent", owner=owner,
-            provenance={"status": "consent"},
+            id="consent" if desktop.get("status") == "consent" else "desktop",
+            kind="pending_state", source="desktop_agent", owner=owner,
+            provenance={"status": desktop.get("status"), "job_id": desktop.get("id"),
+                        "question": desktop.get("question")},
         ))
 
     photo = _pending_photo_state(active)
@@ -478,6 +463,13 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     if fast.matched:
         return EntryResult(owner, request_id, source, text, active, state, fast)
 
+    # Native questions are owner-bound observations, not selectable targets.
+    # Include their text in model context even after the session flag was lost
+    # on restart; State/Fast arbitration above has already run.
+    for native in state_refs:
+        if native.source == "desktop_agent" and native.provenance.get("status") == "question":
+            active = _append_pending(active, native)
+
     candidates, references, semantic = _semantic_pass(
         runtime,
         owner=owner,
@@ -510,7 +502,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             semantic = replace(
                 semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))
         references = semantic.references
-    return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
+    return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic, state_references=state_refs)
 
 
 def core_proposal(entry: EntryResult) -> dict[str, object]:
@@ -1086,6 +1078,11 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
             return None
         if paths is not None and (not isinstance(paths, (list, tuple)) or any(value not in allowed for value in paths)):
             return None
+    if plan is not None and plan[0] == "file_mutate" and plan[1].get("operation") in {"rename", "move"}:
+        allowed = {ref.provenance.get("path") for ref in semantic.references
+                   if ref.owner == entry.owner and ref.kind == "file"}
+        if plan[1].get("path") not in allowed:
+            return None
     if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
         return None
     return plan
@@ -1097,7 +1094,9 @@ def _translate_source_is_brains(entry: EntryResult, args: Mapping[str, Any]) -> 
     if args.get("origin") == "inline":
         return text in entry.text
     turn_id = args.get("turn_id")
-    return any(ref.kind == "conversation_turn" and ref.id == turn_id
+    return any(ref.owner == entry.owner and ref.source == "history"
+               and ref.provenance.get("role") == args.get("origin")
+               and ref.kind == "conversation_turn" and ref.id == turn_id
                and str(ref.provenance.get("text") or "").strip() == text for ref in entry.candidates)
 
 
@@ -1129,7 +1128,8 @@ def _is_explicit_owner_protocol(runtime: Any, command: str) -> bool:
     """Exact user-addressed owner commands; never a raw NL fallback."""
     from modules import brain_precedence
     if (brain_precedence.explicit_desktop_owner_protocol(command)
-            or brain_precedence.explicit_workflow_owner_protocol(command)):
+            or brain_precedence.explicit_workflow_owner_protocol(command)
+            or brain_precedence.explicit_task_control_protocol(command)):
         return True
     from modules import main_documents
     match = getattr(runtime, "_FILE_CMD", None)
@@ -1257,6 +1257,13 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
 
 def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Run each adopted action through the existing Core intent path, never raw text."""
+    from modules.command_manager import awaiting_input
+    if awaiting_input(runtime._session()):
+        row = feedback(entry, result_status="needs_input", reason_code="CORE_AWAITING_INPUT",
+                       core_ambiguities=("core pending: existing interaction",))
+        _LAST_FEEDBACK.set(row)
+        return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım. "
+                "Önce bekleyen yanıtı tamamla veya iptal et.", row, None)
     semantic = entry.understanding
     actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
     outcomes: dict[str, str] = {}
@@ -1629,6 +1636,9 @@ _PENDING_OWNER_FIELDS = {
     PendingOwner.MESSAGE_TO: "pending_msg",
     PendingOwner.MESSAGE_TEXT: "pending_msg",
     PendingOwner.APP_CLARIFY: "pending_action",
+    PendingOwner.APP_SELECTION: "pending_app",
+    PendingOwner.EVENT_TIME: "pending_event_title",
+    PendingOwner.DESKTOP_REPLY: "pending_desktop",
 }
 
 

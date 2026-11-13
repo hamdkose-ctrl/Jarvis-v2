@@ -1,4 +1,12 @@
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
+
+## BRAIN-03 son karar — #613, 13 Kasım 2026
+
+- Üretim text/live/nested girişler nötr gözlemden tek model kararı alır. Genel raw cascade, ikinci typo/sequence yorumlayıcısı ve Study callback'i emeklidir. `model_understanding=False` yalnız eski saf karakterizasyon yüzeyidir.
+- Core kataloğunun her yeteneği modele alan/enum/kısıt sözleşmesiyle sunulur. Şehir set/reset için eski deterministik istisna kalmaz; set alanı kullanıcı sözünden alıntılı dayanak ister. Geçmiş konuşma ID'leri ve yerel güncel saat Core gözlemidir; model önerisi kimlik/izin üretmez.
+- Pending app seçimi, etkinlik zaman cevabı ve masaüstü sorusu gerçek ActiveContext sahibine bağlanır. Gözlenmiş pending varken CORRECTION eylem önerisi eski state'i yazamaz; ownersız ANSWER_TO_PENDING açık soru üretir.
+- Bir hedefin gerçek soru cevabı yalnız continue_goal + ANSWER_TO_PENDING + sunulmuş goal ID ile mevcut resolver'a gider; özgün kullanıcı metni, aynı version/control snapshot ve domain worker korunur. Düz devam/resume cevap uydurmaz. Canonical planlı hedefi yine Scheduler yürütür.
+- Yeni action_batch, mevcut açık input/onay varken ilk etkiden önce durur; batch içindeki yeni onay sonraki kardeşleri durdurur. Exact task devam/iptal/durum/queue kontrol protokolleri model yokken de mevcut sahibine gider. BRAIN-07 execution/GoalState mimarisi genişletilmez.
 - `external_write`, kullanıcının özel dış hesabındaki kesin kaydı oluşturma/değiştirme/silme sınıfıdır; varsayılanı her zaman `ask`tır ve süreli grant ile açılamaz. Açık `action_class` dış silmede `local_destructive`e çevrilmez; yıkıcılık capability Effect Policy'sinde taşınır. Para/kimlik, sistem ve fiziksel güvenlik sınıfları önceliğini korur.
 - Sohbet haber teslimi yanlış writer seçimini yürütmeden mevcut bağımlı haber makbuzlarına çevirir. Kısmi teslim için chat_evidence yalnız görünüm referansıdır; hedefin tamamlanma kanıtı değildir. Kaynak eksikse hedef açık kalır; diğer hedefler ve gerçek dosya üretimi korunur.
 - Araştırma son görünümünde aynı kanıt kimliği bir kez basılır. Aynı hedefte başarılı research varsa data sources/headlines/news_search keşif dökümleri son bulgulara karıştırılmaz; yalnız keşif hedefi, başka veri sonuçları ve dosya yolları korunur. Genel araştırmada kısa yanıt sonrası kaynak URL'si kesilmeden gösterilir. Kayıt/kanıt/planlama ve tamamlanma kuralları değişmez.

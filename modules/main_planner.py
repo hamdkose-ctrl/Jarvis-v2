@@ -350,6 +350,13 @@ def _fold(text: str) -> str:
     return text.replace('İ', 'i').replace('I', 'ı').lower().translate(_FOLD)
 
 
+def _drop_queued_reminder_speech(runtime, ev: dict) -> int:
+    """Invalidate this owner's reminder audio after a confirmed change."""
+    from modules import engine_background, voice_runtime
+    return voice_runtime.invalidate(owner=runtime.profile.slug,
+                                    event_id=engine_background.reminder_speech_id(ev))
+
+
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
     """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
     from datetime import datetime
@@ -548,64 +555,185 @@ def clear_notes_confirmed(runtime, proposal: dict) -> str:
     return "Tüm notlarını sildim."
 
 
+def reminder_change_preview(runtime, action: dict) -> str:
+    """Bind a Core-selected change to one event and immutable approval data.
+
+    Target/operation/occurrence come from the validated proposal. Date and
+    delay parsing here only interprets data inside that selected operation.
+    """
+    from modules import personalization
+    with personalization._LOCK:
+        from datetime import datetime, timedelta
+        from modules import requests_state
+        from modules.turkish_text import lower
+        requests_state.check()
+        if runtime._session().pending_confirm:
+            return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
+        events = [e for e in runtime.profile.data.get("events", []) if isinstance(e, dict)]
+        now = runtime.datetime.now()
+        target = action.get("target", "title")
+        if target == "title":
+            wanted = lower(action["title"])
+            matches = [e for e in events if isinstance(e.get("title"), str) and lower(e["title"]) == wanted]
+        elif target == "only":
+            matches = events
+        else:
+            fired = []
+            for e in events:
+                value = e.get("fired") if e.get("repeat") else e.get("when") if e.get("notified") else None
+                try:
+                    stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+                except (ValueError, TypeError):
+                    continue
+                if 0 <= (now - stamp).total_seconds() < 6 * 3600:
+                    fired.append((stamp, e))
+            latest = max((stamp for stamp, _ in fired), default=None)
+            matches = [e for stamp, e in fired if stamp == latest]
+        if not matches:
+            return "Bu hedefe uyan güncel bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
+        if len(matches) != 1:
+            return "Birden fazla Jarvis hatırlatması uyuyor; hangisi olduğunu netleştir. Hiçbir kayıt değiştirilmedi."
+        event = matches[0]
+        if action.get("on_date"):
+            expression = lower(action["on_date"])
+            expression = {"bugünkünü": "bugün", "bugunku": "bugun", "bugünkü": "bugün",
+                          "yarınki": "yarın", "yarinki": "yarin"}.get(expression, expression)
+            day, _ = runtime.whenmod.parse_when(expression, now)
+            if day is None or day[:10] != str(event.get("when") or "")[:10]:
+                return f"'{action['on_date']}' tarihine uyan tek bir oluşum doğrulayamadım; kayıt değiştirilmedi."
+        operation = action["operation"]
+        if operation == "skip" and not event.get("repeat"):
+            return "Bu tek seferlik bir hatırlatma; sonraki tekrar atlanamaz. Silmeyi ayrıca isteyebilirsin."
+        proposal = {"action": "reminder_delete" if operation == "delete" else "reminder_modify",
+                    "operation": operation, "owner": runtime.profile.slug, "event_id": event["id"],
+                    **{key: event.get(key) for key in ("title", "when", "repeat", "base", "fired", "notified", "snooze")}}
+        if operation == "postpone":
+            try:
+                allday = len(event["when"]) == 10
+                start = datetime.strptime(event["when"], "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+                occurrence = action.get("occurrence", "next")
+                if occurrence == "fired":
+                    fired_at = event.get("fired") if event.get("repeat") else event.get("when") if event.get("notified") else None
+                    stamp = datetime.strptime(fired_at, "%Y-%m-%dT%H:%M")
+                    if not 0 <= (now - stamp).total_seconds() < 6 * 3600:
+                        return "Bu hatırlatmanın yakın zamanda çaldığını doğrulayamadım; değiştirmedim."
+                minutes = action.get("minutes")
+                if "schedule" in action:
+                    # A date without a clock keeps the event's own clock. Model
+                    # supplies the grounded expression, never a guessed ISO date.
+                    date_text = lower(action["schedule"]).strip()
+                    # Closed temporal values, inside an already selected change.
+                    # Never scan the complete command or select an operation here.
+                    date_text = {"pazartesiye": "pazartesi", "salıya": "salı", "saliya": "sali",
+                                 "çarşambaya": "çarşamba", "carsambaya": "carsamba", "perşembeye": "perşembe",
+                                 "persembeye": "persembe", "cumaya": "cuma", "cumartesiye": "cumartesi",
+                                 "pazara": "pazar", "akşama": "saat 18", "aksama": "saat 18",
+                                 "öğleden sonraya": "saat 14", "ogleden sonraya": "saat 14",
+                                 "yarın sabah": "yarın saat 9", "yarın sabaha": "yarın saat 9",
+                                 "yarin sabah": "yarin saat 9", "yarin sabaha": "yarin saat 9"}.get(date_text, date_text)
+                    value, _ = runtime.whenmod.parse_when(date_text, now)
+                    if value is None:
+                        return "Yeni tarihi güvenli biçimde çözemedim; hangi tarih ve saati istiyorsun?"
+                    if not allday and len(value) == 10:
+                        value += "T" + start.strftime("%H:%M")
+                    if allday and len(value) != 10:
+                        return "Bu tüm gün kaydı; yalnız gün olarak erteleyebilirsin."
+                    shifted = datetime.strptime(value, "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+                else:
+                    if allday and minutes % 1440:
+                        return "Bu tüm gün kaydı; yalnız gün olarak erteleyebilirsin."
+                    origin = now if occurrence == "fired" or (not allday and start <= now and minutes < 1440) else start
+                    shifted = origin + timedelta(minutes=minutes)
+                if shifted <= now:
+                    return "Yeni hatırlatma zamanı geçmişte kalıyor; hiçbir kayıt değiştirilmedi."
+                proposal["new_when"] = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+                proposal["snooze_fired"] = bool(occurrence == "fired" and event.get("repeat"))
+                proposal["minutes"] = minutes
+                intent_text = f"{runtime.whenmod.describe(proposal['new_when'], now)} için yeniden kurmamı"
+            except (ValueError, TypeError, KeyError):
+                return "Hatırlatmanın tarihi veya süresi doğrulanamadı; hiçbir kayıt değiştirilmedi."
+        else:
+            intent_text = "silmemi" if operation == "delete" else "sıradaki tekrarını atlamamı"
+        runtime._session().pending_confirm = proposal
+        return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
+                "Evet ya da hayır de. Google Takvim'e dokunmam.")
+
+
 def modify_reminder_confirmed(runtime, proposal: dict) -> str:
     """One owner-bound, exact-snapshot State confirmation of a Core operation."""
-    from datetime import datetime, timedelta
-    from modules import requests_state
-    requests_state.check()
-    if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
-        return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
-    operation = proposal.get("operation")
-    minutes = proposal.get("minutes")
-    if operation not in {"postpone", "skip"}:
-        return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
-    if operation == "postpone" and (type(minutes) is not int or not 1 <= minutes <= 10080):
-        return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
-    if type(proposal.get("event_id")) is not int or not isinstance(proposal.get("title"), str):
-        return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
-    events = runtime.profile.data.get("events", [])
-    same_id = [event for event in events if isinstance(event, dict) and event.get("id") == proposal["event_id"]]
-    from modules.turkish_text import lower
-    same_title = [event for event in events if isinstance(event, dict)
-                  and isinstance(event.get("title"), str)
-                  and lower(event["title"]) == lower(proposal["title"])]
-    if len(same_id) != 1 or len(same_title) != 1:
-        return "Hatırlatma hedefi artık tek değil; hiçbir kayıt değiştirilmedi."
-    ev = same_id[0]
-    if any(ev.get(field) != proposal.get(field) for field in ("title", "when", "repeat", "base")):
-        return "Hatırlatma onayından sonra kayıt değişmiş; işlem yapılmadı."
-    now = runtime.datetime.now()
-    when = str(ev["when"])
-    allday = len(when) == 10
-    try:
-        if operation == "skip":
-            if not ev.get("repeat") or allday:
-                return "Bu hatırlatmanın sıradaki tekrarı güvenli biçimde atlanamıyor."
-            current = datetime.strptime(when[:16], "%Y-%m-%dT%H:%M")
-            base = ev.get("base") or current.strftime("%H:%M")
-            clock = datetime.strptime(base, "%H:%M").time()
-            following = runtime.whenmod.next_occurrence(
-                ev["repeat"], datetime.combine(current.date(), clock),
-                clock.hour, clock.minute)
-            new_when = following.strftime("%Y-%m-%dT%H:%M")
-            requests_state.check()
-            if not runtime.profile.reschedule_event(ev["id"], new_when):
-                return "Hatırlatmanın sıradaki tekrarını değiştiremedim; atladım demiyorum."
-            return (f"{ev['title']}: sıradaki tekrarı atladım. "
-                    f"Sıradaki: {runtime.whenmod.describe(new_when, now)}.")
-        if allday and minutes % 1440:
-            return "Bu tüm gün kaydı; yalnız gün olarak erteleyebilirsin."
-        start = datetime.strptime(when, "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
-        shifted = (now if not allday and start <= now and minutes < 1440 else start) + timedelta(minutes=minutes)
+    from modules import personalization
+    with personalization._LOCK:
+        from datetime import datetime, timedelta
+        from modules import requests_state
         requests_state.check()
-        if ev.get("repeat"):
-            return _edit_repeating(runtime, ev, shifted, f"{minutes} dakika", "erteledim", now)
-        new_when = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
-        if not runtime.profile.reschedule_event(ev["id"], new_when):
-            return "Hatırlatmanın yeni zamanını kaydedemedim; erteledim demiyorum."
-        return f"{ev['title']} kaydını erteledim: {runtime.whenmod.describe(new_when, now)}."
-    except (ValueError, TypeError, KeyError):
-        return "Hatırlatma tarihi veya tekrarı doğrulanamadı; hiçbir değişiklik yapılmadı."
+        if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
+            return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
+        operation = proposal.get("operation")
+        minutes = proposal.get("minutes")
+        if operation not in {"postpone", "skip"}:
+            return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
+        if operation == "postpone" and "new_when" not in proposal and (type(minutes) is not int or not 1 <= minutes <= 10080):
+            return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
+        if type(proposal.get("event_id")) is not int or not isinstance(proposal.get("title"), str):
+            return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
+        events = runtime.profile.data.get("events", [])
+        same_id = [event for event in events if isinstance(event, dict) and event.get("id") == proposal["event_id"]]
+        from modules.turkish_text import lower
+        same_title = [event for event in events if isinstance(event, dict)
+                      and isinstance(event.get("title"), str)
+                      and lower(event["title"]) == lower(proposal["title"])]
+        if len(same_id) != 1 or len(same_title) != 1:
+            return "Hatırlatma hedefi artık tek değil; hiçbir kayıt değiştirilmedi."
+        ev = same_id[0]
+        if any(ev.get(field) != proposal.get(field) for field in ("title", "when", "repeat", "base")):
+            return "Hatırlatma onayından sonra kayıt değişmiş; işlem yapılmadı."
+        if "new_when" in proposal and any(ev.get(field) != proposal.get(field) for field in ("fired", "notified", "snooze")):
+            return "Hatırlatmanın çalma durumu onaydan sonra değişmiş; işlem yapılmadı."
+        now = runtime.datetime.now()
+        when = str(ev["when"])
+        allday = len(when) == 10
+        try:
+            if operation == "skip":
+                if not ev.get("repeat") or allday:
+                    return "Bu hatırlatmanın sıradaki tekrarı güvenli biçimde atlanamıyor."
+                current = datetime.strptime(when[:16], "%Y-%m-%dT%H:%M")
+                base = ev.get("base") or current.strftime("%H:%M")
+                clock = datetime.strptime(base, "%H:%M").time()
+                following = runtime.whenmod.next_occurrence(
+                    ev["repeat"], datetime.combine(current.date(), clock),
+                    clock.hour, clock.minute)
+                new_when = following.strftime("%Y-%m-%dT%H:%M")
+                requests_state.check()
+                if not runtime.profile.reschedule_event(ev["id"], new_when):
+                    return "Hatırlatmanın sıradaki tekrarını değiştiremedim; atladım demiyorum."
+                _drop_queued_reminder_speech(runtime, ev)
+                return (f"{ev['title']}: sıradaki tekrarı atladım. "
+                        f"Sıradaki: {runtime.whenmod.describe(new_when, now)}.")
+            if "new_when" in proposal:
+                shifted = datetime.strptime(proposal["new_when"], "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+                if shifted <= now:
+                    return "Onay beklerken yeni saat geçti; hiçbir kayıt değiştirilmedi."
+                if proposal.get("snooze_fired"):
+                    requests_state.check()
+                    if not ev.get("repeat") or not runtime.profile.snooze_event(ev["id"], proposal["new_when"]):
+                        return "Hatırlatmayı yeniden çalmak üzere kaydedemedim; erteledim demiyorum."
+                    _drop_queued_reminder_speech(runtime, ev)
+                    return f"{ev['title']}: {runtime.whenmod.describe(proposal['new_when'], now)} yeniden çalacak; sonraki tekrar saati korundu."
+            elif allday and minutes % 1440:
+                return "Bu tüm gün kaydı; yalnız gün olarak erteleyebilirsin."
+            else:
+                start = datetime.strptime(when, "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+                shifted = (now if not allday and start <= now and minutes < 1440 else start) + timedelta(minutes=minutes)
+            requests_state.check()
+            if ev.get("repeat"):
+                return _edit_repeating(runtime, ev, shifted, "yeni zamana", "erteledim", now)
+            new_when = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+            if not runtime.profile.reschedule_event(ev["id"], new_when):
+                return "Hatırlatmanın yeni zamanını kaydedemedim; erteledim demiyorum."
+            _drop_queued_reminder_speech(runtime, ev)
+            return f"{ev['title']} kaydını erteledim: {runtime.whenmod.describe(new_when, now)}."
+        except (ValueError, TypeError, KeyError):
+            return "Hatırlatma tarihi veya tekrarı doğrulanamadı; hiçbir değişiklik yapılmadı."
 
 
 def delete_reminder_confirmed(runtime, proposal: dict) -> str:
@@ -614,32 +742,37 @@ def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     No raw sentence is re-parsed here. The confirmation is invalidated by
     owner changes, duplicate titles, reschedule, or a changed repeat rule.
     """
-    from modules import requests_state
-    requests_state.check()
-    if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
-        return "Hatırlatma onayının sahibi değişti; hiçbir kayıt silinmedi."
-    expected = {k: proposal.get(k) for k in ("event_id", "title", "when", "repeat", "base")}
-    if type(expected["event_id"]) is not int or type(expected["title"]) is not str:
-        return "Hatırlatma onayı doğrulanamadı; hiçbir kayıt silinmedi."
-    matches = [e for e in runtime.profile.data.get("events", [])
-               if isinstance(e, dict) and e.get("id") == expected["event_id"]
-               and e.get("title") == expected["title"]
-               and e.get("when") == expected["when"]
-               and e.get("repeat") == expected["repeat"]
-               and e.get("base") == expected["base"]]
-    from modules.turkish_text import lower
-    same_title = [e for e in runtime.profile.data.get("events", [])
-                  if isinstance(e, dict) and isinstance(e.get("title"), str)
-                  and lower(e["title"]) == lower(expected["title"])]
-    if len(matches) != 1 or len(same_title) != 1:
-        return "Hatırlatma onayından sonra kayıt değişti veya hedef belirsiz; hiçbir kayıt silinmedi."
-    requests_state.check()
-    if not runtime.profile.delete_event(expected["event_id"]):
-        return "Hatırlatma silme işlemini doğrulayamadım; silindi demiyorum."
-    detail = " (tekrarlayan kaydın bütün tekrarları)" if expected["repeat"] else ""
-    return (f"Sildim: {expected['title']}, "
-            f"{runtime.whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
-            "Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
+    from modules import personalization
+    with personalization._LOCK:
+        from modules import requests_state
+        requests_state.check()
+        if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
+            return "Hatırlatma onayının sahibi değişti; hiçbir kayıt silinmedi."
+        expected = {k: proposal.get(k) for k in ("event_id", "title", "when", "repeat", "base")}
+        if type(expected["event_id"]) is not int or type(expected["title"]) is not str:
+            return "Hatırlatma onayı doğrulanamadı; hiçbir kayıt silinmedi."
+        matches = [e for e in runtime.profile.data.get("events", [])
+                   if isinstance(e, dict) and e.get("id") == expected["event_id"]
+                   and e.get("title") == expected["title"]
+                   and e.get("when") == expected["when"]
+                   and e.get("repeat") == expected["repeat"]
+                   and e.get("base") == expected["base"]]
+        from modules.turkish_text import lower
+        same_title = [e for e in runtime.profile.data.get("events", [])
+                      if isinstance(e, dict) and isinstance(e.get("title"), str)
+                      and lower(e["title"]) == lower(expected["title"])]
+        if len(matches) != 1 or len(same_title) != 1:
+            return "Hatırlatma onayından sonra kayıt değişti veya hedef belirsiz; hiçbir kayıt silinmedi."
+        if "fired" in proposal and any(matches[0].get(field) != proposal.get(field) for field in ("fired", "notified", "snooze")):
+            return "Hatırlatmanın çalma durumu onaydan sonra değişmiş; hiçbir kayıt silinmedi."
+        requests_state.check()
+        if not runtime.profile.delete_event(expected["event_id"]):
+            return "Hatırlatma silme işlemini doğrulayamadım; silindi demiyorum."
+        _drop_queued_reminder_speech(runtime, matches[0])
+        detail = " (tekrarlayan kaydın bütün tekrarları)" if expected["repeat"] else ""
+        return (f"Sildim: {expected['title']}, "
+                f"{runtime.whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
+                "Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
 
 
 def reminder_create(runtime, parsed: dict) -> str:

@@ -425,25 +425,18 @@ class EndToEndSummaryTests(_BrainCase):
 
 class RegressionThroughBrainTests(_BrainCase):
     def test_existing_note_commands_keep_working(self):
-        # add
+        from brain_turn_fixture import turn, note_change
         before = len(self.notes())
-        _entry, out, _feedback, _handler = self.through_brain("not al: market süt", forbid_legacy_search=False)
+        out = turn(self.ctx, "not al: market süt", "notes.add", {"text": "market süt"})
         self.assertIn("Not aldım", out)
         self.assertEqual(len(self.notes()), before + 1)
-        # list / all
-        _entry, out, _feedback, handler = self.through_brain("notlarımı göster", forbid_legacy_search=False)
-        self.assertIn("Notların", out)
-        self.assertFalse(handler.called)
-        self.assertIn("Notların", self.through_brain("notlarım", forbid_legacy_search=False)[1])
-        # count keeps its bounded, honest behavior
-        _entry, out, _feedback, _handler = self.through_brain("kaç notum var", forbid_legacy_search=False)
-        self.assertIn("notun var", out)
-        # bounded numbered delete stays with its existing owner
-        _entry, out, _feedback, _handler = self.through_brain("1 numaralı notu sil", forbid_legacy_search=False)
-        self.assertIn("Notu sildim", out)
-        # last-note delete branch is unchanged
-        _entry, out, _feedback, _handler = self.through_brain("son notu sil", forbid_legacy_search=False)
-        self.assertIn("Son notu sildim", out)
+        self.assertIn("Notların", turn(self.ctx, "notlarım", "notes.read", {"notes": {"which": "all"}}))
+        self.assertIn("notun var", turn(self.ctx, "kaç notum var", "notes.read", {"notes": {"which": "count"}}))
+        first = self.ctx.profile.data["items"][0]
+        self.assertIn("Notu sildim", note_change(self.ctx, "1 numaralı notu sil", first, "delete"))
+        last = self.ctx.profile.data["items"][-1]
+        self.assertIn("Notu sildim", note_change(self.ctx, "son notu sil", last, "delete"))
+        self.assertEqual(len(self.notes()), before - 1)
 
     def test_named_delete_and_update_keep_canonical_ownership(self):
         self.ctx.profile.add_note_item("kitap: Sefiller")

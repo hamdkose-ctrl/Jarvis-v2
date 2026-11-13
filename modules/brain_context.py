@@ -313,6 +313,8 @@ def _goal_card(owner: str, row: Mapping[str, Any]) -> ContextReference | None:
         provenance['execution_snapshot'] = row['_execution_snapshot']
         provenance['canonical_version'] = row.get('_canonical_version')
         provenance['control_key'] = goal_executor.control_key(row)
+    if row.get("state") == "question" and isinstance(row.get("question"), str):
+        provenance["question"] = row["question"][:600]
     progress = _goal_progress(row)
     if progress is not None:
         provenance["progress"] = progress

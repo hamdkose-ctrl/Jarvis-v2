@@ -8,6 +8,10 @@
 
 Bu yol yalnız eski belge bağlantılarının kırılmaması için tutulur. Buradaki eski kayıtlar yeni görev açmak için kullanılmaz.
 
+### Güncel BRAIN-03 kaydı — yalnız #613
+
+Aktif kod ve kabul kaydı [yol haritasının başında](Jarvis_Yol_Haritasi.md) ve [final authority envanterinde](architecture/JARVIS_BRAIN_03_FINAL_AUTHORITY_INVENTORY_2026-11-13.md). Aşağıdaki dilim4 notları tarihsel kayıttır; yeni PR/iş sırası üretmez. #545 canlı kabul kanıtı olmadan kapatılmaz.
+
 ### BRAIN-03 dilim4 — mevcut branch, kapanış açık
 
 `gpt/brain-03-output-diagnose`: çıktı/teşhis model→Core→domain hattı ve eski iki doğal-dil kalıp sahibinin kaldırılması uygulanıyor. Yeni testler model wiring, oturum artifact kimliği, iptal ve gerçek Word kayıt adapterını kapsar; mock başarı gerçek model semantik kabulü değildir. Ücretsiz üretim rotası ön denetimi yalnız ollama adayı buldu (gemini rota dışı, groq/cloudflare ücretsiz hesap teyitsiz); canlı holdout çalışmadı ve kapı gevşetilmedi. Yerel tam validation exit 0 (5.204 Python testi: 5.203 başarılı, 1 platform skip; tüm JS/smoke ve 47 son stability testi başarılı); exact-head Windows CI ve aynı SHA PC watcher kapanış için açık kalır. (Bu cümlenin exact-head CI ve gerçek kullanıcı Full kısmı aşağıdaki "Beşinci tur" kaydında `bb85f9b` üzerinde kapandı; PC watcher `local_model` adımı ve PR merge onayı o kayıtta da açıktır.) Kullanıcının ayrı gönderim/PR onayı olmadan push veya PR açılmadı. Dilim5/BRAIN-04'e geçildiği iddia edilmez.

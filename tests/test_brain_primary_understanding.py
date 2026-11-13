@@ -191,9 +191,9 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
             propose(owner=OWNER, text=utterance, current=current, arguments=current.arguments)
         self.assertEqual(len(captured), 1)
         prompt = captured[0]
-        self.assertIn("For notes.write, select EXACTLY ONE note_N slot", prompt)
-        self.assertIn("For files.read, use only file_N slots", prompt)
-        self.assertIn("For all OTHER capabilities reference_slots must be an empty array", prompt)
+        self.assertIn("For notes.write select exactly one note_N", prompt)
+        self.assertIn("For files.read use file_N reference slots", prompt)
+        self.assertIn("All other capabilities use empty reference_slots", prompt)
         self.assertNotIn("reference_slots are only for files.read", prompt)
         structured = json.loads(prompt.split("\\n", 1)[0])
         self.assertEqual(structured["note_candidates"][0]["slot"], "note_0")
@@ -485,7 +485,10 @@ class PreservedFencesTests(unittest.TestCase):
         p1, p2, p3, p4 = eligible()
         with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
             result = apply_model_understanding(ambiguous, text)
-        self.assertIs(result, ambiguous)
+        self.assertIsNot(result, ambiguous)
+        self.assertEqual(result.capability_hint, 'pc.audio.action')
+        self.assertEqual(result.references, ambiguous.references)
+        self.assertFalse(result.needs_input)
 
     def test_action_batch_preserves_every_validated_action_for_brain04_handoff(self):
         text = "müziği durdur sesi azalt"
@@ -572,9 +575,11 @@ class ProductionEntrySeamTests(unittest.TestCase):
         raw = envelope(actions=[action(capability_id="pc.level.set",
                                        arguments={"property": "brightness", "level": 20})])
         result = self.prepared(text, raw)
-        # Öneri kapıdan geçer ama sıralı isteğin tek-adım planı yoktur: veto modelden bağımsızdır.
+        # Production Core validates the adopted model action; it cannot
+        # re-split the utterance with a second lexical semantic authority.
         self.assertEqual(result.understanding.capability_hint, "pc.level.set")
-        self.assertIsNone(self.module().core_plan(result))
+        self.assertEqual(self.module().core_plan(result),
+                         ('level_set', {'property': 'brightness', 'level': 20}))
 
 
 if __name__ == "__main__":

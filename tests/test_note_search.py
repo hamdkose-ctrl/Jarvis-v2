@@ -1,7 +1,7 @@
 """Notu arama, düzeltme ve silme (18 Ekim 2026): modelsiz, gerçek profil JSON'u, gerçek EngineContext.
 
 Arama/özetleme canonical hattan geçer: istek -> brain_entry.prepare -> Understanding -> Core ->
-notes domain owner. Düzeltme/silmenin bounded biçimleri mevcut planner sahibinde kalır.
+notes domain owner. Düzeltme/silme testleri açık model önerisiyle aynı Core sahibine gider; dil başarısı iddiası değildir.
 
 Gerçek sesli söyleyiş ve gerçek PC'de denenmedi.
 """
@@ -11,6 +11,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from modules import brain_entry, requests_state
+from brain_turn_fixture import note_change, reminder_change, turn
 from test_mail_calendar_fixes import ProfileCase, _runtime
 
 
@@ -89,18 +90,18 @@ class NoteSearchTests(ProfileCase):
     def test_edit_found_note_with_that_note(self):
         rt = self.rt()
         say(rt, 'geçen hafta aldığım market notu')
-        reply = say(rt, 'o notu düzelt: market: süt, ekmek, peynir')
+        reply = note_change(rt, 'o notu düzelt: market: süt, ekmek, peynir', self.profile.data['items'][0], 'update', 'market: süt, ekmek, peynir')
         self.assertIn('Düzelttim', reply)
         self.assertEqual(self.texts()[0], 'market: süt, ekmek, peynir')
         self.assertEqual(len(self.texts()), 4)
 
     def test_edit_by_number_and_unique_keyword(self):
         rt = self.rt()
-        self.assertIn('Düzelttim', say(rt, '2. notu düzelt: Ahmet ile toplantı salı'))
+        self.assertIn('Düzelttim', note_change(rt, '2. notu düzelt: Ahmet ile toplantı salı', self.profile.data['items'][1], 'update', 'Ahmet ile toplantı salı'))
         self.assertEqual(self.texts()[1], 'Ahmet ile toplantı salı')
-        self.assertIn('Düzelttim', say(rt, 'kitap notunu değiştir: kitap: Suç ve Ceza'))
+        self.assertIn('Düzelttim', note_change(rt, 'kitap notunu değiştir: kitap: Suç ve Ceza', self.profile.data['items'][3], 'update', 'kitap: Suç ve Ceza'))
         self.assertEqual(self.texts()[3], 'kitap: Suç ve Ceza')
-        self.assertIn('Böyle bir numaralı not yok', say(rt, '9. notu düzelt: x'))
+        self.assertIn('doğrula', turn(rt, '9. notu düzelt: x', 'notes.write', {'notes': {'id': 'missing', 'operation': 'update', 'text': 'x'}}).lower())
         self.assertEqual(len(self.texts()), 4)
 
     def test_ambiguous_edit_and_delete_change_nothing_and_ask(self):
@@ -112,18 +113,18 @@ class NoteSearchTests(ProfileCase):
                 self.assertEqual(self.texts(), before)
 
     def test_unique_keyword_delete(self):
-        self.assertIn('Notu sildim: kitap: Sefiller', say(self.rt(), 'kitap notunu sil'))
+        self.assertIn('Notu sildim: kitap: Sefiller', note_change(self.rt(), 'kitap notunu sil', self.profile.data['items'][3], 'delete'))
         self.assertEqual(len(self.texts()), 3)
 
     def test_existing_note_commands_not_hijacked(self):
         rt = self.rt()
-        self.assertIn('Not aldım', say(rt, 'not market sütü al'))
+        self.assertIn('Not aldım', turn(rt, 'not market sütü al', 'notes.add', {'text': 'market sütü al'}))
         self.assertEqual(len(self.texts()), 5)
-        self.assertIn('Notu sildim', say(rt, '1 numaralı notu sil'))
-        self.assertIn('Son notu sildim', say(rt, 'son notu sil'))
-        self.assertIn('Notların', say(rt, 'notlarım'))
+        self.assertIn('Notu sildim', note_change(rt, '1 numaralı notu sil', self.profile.data['items'][0], 'delete'))
+        self.assertIn('Notu sildim', note_change(rt, 'son notu sil', self.profile.data['items'][-1], 'delete'))
+        self.assertIn('Notların', turn(rt, 'notlarım', 'notes.read', {'notes': {'which': 'all'}}))
         self.profile.add_event('Market', '2026-10-18T10:00')
-        self.assertIn('Sildim: Market', say(self.rt(), 'market hatırlatmasını sil'))
+        self.assertIn('Sildim: Market', reminder_change(self.rt(), 'market hatırlatmasını sil', {'operation': 'delete', 'title': 'Market'}))
 
 
 if __name__ == '__main__':

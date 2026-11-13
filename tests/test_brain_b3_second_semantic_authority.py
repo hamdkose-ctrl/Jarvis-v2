@@ -43,6 +43,16 @@ def _import_bindings(tree: ast.AST) -> dict[str, str]:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 out[alias.asname or alias.name.split(".")[0]] = alias.name
+    # Resolve literal getattr aliases used by the bounded facade. Counting
+    # only dotted direct calls would silently miss these live owners.
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name) and node.value.func.id == 'getattr'
+                and len(node.value.args) >= 2 and isinstance(node.value.args[1], ast.Constant)
+                and isinstance(node.value.args[1].value, str)):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    out[target.id] = node.value.args[1].value
     return out
 
 
@@ -174,7 +184,7 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         # `job_front.wants`, `goal_executor.handle` ve `continue_app` §13.2'nin KEEP satırlarıdır
         # (bounded protokol sahibidir, capability seçmez); burada sayılmalarının nedeni yüzeylerinin
         # sessizce büyümesini durdurmak. Altındaki `_study_intent` ise §13.1/105'in taşınacak kapısıdır.
-        "job_front.wants": {"modules/engine_commands.py"},
+        "job_front.wants": set(),
         "goal_executor.handle": {"modules/engine_commands.py"},
         "continue_app": {"modules/engine_commands.py"},
         "_study_intent": set(),  # Retired; typed Hoca start/study read owns semantics

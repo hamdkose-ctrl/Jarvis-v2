@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-from modules.brain_contracts import GoalOperation
+from modules.brain_contracts import ConversationRelation, GoalOperation
 
 #: Bu işlemler tek bir hedef üzerinde yürür; birden fazla kimlik seçilirse soru sorulur.
 #: `create_goal` hiç kimlik taşımaz, o yüzden bu kümede değil (yukarıda ayrı yürür).
@@ -140,8 +140,11 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
             f"{_titles_for(targets, cards)}?", "GOAL_TARGET_AMBIGUOUS")
 
     applied: list[Resolution] = []
+    answer = (operation is GoalOperation.CONTINUE
+              and understanding.conversation_relation is ConversationRelation.ANSWER_TO_PENDING)
     for ident in targets:
-        applied.append(_apply_one(runtime, goal_executor, owner, operation, ident, text, snapshots.get(ident, {})))
+        applied.append(_apply_one(runtime, goal_executor, owner, operation, ident, text,
+                                  snapshots.get(ident, {}), answer=answer))
     if len(applied) == 1 and applied[0].reason_code == 'GOAL_QUESTION_PENDING':
         return applied[0]
     refused = [row for row in applied if row.result_status != "handled"]
@@ -158,7 +161,7 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
 
 
 def _apply_one(runtime: Any, goal_executor: Any, owner: str, operation: GoalOperation,
-               ident: str, text: str, snapshot: dict) -> Resolution:
+               ident: str, text: str, snapshot: dict, *, answer: bool = False) -> Resolution:
     """One identity, re-read from the durable store, through the existing lifecycle primitive."""
     try:
         job = goal_executor.read_job(owner, ident)
@@ -188,11 +191,11 @@ def _apply_one(runtime: Any, goal_executor: Any, owner: str, operation: GoalOper
         self_resolvable_news = research_evidence.publication_news_requested(request) and (
             research_evidence.vague_question(question, request)
             or goal_executor._self_resolvable_question(question, request))
-        if not self_resolvable_news:
+        if not self_resolvable_news and not answer:
             return _question(question or 'Bu hedef için bekleyen soruyu yanıtlaman gerekiyor.',
                              'GOAL_QUESTION_PENDING')
     return _single(
-        lambda: _dispatch(runtime, goal_executor, owner, operation, ident, text, snapshot),
+        lambda: _dispatch(runtime, goal_executor, owner, operation, ident, text, snapshot, answer=answer),
         _reason(operation), ident)
 
 
@@ -216,7 +219,7 @@ def _single(call: Any, reason_code: str, ident: str | None = None) -> Resolution
 
 
 def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOperation,
-              ident: str, text: str, snapshot: dict) -> str:
+              ident: str, text: str, snapshot: dict, *, answer: bool = False) -> str:
     # `create_goal` buraya hiç ulaşmaz: yeni kaydın hedeflenecek bir kimliği yoktur ve o
     # geçiş `resolve` kendi dalından yürür. Buradaki her kol mevcut bir kayıttadır.
     if operation in {GoalOperation.CONTINUE, GoalOperation.RESUME}:
@@ -236,7 +239,10 @@ def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOpera
                 + '\n\nBu canonical arka plan hedefini Scheduler yürütüyor; '
                   'devam komutu ikinci bir çalışma başlatmadı.'
             )
-        return goal_executor.run(runtime, _CONTINUE_TOKEN, resume=True, job_id=ident,
+        # Only a model-selected answer to this exact offered goal carries
+        # the user's own reply. A plain continue/resume never invents one.
+        request = text if answer else _CONTINUE_TOKEN
+        return goal_executor.run(runtime, request, resume=True, job_id=ident,
                                  expected_job_id=ident, expected_control=snapshot.get('control_key'))
     if operation is GoalOperation.REVISE:
         # Kullanıcının düzeltmesi canonical intent'tir; planner cevabı değildir.

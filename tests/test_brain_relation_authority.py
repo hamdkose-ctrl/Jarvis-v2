@@ -58,6 +58,9 @@ class RelationAuthorityTests(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
+        self.ctx.system_control.current_volume.side_effect = lambda: (
+            self.ctx.system_control.set_volume.call_args.args[0]
+            if self.ctx.system_control.set_volume.call_args else 40)
         self.ctx.chat = Mock(return_value="CHAT")
         # Bu testler kullanıcının canlı hedef/iş/izin durumunu okumaz ve iptal/tamam
         # cevabını gerçek bounded protokole düşürmez.
@@ -294,8 +297,10 @@ class RelationAuthorityTests(unittest.TestCase):
         self.ctx.system_control.set_volume = Mock(return_value=True)
         self.ctx.system_control.close_application = Mock(
             return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
-        _, out, _, _ = self.turn("önce kapat sonra sesi 50 yap")
-        self.assertIn("yanıt veya onay bekliyor", out)
+        # A model clarification asks for the missing first target before any batch effect.
+        # The bounded app-answer/approval continuation below stays the same owner.
+        _, out, _, _ = self.turn("kapat")
+        self.assertIn("Neyi kapatmamı", out)
         self.ctx.system_control.set_volume.assert_not_called()
         session = self.ctx._session()
         self.assertEqual(session.pending_action["stage"], "clarify")
@@ -489,6 +494,9 @@ class StatePrecedenceTests(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
+        self.ctx.system_control.current_volume.side_effect = lambda: (
+            self.ctx.system_control.set_volume.call_args.args[0]
+            if self.ctx.system_control.set_volume.call_args else 40)
         self.ctx.chat = Mock(return_value="CHAT")
 
         goals = Path(self.temp.name) / "goals"
@@ -788,6 +796,9 @@ class _CanonicalTurnHarness(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
+        self.ctx.system_control.current_volume.side_effect = lambda: (
+            self.ctx.system_control.set_volume.call_args.args[0]
+            if self.ctx.system_control.set_volume.call_args else 40)
         self.ctx.chat = Mock(return_value="CHAT")
         self.ctx.desktop = Mock(system_status=Mock(return_value="SISTEM"))
         self.ctx._weather = Mock(return_value="HAVA")
@@ -827,11 +838,11 @@ class _CanonicalTurnHarness(unittest.TestCase):
         goal_executor._save(job)
         return job
 
-    def turn(self, text):
+    def turn(self, text, *, model_understanding=False):
         rid = "rel-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
-            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı", model_understanding=model_understanding)
             out, _, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
         return entry, out
 
@@ -994,7 +1005,7 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         self.ctx._message_step = self.message_step
 
         entry, out = self.turn("Ebru")
-        self.assertFalse(entry.fast_gate.matched)
+        self.assertFalse(entry.fast_gate is not None and entry.fast_gate.matched)
         self.assertEqual(out, "Ebru kişisine ne yazayım?")
         self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
 
@@ -1023,7 +1034,7 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         session = self.ctx._session()
         session.pending_weather_location = True
         entry, out = self.turn("İstanbul")
-        self.assertFalse(entry.fast_gate.matched)
+        self.assertFalse(entry.fast_gate is not None and entry.fast_gate.matched)
         self.ctx._weather.assert_called_once_with("İstanbul")
         self.assertEqual(out, "HAVA")
         self.assertIs(session.pending_weather_location, False)
@@ -1179,7 +1190,11 @@ class PlanEligibilityTests(_CanonicalTurnHarness):
         session.pending_msg = dict(pending)
         self.ctx._notes_text = Mock(return_value="NOTLARIM")
         self.ctx.system_control.set_volume = Mock(return_value=True)
-        entry, out = self.turn("önce notlarımı göster sonra sesi 50 yap")
+        from brain_turn_fixture import batch_model
+        proposal = batch_model(("notes.read", {"notes": {"which": "all"}}),
+                               ("pc.level.set", {"property": "volume", "level": 50}))
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=proposal):
+            entry, out = self.turn("önce notlarımı göster sonra sesi 50 yap", model_understanding=True)
         self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
         # Adım sahibi çiti korunur: cümle sohbete çevrilmez, ama açık alan varken adım zinciri
         # başlamaz ve ham cümle tek bir adımı kısmen çalıştırmaz.
@@ -1673,7 +1688,7 @@ class MessageTextFreeFormTests(_CanonicalTurnHarness):
     def test_recipient_slot_still_takes_a_bounded_name(self):
         session, _pending = self.open_recipient()
         entry, out = self.turn("Ebru")
-        self.assertEqual(entry.understanding.pending_owner, "session.pending_msg.to")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
         self.assertEqual(session.pending_msg["to"], "Ebru")
         self.assertIn("ne yazayım", out)
 
@@ -1703,8 +1718,11 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
         with patch.object(messaging, "send_whatsapp", Mock()) as sender:
             entry, out = self.turn(text)
             sender.assert_not_called()
-        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
-        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+        if entry.state_gate.matched:
+            self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
+        else:
+            self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+            self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
         self.assertEqual(session.pending_msg["to"], text)
         self.assertEqual(session.pending_msg["stage"], "text")
         self.message_step.assert_called_once()
@@ -1740,8 +1758,7 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
         session.pending_weather_location = True
         with patch.object(messaging, "send_whatsapp", Mock()):
             entry, out = self.turn("İstanbul Ofis")
-        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
-        self.assertNotIn(self.AMBIGUOUS, entry.understanding.ambiguities)
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
         self.assertEqual(session.pending_msg["to"], "İstanbul Ofis")
         self.assertIs(session.pending_weather_location, True)
         self.ctx._weather.assert_not_called()
@@ -1857,7 +1874,8 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         return [n for n in ast.walk(node) if isinstance(n, ast.Call) and self._name(n.func) == name]
 
     def _mentions(self, node, name):
-        return any(self._name(child) == name for child in ast.walk(node))
+        return any(self._name(child) == name or (isinstance(child, ast.Constant) and child.value == name)
+                   for child in ast.walk(node))
 
     @staticmethod
     def _parents(tree):

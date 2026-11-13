@@ -226,11 +226,11 @@ class ExplanationRequestAuthorityTests(_Pr3c2Harness):
 class DomainOwnerRegressionTests(_Pr3c2Harness):
     """Açıklama hükmü komşu sahipleri (alarm, kural, planner, pending, Goal) yutmaz."""
 
-    def test_guided_advice_keeps_its_pc_guide_owner(self):
+    def test_unowned_guided_request_does_not_reenter_raw_pc_guide(self):
         self.reset()
         entry, _out, _handle, _ = self.turn("adım adım wifi nasıl açılır")
         self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
-        self.assertTrue(self.seams["modules.pc_guide.handle"].called)
+        self.seams["modules.pc_guide.handle"].assert_not_called()
 
     def test_rule_teaching_does_not_reactivate_legacy_learning_parser(self):
         self.reset()

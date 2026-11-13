@@ -24,6 +24,8 @@ for _name in ("edge_tts", "pyttsx3", "sounddevice", "speech_recognition"):
 
 from modules import engine_context, engine_output, llm, stt_guard, voice
 from modules.session_state import SessionState
+from modules.brain_contracts import Confidence, ConversationRelation, TemporalNeed
+from modules.brain_model_understanding import UnderstandingProposal
 
 
 class GuardTests(unittest.TestCase):
@@ -221,7 +223,13 @@ class EngineClarifyTests(unittest.TestCase):
         voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, state={}, speak=Mock())
         with patch('modules.engine_voice.VoiceSession', return_value=voice), patch('instance.take_over', return_value=False), \
                 patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'), \
-                patch('modules.brain_entry._install_core_guards'):
+                patch('modules.brain_entry._install_core_guards'), \
+                patch('modules.brain_model_understanding.propose', return_value=UnderstandingProposal(
+                        operation='clarify', conversation_relation=ConversationRelation.NEW_REQUEST,
+                        temporal_need=TemporalNeed.STATIC,
+                        confidence=Confidence.HIGH,
+                        clarification_required=True, clarification_question='Neyi kapatmamı istiyorsun?',
+                        clarification_reason_code='APP_TARGET_MISSING')):
             context.main(ui=Mock())
 
         self.assertEqual(

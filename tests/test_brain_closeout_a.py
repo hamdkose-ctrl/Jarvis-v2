@@ -111,6 +111,9 @@ class BareLevelTests(unittest.TestCase):
         self.addCleanup(context._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         context.system_control = Mock(set_volume=Mock(return_value=True), set_brightness_verified=Mock(return_value=True),
                                       windows_settings=Mock(return_value=None))
+        context.system_control.current_volume.side_effect = lambda: (
+            context.system_control.set_volume.call_args.args[0]
+            if context.system_control.set_volume.call_args else 40)
         if state_setup:
             state_setup(context._session())
         return context
@@ -176,7 +179,8 @@ class BareLevelTests(unittest.TestCase):
         before = context._session().last_property_at
         context._session().pending_level = None
         self.turn(context, "80 yap")
-        self.assertEqual(context._session().last_property_at, before)
+        self.assertEqual(context._session().last_property_at, 0.0)
+        self.assertIsNone(session_state.fresh_property(context._session()))
 
 
 class StructuredClarificationTests(unittest.TestCase):

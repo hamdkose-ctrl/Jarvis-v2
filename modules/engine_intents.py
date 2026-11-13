@@ -142,6 +142,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if not engine_context.set_profile_rate(runtime.profile, rate, lane=voice_runtime.active()):
                 return "Seçilen ses kurulmadığı için konuşma hızı değiştirilmedi."
             return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
+        case "conversation_table":
+            return runtime._table_chat()
         case "daily_brief":
             return runtime._daily_briefing()
         case "notes_manage":
@@ -170,6 +172,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import main_planner
             view, period = a["view"], a["period"]
             now = runtime.datetime.now()
+            if view == "meeting_prep":
+                from modules import meeting_prep
+                if (blocked := runtime.privacy.blocked("web")):
+                    return blocked
+                return meeting_prep.prepare(runtime.profile, now, query=a["query"])
             if view == "day_plan":
                 return main_planner._day_plan(runtime, 1 if period == "tomorrow" else 0)
             if view == "week_plan":
@@ -184,44 +191,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             day = (now + timedelta(days=1 if period == "tomorrow" else 0)).strftime("%Y-%m-%d")
             return runtime._agenda_text(day, "Yarın" if period == "tomorrow" else "Bugün")
         case "reminder_manage":
-            # Core validates a grounded exact title; the approval is bound
-            # to this owner and one immutable event snapshot. Even a bad
-            # model decision cannot delete without a second user confirmation.
-            from modules import requests_state
-            requests_state.check()
-            from modules.turkish_text import lower
-            wanted = lower(a["title"])
-            matched = [event for event in runtime.profile.data["events"]
-                       if isinstance(event, dict) and isinstance(event.get("title"), str)
-                       and lower(event["title"]) == wanted]
-            if not matched:
-                return "Bu adla bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
-            if len(matched) != 1:
-                return "Bu adla birden fazla Jarvis hatırlatması var; hangisi olduğunu netleştir."
-            event = matched[0]
-            if runtime._session().pending_confirm:
-                return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
-            operation = a["operation"]
-            if operation == "skip" and not event.get("repeat"):
-                return "Bu tek seferlik bir hatırlatma; sonraki tekrar atlanamaz."
-            if operation == "postpone" and len(str(event.get("when") or "")) == 10 and a["minutes"] % 1440:
-                return "Tüm gün hatırlatması yalnız tam gün ertelenebilir."
-            runtime._session().pending_confirm = {
-                "action": "reminder_delete" if operation == "delete" else "reminder_modify",
-                "operation": operation,
-                "minutes": a.get("minutes"),
-                "owner": runtime.profile.slug,
-                "event_id": event["id"],
-                "title": event["title"],
-                "when": event["when"],
-                "repeat": event.get("repeat"),
-                "base": event.get("base"),
-            }
-            intent_text = ("silmemi" if operation == "delete" else
-                           "sıradaki tekrarını atlamamı" if operation == "skip" else
-                           f"{a['minutes']} dakika ertelememi")
-            return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
-                    "Evet ya da hayır de. Google Takvim'e dokunmam.")
+            from modules import main_planner
+            return main_planner.reminder_change_preview(runtime, a)
         case "browser_page":
             from modules import browser
             return browser.summarize(a["url"])
@@ -626,6 +597,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
         case "notes_read":
+            if a.get("which") == "count":
+                return f"Not defterinde {len(runtime.profile.data.get('items', []))} notun var."
             if a.get("which") == "search":
                 from modules import main_planner
                 return main_planner.notes_search(runtime, str(a.get("query") or ""), a.get("window"))
@@ -662,8 +635,14 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                     text = a.get("text")
                     if not isinstance(text, str) or not text.strip():
                         return ActionOutcome("Yeni not metni doğrulanmadı; değiştirmedim.", False)
+                    old_text = note["text"]
                     note["text"] = text
-                    runtime.profile.save()
+                    try:
+                        runtime.profile.save()
+                    except Exception:
+                        runtime._record_failure("modules/engine_intents.py:notes_write_save")
+                        note["text"] = old_text
+                        raise
                     return f"Düzelttim: {note['text']}"
                 return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
         case "weather":

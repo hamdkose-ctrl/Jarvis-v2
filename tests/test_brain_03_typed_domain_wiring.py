@@ -338,7 +338,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             _, output, _ = self.typed(
                 "Ekip hatırlatmasını sil", "reminders.manage",
                 {"operation": "delete", "title": "Ekip"})
-        self.assertIn("birden fazla", output)
+        self.assertIn("birden fazla", output.casefold())
         delete.assert_not_called()
 
     def test_reminder_confirmation_refuses_foreign_or_changed_event(self):

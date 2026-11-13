@@ -1,5 +1,9 @@
 # Finans takibi (AGENTS.md alan notları)
 
+## BRAIN-03 alarm giriş noktası — #613, 13 Kasım 2026
+
+`finance_domain.BRANCHES.alarm.entrypoints` gerçek typed `finance_alert_commands.execute_typed` girişini gösterir. Emekli `handle` simgesi FIN-004 denetimini atlatmak için tutulmaz; FIN-001..004 sınırları aynı kalır. Alarm seçimi model/Core sözleşmesindedir; para hareketi veya yeni finans authority'si eklenmez.
+
 ## Domain sınırı — 24 Ekim 2026
 
 Finance, Communication'ın alt yolu değildir. Bugünkü kapsam kur/piyasa/varlık verisi ve kaynaklı **salt-okuma analiz** ile sınırlıdır; veri kaynağı veya model izin, hedef ya da para hareketi yetkisi vermez. Hesap bağlantısı, token/parola, emir, alım-satım, transfer ve dış portföy/finansal kayıt yazısı kapalıdır. `money_credential` Permission Gate'te `deny` kalır; `external_write` veya grant ile sessizce açılmaz. Bir kişiye finans bilgisi gönderme, Finance değil Communication'ın `message_out` hattıdır ve kesin alıcı/JIT onay ister. Ayrıntılı karar: [Finance Domain kararı](../architecture/JARVIS_FINANCE_DOMAIN_DECISION.md).

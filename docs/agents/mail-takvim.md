@@ -1,6 +1,15 @@
 # Mail, takvim ve hatırlatma (AGENTS.md alan notları)
 
-**BRAIN-03 tek-PR Core plan sınırı (TASLAK):** Tam `CorePlan` üretildiğinde `reminder` haricinde planner'ın ham not/takvim parser'ına ikinci kez girilmez. `reminder` için zaten var olan `main_planner.core_reminder` adaptörü ve açık `not al:` sahiplik istisnası korunur. Plansız eski not sil/düzelt, takvim ve hatırlatma erteleme komutları henüz canonical migration parity kazanmadığı için emekli edilmiş sayılmaz; #545 OPEN.
+## BRAIN-03 son karar — #613, 13 Kasım 2026
+
+Serbest not/takvim/mail dili model önerisiyle Core'a girer; plansız eski planner veya `not al:` kaçamağı yoktur. Aşağıdaki tarihli regex/parite kayıtları geçmiş uygulamadır.
+
+- `calendar.read(view=meeting_prep, query=...)` aynı `meeting_prep.prepare` okuma işçisini kullanır; query kullanıcı sözünden dayanaklıdır, web gizliliği ve istek iptali korunur.
+- `mail.read` Gmail/Outlook mevcut okuma işçilerini kullanır; `awaiting_mine/theirs` cevap takibini, `first_attachments/first_attachment_read` mevcut tek task spine üzerinden önceki gösterilmiş mailin eklerini okur. Genel raw `_mail_handle` yoktur; gönderim yetkisi doğmaz.
+- `reminders.manage` kapalı delete/postpone/skip, exact title/only/last_fired hedefi ve açık duration/schedule/occurrence/on_date alır. Belirsiz hedef/süre varsayılan 10 dakika veya ilk kayıt üretmez. Önizleme hiçbir olayı değiştirmez; `pending_confirm` owner/id/title/when/repeat/base/fired/notified/snooze snapshot'ıyla bağlıdır. Profile kilidi altında yeniden kontrol ve mutasyon birlikte yapılır.
+- Silme/erteleme/atlama mevcut Profile işçisinden geçer. Çalan tekrarın snooze'u sıradaki normal zamanı korur; sıradaki oluşumun saat kaydırması eski base saatini sonraki tekrarlar için saklar. Başarılı değişim aynı owner/event ses kuyruğunu geçersizleştirir. Google Takvim'e yazılmaz.
+- Not güncelleme/silme mevcut Profile kilidinde referans/sürüm mühürüyle doğrulanır. Kaydetme hatasında güncellemenin bellek metni geri alınır. `notes.read` count/one/search/summary/all tipli görünüm alır; tek not ID'sini Core sunulan slot'tan bağlar.
+- Üretim bağlantısı testleri canlı Türkçe anlam veya gerçek cihaz kabulünün yerine geçmez; kapanış envanterindeki kabul şartları açıktır.
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 

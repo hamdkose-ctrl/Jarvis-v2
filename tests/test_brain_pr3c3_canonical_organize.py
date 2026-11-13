@@ -111,7 +111,7 @@ class _OrganizeHarness(pr3b._RawDoorHarness):
             )
         if text in ("masaüstünü düzenlemek nasıl çalışır?",
                     "şimdi diyelim ki masaüstünü düzenleyeceğim nereden başlamak mantıklı",
-                    "yarın hava nasıl"):
+                    "yarın hava nasıl", "evet"):
             return replace(
                 current, request_kind=RequestKind.CHAT, capability_hint=None,
                 arguments={"original_text": text}, ambiguities=(), needs_input=False,

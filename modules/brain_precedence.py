@@ -34,6 +34,18 @@ def explicit_workflow_owner_protocol(text: str) -> bool:
     return isinstance(text, str) and _EXPLICIT_WORKFLOW_OWNER.match(text.strip()) is not None
 
 
+def explicit_task_control_protocol(text: str) -> bool:
+    """Existing machine-addressed task/status controls, never task creation."""
+    if not isinstance(text, str):
+        return False
+    return re.fullmatch(
+        r"(?:görev\s+(?:devam|sürdür|iptal|durumu)(?:\s+[a-zA-Z0-9_-]{1,32})?"
+        r"|görev\s+(?:geçmişi|akışları|kuyruğu|yetenekleri)|ajan\s+(?:görevleri|yetenekleri)"
+        r"|kuyruk\s+(?:iptal|çalıştır|calistir|şimdi çalıştır)\s+[a-f0-9]{16}"
+        r"|işlem\s+(?:onayla|iptal|takip)\s+[a-f0-9]{16})[.!]*",
+        text.strip(), re.I) is not None
+
+
 # Only machine-addressed UI syntax and a saved, exact trigger remain.
 # Neither branch classifies natural language or scans domain handlers.
 FRONT_GATES: tuple[str, ...] = ("file_command", "macro_run")

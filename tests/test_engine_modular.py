@@ -100,7 +100,7 @@ class ModularEngineTests(unittest.TestCase):
             context.stop_event.set()
             return 'Merhaba'
         context.handle=Mock(side_effect=handle_once)
-        context.emit=Mock();context._finalize=lambda text:text
+        context.emit=Mock();context._finalize=lambda text:text;context._emit_route=Mock()
         context._start_hang_watch=Mock()
         context.profile.log_agent=Mock()
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())

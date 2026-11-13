@@ -205,7 +205,7 @@ class CanonicalTranslationAuthorityTests(unittest.TestCase):
         session = SimpleNamespace(**{name: None for name in PENDING_INPUT_FIELDS}, last_doc=None, speech_override=None)
         context = command_manager.CommandContext(
             profile=SimpleNamespace(slug="hamdi"), session=session, emit=Mock(), table_chat=Mock(),
-            history_read=lambda *a, **k: calls.append(a) or [], study_intent=Mock(return_value=None),
+            history_read=lambda *a, **k: calls.append(a) or [],
             conversation_summary=Mock(return_value="Kısaca: …"),
             pc_owner=lambda: "hamdi", source="yazı")
         with patch("modules.visual_chat.handle", return_value=None), \
@@ -429,6 +429,18 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
         self.outer = brain_entry.prepare(self.ctx, owner=self.owner, request_id=self.rid,
                                          text=self.SEQUENCE, source="yazı")
         self.parent = brain_entry._legacy_route_projection(self.outer)
+        from dataclasses import replace
+        from modules.brain_contracts import RequestKind
+        def model(current, text, *, active_context=None):
+            capability, arguments = {
+                'sesi 30 yap': ('pc.level.set', {'property': 'volume', 'level': 30}),
+                'notları aç': ('notes.read', {'notes': {'which': 'all'}}),
+            }[text]
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint=capability, arguments=arguments,
+                           ambiguities=(), needs_input=False)
+        transport = patch.object(brain_entry, 'apply_model_understanding', side_effect=model)
+        transport.start(); self.addCleanup(transport.stop)
 
     def observe(self, text, *, bind_outer=True, handle=None):
         """run_step'in adım için kurduğu canonical kararı kaydeder; effect'ler stub'lıdır."""

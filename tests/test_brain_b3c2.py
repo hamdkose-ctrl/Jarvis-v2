@@ -17,7 +17,7 @@ TABLE = [
     ("her gün 9'da su içmeyi hatırlat", "Tamam, her gün 09:00 hatırlatacağım: su içmeyi.", False),
     ("hatırlat", "Neyi eklememi istersin?", False),
     ("bana hatırlat", "Neyi eklememi istersin?", False),
-    ("her 2 saatte bir su içmeyi hatırlat", "Bu tekrarı anlayamadım", False),
+    ("her 2 saatte bir su içmeyi hatırlat", "Bu isteği güvenli biçimde doğrulayamadım", False),
     ("hafta içi her gün 8'de spor hatırlat", "Tamam, hafta içi her gün 08:00 hatırlatacağım: spor.", False),
     ("yarin 9da ilac hatirlat", "Takvime ekledim: ilac, yarın 09:00.", False),
 ]
@@ -80,7 +80,7 @@ class EndToEndTests(Pipeline):
                 self.assertEqual(entry.understanding.capability_hint, "reminder.propose")
                 self.assertTrue(str(out).startswith(prefix), out)
                 self.assertFalse(handle.called)          # Core intent, not raw-text re-interpretation
-                self.assertEqual(feedback.result_status, "handled")
+                self.assertEqual(feedback.result_status, "failed" if "her 2 saatte" in text else "handled")
 
     def test_timeless_reminder_with_title_keeps_ne_zaman_flow(self):
         # "hatırlat" opener, title but no time -> same "ne zaman?" question + pending title as before.

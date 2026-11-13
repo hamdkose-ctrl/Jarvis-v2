@@ -146,13 +146,17 @@ def state_intent_targets(source: str) -> set[str]:
     found: set[str] = set()
     for function in functions:
         for node in ast.walk(function):
-            if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Tuple):
+            if not isinstance(node, ast.Return):
                 continue
-            if not node.value.elts:
-                continue
-            first = node.value.elts[0]
-            if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                found.add(first.value)
+            values = [node.value]
+            while values:
+                value = values.pop()
+                if isinstance(value, ast.IfExp):
+                    values.extend((value.body, value.orelse))
+                elif isinstance(value, ast.Tuple) and value.elts:
+                    first = value.elts[0]
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        found.add(first.value)
     return found
 
 

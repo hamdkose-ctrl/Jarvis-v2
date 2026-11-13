@@ -133,7 +133,8 @@ if __name__ == '__main__':
 class EngineOrderTests(unittest.TestCase):
     def test_real_handle_reaches_gmail_without_model(self):
         from datetime import datetime
-        from test_mail_calendar_fixes import _runtime, say
+        from test_mail_calendar_fixes import _runtime
+        from brain_turn_fixture import turn
         rt = _runtime(self, SimpleNamespace(slug='deneme', name='Deneme', data={'prefs': {}, 'events': [], 'tasks': [],
                                                                                'items': [], 'rules': []}),
                       datetime(2026, 10, 17, 10, 0))
@@ -141,5 +142,5 @@ class EngineOrderTests(unittest.TestCase):
         with patch.object(google_api, 'awaiting_text', side_effect=lambda k: 'GMAIL:' + k), \
                 patch.object(google_api, 'connected', return_value=True), \
                 patch('modules.outlook.installed', return_value=False):
-            self.assertEqual(say(rt, 'cevap vermediğim mailler'), 'GMAIL:mine')
-            self.assertEqual(say(rt, 'cevap gelmeyen maillerim'), 'GMAIL:theirs')
+            self.assertEqual(turn(rt, 'cevap vermediğim mailler', 'mail.read', {'source': 'awaiting_mine'}), 'GMAIL:mine')
+            self.assertEqual(turn(rt, 'cevap gelmeyen maillerim', 'mail.read', {'source': 'awaiting_theirs'}), 'GMAIL:theirs')

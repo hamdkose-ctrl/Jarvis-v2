@@ -55,7 +55,8 @@ class ResearchDayPlanPrecedenceTests(ProfileCase):
     def test_explicit_day_plan_requests_still_use_day_plan(self):
         for text in ("Bugünün planı ne?", "Bugün ne yapmalıyım?", "Günümü planla"):
             with self.subTest(text=text):
-                self.assertIn("Bugünün planı", say(self.rt(), text))
+                from brain_turn_fixture import turn
+                self.assertIn("Bugünün planı", turn(self.rt(), text, 'calendar.read', {'view': 'day_plan', 'period': 'today'}))
 
     def test_research_request_does_not_call_day_plan(self):
         rt = self.rt()

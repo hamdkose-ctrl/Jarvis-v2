@@ -83,7 +83,7 @@ class EndToEndTests(unittest.TestCase):
             flags={"sleep": False}, _pending_photo={},
         )
 
-    def run_turn(self, text):
+    def run_turn(self, text, *, model_understanding=False):
         history = lambda owner, *, limit: []
         original = brain_entry.brain_context.build_active_context
 
@@ -101,7 +101,7 @@ class EndToEndTests(unittest.TestCase):
              patch.object(brain_entry, "_install_core_guards"), \
              patch.object(brain_entry, "_correlated_job_id", return_value=None), \
              patch("modules.engine_intents.dispatch", return_value="<<dispatch>>") as dispatch:
-            entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı")
+            entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı", model_understanding=model_understanding)
             output, feedback, _ = brain_entry.handoff(self.runtime, entry, handler, text)
         return entry, output, feedback, handler, dispatch
 
@@ -160,13 +160,20 @@ class EndToEndTests(unittest.TestCase):
         handler.assert_not_called()
         self.assertEqual(dispatch.call_args.args[1:3], ("weather", {"location": "Ankara"}))
 
-    def test_sequenced_requests_fall_back_to_the_step_runner(self):
-        for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl ardından sesi 30 yap",
-                     "İzmir'de hava nasıl akabinde sesi aç"):
-            entry, output, feedback, handler, dispatch = self.run_turn(text)
-            self.assertIsNone(brain_entry.core_plan(entry), text)
-            handler.assert_called_once_with(text)
-            dispatch.assert_not_called()
+    def test_sequenced_requests_execute_only_the_model_action_batch(self):
+        from brain_turn_fixture import batch_model
+        proposal = batch_model(("weather.read", {"location": "ankara"}),
+                               ("pc.level.set", {"property": "volume", "level": 30}))
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=proposal):
+            entry, output, feedback, handler, dispatch = self.run_turn(
+                "ankara'da hava nasıl ardından sesi 30 yap", model_understanding=True)
+        handler.assert_not_called()
+        self.assertEqual(dispatch.call_count, 2)
+        self.assertEqual([call.args[1] for call in dispatch.call_args_list], ["weather", "level_set"])
+        self.assertEqual(feedback.result_status, "partial")
+        self.assertIn("a1:", output)
+        self.assertIn("a2:", output)
+        # Plain transport strings are not domain success receipts.
 
     def test_step_marker_matches_the_step_plan(self):
         # Tek gramer sahibi: veto işareti ile tipli adım planı aynı kalıptan doğar ve anlaşır.

@@ -11,7 +11,6 @@ class CommandContext:
     emit: Callable
     table_chat: Callable
     history_read: Callable
-    study_intent: Callable
     conversation_summary: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
@@ -58,7 +57,8 @@ def dispatch(context, command, normalized):
             session.speech_override = desktop_agent.spoken(owner)
             return result
 
-    if brain_precedence.explicit_workflow_owner_protocol(normalized):
+    if (brain_precedence.explicit_workflow_owner_protocol(normalized)
+            or brain_precedence.explicit_task_control_protocol(normalized)):
         from modules import task_agents
         result = task_agents.handle(owner, command, context.emit, summary=True)
         if result is None:
@@ -78,9 +78,31 @@ def dispatch(context, command, normalized):
         if result is not None:
             return result
 
-    if getattr(session, "pending_desktop", None) and brain_entry.pending_answer_owned("pending_desktop"):
+    native_entry = brain_entry.current()
+    native_question = native_entry is not None and any(
+        ref.source == "desktop_agent" and ref.provenance.get("status") == "question"
+        for ref in native_entry.state_references)
+    if (getattr(session, "pending_desktop", None) or native_question) and brain_entry.pending_answer_owned("pending_desktop"):
         from modules import desktop_agent
-        followup = desktop_agent.consent_reply(owner, normalized) or command
+        followup = desktop_agent.consent_reply(owner, normalized)
+        if followup is None:
+            # Only an already-owned pending reply may enter this worker.
+            followup = ("PC görevi devam" if normalized in {"devam", "devam et", "sürdür", "surdur"}
+                        else command)
+            entry = brain_entry.current()
+            if entry is not None and followup == command:
+                observed = [ref for ref in entry.state_references
+                            if ref.source == "desktop_agent" and ref.owner == owner
+                            and ref.provenance.get("status") == "question"]
+                if len(observed) != 1:
+                    return "Bu cevap için tek bir güncel masaüstü sorusu doğrulayamadım; işlem yapmadım."
+                result = desktop_agent.answer_typed(
+                    owner, command, expected_job_id=observed[0].provenance.get("job_id"),
+                    expected_question=observed[0].provenance.get("question"),
+                    emit=context.emit, current=context.pc_owner, source=context.source)
+                session.pending_desktop = True if desktop_agent.awaiting(owner) else None
+                session.speech_override = desktop_agent.spoken(owner)
+                return result
         result = desktop_agent.handle(
             owner, followup, context.emit, current=context.pc_owner,
             source=context.source)
@@ -135,8 +157,6 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None,
             return dispatch(runtime, intent, {}, original_text, original_text.casefold())
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
-    if brain_gates.table_request(corrected):
-        return context.table_chat()
     return None
 
 

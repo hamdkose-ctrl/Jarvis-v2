@@ -107,7 +107,7 @@ _SEMANTIC_MODEL_CAPABILITIES = {
 _SEMANTIC_CAPABILITY_CONTRACT_TABLES = {
     'modules/brain_understanding.py': ('MESSAGE_SEND_CAPABILITY', 'CONTACTS_MANAGE_CAPABILITY'),
     'modules/brain_core_map.py': ('CORE_INTENTS',),
-    'modules/brain_model_understanding.py': ('_USER_OWNED_ARGUMENT_SLOTS',),
+    'modules/brain_model_understanding.py': ('_USER_OWNED_ARGUMENT_SLOTS', '_BASE_ARGUMENT_SHAPES'),
     'modules/architecture_guard.py': ('_SEMANTIC_MODEL_CAPABILITIES',),
 }
 

@@ -1,6 +1,12 @@
 # Dosya, belge ve klasör (AGENTS.md alan notları)
 
-**BRAIN-03 tek-PR dosya sahiplik notu (TASLAK):** Typed Core planında `_file_command` yalnız `_FILE_CMD` tırnaklı kullanıcı UI komutunu görebilir. Doğal dil Workbench follow-up henüz emekli değildir ve #545 kapsamında gerçek ActiveContext/Reference Resolver/Core parity gerektirir. Dosya worker'larının `nxapi.allowed` / symlink / izin kontrolleri değiştirilmedi.
+## BRAIN-03 son karar — #613, 13 Kasım 2026
+
+- `files.read` modelden operasyon ve izinli target/format alır; yollar yalnız owner'a ait sunulmuş `file_N` slotlarından bağlanır. Çeviri/dönüştürme ve özet/analiz çıktısı mevcut worker'dadır.
+- `files.mutate` rename/move için tek gözlenmiş file slot'u, create/undo için sıfır slot ister. Yeni name/content kullanıcı sözünden dayanaklıdır; model path/mutation kimliği veremez. Handoff bağlı yolu yeniden doğrular; `file_ops.execute_typed` izin/kök/symlink/üzerine-yazma kontrollerini korur.
+- Workbench devamı yalnız owner/süre/digest bağlı `workbench.followup_typed` yolundadır; genel raw takip parser'ı yoktur. Tırnaklı tam dosya UI protokolü kendi tam-cümle sınırında korunur.
+- `text.translate` geçmiş konuşma için modelin seçtiği sunulmuş owner/rol/turn ID'sine tam metni Core bağlar; modele verilen 350 karakterlik önizleme çeviri kaynağına dönüşmez. Uydurma ID/rol/metin reddedilir. Inline metin özgün kullanıcı cümlesinde bulunmalıdır.
+- `conversation.table` son owner cevabını mevcut `_table_chat` ile sohbet içinde tabloya çevirir; ayrı raw tablo intent kapısı çalışmaz. Bu kayıt kod bağlantısıdır; canlı kabul durumu final envanterdedir.
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 

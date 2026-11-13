@@ -41,6 +41,15 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 | Gmail/Outlook okuma | `mail.read` → `engine_tools.mail_read_typed` → aynı `google_api`/`outlook` worker'ı | Ham `_mail_handle` kaldırıldı; salt-okuma, taslak/gönderim yeni yetki kazanmaz |
 | Diğer mevcut tipli domainler | Dosya, tarayıcı, mesaj/kişi, görev, KB, iştakip, media, handoff, notify, model-goal | Eski genel cascade'in effect seçimi yok; mevcut worker'lar korunur |
 
+## Son parite ve model sözleşmesi bağlantıları
+
+- Katalogdaki her Core yeteneği açık argüman şeması taşır; dosya/not slot talimatı ile decoder aynı sözleşmededir. City set/reset için önceki geçiş yasağı kaldırılmıştır; set kullanıcı sözünden dayanak ister, model kimlik/yol veremez.
+- Takvim `meeting_prep`, mail `awaiting_*`/ilk mail ekleri, not count/one, konuşma tablosu, dosya çeviri/dönüşüm/mutasyon ve geçmiş cevabın tam metin çevirisi mevcut worker'larına bağlıdır. Prompt yalnız önizleme alır; çeviri Core'un owner/rol/turn ID bağlı tam kaynağını kullanır. Tarihli öneriler gözlenen yerel saatten üretilir. Saat `ActiveContext.current_time` metadata'sıdır; iş/dosya/referans adayı değildir ve artifact/pending bağlanırken korunur.
+- Hatırlatma değişikliği Profile kilidi içinde exact snapshot onayıyla yapılır; sıradaki tekrar, base saati ve fired snooze ayrılır, değişen olayın eski ses kuyruğu geçersizleşir.
+- Desktop açık soru cevabı exact native job/soru/aktif PC sahibine bağlanır. Goal açık soru cevabı model ilişkisinden aynı hedefin mevcut resolver/control çitine gider; canonical Scheduler yerine ikinci run açılmaz.
+- Eski testler raw fallback yerine açık model önerisiyle gerçek prepare/handoff/Core/domain hattını sürer. Bounded `boşver` hedef yokken `job.empty_cancel` no-op olarak ölçülür; eski baseline sonuçları yeniden yazılmaz.
+- Saf eski `understand` fonksiyonu yalnız `model_understanding=False` izolasyon/karakterizasyon içindir. Üretim text/live ve iç adımlar bu yolu kullanmaz; kaynak/caller guard'ları bu sınırı denetler.
+
 ## Gerçek test/kanıt kapıları
 
 - Core, owner, id, digest, yanlış hedef, negatif/soru/metin-içi komut ve onay testleri
@@ -52,8 +61,8 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
   PC watcher; gerçek ücretsiz/birincil modelde pozitif, negatif, pending,
   dosya ve çoklu görev Full holdout. Canlı sağlayıcı kullanılamıyorsa
   **UNMEASURED** yazılır, sahte PASS kullanılmaz.
-- BRAIN-04 action_batch/Scheduler, BRAIN-05 Goal/CAS, BRAIN-07 worker
-  yürütme sahipliği ve diğer Brain PR'larına bu PR'de müdahale edilmez.
+- BRAIN-04/05 mevcut batch ve Goal continuation adaptörleri kullanılır;
+  BRAIN-07 worker/Scheduler yürütme sahipliği ve diğer açık PR'lar genişletilmez.
 
 **Son karar:** CI/PC/Full holdout doğrulanana ve regresyonlar kapatılana
 kadar #613 Draft, #545 açık, merge yok.

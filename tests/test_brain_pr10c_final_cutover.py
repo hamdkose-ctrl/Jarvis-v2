@@ -323,7 +323,9 @@ class CommandManagerFrontDoorTests(unittest.TestCase):
             self.assertFalse(brain_gates.table_request(unrelated), unrelated)
 
     def test_dispatch_uses_the_bounded_recognizer(self):
-        self.assertIn("table_request", identities(source("command_manager")))
+        self.assertNotIn("table_request", identities(source("command_manager")))
+        from modules import brain_core_map
+        self.assertEqual(brain_core_map.core_plan("conversation.table", {}), ("conversation_table", {}))
         self.assertNotIn("(tablo\\w*|table|toplo)", source("command_manager"))
 
 
@@ -648,10 +650,9 @@ class ConversationSummaryParityTests(unittest.TestCase):
             profile=SimpleNamespace(slug="hamdi"),
             session=SimpleNamespace(**{name: None for name in command_manager.PENDING_INPUT_FIELDS}),
             emit=Mock(), table_chat=lambda: "tablo", history_read=lambda *_a: [],
-            study_intent=lambda *_a: None,
             conversation_summary=lambda: (calls.append("summary"), "Kısaca: …")[1])
         with patch("modules.visual_chat.handle", return_value=None):
-            out = command_manager.dispatch(context, "Bu konuşmayı özetle.", "bu konuşmayı özetle")
+            out = command_manager.exact_admin_view(context, "bu konuşmayı özetle")
         self.assertEqual(out, "Kısaca: …")
         self.assertEqual(calls, ["summary"])
         with patch("modules.visual_chat.handle", return_value=None):

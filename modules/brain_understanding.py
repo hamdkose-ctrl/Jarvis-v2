@@ -2690,7 +2690,12 @@ def _observed_pending_owner(active_context: ActiveContext | None, owner: str) ->
         return None
     observed: set[PendingOwner] = set()
     for ref in active_context.pending_references:
-        if ref.owner != owner or ref.source != "session_state":
+        if ref.owner != owner:
+            continue
+        if ref.source == "desktop_agent" and ref.provenance.get("status") == "question":
+            observed.add(PendingOwner.DESKTOP_REPLY)
+            continue
+        if ref.source != "session_state":
             continue
         field = ref.provenance.get("field") or ref.id
         if field == "pending_weather_location":
@@ -2706,6 +2711,12 @@ def _observed_pending_owner(active_context: ActiveContext | None, owner: str) ->
             state = ref.provenance.get("value")
             if isinstance(state, Mapping) and state.get("stage") == "clarify":
                 observed.add(PendingOwner.APP_CLARIFY)
+        elif field == "pending_app":
+            observed.add(PendingOwner.APP_SELECTION)
+        elif field == "pending_event_title" and isinstance(ref.provenance.get("value"), str):
+            observed.add(PendingOwner.EVENT_TIME)
+        elif field == "pending_desktop":
+            observed.add(PendingOwner.DESKTOP_REPLY)
     return next(iter(observed)) if len(observed) == 1 else None
 
 
@@ -2749,6 +2760,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             protected_relation=(
                 result.pending_owner is not None
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
+                or bool(active_context is not None and active_context.pending_references)
             ),
             file_operation_hint=None,
             photo_path=photo_path,
@@ -2775,19 +2787,28 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             # the model. Keep the latest eight, short and role-labelled; never
             # ship the full history or credentials through this context path.
             recent_turns=tuple(
-                {"role": str(ref.provenance.get("role")), "text": ref.provenance["text"][:350]}
+                {"id": str(ref.id), "role": str(ref.provenance.get("role")), "text": ref.provenance["text"][:350]}
                 for ref in (() if active_context is None else active_context.recent_references)
                 if ref.owner == result.owner and ref.kind == "conversation_turn"
                 and ref.source == "history"
                 and ref.provenance.get("role") in {"user", "assistant"}
                 and isinstance(ref.provenance.get("text"), str)
             )[-8:],
+            turn_candidates=tuple(
+                ref for ref in (() if active_context is None else active_context.recent_references)
+                if ref.owner == result.owner and ref.kind == "conversation_turn"
+                and ref.source == "history" and ref.provenance.get("role") in {"user", "assistant"}
+                and isinstance(ref.provenance.get("text"), str)
+            )[-8:],
+            current_time=active_context.current_time if active_context is not None else None,
             pending_context=tuple(
                 str(ref.provenance.get("field") or ref.id)
                 + (
                     ":" + str(ref.provenance["value"].get("stage"))
                     if isinstance(ref.provenance.get("value"), Mapping)
                     and isinstance(ref.provenance["value"].get("stage"), str)
+                    else ":question:" + str(ref.provenance["question"])[:600]
+                    if ref.source == "desktop_agent" and isinstance(ref.provenance.get("question"), str)
                     else ""
                 )
                 for ref in (() if active_context is None else active_context.pending_references)
@@ -2861,11 +2882,14 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         model_pending_owner = None
         if proposal.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
             model_pending_owner = _observed_pending_owner(active_context, result.owner)
-            if model_pending_owner is None and request_kind not in {
-                RequestKind.CHAT, RequestKind.GOAL_CONTROL, RequestKind.CLARIFY
-            }:
+            photo_answer = next_hint == PHOTO_CAPABILITY and photo_path is not None
+            if (model_pending_owner is None and not photo_answer
+                    and request_kind not in {RequestKind.GOAL_CONTROL, RequestKind.CLARIFY}):
                 next_needs_input = True
-                next_ambiguities = ("PENDING_OWNER_NOT_UNIQUE",)
+                next_ambiguities = ("MODEL_CLARIFICATION_REQUIRED",)
+                next_arguments = {"original_text": text,
+                                  "question": "Hangi bekleyen soruya cevap verdiğini netleştirir misin?"}
+                next_reason_codes += ("MODEL_CLARIFICATION_REQUIRED", "PENDING_OWNER_NOT_UNIQUE")
         return replace(
             result,
             request_kind=request_kind,

@@ -738,11 +738,15 @@ class FastAuthorityTests(_CanonicalAuthorityHarness):
 
 class MultiStepAuthorityTests(_CanonicalAuthorityHarness):
     def test_each_step_keeps_its_own_canonical_owner_and_effect_once(self):
-        _, out, _, _ = self.turn_real("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            _, out, _, _ = self.turn_real("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.ctx._volume_step.assert_called_once_with(-10, "kıstım")
         self.ctx.system_control.media_control.assert_called_once_with("next")
-        self.assertIn("1.", out)
-        self.assertIn("2.", out)
+        self.assertIn("a1:", out)
+        self.assertIn("a2:", out)
 
 
 class NegativeMatrixTests(_CanonicalAuthorityHarness):

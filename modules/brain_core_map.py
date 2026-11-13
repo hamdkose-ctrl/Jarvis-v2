@@ -488,8 +488,8 @@ def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
     which, ident = row.get("which"), row.get("id")
-    if which == "all":
-        return {"which": "all"} if set(row) == {"which"} else None
+    if which in {"all", "count"}:
+        return {"which": which} if set(row) == {"which"} else None
     if which == "one":
         if set(row) != {"which", "id"}:
             return None
@@ -886,7 +886,8 @@ def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
     source = arguments.get("source")
     if type(source) is not str or source not in {
-            "inbox", "important", "work", "work_important", "combined"}:
+            "inbox", "important", "work", "work_important", "combined",
+            "awaiting_mine", "awaiting_theirs", "first_attachments", "first_attachment_read"}:
         return None
     return {"source": source}
 
@@ -1043,42 +1044,79 @@ def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Closed read-only calendar views; never infer an edit or external calendar write."""
-    if set(arguments) - {"original_text", "view", "period"}:
+    if set(arguments) - {"original_text", "view", "period", "query"}:
         return None
     view, period = arguments.get("view"), arguments.get("period")
     choices = {"agenda": frozenset({"today", "tomorrow"}),
                "day_plan": frozenset({"today", "tomorrow"}),
                "week_plan": frozenset({"this", "next", "seven"}),
-               "upcoming": frozenset({None})}
+               "upcoming": frozenset({None}), "meeting_prep": frozenset({None})}
     if (type(view) is not str or view not in choices
             or type(period) not in (str, type(None)) or period not in choices[view]):
         return None
-    return {"view": view, "period": period}
+    query = arguments.get("query")
+    if view != "meeting_prep":
+        return {"view": view, "period": period} if query is None else None
+    if query is not None and (not isinstance(query, str) or not query.strip()
+                              or len(query) > 200 or "\x00" in query):
+        return None
+    return {"view": view, "period": period, "query": query or ""}
 
 
 def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core checks one grounded exact-title reminder change; no arbitrary ids or bulk."""
-    if set(arguments) - {"original_text", "operation", "title", "duration"}:
+    if set(arguments) - {"original_text", "operation", "title", "duration", "target", "occurrence", "schedule", "on_date"}:
         return None
     operation = arguments.get("operation")
     if type(operation) is not str or operation not in {"delete", "postpone", "skip"}:
         return None
-    title = arguments.get("title")
-    if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
+    title, target = arguments.get("title"), arguments.get("target", "title")
+    occurrence = arguments.get("occurrence", "next")
+    if type(target) is not str or target not in {"title", "only", "last_fired"}:
         return None
+    if type(occurrence) is not str or occurrence not in {"next", "fired"}:
+        return None
+    if target == "title":
+        if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
+            return None
+    elif title is not None:
+        return None
+    result = {"operation": operation}
+    if target == "title":
+        result["title"] = title.strip()
+    else:
+        result["target"] = target
+    if occurrence != "next":
+        result["occurrence"] = occurrence
+    on_date = arguments.get("on_date")
+    if on_date is not None:
+        if not isinstance(on_date, str) or not on_date.strip() or len(on_date) > 100 or "\x00" in on_date:
+            return None
+        result["on_date"] = on_date.strip()
+    duration, schedule = arguments.get("duration"), arguments.get("schedule")
     if operation in {"delete", "skip"}:
-        return {"operation": operation, "title": title.strip()} if arguments.get("duration") is None else None
-    duration = arguments.get("duration")
+        return result if duration is None and schedule is None and occurrence == "next" else None
+    if schedule is not None:
+        if duration is not None or not isinstance(schedule, str) or not schedule.strip() or len(schedule) > 100 or "\x00" in schedule:
+            return None
+        return {**result, "schedule": schedule.strip()}
     if not isinstance(duration, str) or len(duration) > 40:
         return None
-    if duration in {"yarına", "yarin", "yarına kadar"}:
-        return {"operation": operation, "title": title.strip(), "minutes": 1440}
-    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
-    if parsed is None:
-        return None
-    count, unit = int(parsed.group(1)), parsed.group(2)
-    minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
-    return {"operation": operation, "title": title.strip(), "minutes": minutes} if 1 <= minutes <= 10080 else None
+    # These are data formats for a model-selected delay, never intent words.
+    from modules.turkish_text import lower
+    value = lower(duration).strip()
+    fixed = {"yarına": 1440, "yarin": 1440, "yarına kadar": 1440,
+             "haftaya": 10080, "yarım saat": 30, "yarim saat": 30}
+    minutes = fixed.get(value)
+    if minutes is None:
+        parsed = re.fullmatch(r"([1-9]\d{0,3}|bir|iki|üç|uc|dört|dort|beş|bes|on)\s*(dakika|dk|saat|gün|gun)", value)
+        if parsed is None:
+            return None
+        number, unit = parsed.groups()
+        words = {"bir": 1, "iki": 2, "üç": 3, "uc": 3, "dört": 4, "dort": 4, "beş": 5, "bes": 5, "on": 10}
+        count = int(number) if number.isdigit() else words[number]
+        minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
+    return {**result, "minutes": minutes} if 1 <= minutes <= 10080 else None
 
 
 def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -1325,6 +1363,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
     "mail.read": ("mail_read", _mail_read_args),
+    "conversation.table": ("conversation_table", _empty_action_args),
     "mail.draft": ("outlook_draft", _outlook_draft_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),

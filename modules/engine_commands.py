@@ -6,11 +6,9 @@ import contextlib
 def handle_request(runtime, command: str) -> str:
     """Public entry: bu turn'ün tek pipeline geçişi; aynı request'te ikinci bir geçiş çalışmaz.
 
-    Yazım düzeltme artık yeniden deneme değildir (§25 A, BRAIN-MIG-042): kanonical tur ham cümleyi
-    bir kez yürütür, düzeltilmiş görünümün yetkisi iki kapalı setle sınırlıdır —
-    `command_manager.exact_admin_view` (tam-cümle admin) ve `command_manager.typo_read_recovery` +
-    `command_manager.typo_read_plan` (tam-cümle salt-okuma gramerleri; plan yürütme yetkisi seam'de,
-    effect sahibi `engine_intents`tedir). Yazma, organize ve açma akışları düzeltilmiş metni görmez."""
+    Yazım düzeltme yeniden deneme veya ikinci doğal dil sınıflandırıcısı değildir.
+    Düzeltilmiş görünüm yalnız `command_manager.exact_admin_view` kapalı admin
+    protokolüne sunulur; serbest dilin tek kararı Brain modelinden gelir."""
     return handle(runtime, command)
 
 
@@ -99,7 +97,6 @@ def handle(runtime, command: str):
         return _canonical_tail(runtime, command, cmd_lower)
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
         table_chat=runtime._table_chat, history_read=runtime.history.read,
-        study_intent=lambda text: runtime._study_intent(text),
         conversation_summary=runtime._conversation_summary,
         pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,
         record_failure=runtime._record_failure, output=runtime.output)

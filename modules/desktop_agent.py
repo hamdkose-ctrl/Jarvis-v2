@@ -837,6 +837,27 @@ def _permission_command(owner, text, emit, current):
     return 'Kullanım: PC izin ver, PC izin verme, PC izinleri, PC izni kaldır <uygulama>.'
 
 
+def answer_typed(owner, answer, *, expected_job_id, expected_question,
+                 emit=lambda *args: None, current=None, source='yazı'):
+    """Answer only the exact native question observed by canonical Brain."""
+    if (not isinstance(answer, str) or not answer.strip() or len(answer) > 2000
+            or not isinstance(expected_job_id, str) or not expected_job_id
+            or not isinstance(expected_question, str) or not expected_question):
+        return 'Masaüstü cevabı veya soru kimliği doğrulanmadı; işlem yapmadım.'
+    if source == 'telefon' or (current and current() != owner):
+        return 'Masaüstü sorusunu bilgisayarın aktif kullanıcısı yanıtlayabilir.'
+    with _desktop_claim() as owned:
+        if not owned:
+            return _DESKTOP_BUSY_MESSAGE
+        requests_state.check()
+        job = _load(owner)
+        if (not job or job.get('id') != expected_job_id or job.get('status') != 'question'
+                or job.get('question') != expected_question):
+            return 'Masaüstü sorusu değişmiş; eski cevapla işlem yapmadım.'
+        job['answer'] = answer.strip()
+        return run(job, emit=emit, current=current)
+
+
 def consent_reply(owner, normalized):
     """Sözlü “evet / hayır” yanıtını, izin bekleyen görev varsa izin komutuna çevirir; yoksa None."""
     job = _load(owner)

@@ -34,6 +34,16 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         self.runtime.match_user = lambda name: self.user if name in (self.user, self.owner) else None
         profile = self.runtime.profile
         self.runtime._get_profile = lambda name: profile
+        from dataclasses import replace
+        from modules import brain_entry
+        from modules.brain_contracts import RequestKind
+        def model(current, text, *, active_context=None):
+            # A known explicit desktop protocol owns this fixture turn.
+            return replace(current, request_kind=RequestKind.CHAT, arguments={'original_text': text})
+        adapter=patch.object(brain_entry, 'apply_model_understanding', side_effect=model)
+        adapter.start();self.addCleanup(adapter.stop)
+        protocol=patch.object(brain_entry, '_is_explicit_owner_protocol', return_value=True)
+        protocol.start();self.addCleanup(protocol.stop)
 
     def stop(self):
         with patch('modules.pc_guide.stop'):
@@ -220,19 +230,20 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         from modules import phone
         server = phone.PhoneServer(self.runtime,port=0)
         with patch.object(phone,'load_settings',return_value={'phone_scope':'both','phone_allow_http':True}), \
-             patch.object(phone,'tailscale_ip',return_value=None),patch.object(phone,'_harden'), \
+             patch.object(phone,'tailscale_ip',return_value=None),patch.object(phone,'lan_ip',return_value='127.0.0.1'),patch.object(phone,'_harden'), \
              patch.object(phone,'token_user',return_value=self.owner), \
              patch.object(phone.tempfile,'mkstemp',side_effect=lambda prefix,suffix,**kw:(__import__('os').open(self.folder/(prefix+'x'+suffix),__import__('os').O_CREAT|__import__('os').O_RDWR),str(self.folder/(prefix+'x'+suffix)))):
             server.start()
             try:
                 url=f'http://127.0.0.1:{server._httpd.server_address[1]}/api/audio'
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 for failure in (False,OSError('disk full')):
                     with self.subTest(failure=type(failure).__name__):
                         rejected = Mock(side_effect=failure) if isinstance(failure,Exception) else Mock(return_value=False)
                         with patch.object(self.runtime,'submit_audio',rejected):
                             request=urllib.request.Request(url,data=b'RIFFfake audio',headers={'X-Token':'test'})
                             with self.assertRaises(urllib.error.HTTPError) as result:
-                                urllib.request.urlopen(request,timeout=3)
+                                opener.open(request,timeout=3)
                             self.assertEqual(result.exception.code,400)
                             result.exception.close()
                         self.assertEqual(list(self.folder.glob('jarvis_ses_*.wav')),[])

@@ -43,6 +43,14 @@ def mail_read_typed(runtime, source: str) -> str:
     """
     from modules import google_api, outlook, requests_state
     requests_state.check()
+    if source in {"awaiting_mine", "awaiting_theirs"}:
+        return google_api.awaiting_text("mine" if source == "awaiting_mine" else "theirs")
+    if source in {"first_attachments", "first_attachment_read"}:
+        from modules import task_agents
+        return task_agents.mail_attachments_typed(
+            runtime.profile.slug,
+            "read_attachment" if source == "first_attachment_read" else "list_attachments",
+            emit=runtime.emit)
     if source == "work":
         return outlook.unread_mail()
     if source == "work_important":
@@ -109,7 +117,7 @@ def study_read(runtime, view: str, *, missing_reply: bool = True) -> str | None:
     except (requests_state.Cancelled, PermissionError):
         raise
     except Exception:
-        runtime._record_failure('main.py:_study_intent')
+        runtime._record_failure('modules/engine_tools.py:study_read_typed')
         return ("Ders verisini şu an okuyamadım." if missing_reply else None)
 
 def _translate_file(runtime, path: str, target: str) -> str:

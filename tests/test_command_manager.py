@@ -27,7 +27,7 @@ class CommandManagerTests(unittest.TestCase):
         from modules.command_manager import awaiting_input
         self.assertTrue(awaiting_input(context.session))
     def context(self, owner='alice'):
-        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(return_value=None),Mock(return_value=None))
+        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(return_value=None))
 
     def test_pending_user_approval_precedes_model_and_developer(self):
         context=self.context();context.session.pending_action=object()
@@ -35,18 +35,19 @@ class CommandManagerTests(unittest.TestCase):
             self.assertEqual(dispatch(context,'evet','evet'),'onay');router.assert_not_called()
 
     def test_development_followups_precede_other_legs_and_keep_session_owner(self):
-        context=self.context('bob')
-        with patch.object(smart_router,'handle',return_value=None),patch.object(system_doctor,'handle',return_value=None),patch.object(task_agents,'handle',return_value=None),patch.object(pc_guide,'handle',return_value=None),patch.object(developer,'handle',return_value='taslak') as edit:
-            self.assertEqual(dispatch(context,'bunu değiştir','bunu değiştir'),'taslak')
-            self.assertEqual(edit.call_args.args[0],'bob')
-            self.assertEqual(context.session.speech_override,'Geliştirme sonucu sohbet ekranında hazır.')
+        context = self.context('bob')
+        with patch.object(developer, 'handle', return_value='taslak') as edit:
+            self.assertIsNone(dispatch(context, 'bunu değiştir', 'bunu değiştir'))
+        edit.assert_not_called()
+        self.assertIsNone(context.session.speech_override)
 
     def test_pc_guidance_keeps_priority_and_full_profile(self):
         context = self.context('bob')
-        with patch.object(smart_router, 'handle', return_value=None), patch.object(system_doctor, 'handle', return_value=None), patch.object(task_agents, 'handle', return_value=None), patch.object(pc_guide, 'handle', return_value='adım') as guide, patch.object(developer, 'handle') as edit:
-            self.assertEqual(dispatch(context, 'yardım et', 'yardım et'), 'adım')
-            guide.assert_called_once_with(context.profile, 'yardım et')
-            edit.assert_not_called()
+        with patch.object(pc_guide, 'handle', return_value='adım') as guide, patch.object(developer, 'handle') as edit:
+            self.assertIsNone(dispatch(context, 'yardım et', 'yardım et'))
+        guide.assert_not_called()
+        edit.assert_not_called()
+        # Free guidance now has one model -> Core -> pc_guide worker (separate wiring suite).
 
 
 class EngineControlTests(unittest.TestCase):
@@ -95,7 +96,7 @@ class ExplicitWorkflowPriorityTests(unittest.TestCase):
     def test_invalid_workflow_never_falls_through_to_application_or_chat(self):
         context=SimpleNamespace(profile=SimpleNamespace(slug='alice'),session=SimpleNamespace(pending_action={},speech_override=None),emit=Mock())
         with patch('modules.task_agents.handle',return_value=None),patch('modules.app_actions.continue_voice') as app:
-            with self.assertRaisesRegex(ValueError,'Kullanım'):
-                dispatch(context,'görev akışı kod','görev akışı kod')
+            result = dispatch(context,'görev akışı kod: eksik görev','görev akışı kod: eksik görev')
+            self.assertIn('Kullanım', result)
         app.assert_not_called()
 

@@ -115,7 +115,14 @@ def _ago(days: int) -> str:
 def handle(cmd_lower: str, profile, now) -> str | None:
     if not asked(cmd_lower):
         return None
-    meeting, note = find_meeting(cmd_lower, profile, now)
+    return prepare(profile, now, query=cmd_lower)
+
+
+def prepare(profile, now, *, query: str = "") -> str:
+    """Core-selected read worker; query is data, never a command selector."""
+    from modules import requests_state
+    requests_state.check()
+    meeting, note = find_meeting(query, profile, now)
     if meeting is None:
         return (note + f"Önümüzdeki {_DAYS} günde hazırlanacak bir toplantı görünmüyor "
                 "(Jarvis kayıtların ve bağlıysa Google Takvim'in; Outlook takvimine bakmıyorum).").strip()

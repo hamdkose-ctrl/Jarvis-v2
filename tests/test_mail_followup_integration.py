@@ -49,11 +49,12 @@ class MailFollowupIntegrationTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
         from types import SimpleNamespace
-        from modules.command_manager import CommandContext,dispatch
-        from modules.session_state import SessionState
+        from test_mail_calendar_fixes import _runtime
+        from brain_turn_fixture import turn
+        from datetime import datetime
         from modules import task_agents
         self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
-        context=CommandContext(SimpleNamespace(slug='alice'),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(),Mock())
+        context=_runtime(self, SimpleNamespace(slug='alice', name='Alice', data={'prefs': {}}), datetime.now())
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
-            result=dispatch(context,'İlk ekini oku!','ilk ekini oku!')
+            result=turn(context, 'İlk ekini oku!', 'mail.read', {'source': 'first_attachment_read'})
             self.assertIn('hello attachment',result)

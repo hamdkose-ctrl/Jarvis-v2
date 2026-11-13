@@ -45,7 +45,7 @@ BRANCHES = {
                     'modules/finance_alert_schedule.py', 'modules/finance_alert_runner.py',
                     'modules/finance_alert_commands.py', 'modules/finance_watchlist.py', 'modules/finance_alert_tick.py'),
         'entry_points': ('modules/finance_alerts.py:evaluate', 'modules/finance_alert_runner.py:run_once',
-                         'modules/finance_alert_commands.py:handle', 'modules/finance_alert_schedule.py:notification_text'),
+                         'modules/finance_alert_commands.py:execute_typed', 'modules/finance_alert_schedule.py:notification_text'),
         'invariants': (
             'Yalnız kullanıcının kendi DATA_DIR kaydı yazılır (kural, durum, takip listesi); dış kayıt değişmez.',
             'Eşik değerlendirmesi modelsizdir ve emir, alım-satım ya da transfer başlatmaz.',

@@ -230,15 +230,15 @@ class TypoSinglePassTests(_RawDoorHarness):
         tree = ast.parse(ENGINE_COMMANDS_SOURCE)
         calls = [ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)]
         self.assertEqual(calls.count("exact_admin_view"), 1)
-        self.assertEqual(calls.count("runtime.typo.fix"), 1)
-        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+        self.assertEqual(calls.count("runtime.typo.fix"), 0)
+        self.assertEqual(_source_calls("typo.fix"), [])
 
-    def test_a_diacritic_only_misspelling_still_reaches_its_exact_admin_owner(self):
+    def test_ascii_summary_reaches_its_existing_exact_fast_owner(self):
         # Tek ölçülen kazanç sınıfı: cümlenin tek eksiği Türkçe karakter, tek farkı exact admin grameri.
         self.ctx._conversation_summary = Mock(return_value="ÖZET")
         self.door.reset_mock()
-        _entry, out, _handle, _ = self.turn("konusmayi ozetle")
-        self.assertEqual(self.turn_texts, ["konusmayi ozetle"])
+        _entry, out, _handle, _ = self.turn("konuşmayı özetle")
+        self.assertEqual(self.turn_texts, ["konuşmayı özetle"])
         self.ctx._conversation_summary.assert_called_once_with()
         self.assertEqual(out, "ÖZET")
 
@@ -488,14 +488,15 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
             with self.subTest(text=text):
                 self.assertFalse(self.fence_of(text), "bounded state protokolü turu zaten aldı")
 
-    def test_the_domain_doors_still_receive_their_questions(self):
+    def test_unowned_questions_do_not_enter_retired_domain_doors(self):
         for seam, text in (("modules.pc_guide.handle", "ekrandaki klasör ne işe yarar?"),
                            ("modules.developer.handle", "bu hata neden oluyor?")):
             with self.subTest(text=text):
                 self.assertFalse(self.fence_of(text))
                 self.seams[seam].return_value = "KAPIT YANITI"
                 self.addCleanup(setattr, self.seams[seam], "return_value", None)
-                self.assertEqual(self.with_fence(text), "KAPIT YANITI")
+                self.with_fence(text)
+                self.seams[seam].assert_not_called()
 
     def test_an_active_lesson_question_loses_nothing_to_the_fence(self):
         # Ölçülen kapının hükmü: aktif derste serbest açıklama sorusuna Hoca yanıt üretmiyor
@@ -561,7 +562,7 @@ class MultiStepAuthorityTests(_RawDoorHarness):
         # Bölme grameri yüzeyde hiç duramaz: ne fonksiyon çağrısı ne de runtime regex'i.
         self.assertTrue({"_split_steps"}.isdisjoint(calls | names))
         self.assertNotIn("_STEP_SPLIT", attrs)
-        self.assertIn("step_plan", calls)
+        self.assertNotIn("step_plan", calls)
 
     def test_the_segmentation_owner_is_the_canonical_understanding_layer(self):
         # Tek sahip: gramer brain_understanding'de doğar, entry yalnız bağlı tur için okur.
@@ -605,17 +606,25 @@ class MultiStepAuthorityTests(_RawDoorHarness):
         self.assertFalse(hasattr(brain_entry, "step_plan"))
 
     def test_two_steps_run_their_own_typed_effect_once_each(self):
-        entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.assertEqual(self.rid, entry.request_id)
         self.ctx._volume_step.assert_called_once_with(-10, "kıstım")
         self.ctx.system_control.media_control.assert_called_once_with("next")
-        self.assertIn("1.", out)
-        self.assertIn("2.", out)
+        self.assertIn("a1:", out)
+        self.assertIn("a2:", out)
 
     def test_an_open_pending_still_blocks_a_new_sequence(self):
         # Bounded state invariant'ı yüzeyde kalır: adım planı açıksa bile kısmi yürütme yok.
         self.ctx._session().pending_confirm = ("silinsin mi?", "not")
-        _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
+        from brain_turn_fixture import batch_model
+        with patch.object(brain_entry, 'apply_model_understanding', side_effect=batch_model(
+                ('pc.audio.action', {'audio': {'action': 'lower'}}),
+                ('pc.media.action', {'media': {'action': 'next'}}))):
+            _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik", model_understanding=True)
         self.assertIn("Açık bir mesaj/onay/düzenleme akışı varken", str(out))
         self.ctx._volume_step.assert_not_called()
         self.ctx.system_control.media_control.assert_not_called()
@@ -1011,7 +1020,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
 
     def test_the_typo_rewriter_is_consulted_from_exactly_one_production_site(self):
         # §25 A'nın repo geneli yarısı: düzeltilmiş görünümü başka bir modül de okuyamaz.
-        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+        self.assertEqual(_source_calls("typo.fix"), [])
 
     def test_every_capability_hint_understanding_can_emit_is_core_mapped(self):
         """Yeni hint yalnız Core eşlemesiyle doğar: §24 fence'inin ön koşulu burada kilitlidir."""
