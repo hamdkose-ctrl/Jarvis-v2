@@ -35,17 +35,6 @@ def _canonical_tail(runtime, command: str, cmd_lower: str):
     return dispatch(runtime, intent, a, command, cmd_lower)
 
 
-def _read_plan_tail(runtime, plan, command: str, cmd_lower: str):
-    """Yazım kurtarmasının tek salt-okuma planı: yürütme intent'in kendi sahibindedir.
-
-    Seam buradan başka bir intent seçmez; `command_manager.typo_read_plan` kapalı salt-okuma
-    setinden geçmiş doğrulanmış Core önerisini taşır. Kullanıcının yazdığı asıl cümle
-    (`command`) provenance olarak sahibine geçer. `engine_intents.dispatch`in denetlenmiş tek
-    üretim çağıranı bu yüzeydir (BRAIN-MIG-042)."""
-    from modules.engine_intents import dispatch
-    return dispatch(runtime, plan[0], plan[1], command, cmd_lower)
-
-
 def handle(runtime, command: str):
 
     from modules import requests_state
@@ -57,8 +46,7 @@ def handle(runtime, command: str):
     # Web ayarları / telefon / geçici kullanıcı işlemleri istek bağlamını değiştirmiş olabilir.
     runtime._llm.set_user_context(runtime.profile.slug)
 
-    from modules.command_manager import (CommandContext, dispatch, engine_control, exact_admin_view,
-                                         typo_read_plan, typo_read_recovery)
+    from modules.command_manager import CommandContext, dispatch, engine_control, exact_admin_view
     from modules.confirmation import decision
     session = runtime._session()
     session.speech_override = None  # Only this command may choose its short spoken response.
@@ -134,21 +122,6 @@ def handle(runtime, command: str):
                 runtime._pending_photo.pop(runtime.profile.slug, None)
             # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının
             # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
-
-    # Çok adımlı komut: sıra semantiği kanonical Understanding'de doğar (`brain_entry.step_plan`);
-    # bu yüzey cümleyi bölmez, yalnız bağlı turn'ün tipli planını okur ve typed adım adaptörüne verir.
-    # Açık bir soru varken adım bölünmez: ilk adım o soruyu cevaplamış sayılamaz, kalan adımlar çalışmaz.
-    # Bu tur açık alanın cevabı değilse ham cümle kısmi yürütülmez; kullanıcıya açıkça söylenir.
-    if not runtime._session()._in_multi:
-        steps = brain_entry.step_plan(command)
-        if steps:
-            blocked = [field for field in ("pending_msg", "pending_confirm", "pending_organize")
-                       if getattr(runtime._session(), field) is not None]
-            if not blocked:
-                return runtime._run_steps(list(steps))
-            if not any(brain_entry.pending_answer_owned(field) for field in blocked):
-                return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım; "
-                        "önce onu tamamla ya da iptal et, sonra adımları yeniden söyle.")
 
     # Klasör düzenleme onayı
     if runtime._session().pending_organize is not None:
@@ -290,25 +263,13 @@ def handle(runtime, command: str):
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
-    # ---- Yazım hatası: ikinci bir pipeline geçişi yok (§25 A, BRAIN-MIG-042) ----
-    # Düzeltilmiş görünüm iki kapalı sete gösterilir: exact-admin tanıyıcıları ve salt-okuma
-    # kurtarması. Ham cümle bu turn'de tüm kolları geçtiği için o kolun efekti en çok bir kez
-    # çalışır; yazma/organize/açma akışları düzeltilmiş metni hiçbir zaman görmez. Kurtarma hiçbir
-    # intent'i burada seçmez: not listesinin doğrulanmış salt-okuma planı effect'in kendi sahibine
-    # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
-    # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
-    corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command, runtime=runtime)
+    # Exact admin receives ONLY the original request, never a typo-corrected
+    # second semantic pass. General free-language decisions have already been
+    # accepted (or refused) by the primary Brain model before this handler.
+    view = exact_admin_view(
+        context, cmd_lower, runtime.flags.get("speak"),
+        original_text=command, runtime=runtime,
+    )
     if view is not None:
         return view
-    if corrected != cmd_lower:
-        recovered = typo_read_recovery(context, runtime, corrected)
-        if recovered is not None:
-            return recovered
-        plan = typo_read_plan(corrected)
-        if plan is not None:
-            return _read_plan_tail(runtime, plan, command, cmd_lower)
-
-    # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
-    # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
     return _canonical_tail(runtime, command, cmd_lower)
