@@ -437,11 +437,13 @@ class CanonicalOrganizeOwnerLocksTests(_OrganizeHarness):
     def test_the_organize_plan_shadows_the_raw_text_domain_gates(self):
         # Plan sahibi olan cümle planner/cascade kapılarına ikinci kez sorulmaz (§25 B).
         self.seed(self.desktop, "belge.txt")
-        gates = brain_precedence._gates(self.ctx, "masaüstünü düzenle", "masaüstünü düzenle",
-                                        ("file_organize", {"operation": "organize", "folder": "desktop"}))
-        self.assertIsNone(gates["planner_command"]())
-        self.assertIsNone(gates["extra_commands"]())
+        self.assertFalse(hasattr(brain_precedence, "_gates"),
+                         "The retired raw gate factory must stay absent.")
+        entry, _out, _handler, _feedback = self.preview("masaüstünü düzenle")
+        self.assertEqual(entry.understanding.capability_hint, ORGANIZE_CAPABILITY)
+        self.door.assert_not_called()
         self.ctx._planner_command.assert_not_called()
+        self.apply_spy.assert_not_called()
         self.assertEqual(self.tree(self.desktop), ["belge.txt"])
 
     def test_no_file_is_moved_by_the_preview_turn_alone(self):
