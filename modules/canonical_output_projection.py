@@ -200,11 +200,15 @@ def project_accepted(owner: str, job_id: str, step_id: str, output: dict) -> boo
                         or fresh['state'] not in ('pending', 'running')
                         or goal_state.authority(fresh) != 'canonical'):
                     raise ProjectionFenceError('Canonical goal changed during projection.')
+                next_plan = fresh.get('goal_plan')
+                if not isinstance(next_plan, dict):
+                    raise ProjectionFenceError('Canonical plan was withdrawn.')
                 next_node = next((
-                    item for item in fresh.get('goal_plan', {}).get('nodes', [])
+                    item for item in next_plan['nodes']
                     if item['id'] == step_id
                 ), None)
-                if next_node != node:
+                if (next_plan['plan_version'] != plan['plan_version']
+                        or next_node != node):
                     raise ProjectionFenceError('Canonical plan changed during projection.')
                 _accepted_row(fresh, owner, job_id, next_node, output)
                 if goal_job_control.fingerprint(execution_record.load(
