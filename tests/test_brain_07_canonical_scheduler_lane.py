@@ -9,11 +9,12 @@ import copy
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import release_guard
 from modules import (
