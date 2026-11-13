@@ -179,6 +179,27 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         self.assertEqual(structured["note_candidates"][0]["slot"], "note_0")
         self.assertIn("notes.write", structured["allowed"]["capability_id"])
 
+    def test_model_can_propose_grounded_outlook_reply_text_but_not_send(self):
+        utterance = "Ayşe için iş maili cevap taslağı hazırla"
+        proposal = action(capability_id="mail.draft",
+                          arguments={"operation": "reply", "sender": "Ayşe"})
+        proposal["argument_sources"] = {"sender": "Ayşe"}
+        _base, semantic = applied(
+            utterance, envelope(actions=[proposal], confidence="HIGH"))
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(semantic.capability_hint, "mail.draft")
+        self.assertEqual(core_plan(semantic.capability_hint, semantic.arguments),
+                         ("outlook_draft", {"sender": "Ayşe"}))
+
+        forged = action(capability_id="mail.draft",
+                        arguments={"operation": "reply", "sender": "Zeynep"})
+        forged["argument_sources"] = {"sender": "Ayşe"}
+        _base, rejected = applied(
+            utterance, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected.request_kind, RequestKind.CHAT)
+        self.assertIsNone(rejected.capability_hint)
+        self.assertIsNone(core_plan("mail.draft", {"operation": "send", "index": 1}))
+
     def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
         utterance = "Not al: Raporu teslim et"
         raw_action = action(capability_id="notes.add",
