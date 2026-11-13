@@ -190,12 +190,14 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
         # Preserve the pre-existing generic failure record contract; only
         # a proven deadline fence gains this additional reason classification.
         if deadline_expired:
-            job["outputs"][node_id]["reason_code"] = (
-                "CANONICAL_WORKER_DEADLINE_UNACCEPTED"
-            )
+            reason_code = 'CANONICAL_WORKER_DEADLINE_UNACCEPTED'
         elif outcome_reason is not None:
-            # Typed unaccepted failures are recovery information, never retry authority.
-            job["outputs"][node_id]["reason_code"] = outcome_reason
+            reason_code = outcome_reason
+        else:
+            # Unknown provider response is NOT permission to retry or evidence
+            # that its remote read definitely did not happen.
+            reason_code = 'CANONICAL_PROVIDER_RESULT_UNKNOWN_UNACCEPTED'
+        job["outputs"][node_id]["reason_code"] = reason_code
         job["updated"] = time.time()
         release_guard.atomic(path, execution_record.encode(job))
 
@@ -279,6 +281,8 @@ def execute_offer(profile, offer, *, stop_event=None):
                 if isinstance(exc, resource_leases.LeaseFenceError) else
                 'CANONICAL_GOAL_REVOKED_UNACCEPTED'
                 if isinstance(exc, runtime_worker_result.CanonicalWorkerRevoked)
+                else 'CANONICAL_SCHEDULER_STOPPED_UNACCEPTED'
+                if isinstance(exc, runtime_worker_result.CanonicalSchedulerStopped)
                 else 'CANONICAL_WORKER_CANCELLED_UNACCEPTED'
                 if isinstance(exc, requests_state.Cancelled)
                 else 'CANONICAL_ADMISSION_REJECTED_UNACCEPTED'

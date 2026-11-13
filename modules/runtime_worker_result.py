@@ -19,6 +19,10 @@ class CanonicalWorkerRevoked(RuntimeError):
     """A canonical goal was cancelled or revised while its worker was running."""
 
 
+class CanonicalSchedulerStopped(RuntimeError):
+    """The owner Scheduler stopped while a read-only attempt was in flight."""
+
+
 class CanonicalWorkerDeadline:
     """One bounded worker attempt, not a provider kill or retry authority.
 
@@ -135,7 +139,7 @@ def require_scheduler_active():
             raise CanonicalWorkerDeadlineExceeded(
                 'Canonical worker deadline elapsed; stale result not accepted.'
             )
-        raise RuntimeError(
+        raise CanonicalSchedulerStopped(
             'Canonical Scheduler stopped; stale worker result not accepted.'
         )
     selection = _CANONICAL_SELECTION.get()

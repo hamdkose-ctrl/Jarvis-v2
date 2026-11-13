@@ -2044,7 +2044,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         state, journal = self.persisted(job_id)
         self.assertEqual(state['state'], 'pending')
         self.assertEqual(journal['state'], 'running')
-        notified.assert_not_called()
+        self.assertEqual(journal['_canonical_dialog']['state'], 'waiting')
+        self.assertEqual(journal['_canonical_dialog']['delivery'], 'ui_accepted')
+        notified.assert_called_once()
+        self.assertIn('hedef cevap ' + job_id, notified.call_args.args[2])
+        self.assertFalse(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner,
+        ))
 
     def test_owner_question_answer_rechecks_same_dag_without_worker_replay(self):
         job_id = self._accepted_canonical_research_for_crash_test()
@@ -2135,6 +2141,37 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.owner, job_id, sink,
         ))
         sink.assert_called_once()
+
+    def test_question_delivery_unknown_is_durable_and_never_replayed(self):
+        """A UI failure must not silently become delivered or a repeated wake."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sink = Mock(return_value=None)
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask',
+                                        'question': 'Which range should be compared?'}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['_canonical_dialog']['state'], 'waiting')
+        self.assertEqual(journal['_canonical_dialog']['delivery'], 'reserved')
+        sink.assert_called_once()
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner), ())
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, sink,
+        ))
+        sink.assert_called_once()
+        self.assertIn('Which range', goal_executor.status_summary(journal))
+        # A user may still answer; neither a worker nor the uncertain
+        # notification is replayed to obtain the clarification.
+        self.assertIn('Yanıt bu hedefe kaydedildi',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' last month',
+                      ))
+        self.assertEqual(self.persisted(job_id)[1]['_canonical_dialog']['state'],
+                         'answered')
 
     def test_first_legacy_safe_plan_is_forwarded_without_second_model_plan(self):
         """A read-only/replay-safe but non-canonical worker stays permissioned.

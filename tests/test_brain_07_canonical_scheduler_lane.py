@@ -289,6 +289,38 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertFalse(any(row.get('kind') == 'worker_result'
                              for row in goal_state_store.load(self.path)['evidence']))
 
+    def test_scheduler_stop_and_unknown_provider_fail_closed_with_distinct_receipts(self):
+        """A stopped attempt and an uncertain provider do not create evidence."""
+        from types import SimpleNamespace
+        failures = (
+            ('left', runtime_worker_result.CanonicalSchedulerStopped(
+                'Canonical Scheduler stopped'),
+             'CANONICAL_SCHEDULER_STOPPED_UNACCEPTED'),
+            ('right', OSError('provider response lost'),
+             'CANONICAL_PROVIDER_RESULT_UNKNOWN_UNACCEPTED'),
+        )
+        for node_id, failure, reason in failures:
+            offer = next(offer for offer in self.offers()
+                         if offer.selection.node_id == node_id)
+            with patch('modules.specialist_orchestrator.execute_step',
+                       side_effect=failure):
+                with self.assertRaises(type(failure)):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=OWNER), offer,
+                    )
+            record = execution_record.load(self.owner_root, OWNER, JOB)
+            step = next(row for row in record['steps'] if row['id'] == node_id)
+            self.assertEqual(step['state'], 'failed')
+            self.assertEqual(record['outputs'][node_id]['reason_code'], reason)
+            self.assertNotIn(
+                node_id, [row.selection.node_id for row in self.offers()],
+                'A failed first attempt must never be blindly reoffered',
+            )
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result'
+            for row in goal_state_store.load(self.path)['evidence']
+        ))
+
     def test_completed_step_or_started_step_is_never_offered(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
         job['steps'][0]['state'] = 'running'
