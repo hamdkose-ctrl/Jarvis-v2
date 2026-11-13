@@ -34,6 +34,16 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         self.runtime.match_user = lambda name: self.user if name in (self.user, self.owner) else None
         profile = self.runtime.profile
         self.runtime._get_profile = lambda name: profile
+        # This suite audits cancellation, request IDs and timeout propagation,
+        # not intent recognition. Give the already-bound request a deterministic
+        # fake Core handoff to exercise the supplied effect spy; otherwise a
+        # deliberately unavailable language model prevents the tested worker
+        # from being entered at all. Production Brain/Core are not altered.
+        def approved_test_handoff(runtime, entry, handler, command):
+            return handler(command), SimpleNamespace(result_status="handled"), None
+        handoff = patch("modules.brain_entry.handoff", side_effect=approved_test_handoff)
+        handoff.start()
+        self.addCleanup(handoff.stop)
 
     def stop(self):
         with patch('modules.pc_guide.stop'):
