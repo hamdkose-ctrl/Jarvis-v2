@@ -602,31 +602,35 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
             return runtime._notes_text()
         case "notes_write":
-            from modules import main_planner
-            from modules import requests_state
-            matches = [n for n in runtime.profile.data.get("items", [])
-                       if isinstance(n, dict) and str(n.get("id")) == str(a.get("id"))]
-            if len(matches) != 1:
-                return ActionOutcome("Not hedefi artık tek değil veya bulunamadı; değiştirmedim.", False)
-            note = matches[0]
-            digest = a.get("expected_note_digest")
-            if (not isinstance(digest, str) or len(digest) != 64
-                    or main_planner.note_snapshot_digest(note) != digest):
-                return ActionOutcome("Not son gözlemden beri değişti; hiçbir işlem yapılmadı.", False)
-            requests_state.check()
-            if a.get("operation") == "delete":
-                old = str(note["text"])
-                if not runtime.profile.delete_note_item(note["id"]):
-                    return ActionOutcome("Not silme işlemi doğrulanamadı; silindi demiyorum.", False)
-                return f"Notu sildim: {old}"
-            if a.get("operation") == "update":
-                text = a.get("text")
-                if not isinstance(text, str) or not text.strip():
-                    return ActionOutcome("Yeni not metni doğrulanmadı; değiştirmedim.", False)
-                note["text"] = text
-                runtime.profile.save()
-                return f"Düzelttim: {note['text']}"
-            return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
+            from modules import main_planner, personalization, requests_state
+            # Atomic check-and-effect with the Profile owner's existing
+            # reentrant lock; no second writer, store or authority is created.
+            # Without it another request could change the note after digest
+            # check but before delete/update.
+            with personalization._LOCK:
+                matches = [n for n in runtime.profile.data.get("items", [])
+                           if isinstance(n, dict) and str(n.get("id")) == str(a.get("id"))]
+                if len(matches) != 1:
+                    return ActionOutcome("Not hedefi artık tek değil veya bulunamadı; değiştirmedim.", False)
+                note = matches[0]
+                digest = a.get("expected_note_digest")
+                if (not isinstance(digest, str) or len(digest) != 64
+                        or main_planner.note_snapshot_digest(note) != digest):
+                    return ActionOutcome("Not son gözlemden beri değişti; hiçbir işlem yapılmadı.", False)
+                requests_state.check()
+                if a.get("operation") == "delete":
+                    old = str(note["text"])
+                    if not runtime.profile.delete_note_item(note["id"]):
+                        return ActionOutcome("Not silme işlemi doğrulanamadı; silindi demiyorum.", False)
+                    return f"Notu sildim: {old}"
+                if a.get("operation") == "update":
+                    text = a.get("text")
+                    if not isinstance(text, str) or not text.strip():
+                        return ActionOutcome("Yeni not metni doğrulanmadı; değiştirmedim.", False)
+                    note["text"] = text
+                    runtime.profile.save()
+                    return f"Düzelttim: {note['text']}"
+                return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
