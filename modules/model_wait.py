@@ -66,6 +66,19 @@ def _foreground_scope(boundary):
 
 
 
+@contextmanager
+def interactive_wait():
+    """Lend the mic to the listener during an in-thread Brain provider route.
+
+    Primary semantic understanding uses smart_router.run rather than ask().
+    This opt-in scope has the SAME failure-safe local foreground hook as ask,
+    but does not add a worker, change provider routing, or release as_user.
+    The model still runs synchronously: queued follow-ups are not executed here.
+    """
+    with _foreground_scope(_FOREGROUND.get()):
+        yield
+
+
 def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,ask_fn=None,**kwargs):
     seconds=DEFAULT_SECONDS if seconds is None else seconds
     owner=llm.current_user()
