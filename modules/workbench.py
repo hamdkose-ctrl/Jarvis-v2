@@ -32,8 +32,17 @@ _TABLE = re.compile(r"tablo\w*\s+(?:\w+\s+)?(?:yap|oluştur|olustur|hazırla|haz
 # Excel/CSV işlemleri: yalnız tüm dosyalar tablo ise
 _TABLE_OPS = re.compile(r"birleştir|birlestir|grupla|göre\s+topla|toplamını|tekrar\s*ed|tekrarlan|mükerrer|"
                         r"çift\s+(?:satır|kayıt)|sütun\w*\s+(?:\w+\s+)?birleştir", re.I)
-_FOLLOW = re.compile(r"(?:sütun\w*|kolon\w*)\s+(?:ekle|çıkar|kaldır|sil)|tabloya\s+\w+\s+ekle|tabloyu\s+(?:güncelle|yenile|düzelt)|"
-                     r"tabloyu\s+(?:excel|word|pdf)", re.I)
+# Legacy fallback is an explicit, whole-utterance compatibility protocol, not
+# a second semantic classifier. In particular, negative -ma/-me forms and quoted
+# requests embedded in discussion must not trigger a new file or model call.
+_FOLLOW_COLUMN = r"(?:[\\wçğıöşü]+\\s+){0,3}(?:sütun\\w*|kolon\\w*)\\s+(?:ekle|çıkar|kaldır|sil)"
+_FOLLOW_FORMAT = (r"tabloyu\\s+(?:excel|word|pdf)(?:['’]?(?:e|a|de|da))?"
+                  r"(?:\\s+olarak)?\\s+(?:ver|hazırla|kaydet|dönüştür)")
+_FOLLOW = re.compile(
+    rf"(?:{_FOLLOW_COLUMN}|tabloya\\s+[\\wçğıöşü]+(?:\\s+[\\wçğıöşü]+){{0,3}}\\s+ekle|"
+    rf"tabloyu\\s+(?:güncelle|yenile|düzelt)|{_FOLLOW_FORMAT})(?:,\\s*{_FOLLOW_COLUMN})?",
+    re.I,
+)
 FOLLOW_SECONDS = 1800   # "şu sütunu ekle" son tabloya 30 dakika bağlanır
 
 
@@ -573,15 +582,18 @@ def followup_typed(owner: str, command: str, *, expected_digest: str,
 
 
 def followup(owner: str, command: str) -> str | None:
-    """'Şu sütunu ekle', 'tabloyu Word'de ver' gibi istekler son işi yeni sürümle tekrarlar."""
-    if not _FOLLOW.search(command or ""):
+    """Strict, model-outage-only compatibility adapter to the SAME Core worker.
+
+    Only an entire explicit revision phrase is eligible. Source paths, expiry,
+    snapshot identity and allowed-folder checks live exclusively in followup_typed.
+    A refusal never falls through to the old unvalidated file writer.
+    """
+    if (not isinstance(command, str) or len(command) > 500
+            or _FOLLOW.fullmatch(command.strip(" .!?")) is None):
         return None
-    with _LOCK:
-        last = _LAST.get(owner)
-    if not last or time.monotonic() - last["at"] > FOLLOW_SECONDS:
+    digest = snapshot_digest(owner)
+    if digest is None:
         return None
-    if not all(Path(p).is_file() for p in last["paths"]):
-        return "Son tablonun kaynak dosyalarını bulamadım; dosyayı tekrar ekler misin?"
-    named = re.search(r"excel|word|pdf", command, re.I)
-    return handle(owner, last["paths"], last["instruction"] + ". Ek istek: " + command,
-                  output_ext(command) if named else last.get("ext"))
+    requested_format = re.search(r"\\b(?:excel|word|pdf)\\b", command, re.I)
+    fmt = output_ext(command) if requested_format else None
+    return followup_typed(owner, command, expected_digest=digest, fmt=fmt)
