@@ -53,6 +53,19 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
         self.assertFalse(candidate.ambiguities)
         self.assertFalse(candidate.pending_owner)
 
+    def test_fast_state_core_is_available_without_general_semantic_model(self):
+        # A precise fast lane is NOT a semantic fallback. The real Core worker
+        # still owns the action even when the general model cannot answer.
+        with patch.object(self.ctx.files, "undo_organize", return_value=2) as undo, \
+             patch.object(brain_model_understanding, "propose",
+                          side_effect=AssertionError("Fast Gate queried the model")):
+            entry, output, _handler, feedback = self.turn_real(
+                "düzenlemeyi geri al", model_understanding=True)
+        self.assertEqual(entry.stage, "fast")
+        self.assertEqual(output, "2 dosyayı eski yerine taşıdım.")
+        self.assertEqual(feedback.result_status, "handled")
+        undo.assert_called_once_with(self.owner)
+
     def test_negative_note_cannot_mutate_with_model_unavailable(self):
         saved = self.ctx.profile.add_note_item("Market alışverişi")
         before = [(n["id"], n["text"]) for n in self.ctx.profile.data["items"]]
