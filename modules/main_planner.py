@@ -622,6 +622,7 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             requests_state.check()
             if not runtime.profile.reschedule_event(ev["id"], new_when):
                 return "Hatırlatmayı yeniden planlayamadım; kaydırdım demiyorum."
+            _drop_queued_reminder_speech(runtime, ev)
             return f"{ev['title']} kaydını yarın 09:00'a kaydırdım."
         except (ValueError, TypeError):
             return "Hatırlatma tarihi doğrulanamadı; değişiklik yapılmadı."
@@ -645,6 +646,7 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             requests_state.check()
             if not runtime.profile.reschedule_event(ev["id"], new_when):
                 return "Hatırlatmayı kaydedemedim; kaydırdım demiyorum."
+            _drop_queued_reminder_speech(runtime, ev)
             return f"{ev['title']} kaydını kaydırdım: {runtime.whenmod.describe(new_when, now)}."
         except (ValueError, TypeError):
             return "Hatırlatma günü geçersiz; hiçbir kayıt değiştirilmedi."
@@ -678,6 +680,7 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             accepted = runtime.profile.reschedule_event(ev["id"], new_when)
         if not accepted:
             return "Hatırlatmayı yeniden planlayamadım; erteledim demiyorum."
+        _drop_queued_reminder_speech(runtime, ev)
         label = ("akşam 18:00'de" if proposal.get("daypart") == "evening"
                  else f"{minutes} dakika sonra")
         return (f"{ev['title']} hatırlatmasını {label} yeniden "
@@ -697,6 +700,7 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             requests_state.check()
             if not runtime.profile.reschedule_event(ev["id"], new_when):
                 return "Hatırlatmanın sıradaki tekrarını değiştiremedim; atladım demiyorum."
+            _drop_queued_reminder_speech(runtime, ev)
             return (f"{ev['title']}: sıradaki tekrarı atladım. "
                     f"Sıradaki: {runtime.whenmod.describe(new_when, now)}.")
         if allday and minutes % 1440:
@@ -709,6 +713,7 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         new_when = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
         if not runtime.profile.reschedule_event(ev["id"], new_when):
             return "Hatırlatmanın yeni zamanını kaydedemedim; erteledim demiyorum."
+        _drop_queued_reminder_speech(runtime, ev)
         return f"{ev['title']} kaydını erteledim: {runtime.whenmod.describe(new_when, now)}."
     except (ValueError, TypeError, KeyError):
         return "Hatırlatma tarihi veya tekrarı doğrulanamadı; hiçbir değişiklik yapılmadı."
@@ -742,6 +747,7 @@ def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     requests_state.check()
     if not runtime.profile.delete_event(expected["event_id"]):
         return "Hatırlatma silme işlemini doğrulayamadım; silindi demiyorum."
+    _drop_queued_reminder_speech(runtime, matches[0])
     detail = " (tekrarlayan kaydın bütün tekrarları)" if expected["repeat"] else ""
     return (f"Sildim: {expected['title']}, "
             f"{runtime.whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
