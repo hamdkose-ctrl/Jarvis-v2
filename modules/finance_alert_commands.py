@@ -72,5 +72,3 @@ def execute_typed(owner: str, args: dict) -> str:
     return (f"Alarm kaydedildi: {row['symbol']} {_amount(row['value'])} TL eşiği; "
             "yalnız fiyat bildirimi. Kontrol aralığı yaklaşık 5 dakikadır; "
             "sessiz saatlerde bildirim bekletilir.")
-
-

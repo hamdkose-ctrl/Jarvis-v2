@@ -422,4 +422,3 @@ class UserSwitchAudibleStopTests(unittest.TestCase):
                 else:
                     self.assertIn("kesilemedi", message, message)
                     self.assertIn("üst üste binmez", message, message)
-
