@@ -269,6 +269,12 @@ def draft_handle(cmd_lower: str, ask) -> str | None:
     mail, msg = _draft_target(f, mails)
     if mail is None:
         return msg
+    return _render_draft(mail, ask)
+
+
+def _render_draft(mail: dict, ask) -> str:
+    """Draft reply text from exactly one already selected Outlook message; never write Outlook."""
+    from modules import privacy
     body = re.sub(r"<<<MAIL|MAIL>>>", " ", mail["body"])
     body = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", body)
     body = re.sub(r"\n{3,}", "\n\n", body).strip()[:_BODY_LIMIT]
@@ -290,6 +296,45 @@ def draft_handle(cmd_lower: str, ask) -> str | None:
     return (f"Taslak ({mail['sender']} · {mail['subject']}):\n\n{draft}\n\n"
             f"Göndermedim ve Outlook'a da yazmadım; kopyalayıp kendin gönderebilirsin. {note}")
 
+
+def draft_typed(ask, *, index: int | None = None, sender: str | None = None) -> str:
+    """Core-selected unread message -> existing reply-text worker, no raw NL parsing.
+
+    Select by a bounded 1..20 index or an unambiguous name prefix grounded in
+    the user's utterance. This function neither sends nor creates Outlook items.
+    """
+    if not callable(ask) or (index is None) == (sender is None):
+        return "Taslak hedefi doğrulanamadı; hiçbir e-posta işlenmedi."
+    if sender is not None and (not isinstance(sender, str) or not 2 <= len(sender.strip()) <= 120
+                               or "\x00" in sender):
+        return "Gönderen adı doğrulanamadı; taslak yazılmadı."
+    if index is not None and (type(index) is not int or not 1 <= index <= 20):
+        return "Mail sıra numarası doğrulanamadı; taslak yazılmadı."
+    if not installed():
+        return "Bu bilgisayarda Outlook kurulu değil."
+    try:
+        mails = fetch_unread(20)
+    except Exception:
+        _record_failure("modules/outlook.py:draft_typed")
+        return "Outlook'a bakamadım; cevap taslağı hazırlamadım."
+    if not mails:
+        return "Okunmamış iş mailin yok; cevaplanacak bir şey göremedim."
+    if sender is not None:
+        key = _fold(sender.strip())
+        matches = [mail for mail in mails
+                   if isinstance(mail.get("sender"), str)
+                   and (_fold(mail["sender"]) == key
+                        or _fold(mail["sender"]).startswith(key + " "))]
+        if not matches:
+            return f"“{sender}” adına ait okunmamış iş maili bulamadım."
+        if len(matches) != 1:
+            return "Hangisi? Birden fazla iş maili eşleşti; göndereni daha açık söyle veya sıra numarası seç."
+        selected = matches[0]
+    else:
+        if index > len(mails):
+            return f"Okunmamış {len(mails)} iş mailin var; {index}. maile ulaşamadım."
+        selected = mails[index - 1]
+    return _render_draft(selected, ask)
 
 def handle(cmd_lower: str) -> str | None:
     """'iş maillerimi kontrol et', 'outlook'a bak', 'outlook'ta yeni mail var mı' gibi istekler."""
