@@ -150,3 +150,61 @@ class WakeFollowupRaceTests(TestCase):
         self.assertEqual(runtime.audio_lock.count, 2)
         self.assertEqual(runtime.voice.capture.call_count, 1)
         session.submit_voice.assert_not_called()
+
+
+class BargeWorkerBoundTests(TestCase):
+    def test_many_queued_speech_receipts_share_one_microphone_watcher(self):
+        started = threading.Event()
+        release = threading.Event()
+        first, middle, last = threading.Event(), threading.Event(), threading.Event()
+        seen = []
+        factory = Mock(side_effect=lambda **kw: threading.Thread(**kw))
+        runtime = SimpleNamespace(
+            threading=SimpleNamespace(Thread=factory),
+            stop_event=threading.Event(), flags={"speak": True, "mic": True},
+            profile=SimpleNamespace(slug="speaker-owner",
+                                    data={"prefs": {"voice": "tr_erkek"}}),
+            _cur_rid="turn-a", emit=Mock(), _record_failure=Mock(),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.speak_enabled = True
+        session.voice_core_fault = None
+        session.voice_lane = SimpleNamespace(say=Mock(side_effect=[first, middle, last]))
+
+        def observe(done):
+            seen.append(done)
+            if done is first:
+                started.set()
+                self.assertTrue(release.wait(3), "first watcher never released")
+
+        session._barge_watch = observe
+        try:
+            session.speak("first")
+            self.assertTrue(started.wait(2), "barge watcher did not start")
+            session.speak("middle")
+            session.speak("last")
+            self.assertEqual(factory.call_count, 1,
+                             "each queued notice spawned a separate microphone contender")
+        finally:
+            release.set()
+            worker = getattr(session, "_barge_thread", None)
+            if worker is not None:
+                worker.join(timeout=3)
+        self.assertEqual(seen, [first, last],
+                         "one worker must advance to the newest waiting speech")
+        self.assertIsNone(session._barge_thread)
+        self.assertEqual(factory.call_count, 1)
+
+    def test_closed_session_never_creates_new_wake_capture_worker(self):
+        factory = Mock(side_effect=AssertionError("closed session started barge worker"))
+        runtime = SimpleNamespace(threading=SimpleNamespace(Thread=factory))
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session._barge_lock = threading.Lock()
+        session._barge_pending = None
+        session._barge_thread = None
+        session._barge_closed = threading.Event()
+        session._barge_closed.set()
+        session._schedule_barge_watch(threading.Event())
+        factory.assert_not_called()
