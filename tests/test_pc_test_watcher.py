@@ -199,6 +199,10 @@ class PcTestWatcherTests(unittest.TestCase):
         self.assertEqual(first.parent, second.parent)
         self.assertIn(sha[:8], first.name)
         self.assertLess(len(first.name), 100)
+        unicode_ref = 'refs/remotes/origin/feature/çağrı+test'
+        unicode_path = watcher.isolated_worktree_path(unicode_ref, sha)
+        self.assertTrue(unicode_path.name.startswith('feature_'))
+        self.assertNotIn('+', unicode_path.name)
         # Every attempt can remove only its own destination; it never owns
         # another process's same-SHA test tree.
         with self.assertRaises(ValueError):
