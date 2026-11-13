@@ -179,7 +179,13 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
             return "Tamam, mesajı göndermedim."
         stage = p["stage"]
         if stage == "to":
-            p["to"] = runtime.re.sub(r"['’](?:e|a|ye|ya)$", "", command.strip(" .")).strip() or p["to"]
+            # When the exact State Gate selected an existing contact, use its
+            # owner-scoped candidate rather than parsing the sentence again.
+            # Non-exact replies can only reach here under the model's typed
+            # MESSAGE_TO pending ownership, and are revalidated below.
+            selected = brain_entry.protocol_selection("session.pending_msg.recipient")
+            p["to"] = (selected if isinstance(selected, str) and selected.strip()
+                       else runtime.re.sub(r"['’](?:e|a|ye|ya)$", "", command.strip(" .")).strip()) or p["to"]
         elif stage == "text":
             p["text"] = command.strip()
     if not p["to"]:
