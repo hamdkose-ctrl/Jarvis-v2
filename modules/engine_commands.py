@@ -245,22 +245,11 @@ def handle(runtime, command: str):
             from modules.engine_intents import dispatch as core_dispatch
             return core_dispatch(runtime, "weather", {"location": command}, command, cmd_lower)
 
-    # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
-
-    control_reply = runtime._user_controls(command, cmd_lower)
-    if control_reply is not None:
-        return control_reply
-
-    plan_reply = runtime._planner_command(command, cmd_lower)
-    if plan_reply is not None:
-        return plan_reply
-
-    # Kısayollar (öğret / çalıştır / listele) ve ek komutlar: hepsi LLM'e gitmeden çalışır.
-    # Sıra ve imza tek sahibindedir (`brain_precedence`); yüzey ikinci bir ham aday döngüsü taşımaz (§25 B).
-    from modules import brain_precedence
-    tail = brain_precedence.claim_tail(runtime, command, cmd_lower)
-    if tail is not None:
-        return tail[1]
+    # Free-language semantic ownership is exclusively the accepted Brain
+    # proposal. There is no raw camera/share, note/calendar, fuzzy shortcut,
+    # plugin or domain cascade reclassification here. The exact registered
+    # shortcut and quoted UI file protocols are claimed at brain_entry.handoff
+    # before this legacy handler, with Core fences; they never reach this tail.
 
     # Kayıtlı şehir ("şehrim İzmir" / "şehrimi sıfırla") artık burada seçilmiyor: karar Understanding'in
     # `weather.city.set`/`weather.city.reset` önerisi, değer hükmü Core'un, tercih yazması tek intent
