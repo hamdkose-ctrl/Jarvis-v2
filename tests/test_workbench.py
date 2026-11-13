@@ -270,6 +270,38 @@ class FileCommandTests(unittest.TestCase):
             self.assertEqual(main_documents._file_command(self.runtime(), f'"{a}" "{b}" iki şartnameyi karşılaştır'), "Hazır")
         handle.assert_called_once_with("hamdi", [str(a), str(b)], "iki şartnameyi karşılaştır")
 
+    def test_quoted_path_ui_does_not_turn_negative_words_into_effects(self):
+        from modules import main_documents, nxapi, filesend
+        runtime = self.runtime()
+        for command in (
+            '"C:/Docs/report.pdf" telefonuma gönderme',
+            '"C:/Docs/report.pdf" telefonuma gönder, ama silme',
+            '"C:/Docs/report.pdf" dosyasını dönüştürme',
+            '"C:/Docs/report.pdf" dosyasını görselleştirme',
+            '"C:/Docs/report.pdf" telefonuma gönder?',
+            '"C:/Docs/report.pdf" telefonuma gönder ne demek?',
+        ):
+            with self.subTest(command=command), \
+                 patch.object(nxapi, "allowed",
+                              side_effect=AssertionError("untrusted file path opened")) as allowed, \
+                 patch.object(filesend, "send",
+                              side_effect=AssertionError("negative send executed")) as send:
+                self.assertFalse(
+                    main_documents.explicit_ui_file_command(command, runtime._FILE_CMD))
+                self.assertIsNone(main_documents._file_command(runtime, command))
+                allowed.assert_not_called()
+                send.assert_not_called()
+
+    def test_quoted_path_ui_accepts_only_known_positive_whole_actions(self):
+        from modules import main_documents
+        runtime = self.runtime()
+        for action in ("özetle", "yerel OCR ile oku", "dosyasını Türkçeye çevir",
+                       "dosyasını görselleştir", "pdf'e dönüştür", "telefonuma gönder",
+                       "iki şartnameyi karşılaştır", "tablo yap"):
+            with self.subTest(action=action):
+                self.assertTrue(main_documents.explicit_ui_file_command(
+                    f'"C:/Docs/report.pdf" {action}', runtime._FILE_CMD))
+
     def test_disallowed_file_and_followup_without_paths(self):
         from modules import main_documents, nxapi
         with patch.object(nxapi, "allowed", return_value=None):
