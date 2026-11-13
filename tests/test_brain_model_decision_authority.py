@@ -63,10 +63,17 @@ class ModelDecisionAuthorityTests(unittest.TestCase):
         self.assertTrue(result.needs_input)
         self.assertEqual(result.arguments['question'],'Hangi sonucu kastettin?')
 
-    def test_a_real_pending_owner_cannot_be_replaced_by_the_model(self):
+    def test_a_real_pending_owner_is_not_consumed_by_independent_model_chat(self):
+        # A NEW_REQUEST is not an answer to the pending app clarification.
+        # Model may chat independently, but the State owner must remain
+        # unchanged and no pending command may run as a side effect.
         pending=make_result(conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
                             pending_owner=PendingOwner.APP_CLARIFY)
-        self.assertIsNone(asked(model_answer(confidence='HIGH'),'Cevabım bu.',pending,protected_relation=True))
+        decision=asked(model_answer(confidence='HIGH'),'Cevabım bu.',pending,protected_relation=True)
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.operation, 'chat')
+        self.assertIs(decision.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIs(pending.pending_owner, PendingOwner.APP_CLARIFY)
 
     def test_model_clarification_reaches_the_existing_entry_question_path(self):
         from types import SimpleNamespace
