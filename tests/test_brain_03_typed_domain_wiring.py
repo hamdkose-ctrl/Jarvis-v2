@@ -170,31 +170,44 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             "tablo yap. Ek istek: Tabloyu Word olarak ver", ".docx",
         )
 
-    def test_workbench_legacy_fallback_only_accepts_explicit_whole_revision_and_core_path(self):
-        source = self._record_recent_workbench()
-        with patch.object(workbench, "handle", return_value="NEW TABLE") as worker, \
-             patch("modules.nxapi.allowed", return_value=source) as allowed:
-            for utterance in (
-                    "tabloyu güncelleme", "şu sütunu ekleme",
-                    "tabloyu Word olarak ver demedim",
-                    "bu cümlede tabloyu Word olarak ver yazıyor",
-                    "tabloyu PDF olarak ver, notları sil",
-                    "tabloyu güncellemek nasıl çalışıyor?"):
-                with self.subTest(utterance=utterance):
-                    self.assertIsNone(workbench.followup(self.owner, utterance))
-            worker.assert_not_called()
-            allowed.assert_not_called()
-            self.assertEqual(workbench.followup(self.owner, "tutar sütunu ekle"), "NEW TABLE")
-        worker.assert_called_once_with(
-            self.owner, [str(source)], "tablo yap. Ek istek: tutar sütunu ekle", ".xlsx")
-        allowed.assert_called_once_with(str(source))
-
-    def test_workbench_legacy_fallback_permission_denial_has_no_file_effect(self):
+    def test_workbench_raw_followup_parser_is_physically_retired(self):
+        # A model CHAT verdict cannot be turned into a revision by a removed
+        # second semantic parser. Even a negative or quoted phrase has no effect.
+        self.assertFalse(hasattr(workbench, "followup"))
         self._record_recent_workbench()
+        def chat(current, text, *, active_context=None):
+            return replace(
+                current, request_kind=RequestKind.CHAT, capability_hint=None,
+                arguments={"original_text": text}, ambiguities=(),
+                needs_input=False, actions=(),
+                reason_codes=current.reason_codes + ("MODEL_DECIDED", "MODEL_CHAT_DECIDED"),
+            )
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=chat), \
+             patch.object(workbench, "handle",
+                          side_effect=AssertionError("CHAT must not revise a table")) as worker:
+            for utterance in (
+                "tabloyu güncelleme", "şu sütunu ekleme",
+                "tabloyu Word olarak ver demedim",
+                "bu cümlede tabloyu Word olarak ver yazıyor",
+                "tabloyu PDF olarak ver, notları sil",
+                "tabloyu güncellemek nasıl çalışıyor?",
+            ):
+                with self.subTest(utterance=utterance):
+                    _entry, _output, _handler, feedback = self.turn_real(
+                        utterance, model_understanding=True)
+                    self.assertEqual(feedback.result_status, "handled")
+        worker.assert_not_called()
+
+    def test_workbench_typed_revision_permission_denial_has_no_file_effect(self):
+        self._record_recent_workbench()
+        digest = workbench.snapshot_digest(self.owner)
+        self.assertIsNotNone(digest)
         with patch("modules.nxapi.allowed", return_value=None), \
              patch.object(workbench, "handle",
                           side_effect=AssertionError("unapproved workbench output")) as worker:
-            response = workbench.followup(self.owner, "tabloyu Word olarak ver")
+            response = workbench.followup_typed(
+                self.owner, "Tabloyu Word olarak ver",
+                expected_digest=digest, fmt=".docx")
         self.assertIn("güvenli biçimde", response)
         worker.assert_not_called()
 
