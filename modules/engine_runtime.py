@@ -96,8 +96,6 @@ _HANDLERS = {'engine_context': ('_get_profile',
                   '_weather',
                   '_volume_step',
                   '_file_command',
-                  '_study_media_topic',
-                  '_study_intent',
                   '_translate_file',
                   '_plain',
                   '_add_note',
@@ -115,7 +113,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                   '_brief_facts',
                   '_daily_briefing',
                   '_morning_brief',
-                  '_mail_handle')}
+)}
 
 
 class EngineContext:
