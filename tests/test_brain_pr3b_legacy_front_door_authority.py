@@ -104,13 +104,15 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
         return sorted(name for name, mock in self.seams.items()
                       if any(name.startswith(p) for p in prefixes) and mock.called)
 
-    def turn(self, text, handler=None, source="yazı"):
+    def turn(self, text, handler=None, source="yazı", model_understanding=False):
         from modules import requests_state
         rid = "pr3b-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         self.rid = rid
         with requests_state.activate(self.owner, rid):
-            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source=source)
+            entry = brain_entry.prepare(
+                self.ctx, owner=self.owner, request_id=rid, text=text,
+                source=source, model_understanding=model_understanding)
             handle = handler if handler is not None else self.ctx.handle
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         self.turn_texts = [call.args[1] for call in self.door.call_args_list]
