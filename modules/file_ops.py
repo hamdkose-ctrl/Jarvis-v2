@@ -29,7 +29,14 @@ def _with_file_claims(paths, operation, owner=''):
     The established OS-account file claim is nonblocking, not a new mutex/store.
     """
     try:
-        with file_resource_guard.claim_paths(*paths, _undo_path(owner)):
+        receipt = _undo_path(owner)
+        legacy = _legacy_undo_path(owner)
+        # Claim both aliases when an old 60-character receipt could belong
+        # to another distinct owner. Never migrate/discard it automatically.
+        with file_resource_guard.claim_paths(*paths, receipt, legacy):
+            if legacy != receipt and (legacy.exists() or legacy.is_symlink()):
+                return ('Önceki dosya makbuzunun sahibi belirsiz; '
+                        'manuel inceleme olmadan işlem yapılmadı.')
             try:
                 _require_safe_receipt(owner)
             except ValueError as exc:
@@ -75,8 +82,15 @@ def _permission_decision(owner, name, target):
 
 
 def _undo_path(owner: str = "") -> Path:
-    """Geri alma kaydı kullanıcıya özeldir: başka kullanıcının son işlemi geri alınamaz."""
-    return DATA_DIR / ("file_op_undo_" + (re.sub(r"[^\w-]", "_", owner)[:60] or "ortak") + ".json")
+    """Owner-bound undo receipt, even when two slugs share their first 60 chars."""
+    suffix, _legacy = file_resource_guard.receipt_owner_suffixes(owner)
+    return DATA_DIR / ("file_op_undo_" + suffix + ".json")
+
+
+def _legacy_undo_path(owner: str = "") -> Path:
+    """Truncated pre-migration path. Ambiguous long-owner journals are NOT adopted."""
+    _new, suffix = file_resource_guard.receipt_owner_suffixes(owner)
+    return DATA_DIR / ("file_op_undo_" + suffix + ".json")
 
 
 def _digest(path: Path) -> str:
@@ -337,7 +351,12 @@ def undo(owner: str = "") -> str:
     # Serialize receipt read -> physical reverse operation -> receipt update.
     # A concurrent writer that owns this receipt fails before touching a file.
     try:
-        with file_resource_guard.claim_paths(_undo_path(owner)):
+        receipt = _undo_path(owner)
+        legacy = _legacy_undo_path(owner)
+        with file_resource_guard.claim_paths(receipt, legacy):
+            if receipt != legacy and (legacy.exists() or legacy.is_symlink()):
+                return ('Eski geri alma makbuzunun sahibi belirsiz; '
+                        'dosyalara dokunmadım.')
             return _undo_claimed(owner)
     except resource_leases.LeaseConflict:
         return _FILE_BUSY

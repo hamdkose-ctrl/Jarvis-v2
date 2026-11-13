@@ -170,6 +170,38 @@ class FileOpsTests(unittest.TestCase):
         self.assertTrue(file_ops._undo_path('alice').exists())
 
 
+    def test_long_owner_receipts_are_unique_and_old_shared_alias_fails_closed(self):
+        """Two distinct valid owner IDs cannot share a truncated undo journal."""
+        from modules import file_resource_guard
+        prefix = 'longowner' * 8
+        a, b = prefix + '-alpha', prefix + '-beta'
+        self.assertLessEqual(len(a), 100)
+        self.assertLessEqual(len(b), 100)
+        self.assertNotEqual(file_ops._undo_path(a), file_ops._undo_path(b))
+        self.assertEqual(file_ops._legacy_undo_path(a),
+                         file_ops._legacy_undo_path(b))
+        self.assertNotEqual(files._undo_file(a), files._undo_file(b))
+        self.assertEqual(files._legacy_undo_file(a),
+                         files._legacy_undo_file(b))
+        self.assertEqual(file_resource_guard.receipt_owner_suffixes('alice'),
+                         ('alice', 'alice'))
+        self.assertEqual(file_ops._undo_path('alice'),
+                         self.home / 'file_op_undo_alice.json')
+        old = file_ops._legacy_undo_path(a)
+        old.write_text('[["not-known","not-owned"]]', encoding='utf-8')
+        source = self.write(self.desktop, 'long-owner.txt')
+        with patch.object(file_ops, '_permission_decision', return_value=None):
+            reply = file_ops.execute_typed(
+                'rename', owner=a, path=str(source), name='new-name',
+            )
+        self.assertIn('sahibi belirsiz', reply)
+        self.assertTrue(source.exists())
+        self.assertFalse((self.desktop / 'new-name.txt').exists())
+        self.assertFalse(file_ops._undo_path(a).exists())
+        self.assertFalse(file_ops._undo_path(b).exists())
+        self.assertEqual(old.read_text(encoding='utf-8'),
+                         '[["not-known","not-owned"]]')
+
     def test_typed_file_mutation_executor_moves_renames_creates_and_undoes(self):
         source = self.write(self.downloads, 'typed.pdf', 'typed original')
         moved_reply = file_ops.execute_typed('move', owner='alice', path=str(source), folder='belgeler')
