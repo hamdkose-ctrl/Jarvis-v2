@@ -1063,22 +1063,34 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
     not by IDs invented by the model. Every mutation still requires the
     snapshot-bound State confirmation.
     """
-    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday"}:
+    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday", "period"}:
         return None
     operation = arguments.get("operation")
     if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move"}:
         return None
     title = arguments.get("title")
-    if operation == "snooze" and title is None:
+    if ((operation == "snooze" or operation == "skip"
+         and arguments.get("period") == "today") and title is None):
         checked_title = None  # only the unique recently fired event is eligible
     elif isinstance(title, str) and title.strip() and len(title) <= 200 and "\x00" not in title:
         checked_title = title.strip()
     else:
         return None
+    period = arguments.get("period")
     if operation in {"delete", "skip"}:
-        return {"operation": operation, "title": checked_title} if (
-            checked_title is not None and arguments.get("duration") is None
-            and arguments.get("weekday") is None) else None
+        if arguments.get("duration") is not None or arguments.get("weekday") is not None:
+            return None
+        if operation == "delete":
+            return {"operation": "delete", "title": checked_title} if (
+                checked_title is not None and period is None) else None
+        if period not in (None, "today", "tomorrow"):
+            return None
+        if checked_title is None and period != "today":
+            return None
+        return {"operation": "skip", "title": checked_title,
+                **({"period": period} if period is not None else {})}
+    if period is not None:
+        return None
     if operation == "move":
         day = arguments.get("weekday")
         weekday = {"pazartesi": 0, "salı": 1, "çarşamba": 2,
