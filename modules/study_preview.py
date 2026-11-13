@@ -1,6 +1,7 @@
 """Render the source page, without rebuilding its text or layout."""
 import base64
 import io
+from modules.diagnostics import record_failure as _record_failure
 
 
 def pdf_page(path, page=1):
@@ -134,7 +135,6 @@ def restore_original(profile, doc_id, path):
                         item['source_hash'] = digest
                         profile.save()
                     except Exception:
-                        from modules.diagnostics import record_failure as _record_failure
                         _record_failure('modules/study_preview.py:restore_original:profile_save')
                         if before_flag is None:
                             item.pop('original_pdf', None)
