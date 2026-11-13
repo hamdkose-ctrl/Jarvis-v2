@@ -581,6 +581,12 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
     now = runtime.datetime.now()
     when = str(ev["when"])
     allday = len(when) == 10
+    if operation == "skip" and proposal.get("period") is not None:
+        if proposal["period"] not in {"today", "tomorrow"}:
+            return "Hatırlatma günü doğrulanamadı; atlamadım."
+        target = now.date() + timedelta(days=0 if proposal["period"] == "today" else 1)
+        if when[:10] != target.isoformat():
+            return "Hatırlatma onayından önce hedef gün değişmiş; atlamadım."
     if operation == "move":
         # A weekday is a closed Core enum, not a path/ID or free-language
         # rewrite. Resolve the first future matching day from the current
