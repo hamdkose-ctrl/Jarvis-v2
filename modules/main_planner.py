@@ -350,6 +350,18 @@ def _fold(text: str) -> str:
     return text.replace('İ', 'i').replace('I', 'ı').lower().translate(_FOLD)
 
 
+def _drop_queued_reminder_speech(runtime, ev: dict) -> int:
+    """Drop only this owner's queued reminder speech when a saved record changes.
+
+    Reminder record ids are profile-local; owner is mandatory in the invalidation
+    selector. Future repeated occurrences keep their independent delivery keys.
+    """
+    from modules import engine_background, voice_runtime
+    return voice_runtime.invalidate(
+        owner=runtime.profile.slug,
+        event_id=engine_background.reminder_speech_id(ev))
+
+
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
     """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
     from datetime import datetime
