@@ -14,14 +14,16 @@ geri alma kaydını okumaz/yazmaz.
 from __future__ import annotations
 
 import os
+import uuid
+from dataclasses import replace
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import test_brain_pr3b_legacy_front_door_authority as pr3b
-from modules import brain_entry, brain_precedence, engine_tools, files, file_resource_guard
+from modules import brain_entry, brain_precedence, engine_tools, files, file_resource_guard, requests_state
 from modules.brain_contracts import RequestKind
-from modules.brain_understanding import ORGANIZE_CAPABILITY, ORGANIZE_TARGET_AMBIGUOUS
+from modules.brain_understanding import ORGANIZE_CAPABILITY, ORGANIZE_OPERATION, ORGANIZE_TARGET_AMBIGUOUS
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE_TOOLS_SOURCE = (ROOT / "modules" / "engine_tools.py").read_text(encoding="utf-8")
@@ -64,9 +66,12 @@ class _OrganizeHarness(pr3b._RawDoorHarness):
         claim_patch.start()
         self.addCleanup(claim_patch.stop)
         self.ctx.files = files
-        # Geri alma kolunun gerçek sahibi cascade'de kalır: pr3b onu Mock'lar.
-        extra = engine_tools._extra_commands
-        self.ctx._extra_commands = lambda command, lowered: extra(self.ctx, command, lowered)
+        # The retired raw domain cascade is not an execution seam. The test
+        # must traverse the model proposal -> validated Core -> existing files
+        # worker, rather than injecting a second raw parser.
+        self.assertFalse(hasattr(engine_tools, "_extra_commands"))
+        if hasattr(self.ctx, "_extra_commands"):
+            del self.ctx._extra_commands
         self.ctx._session().pending_organize = None
 
     def seed(self, folder, *names):
@@ -78,6 +83,59 @@ class _OrganizeHarness(pr3b._RawDoorHarness):
 
     def tree(self, folder):
         return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file())
+
+    def _model_fixture(self, current, text, *, active_context=None):
+        """Explicit proposals for these fixtures, never a raw NLP classifier."""
+        folder = {
+            "masaüstünü duzenle": "desktop",
+            "masaüstünü düzenle": "desktop",
+            "desktoptaki gereksizleri duzenle": "desktop",
+            "masaüstündeki gereksizleri duzenle": "desktop",
+            "indirilenleri düzenle": "downloads",
+            "belgeleri topla": "documents",
+        }.get(text)
+        if folder is not None:
+            return replace(
+                current, request_kind=RequestKind.CAPABILITY,
+                capability_hint=ORGANIZE_CAPABILITY,
+                arguments={"original_text": text, "operation": ORGANIZE_OPERATION,
+                           "folder": folder},
+                ambiguities=(), needs_input=False, actions=(),
+            )
+        if text in ("masaüstünü ve indirilenleri düzenle",
+                    "masaüstünü düzenle sonra indirilenleri düzenle"):
+            return replace(
+                current, request_kind=RequestKind.CLARIFY,
+                capability_hint=None, arguments={"original_text": text},
+                ambiguities=(ORGANIZE_TARGET_AMBIGUOUS,), needs_input=True, actions=(),
+            )
+        if text in ("masaüstünü düzenlemek nasıl çalışır?",
+                    "şimdi diyelim ki masaüstünü düzenleyeceğim nereden başlamak mantıklı",
+                    "yarın hava nasıl"):
+            return replace(
+                current, request_kind=RequestKind.CHAT, capability_hint=None,
+                arguments={"original_text": text}, ambiguities=(), needs_input=False,
+                actions=(), reason_codes=current.reason_codes + ("EXPLANATION_REQUEST",),
+            )
+        raise AssertionError(f"No explicit model fixture for {text!r}")
+
+    def turn(self, text, handler=None, source="yazı"):
+        # One genuine bound request, the same as production. This suite does
+        # not assert live-model classification; its fixture owns only the
+        # semantic proposal boundary. Core and file effects are real.
+        rid = "organize-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        self.rid = rid
+        with requests_state.activate(self.owner, rid), \
+             patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=self._model_fixture):
+            entry = brain_entry.prepare(
+                self.ctx, owner=self.owner, request_id=rid,
+                text=text, source=source, model_understanding=True)
+            handle = handler if handler is not None else self.ctx.handle
+            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+        self.turn_texts = [call.args[1] for call in self.door.call_args_list]
+        return entry, out, handle, feedback
 
     def preview(self, text):
         return self.turn(text)
