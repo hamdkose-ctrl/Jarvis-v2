@@ -383,7 +383,13 @@ def _vectors(profile, item, chunks):
         _EMB_FAIL[key] = time.time()
         return None
     if len(vecs) != len(chunks): return None
-    f.write_text(json.dumps({"tag": tag, "v": vecs}), encoding="utf-8")
+    from modules import file_resource_guard, release_guard
+    # Cache updates are intentional replacements, but a private partial JSON
+    # must not leak to another process or overlap a deleted study source.
+    with file_resource_guard.claim_paths(f):
+        release_guard.atomic(
+            f, json.dumps({"tag": tag, "v": vecs}).encode('utf-8'),
+        )
     return vecs
 
 
