@@ -159,6 +159,14 @@ class VoiceSession:
         being watched. On a completed receipt, the SAME worker continues to
         the newest one. Never start N wakeword threads for N progress notices.
         """
+        # Some standalone speech fixtures construct VoiceSession without the
+        # engine __init__. Production always installs these fields in __init__;
+        # the lazy branch preserves compatibility with those no-device callers.
+        if not hasattr(self, "_barge_lock"):
+            self._barge_lock = threading.Lock()
+            self._barge_thread = None
+            self._barge_pending = None
+            self._barge_closed = threading.Event()
         with self._barge_lock:
             if self._barge_closed.is_set():
                 return
@@ -262,8 +270,10 @@ class VoiceSession:
             return
 
         def stopped() -> bool:
+            closed = getattr(self, "_barge_closed", None)
             return (done.is_set() or runtime.stop_event.is_set()
-                    or self._barge_closed.is_set() or not runtime.flags["mic"])
+                    or (closed is not None and closed.is_set())
+                    or not runtime.flags["mic"])
 
         # The wake microphone is the same capture device the recorder uses, and the
         # engine owns it under audio_lock. Opening this second stream outside that
