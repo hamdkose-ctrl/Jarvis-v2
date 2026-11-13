@@ -6,7 +6,7 @@ soru tipi önceliğini belirler. Her profilin kaynakları ve ilerlemesi ayrıdı
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
-import json, logging, math, re, shutil, threading, time, hashlib, uuid
+import json, logging, math, os, re, shutil, tempfile, threading, time, hashlib, uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +40,30 @@ def _dir(profile):
     d = ROOT / profile.slug
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _publish_new_study_file(destination: Path, *, content: bytes | None = None,
+                            source: Path | None = None) -> None:
+    """Create-only publish a fully written study artifact (caller owns OS claims)."""
+    if (content is None) == (source is None):
+        raise ValueError('One study source is required.')
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='wb', prefix='.jarvis-study-', suffix='.tmp',
+                dir=destination.parent, delete=False) as stream:
+            staged = Path(stream.name)
+            if source is not None:
+                with source.open('rb') as incoming:
+                    shutil.copyfileobj(incoming, stream)
+            else:
+                stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(staged, destination)
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
 
 
 def _state(profile):
@@ -156,22 +180,52 @@ def _add(profile, path, kind="book", year=None, period="", session="", *, title=
     with _jobs_lock:
         if generation is not None and generation != _state(profile).get('source_generation',0):
             raise ValueError('Kaynak yüklemesi iptal edildi; kaynaklar temizlendikten sonra yeniden eklenmedi.')
-        item['id']=profile._new_id()
-        if source_hash: item['source_hash']=source_hash
-        (_dir(profile) / f"{item['id']}.txt").write_text(text, encoding="utf-8")
+        from modules import file_resource_guard
+        item['id'] = profile._new_id()
+        if source_hash:
+            item['source_hash'] = source_hash
+        directory = _dir(profile)
+        outputs = [
+            (directory / f"{item['id']}.txt", text.encode('utf-8'), None),
+        ]
         if pages and kind != "exam":
-            # PDF sayfa sınırlarını ayrıca koru; cevaplarda kaynak sayfası gösterilebilsin.
-            (_dir(profile) / f"{item['id']}.pages.json").write_text(
-                json.dumps({"pages": pages}, ensure_ascii=False), encoding="utf-8")
+            outputs.append((
+                directory / f"{item['id']}.pages.json",
+                json.dumps({"pages": pages}, ensure_ascii=False).encode('utf-8'),
+                None,
+            ))
         if p.suffix.lower() == '.pdf' and p.is_file():
-            shutil.copyfile(p, _dir(profile) / f"{item['id']}.source.pdf")
+            outputs.append((directory / f"{item['id']}.source.pdf", None, p))
             item['original_pdf'] = True
-        state = _state(profile)
-        state.setdefault("docs", []).append(item)
-        if kind == "exam":
-            state.pop("exam_analysis", None)
-        profile.save()
-        return item
+        # Cross-process ownership of ALL paths prevents another Jarvis
+        # instance from stealing the same source ID; a duplicate or crashed
+        # orphan is never silently overwritten. No new profile/GoalState store.
+        with file_resource_guard.claim_paths(p, *(row[0] for row in outputs)):
+            written = []
+            state = _state(profile)
+            old_analysis = state.get('exam_analysis')
+            appended = False
+            try:
+                for destination, content, copy_from in outputs:
+                    _publish_new_study_file(
+                        destination, content=content, source=copy_from,
+                    )
+                    written.append(destination)
+                state.setdefault('docs', []).append(item)
+                appended = True
+                if kind == 'exam':
+                    state.pop('exam_analysis', None)
+                profile.save()
+                return item
+            except Exception:
+                _record_failure('modules/study.py:_add:publish')
+                if appended:
+                    state['docs'].remove(item)
+                    if kind == 'exam' and old_analysis is not None:
+                        state['exam_analysis'] = old_analysis
+                for target in reversed(written):
+                    target.unlink(missing_ok=True)
+                raise
 
 
 def add(profile, path):
