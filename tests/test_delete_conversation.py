@@ -61,6 +61,16 @@ class DeleteConversationTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(),before)
         self.assertFalse(list(Path(self.temp.name).glob('.history-delete-*')))
 
+    def test_failed_delete_does_not_publish_deleted_ids_to_ui(self):
+        before = self.path.read_bytes()
+        selected = set()
+        with patch.object(history.os, 'replace',
+                          side_effect=OSError('durable replace failed')):
+            with self.assertRaises(OSError):
+                history.delete_day('alice', '2026-10-07', selected)
+        self.assertEqual(selected, set())
+        self.assertEqual(self.path.read_bytes(), before)
+
     def test_deleted_rows_do_not_return_from_live_log(self):
         owner=SimpleNamespace(slug='alice',name='Alice');state=SimpleNamespace(last_doc='cached')
         events=[{'user':'Alice','hid':'old'},{'user':'Alice','hid':'selected'},{'user':'Bob','hid':'selected'}]
