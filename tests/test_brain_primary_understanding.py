@@ -194,6 +194,47 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
             proposal, guarded, protected_relation=True,
             resolving_file_ambiguity=False, has_grounded_reference=False))
 
+class Brain03FinanceAndMailModelProposalTests(unittest.TestCase):
+    """The primary model must reach typed Core without reviving raw parsers."""
+
+    def test_finance_alarm_add_has_grounded_asset_and_threshold(self):
+        text = "USD 33 TL üstüne çıkarsa haber ver"
+        row = action(capability_id="finance.alert.manage", arguments={
+            "operation": "add", "asset": "USD", "value": "33",
+            "direction": "above"})
+        row["argument_sources"] = {"asset": "USD", "value": "33"}
+        base, result = applied(text, envelope(actions=[row]))
+        self.assertIsNot(base, result)
+        self.assertEqual(result.capability_hint, "finance.alert.manage")
+        self.assertEqual(core_plan(result.capability_hint, result.arguments), (
+            "finance_alert_manage", {"operation": "add", "kind": "doviz",
+                                     "symbol": "USD", "direction": "above",
+                                     "value": 33.0}))
+
+    def test_finance_alarm_delete_requires_verbatim_user_ordinal(self):
+        row = action(capability_id="finance.alert.manage", arguments={
+            "operation": "delete", "index": 1})
+        row["argument_sources"] = {"index": "1"}
+        base, result = applied("alarmı sil 1", envelope(actions=[row]))
+        self.assertIsNot(result, base)
+        self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                         ("finance_alert_manage", {"operation": "delete", "index": 1}))
+        base, forged = applied("alarmı sil", envelope(actions=[row]))
+        self.assertIs(forged, base)
+
+    def test_mail_source_selected_by_model_is_read_only_core_intent(self):
+        base, result = applied(
+            "iş maillerimi kontrol et",
+            envelope(actions=[action(capability_id="mail.read",
+                                     arguments={"source": "work"})]))
+        self.assertIsNot(result, base)
+        self.assertEqual(result.capability_hint, "mail.read")
+        self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                         ("mail_read", {"source": "work"}))
+        self.assertIsNone(core_plan("mail.read",
+                                    {"source": "work", "send": True}))
+
+
 class NoHintPreconditionTests(unittest.TestCase):
     """`current.capability_hint` model önerisinin ön koşulu olamaz (BRAIN-MIG-108)."""
 
