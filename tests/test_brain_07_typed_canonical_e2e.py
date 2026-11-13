@@ -23,7 +23,7 @@ from unittest.mock import Mock, patch
 from test_brain_pr3_raw_text_authority import _CanonicalAuthorityHarness
 from modules import (
     account_tools, brain_entry, canonical_goal_flow, canonical_plan_evidence,
-    canonical_scheduler_dispatch, execution_record, goal_executor,
+    canonical_scheduler_dispatch, execution_record, goal_executor, goal_job_control,
     goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
     smart_router, task_agents, task_queue, task_results, untrusted_flow,
     scheduler_resource_gate,
@@ -103,10 +103,14 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
     def persisted(self, job_id):
         root = goal_executor._owner_root(self.owner)
-        return (
-            goal_state_store.load(root / (job_id + '.goalstate.json')),
-            execution_record.load(root, self.owner, job_id),
-        )
+        # Windows can hold an open read handle across os.replace. Share the
+        # production job lock: test polling must not prevent the Scheduler's
+        # verified delivery receipt from being atomically committed.
+        with goal_job_control.locked(root, job_id):
+            return (
+                goal_state_store.load(root / (job_id + '.goalstate.json')),
+                execution_record.load(root, self.owner, job_id),
+            )
 
     def test_parallel_typed_turns_share_one_router_stub_without_global_leak(self):
         """Regression: nested monkeypatches in parallel left a fake router
