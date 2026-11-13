@@ -232,6 +232,29 @@ class FileEffectClaimTests(unittest.TestCase):
                 media_studio.run('alice', data, 'ffmpeg', output)
         self.assertEqual(list(output.iterdir()), [], 'Partial studio video survived')
 
+    def test_studio_publishes_one_complete_video_without_staging_files(self):
+        from modules import media_studio
+        output = self.base / 'studio-success'
+        output.mkdir()
+        data = {'scenes': [{'caption': 'Hello', 'duration': 1}]}
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'synthetic complete video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        with patch.object(media_studio, '_frame',
+                          side_effect=lambda scene, size, path: path.write_bytes(b'frame')), \
+             patch.object(media_studio.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_studio.media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}):
+            result = media_studio.run('alice', data, 'ffmpeg', output)
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(Path(result['file']).read_bytes(), b'synthetic complete video')
+        self.assertEqual(list(output.iterdir()), [Path(result['file'])])
+        self.assertEqual(result['sha256'],
+                         media_studio.task_results.file_digest(result['file']))
+
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
         target.write_text('original', encoding='utf-8')
