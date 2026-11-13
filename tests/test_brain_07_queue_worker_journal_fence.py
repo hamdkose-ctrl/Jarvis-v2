@@ -118,6 +118,31 @@ class DurableQueuedWorkerFenceTests(unittest.TestCase):
         self.assertNotEqual(durable['tasks'][0]['state'], 'done')
         self.assertNotIn('a', durable['outputs'])
 
+    def test_queue_lease_stolen_inside_provider_fences_next_read_and_no_result(self):
+        qid = task_queue.enqueue('alice', [{'id': 'a', 'agent': 'verify'}])
+        reached = []
+        def revoke_then_probe(owner, task, deps):
+            reached.append('first_action')
+            with service_store.database(owner) as db:
+                db.execute(
+                    'UPDATE queue SET lease_token=? WHERE id=?',
+                    ('another-live-generation', qid),
+                )
+            # The next read/provider step checks the cooperative queue fence.
+            requests_state.check()
+            reached.append('unsafe_second_action')
+            return {'state': 'done', 'text': 'untrusted'}
+        with patch.object(task_agents, 'worker', side_effect=revoke_then_probe):
+            task_queue.tick('alice')
+        self.assertEqual(reached, ['first_action'])
+        self.assertEqual(task_queue.rows('alice')[0]['state'], 'running')
+        job_id = task_queue.rows('alice')[0]['job_id']
+        saved = task_agents._load('alice', job_id)
+        self.assertNotEqual(saved['state'], 'done')
+        self.assertNotIn('a', saved['outputs'])
+        # The queue worker probe may not contaminate the foreground thread.
+        requests_state.check()
+
     def test_expired_generation_is_rejected_before_first_worker(self):
         qid = task_queue.enqueue('alice', [{'id':'a', 'agent':'verify'}])
         assigned = task_queue.rows('alice')[0]['job_id']

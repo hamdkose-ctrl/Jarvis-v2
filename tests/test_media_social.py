@@ -25,6 +25,28 @@ class MediaSocialTests(unittest.TestCase):
         Path(out['file']).write_bytes(b'changed')
         with self.assertRaises(ValueError):task_results.verify(out)
 
+    def test_video_target_claim_refuses_parallel_ffmpeg_write(self):
+        from modules import file_resource_guard, resource_leases
+        from types import SimpleNamespace
+        output = self.root / 'Jarvis Görevler' / 'alice'
+        output.mkdir(parents=True)
+        identity = SimpleNamespace(hex='d' * 32)
+        final = output / ('d' * 12 + '-video.mp4')
+        with (patch.object(file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+                           self.root / 'account-file-claims'),
+              patch.object(media_tools.uuid, 'uuid4', return_value=identity),
+              patch.object(media_tools.shutil, 'which', return_value='ffmpeg'),
+              patch.object(media_tools, '_source', return_value=self.root / 'source.png'),
+              patch.object(media_tools.subprocess, 'run') as ffmpeg):
+            with file_resource_guard.claim_paths(final):
+                with self.assertRaises(resource_leases.LeaseConflict):
+                    media_tools.run('alice', {
+                        'image': 'source.png', 'image_sha256': 'f' * 64,
+                        'duration': 1,
+                    })
+            ffmpeg.assert_not_called()
+        self.assertFalse(final.exists())
+
     def test_missing_media_tools_does_not_use_paid_provider(self):
         with patch.object(media_tools.shutil,'which',return_value=None):
             self.assertEqual(media_tools.run('alice',{'image':'x.png','image_sha256':'x'})['state'],'unavailable')

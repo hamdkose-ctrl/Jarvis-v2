@@ -1,0 +1,23 @@
+# BRAIN-07 single-PR closeout — executable Windows regression matrix (13 Nov 2026)
+
+**Scope:** #614 is the ONE consolidation PR against #584. The existing Python validation suite is executed on Windows CI and the real Windows PC watcher; do not claim acceptance until **the same final source SHA** passes both. External mail/research APIs and audio/desktop provider interactions in these tests are synthetic. This is a reproducible *Windows regression matrix*, not proof of 15 actual hardware interactions or of OS accounts that were not available.
+
+| # | Concrete scenario | Executable unittest evidence | Limits |
+|---|---|---|---|
+| 1 | Two independent canonical research roots plus dependent child | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_real_worker_dispatch_projects_two_roots_then_dependent_child` | Synthetic research transport; real on-disk Core and journal |
+| 2 | Same owner, two independent goals occupy real Scheduler slots | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_two_independent_goals_same_owner_overlap_on_real_scheduler` | Provider mocked |
+| 3 | Different owners, bounded Scheduler fairness | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_registered_canonical_owner_gets_fair_next_slot` | Synthetic worker |
+| 4 | Duplicate wake does not rerun a canonical attempt | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_duplicate_wake_cannot_start_same_canonical_attempt` | First-attempt only |
+| 5 | Owner cancellation blocks stale worker before next external read | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_live_canonical_cancel_fences_next_provider_step_before_worker_result` | Cannot kill a currently blocked provider |
+| 6 | Goal replan blocks previous worker and CAS | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_live_canonical_plan_edit_fences_next_provider_step` | No automatic retry |
+| 7 | Worker deadline fences late Core success | `tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_real_scheduler_worker_deadline_fences_late_core_cas_no_replay` | Cooperative soft deadline |
+| 8 | A stolen SQLite queue generation blocks next provider/read | `tests.test_brain_07_queue_worker_journal_fence.DurableQueuedWorkerFenceTests.test_queue_lease_stolen_inside_provider_fences_next_read_and_no_result` | Existing `requests_state.check` boundaries only |
+| 9 | Different data roots contest same physical file path | `tests.test_brain_07_file_effect_claim.FileEffectClaimTests.test_distinct_data_roots_share_one_physical_file_claim` | Same OS account |
+| 10 | Different processes cannot silently overwrite one user's undo receipt | `tests.test_brain_07_file_effect_claim.FileEffectClaimTests.test_second_process_owning_receipt_blocks_file_effect_before_move` | An interrupted receipt remains a manual-review case |
+| 11 | Undo cannot consume a concurrent live receipt | `tests.test_brain_07_file_effect_claim.FileEffectClaimTests.test_second_process_owning_receipt_blocks_undo_until_release` | Same OS account |
+| 12 | Different process account claim conflicts and releases after exit | `tests.test_brain_07_cross_process_resource_claim.CrossProcessReadOnlyResourceClaimTests.test_account_claim_root_is_shared_between_owner_names_and_processes` | Provider-wide safe fallback; no authenticated external subject |
+| 13 | Native desktop held by second process cannot be replayed | `tests.test_brain_07_cross_process_native_desktop.CrossProcessNativeDesktopTests.test_distinct_data_roots_cannot_claim_same_physical_desktop` | Device adapter mocked |
+| 14 | Crash between Core terminal CAS and journal write preserves owner result | `tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_core_done_before_record_crash_preserves_owner_readable_result` | No resend of unknown delivery |
+| 15 | Scheduler restart only completes evidence-verified DAG, no worker replay | `tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_scheduler_restart_resumes_verified_completion_without_worker_replay` | Model/provider mocked |
+
+**Non-negotiable open evidence:** actual same-SHA CI and physical PC watcher; live provider verified account subject/connection ID (current provider-wide fallback intentionally serializes potentially separate accounts); native writers not integrated with file_resource_guard; hard transport timeout and 15 hardware/manual scenarios. No second Scheduler, autonomous capability installer, effect replay or unproved exactly-once semantics. #613 BRAIN-03 and #605 VOICE remain independent PRs. 

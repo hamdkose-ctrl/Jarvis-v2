@@ -54,6 +54,8 @@ class LiveCanonicalAccountLeaseTests(unittest.TestCase):
         for module, attr, value in (
             (goal_executor, 'STORE', self.root),
             (goal_executor, '_RESOURCE_LEASES', self.table),
+            (scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT',
+             self.root / 'os-account-provider-claims'),
         ):
             p = patch.object(module, attr, value)
             p.start()

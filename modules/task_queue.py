@@ -234,16 +234,32 @@ def tick(owner, notify=None):
         marker = task_agents._QUEUE_CLAIM.set(
             (owner, row['id'], row['job_id'], claim),
         )
+        from modules import requests_state
+        def check_queue_generation():
+            # Before NEXT external/model/read step, the durable SQLite claim
+            # must still own this exact queue generation. The existing journal
+            # CAS remains the final fence; this is only cooperative cancellation.
+            if lost.is_set():
+                raise requests_state.Cancelled('Queue heartbeat lost its owner.')
+            with service_store.database(owner) as db:
+                valid = db.execute(
+                    "SELECT 1 FROM queue WHERE id=? AND job_id=? AND "
+                    "state='running' AND lease_token=? AND lease>?",
+                    (row['id'], row['job_id'], claim, time.time()),
+                ).fetchone()
+            if valid is None:
+                raise requests_state.Cancelled('Queue claim changed before next action.')
         try:
-            if path.exists():
-                job = task_agents.continue_job(
-                    owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
-                )
-            else:
-                job = task_agents.execute(
-                    owner, tasks, row['instruction'],
-                    job_id=row['job_id'], queue_id=row['id'],
-                )
+            with requests_state.worker_probe(check_queue_generation):
+                if path.exists():
+                    job = task_agents.continue_job(
+                        owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
+                    )
+                else:
+                    job = task_agents.execute(
+                        owner, tasks, row['instruction'],
+                        job_id=row['job_id'], queue_id=row['id'],
+                    )
         finally:
             task_agents._QUEUE_CLAIM.reset(marker)
         state = 'done' if job['state'] == 'done' else 'cancelled' if job['state'] == 'cancelled' else 'blocked'
