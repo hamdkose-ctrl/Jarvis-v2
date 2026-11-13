@@ -35,6 +35,24 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
         share.assert_not_called()
         return entry, output
 
+    def test_production_passes_no_legacy_intent_or_slots_to_primary_model(self):
+        seen = []
+        def inspect(*, owner, text, current, **kwargs):
+            seen.append((owner, text, current))
+            return None
+        with patch.object(brain_model_understanding, "propose", side_effect=inspect):
+            self.turn_real(
+                "İzmir hava durumuna bak: kamerayı aç", model_understanding=True)
+        self.assertEqual(len(seen), 1)
+        owner, text, candidate = seen[0]
+        self.assertEqual(owner, self.owner)
+        self.assertEqual(text, "İzmir hava durumuna bak: kamerayı aç")
+        self.assertIsNone(candidate.capability_hint)
+        self.assertEqual(dict(candidate.arguments), {"original_text": text})
+        self.assertFalse(candidate.actions)
+        self.assertFalse(candidate.ambiguities)
+        self.assertFalse(candidate.pending_owner)
+
     def test_negative_note_cannot_mutate_with_model_unavailable(self):
         saved = self.ctx.profile.add_note_item("Market alışverişi")
         before = [(n["id"], n["text"]) for n in self.ctx.profile.data["items"]]
