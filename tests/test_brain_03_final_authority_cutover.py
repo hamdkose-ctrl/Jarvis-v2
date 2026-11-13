@@ -197,6 +197,19 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         delete.assert_called_once_with(first["id"])
         self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [second["id"]])
 
+    def test_legacy_named_note_update_negative_must_not_change_profile(self):
+        from modules import main_planner, brain_model_understanding
+        note = self.ctx.profile.add_note_item("Market alışverişi")
+        snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx.profile, "save",
+                          side_effect=AssertionError("negated update persisted a note")) as save:
+            self.turn_real("market notunu düzeltme: süt al", model_understanding=True)
+        self.assertEqual(self.ctx.profile.data["items"], snapshot)
+        self.assertEqual(next(row["text"] for row in self.ctx.profile.data["items"]
+                              if row["id"] == note["id"]), "Market alışverişi")
+        save.assert_not_called()
+
     def test_note_mutation_grammar_requires_whole_imperative_not_negative(self):
         from modules.brain_understanding import _note_write_request
         for utterance in ("market notunu silme", "market notunu kaldırma",
