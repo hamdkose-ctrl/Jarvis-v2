@@ -80,6 +80,15 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             close_application=Mock(return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True)),
             open_application=Mock(return_value=ApplicationResult("Chrome penceresi açık; açılışını doğruladım.", ok=True)),
         )
+        # A mocked successful volume write must have a matching *independent*
+        # readback in tests that intentionally simulate success. Failure and
+        # mismatch cases use dedicated explicit readback test doubles.
+        def observed_volume():
+            write = self.ctx.system_control.set_volume
+            if write.call_args and write.return_value is True:
+                return write.call_args.args[0]
+            return 40
+        self.ctx.system_control.current_volume.side_effect = observed_volume
         self.ctx.desktop = Mock(screenshot=Mock(return_value="EKRAN GÖRÜNTÜSÜ"), system_status=Mock(return_value="SISTEM"))
         self.ctx._weather = Mock(return_value="HAVA")
         self.ctx.voice = Mock(stop_speaking=Mock())
