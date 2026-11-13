@@ -1835,7 +1835,6 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         (engine_commands, "handle", "pending_organize", "apply_organize"),
         (engine_commands, "handle", "pending_weather_location", "core_dispatch"),
         (engine_commands, "handle", None, "continue_app"),
-        (main_planner, "_planner_command", "pending_event_title", "_reminder_or_confirm"),
         (command_manager, "dispatch", "pending_action", "continue_voice"),
         (command_manager, "dispatch", "pending_desktop", "consent_reply"),
     )
@@ -2117,6 +2116,26 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         ]
         self.assertTrue(rebinding)
         self.assertLess(min(node.lineno for node in fences), min(rebinding))
+
+    def test_reminder_pending_answer_is_fenced_in_both_engine_and_worker(self):
+        # The retired planner command is no longer the event-title consumer.
+        # Its single production owner is engine_commands.handle ->
+        # main_planner.continue_pending_event_title, each gated by the same
+        # canonical pending-answer ownership, not another NLP interpreter.
+        tree, handler = self._func(engine_commands, "handle")
+        candidates = [
+            node for node in ast.walk(handler)
+            if isinstance(node, ast.If)
+            and self._mentions(node.test, "pending_event_title")
+            and self._mentions(node.test, "pending_answer_owned")
+        ]
+        self.assertTrue(candidates)
+        self.assertTrue(any(
+            self._calls(branch, "continue_pending_event_title")
+            for branch in candidates))
+        _tree, worker = self._func(main_planner, "continue_pending_event_title")
+        self.assertTrue(self._calls(worker, "pending_answer_owned"))
+        self.assertFalse(hasattr(main_planner, "_planner_command"))
 
     def test_every_legacy_pending_consumer_is_fenced_by_the_canonical_turn_owner(self):
         for module, func_name, field, consumer in self.CONSUMERS:
