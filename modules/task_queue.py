@@ -341,8 +341,15 @@ def is_cancelled(owner,qid):
         return not row or row['state']=='cancelled'
 
 
+def scheduler_active():
+    """True only when the existing engine-owned poll loop is live."""
+    with _START_LOCK:
+        return bool(_THREAD is not None and _THREAD.is_alive())
+
+
 def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
-          canonical_profile_resolver=None, canonical_result_notify=None):
+          canonical_profile_resolver=None, canonical_result_notify=None,
+          canonical_plan_notify=None):
     """One engine-owned scheduler loop, dispatching bounded owner workers.
 
     Queue workers use tick() and its existing SQLite claim. Optional canonical
@@ -383,6 +390,50 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
             _LAST_ADMITTED[owner]=time.monotonic()
             worker.start()
             return True
+
+        def admit_planning(owner, profile):
+            """FIRST planning attempt uses the SAME owner pool and poll loop."""
+            from modules import canonical_planning_queue
+            for key, worker in tuple(_CANONICAL_WORKERS.items()):
+                if not worker.is_alive():
+                    _CANONICAL_WORKERS.pop(key, None)
+            if (len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS
+                    or sum(key[0] == owner for key in _CANONICAL_WORKERS)
+                       >= _MAX_CANONICAL_PER_OWNER
+                    or getattr(profile, "slug", None) != owner):
+                return
+            room = min(
+                _MAX_CANONICAL_WORKERS - len(_CANONICAL_WORKERS),
+                _MAX_CANONICAL_PER_OWNER -
+                sum(key[0] == owner for key in _CANONICAL_WORKERS),
+            )
+            for job_id in canonical_planning_queue.discover(owner, max_results=min(3, room)):
+                key = (owner, job_id, "__planning__", 1)
+                if key in _CANONICAL_WORKERS:
+                    continue
+
+                def work(pinned_owner=owner, pinned_profile=profile, planned_job=job_id):
+                    from modules import runtime_worker_result
+                    token = llm._key_context.set(pinned_owner)
+                    try:
+                        if not stop_event.is_set():
+                            deadline = runtime_worker_result.CanonicalWorkerDeadline(
+                                stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS)
+                            result = canonical_planning_queue.execute(
+                                pinned_profile, planned_job, stop_event=deadline)
+                            if result in ("planned", "review") and canonical_plan_notify is not None:
+                                canonical_plan_notify(pinned_owner, planned_job, result)
+                    except Exception:
+                        _record_failure("modules/task_queue.py:planning_dispatch")
+                    finally:
+                        llm._key_context.reset(token)
+
+                worker = threading.Thread(
+                    target=work, daemon=True,
+                    name="jarvis-canonical-planner-" + owner[:16])
+                _CANONICAL_WORKERS[key] = worker
+                _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
+                worker.start()
 
         def admit_canonical(owner, profile):
             from modules import canonical_scheduler_dispatch
@@ -525,6 +576,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                         try:
                             profile = canonical_profile_resolver(registered_owner)
                             if getattr(profile, 'slug', None) == registered_owner:
+                                admit_planning(registered_owner, profile)
                                 admit_canonical(registered_owner, profile)
                                 admit_recovered_completion(registered_owner)
                         except Exception:
