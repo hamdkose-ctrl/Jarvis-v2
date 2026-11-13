@@ -209,6 +209,33 @@ class FileEffectClaimTests(unittest.TestCase):
                 task_agents.worker('alice', task, {})
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_studio_scene_source_is_claimed_before_frame_render(self):
+        """Storyboard must not read a scene from a concurrently held file."""
+        from modules import media_studio, nxapi
+        root = self.base / 'studio-source-claims'
+        root.mkdir()
+        image = root / 'scene.png'
+        image.write_bytes(b'verified source')
+        digest = media_studio.task_results.file_digest(image)
+        output = root / 'Jarvis Görevler' / 'alice'
+        output.mkdir(parents=True)
+        frame_calls = []
+        child = self.holder(image, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_studio, '_frame',
+                              side_effect=lambda *args: frame_calls.append(args)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_studio.run('alice', {
+                        'scenes': [{'image': str(image),
+                                    'image_sha256': digest, 'duration': 1}],
+                    }, 'ffmpeg', output)
+            self.assertEqual(frame_calls, [], 'A claimed scene was read before locking')
+            self.assertEqual(image.read_bytes(), b'verified source')
+            self.assertEqual(list(output.iterdir()), [])
+        finally:
+            self.close_holder(child)
+
     def test_studio_final_publish_failure_leaves_no_partial_video(self):
         """A failed final copy is never a successful video artifact."""
         from modules import media_studio
