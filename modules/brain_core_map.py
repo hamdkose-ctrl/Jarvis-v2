@@ -745,6 +745,7 @@ def _translate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 _SCREEN_TEXT_OPERATIONS = frozenset({"read", "copy", "error_note"})
 _SHARE_OPERATIONS = frozenset({"screen", "camera", "stop"})
 _VOICE_RATE_DIRECTIONS = frozenset({"faster", "slower"})
+_VOICE_SELECT_KEYS = frozenset({"tr_erkek", "tr_kadin", "ml_erkek", "ml_kadin", "ml_erkek2", "ml_kadin2"})
 
 
 def _study_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -988,6 +989,13 @@ def _voice_rate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"direction": direction}
 
 
+def _voice_select_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "key"}:
+        return None
+    key = arguments.get("key")
+    return {"key": key} if type(key) is str and key in _VOICE_SELECT_KEYS else None
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -1183,6 +1191,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "screen.text": ("screen_text", _screen_text_args),
     "device.share": ("share_control", _share_args),
     "voice.rate": ("voice_rate", _voice_rate_args),
+    "voice.select": ("voice_select", _voice_select_args),
     "brief.read": ("daily_brief", _empty_action_args),
     "workbench.followup": ("workbench_followup", _workbench_followup_args),
     "study.read": ("study_read", _study_read_args),
