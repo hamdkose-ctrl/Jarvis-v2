@@ -74,6 +74,21 @@ class GoalTests(unittest.TestCase):
         self.assertIn('kanıtı bu listede doğrulanmaz', answer)
         self.assertNotIn('Yeni bitmiş hedef', answer)
 
+    def test_last_closed_goal_fast_status_is_lightweight_not_unverified_success(self):
+        root=goals._root('alice')
+        ident='b'*16
+        (root/(ident+'.json')).write_text(json.dumps({
+            'id':ident, 'owner':'alice', 'request':'Kapanmış büyük rapor',
+            'state':'done', 'goals':[], 'steps':[{'id':'s1','state':'done'}],
+            'outputs':{'s1':{'state':'done','file':'/unknown/big-report.pdf'}},
+        }),encoding='utf-8')
+        with patch('modules.result_presentation.inspect_job',
+                   side_effect=AssertionError('Status may not rehash file')):
+            summary=goals.fast_status('alice')
+        self.assertIn('Son hedef', summary)
+        self.assertIn('kanıt kontrol edilmedi', summary)
+        self.assertNotIn('/unknown/big-report.pdf', summary)
+
     def test_fast_goal_status_does_not_present_unverified_done_as_success(self):
         with patch.object(goals, 'open_jobs', return_value=[{
             'id': 'a'*16, 'owner': 'alice', 'request': 'Büyük rapor',
