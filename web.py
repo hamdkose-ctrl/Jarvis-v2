@@ -696,7 +696,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
 
     # ------------------------------------------------------------ ayarlar
     def settings(self) -> dict:
-        from modules import local_stt, stt_fixes
+        from modules import local_stt, stt_fixes, voice
         s = config.load_settings()
         public_saved = {key: value for key, value in s.items()
                         if key not in ('youtube_key', 'youtube_key_protected')}
@@ -706,6 +706,11 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                 "announce_unknown": bool(config.ANNOUNCE_UNKNOWN), "camera_index": config.CAMERA_INDEX,
                 "wake_engine": _wakeword().mode(), "wake_status": _wake_note(),
                 "wake_sensitivity": int(s.get("wake_sensitivity") or 3), "stt_engine": s.get("stt_engine") or "gemini",
+                # Configured preference and the actually usable automatic
+                # provider are different when policy disables Gemini audio.
+                # Never mislabel a manual-only local button as always-on STT.
+                "stt_effective_engine": voice._engine(),
+                "stt_manual_button_engine": ("local" if s.get('local_stt_enabled', False) else voice._engine()),
                 "local_stt_enabled": bool(s.get('local_stt_enabled', False)), "local_stt_model": s.get('local_stt_model') or 'small', "local_stt_beam": local_stt.beam_size(),
                 "stt_words": s.get("stt_words") or "", "followup_no_wake": bool(s.get("followup_no_wake")), "hoca_enabled": bool(s.get("hoca_enabled", True)),
                 "voice_mic_during_model_wait": bool(s.get("voice_mic_during_model_wait", True)),

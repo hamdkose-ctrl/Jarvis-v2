@@ -223,21 +223,79 @@ def _job_stamps(root):
 
 
 def open_jobs(owner,*,limit=_MAX_GOAL_CARDS):
-    """Read-only view of the owner's own still-open goals, most recently moved first.
+    """Read the most recent *open* goals, not merely the first recent files.
 
-    Korunan kayıtlar okunabilir kalmalı: bayat bir kayıt kart listesini düşürmez, ama bozuk bir
-    kayıt da sessizce yutulmaz — okuma hatası çağırana ulaşır ve orada fail-closed olur. Okuma
-    sayısı en yeni `limit*2` kimlikle sınırlıdır; `limit` açık kayıt bulununca erken dönülür."""
+    Many completed canonical jobs do not update legacy latest.json. The old
+    limit*2 prefilter silently hid a live goal behind enough newer completed
+    records. Scan the existing journals until we find enough open goals; keep
+    the user/model card limit bounded and create no second index/store.
+    """
+    if type(limit) is not int or not 1 <= limit <= _MAX_GOAL_CARDS:
+        raise ValueError('Açık hedef kartı sınırı geçersiz.')
     root=_owner_root(owner)
     if not root.is_dir():return []
     rows=[]
-    ids=_job_stamps(root)
-    for ident in ids[:max(1,limit)*2]:
+    for ident in _job_stamps(root):
         job=read_job(owner,ident)
-        if is_open(job):rows.append(job)
-        if len(rows)>=limit:break
+        if is_open(job):
+            rows.append(job)
+            if len(rows)>=limit:
+                break
     rows.sort(key=lambda job:(_priority(job),job.get('updated') or job.get('created') or 0),reverse=True)
-    return rows[:limit]
+    return rows
+
+
+def _fast_progress_card(job):
+    """Metadata-only progress, NEVER an accepted output or success receipt.
+
+    Do not rehash potentially large reports while the user only asks which
+    goal is running. Full details still use status_summary/render evidence
+    verification. In particular a 'done' journal does not certify success.
+    """
+    states={'running':'çalışıyor','pending':'sırada','paused':'duraklatıldı',
+            'approval':'onay bekliyor','question':'yanıt bekliyor',
+            'review':'sonuç inceleme bekliyor','blocked':'engellendi',
+            'done':'tamamlanma kaydı var (kanıt kontrol edilmedi)',
+            'cancelled':'iptal kaydı var','failed':'başarısızlık kaydı var'}
+    request=job.get('request','')
+    title=privacy.redact(' '.join(request.split())[:100],force=True) if isinstance(request,str) else ''
+    steps=job.get('steps')
+    count=len(steps) if isinstance(steps,list) else 0
+    marked=sum(isinstance(row,dict) and row.get('state')=='done'
+               for row in steps) if isinstance(steps,list) else 0
+    return (f"{job['id']} · {title or 'Başlıksız hedef'} · "
+            f"{states.get(job.get('state'),'durum belirsiz')} · "
+            f"{marked}/{count} adım kaydı")
+
+
+def fast_status(owner,*,details=False):
+    """Owner-scoped unified goal read for the pre-queue status protocol.
+
+    This combines legacy and canonical ExecutionRecord journals without any
+    WorkerResult read/admission, model call, new Scheduler or success claim.
+    The full output proof path is used for explicit details only.
+    """
+    jobs=open_jobs(owner)
+    if jobs:
+        if details and len(jobs)==1:
+            return render(jobs[0])
+        if details:
+            return ('Birden fazla açık hedef var; ayrıntı için hedef kartından '
+                    'kimliğiyle birini seç.\n' +
+                    '\n'.join(_fast_progress_card(job) for job in jobs))
+        return ('Açık hedefler (hızlı ilerleme kaydı; sonuç kanıtı bu listede '
+                'doğrulanmaz):\n' +
+                '\n'.join(_fast_progress_card(job) for job in jobs))
+    root=_owner_root(owner)
+    if not root.is_dir():
+        return 'Kayıtlı hedef yok.'
+    for ident in _job_stamps(root):
+        job=read_job(owner,ident)
+        if job is not None:
+            return (render(job) if details else
+                    'Son hedef (kayıtlı durum; sonuç kanıtı bu hızlı '
+                    'sorguda doğrulanmaz):\n' + _fast_progress_card(job))
+    return 'Kayıtlı hedef yok.'
 
 
 def _priority(job):

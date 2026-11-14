@@ -148,6 +148,27 @@ def cancel(user, rid=None):
                 record['state'] = 'cancelled'
         _save_terminal_state()
 
+def cancel_unambiguous(user):
+    """Cancel one owner-bound live request, but never choose among multiple.
+
+    A bare spoken "dur" must not sweep unrelated queued/running turns.
+    This is an atomic in-process request decision, NOT a GoalState cancel:
+    canonical background goals must be cancelled through their job identity.
+    Returns ("cancelled", rid), ("ambiguous", None) or ("none", None).
+    """
+    with _lock:
+        now = time.monotonic()
+        active = [key for key, record in _records.items()
+                  if key[0] == user and record['state'] in ('queued', 'running')
+                  and record['deadline'] > now]
+        if len(active) != 1:
+            return ('ambiguous' if active else 'none'), None
+        key = active[0]
+        _records[key]['state'] = 'cancelled'
+        _save_terminal_state()
+        return 'cancelled', key[1]
+
+
 @contextmanager
 def activate(user, rid, *, complete=True):
     token = _current.set((user,rid))

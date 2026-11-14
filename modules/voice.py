@@ -150,11 +150,13 @@ def _google_text(audio) -> str:
 
 
 def _engine() -> str:
-    """Yazıya çevirme: 'gemini' (isabetli, varsayılan), 'google' (eski, ücretsiz web servisi) ya da 'off'.
+    """Actual automatic STT backend, not the saved preferred backend.
 
-    Gizli ve yalnızca-yerel modda ses HİÇBİR servise gönderilmez ('off'): bu bilgisayarda çevrimdışı ses tanıma
-    olmadığı için sesli komut bu modlarda kapalıdır, komutlar yazıyla verilir. (Eskiden bu modlarda Google'ın
-    web servisine geçiliyordu; yani "buluta hiçbir şey gitmez" denirken ses Google'a gidiyordu.)"""
+    Normal mode currently selects Google if Gemini auxiliary audio is barred,
+    even when the saved setting says Gemini. Private/local modes return 'off'
+    for automatic CLOUD STT; an explicitly enabled local STT button is a
+    separate manual path and never silently falls back to cloud audio.
+    """
     if privacy.mode() in ("gizli", "yerel"):
         return "off"
     from modules import llm
@@ -205,7 +207,7 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
               local: bool = False) -> str | None:
     """gate=True: "Hey Jarvis" denmeden dinlenen seslerde (sohbet devam ederken) önce gerçekten konuşma var mı diye bakılır;
     gürültü Gemini'ye "Hitachi" gibi uydurma bir komut olarak yazdırılmasın."""
-    """Kaydedilmiş sesi (16 kHz, 16 bit) yazıya çevirir: önce Gemini (kelime ipuçlarıyla), olmazsa Google. Anlaşılmazsa None."""
+    """Transcribe 16 kHz PCM using the *effective* engine or explicit local path; no implicit private-mode cloud fallback."""
     if not raw:
         return None
     if local:

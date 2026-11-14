@@ -59,31 +59,38 @@ class StatusSummaryTests(unittest.TestCase):
             self.assertEqual(self.handle('hedef ayrıntıları'), expected)
             self.assertIn(self.body, expected)
 
-    def test_submit_status_uses_summary_but_details_keep_render(self):
+    def test_submit_status_uses_unified_reader_and_explicit_detail_proof_path(self):
         from contextlib import nullcontext
         from unittest.mock import Mock
         from modules import engine_queue
-        for state in ('cancelled', 'done', None):
-            job = dict(self.job, state=state) if state else None
-            for command in ('hedef durumu', 'işin durumu', 'hedef ayrıntıları'):
-                with self.subTest(state=state, command=command):
-                    profile = SimpleNamespace(name='Alice', slug='alice')
-                    rt = SimpleNamespace(_tr_lower=str.casefold, slugify=lambda value: 'alice',
-                        pc_profile=lambda: profile, _get_profile=Mock(return_value=profile),
-                        _emit_for=Mock(), events=Mock(),
-                        requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a: nullcontext()))
-                    with patch.object(goals, 'latest', return_value=job) as latest, \
-                         patch.object(goals, '_check_news_completion'), \
-                         patch.object(goals, 'run', side_effect=AssertionError('Durum sorgusu hedef yürütmemeli')):
-                        expected = ('Kayıtlı hedef yok.' if job is None else
-                            goals.render(job) if command == 'hedef ayrıntıları' else goals.status_summary(job))
-                        self.assertTrue(engine_queue.submit(rt, command, source='yazı', user='Alice', rid='test-rid'))
-                    latest.assert_called_once_with('alice')
-                    rt.requests_state.register.assert_called_once_with('alice', 'test-rid')
-                    rt._emit_for.assert_any_call(profile, 'user', command, 'yazı', rid='test-rid')
-                    rt._emit_for.assert_any_call(profile, 'assistant', expected, 'yazı', rid='test-rid')
-                    self.assertEqual(rt._emit_for.call_count, 2)
-                    rt.events.put.assert_not_called()
+        for command in ('hedef durumu', 'işin durumu', 'hedef ayrıntıları'):
+            with self.subTest(command=command):
+                profile=SimpleNamespace(name='Alice', slug='alice')
+                rt=SimpleNamespace(_tr_lower=str.casefold, slugify=lambda value:'alice',
+                    pc_profile=lambda:profile, _get_profile=Mock(return_value=profile),
+                    _emit_for=Mock(), events=Mock(),
+                    requests_state=SimpleNamespace(
+                        register=Mock(return_value=True),
+                        activate=lambda *a:nullcontext(),
+                    ))
+                expected='Birleşik owner-kapsamlı hedef görünümü'
+                with patch.object(goals,'fast_status',return_value=expected) as unified, \
+                     patch.object(goals,'latest',
+                                  side_effect=AssertionError('Eski latest tek sahip değil')), \
+                     patch.object(goals,'run',
+                                  side_effect=AssertionError('Durum sorgusu iş çalıştırmamalı')):
+                    self.assertTrue(engine_queue.submit(
+                        rt,command,source='yazı',user='Alice',rid='test-rid',
+                    ))
+                unified.assert_called_once_with('alice',
+                    details=(command=='hedef ayrıntıları'))
+                rt.requests_state.register.assert_called_once_with('alice','test-rid')
+                rt._emit_for.assert_any_call(
+                    profile,'user',command,'yazı',rid='test-rid')
+                rt._emit_for.assert_any_call(
+                    profile,'assistant',expected,'yazı',rid='test-rid')
+                self.assertEqual(rt._emit_for.call_count,2)
+                rt.events.put.assert_not_called()
 
     def test_duplicate_sources_and_missing_legacy_fields(self):
         self.job['outputs']['duplicate'] = dict(self.job['outputs']['a'])

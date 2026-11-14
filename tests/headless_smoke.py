@@ -44,9 +44,19 @@ with patch.object(pc_guide, 'handle', return_value='Önce şu klasörü aç.') a
     assert canonical('PC yardımı: fotoğraf gönderme', 'smoke-guide', 'pc.guide.start',
                      {'goal': 'fotoğraf gönderme'}) == 'Önce şu klasörü aç.'
     coach.assert_called_once()
-with patch.object(pc_guide, 'stop') as stop, patch.object(main.voice, 'stop_speaking'), patch.object(main.requests_state, 'cancel'):
+with patch.object(pc_guide, 'stop') as stop, \
+     patch.object(main.voice, 'stop_speaking') as voice_stop, \
+     patch.object(main.requests_state, 'cancel_unambiguous',
+                  return_value=('none', None)) as scoped, \
+     patch.object(main.requests_state, 'cancel') as cancel_all:
     main.submit('dur', 'yazı', main.pc_profile().name)
-    stop.assert_called_once()
+    scoped.assert_called_once_with(main.pc_profile().slug)
+    cancel_all.assert_not_called()
+    stop.assert_not_called()  # Bare stop cannot cancel an unrelated guide.
+    main.submit('rehberi durdur', 'yazı', main.pc_profile().name)
+    stop.assert_called_once_with(main.pc_profile().slug)
+    cancel_all.assert_not_called()
+    assert voice_stop.call_count == 2
 text = 'The pump must be inspected tomorrow.'
 main.emit('user', text)
 main.emit('assistant', 'Kısa özet')

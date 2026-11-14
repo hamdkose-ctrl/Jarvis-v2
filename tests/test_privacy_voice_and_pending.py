@@ -41,6 +41,15 @@ class PrivacyVoiceTests(unittest.TestCase):
         with patch.object(voice.privacy, "mode", return_value="normal"):
             self.assertIn(voice._engine(), ("gemini", "google"))
 
+    def test_saved_gemini_preference_does_not_mask_effective_google_stt(self):
+        from modules import voice
+        with patch.object(voice.privacy, 'mode', return_value='normal'), \
+             patch('modules.llm.gemini_aux_allowed', return_value=False), \
+             patch.object(voice.config, 'load_settings', return_value={'stt_engine': 'gemini'}):
+            self.assertEqual(voice._engine(), 'google')
+        with patch.object(voice.privacy, 'mode', return_value='yerel'):
+            self.assertEqual(voice._engine(), 'off')
+
     def test_no_continuous_microphone_stream_can_exist(self):
         # "Ses özel" hükmü eskiden live.enabled()'in her modda False dönmesiyle korunuyordu.
         # Canlı akış hattı emekli olduktan sonra hükmün taşıyıcısı kalmamıştır: üretimde
