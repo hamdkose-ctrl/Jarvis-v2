@@ -156,6 +156,30 @@ class IndependentGoalAdmissionTests(unittest.TestCase):
         self.assertEqual(len(self.journal("alice")), 1)
         self.assertTrue(self.runtime.events.empty())
 
+    def test_voice_create_imperative_without_colon_is_explicit_and_safe(self):
+        self.runtime.submit=lambda text, source: self.admit(
+            text, source=source, rid="spoken-create",
+        )
+        session=VoiceSession.__new__(VoiceSession)
+        session.runtime=self.runtime
+        with patch.object(brain_entry, "fast_lane",
+                          side_effect=AssertionError("No foreground semantic wait")):
+            self.assertTrue(session.submit_voice(
+                "Yeni bağımsız hedef oluştur, iki açık kaynağı karşılaştır"
+            ))
+        self.assertEqual(len(self.journal("alice")), 1)
+        self.assertFalse(self.runtime.pause_listening.is_set())
+        self.assertTrue(self.runtime.events.empty())
+
+    def test_conversational_question_about_new_goal_is_not_an_action(self):
+        with patch.object(brain_entry, "fast_lane", return_value=None):
+            self.assertTrue(self.admit(
+                "Yeni bağımsız hedef oluşturmak ne demek?",
+                source="ses", rid="not-create",
+            ))
+        self.assertEqual(self.journal("alice"), [])
+        self.assertEqual(self.runtime.events.qsize(), 1)
+
     def test_duplicate_background_goal_claim_is_still_idempotent(self):
         # Two independent request IDs are two jobs; reusing one ID does not
         # re-run the provider or publish a second GoalState record.
