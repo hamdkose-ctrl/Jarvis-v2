@@ -1,7 +1,7 @@
 """Core performance regression without relaxing owner, lease or schema safety."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -50,13 +50,13 @@ class SqliteHotPathTests(unittest.TestCase):
         self.assertFalse(any("CREATE TABLE" in statement
                              or "ALTER TABLE" in statement
                              or "PRAGMA TABLE_INFO" in statement for statement in upper))
-        with sqlite3.connect(self.root / "alice.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "alice.sqlite3")) as db, db:
             self.assertEqual(db.execute("SELECT expires FROM grants").fetchone()[0], 2)
 
     def test_existing_version_zero_database_migrates_without_losing_rows(self):
         self.root.mkdir(parents=True)
         path = self.root / "alice.sqlite3"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute("CREATE TABLE queue(id TEXT PRIMARY KEY,tasks TEXT,instruction TEXT,due REAL,state TEXT,job_id TEXT,created REAL,error TEXT)")
             db.execute("INSERT INTO queue(id,tasks,state) VALUES('old','[]','queued')")
             db.execute("CREATE TABLE outbox(id TEXT PRIMARY KEY,work_key TEXT UNIQUE,payload TEXT,digest TEXT,state TEXT,created REAL,updated REAL,receipt TEXT,error TEXT)")
@@ -98,12 +98,12 @@ class SqliteHotPathTests(unittest.TestCase):
     def test_unknown_future_schema_fails_closed(self):
         self.root.mkdir(parents=True)
         path = self.root / "alice.sqlite3"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute("PRAGMA user_version=99")
         with self.assertRaises(ValueError):
             with service_store.database("alice"):
                 self.fail("accepted unknown schema")
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 99)
 
 
