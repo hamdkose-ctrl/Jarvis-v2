@@ -14,6 +14,7 @@ from modules.diagnostics import record_failure as _record_failure
 DAILY_CHANNEL_LIMITS = {'gmail': 20, 'telegram': 30, 'whatsapp': 20, 'instagram': 5, 'youtube': 3}
 DAILY_TOTAL_LIMIT = 50
 DUPLICATE_WINDOW_SECONDS = 600
+APPROVAL_SECONDS = 120
 # Istanbul has used UTC+3 year-round since 2016; no Windows tzdata dependency.
 _ISTANBUL = timezone(timedelta(hours=3), 'Europe/Istanbul')
 _CHANNEL_NAMES = {'gmail': 'mail', 'telegram': 'Telegram', 'whatsapp': 'WhatsApp',
@@ -109,6 +110,7 @@ def prepare(owner, payload, work_key):
     if 'source_task' in payload or 'text_from_task' in payload:raise ValueError('Gönderim kaydında kaynak görev gerçek çıktıya çözülmüş olmalı.')
     if not isinstance(work_key,str) or not 1<=len(work_key)<=200:raise ValueError('Gönderim iş kimliği gerekli.')
     encoded=service_store.encode(payload);digest=_digest(payload);now=time.time()
+    connection_digest=services.connection_digest(owner,payload)
     with service_store.database(owner) as db:
         from modules import untrusted_flow
         flow = untrusted_flow.requires_approval(owner, work_key, payload)
@@ -120,8 +122,9 @@ def prepare(owner, payload, work_key):
                 db.execute('INSERT OR REPLACE INTO outbox_flow VALUES(?,1)', (existing['id'],))
             return existing['id']
         oid=uuid.uuid4().hex[:16]
-        db.execute('INSERT INTO outbox(id,work_key,payload,digest,state,created,updated,receipt,error) VALUES(?,?,?,?,?,?,?,?,?)',(oid,work_key,encoded,digest,'prepared',now,now,'{}',''))
+        db.execute('INSERT INTO outbox(id,work_key,payload,digest,state,created,updated,receipt,error,approval_expires) VALUES(?,?,?,?,?,?,?,?,?,?)',(oid,work_key,encoded,digest,'prepared',now,now,'{}','',now+APPROVAL_SECONDS))
         db.execute('INSERT INTO outbox_flow VALUES(?,?)', (oid, int(flow)))
+        db.execute('UPDATE outbox SET connection_digest=? WHERE id=?',(connection_digest,oid))
         return oid
 
 
@@ -141,12 +144,32 @@ def history(owner):
 
 def recover(owner,work_key):
     with service_store.database(owner) as db:
-        row=db.execute('SELECT id FROM outbox WHERE work_key=?',(work_key,)).fetchone()
+        row=db.execute('SELECT * FROM outbox WHERE work_key=?',(work_key,)).fetchone()
+        if row and row['state'] in ('sending', 'unknown'):
+            payload=json.loads(row['payload']);receipt=json.loads(row['receipt'])
+            if _digest(payload)!=row['digest']:raise ValueError('Gönderim içeriği değişmiş.')
+            try:
+                _validate_receipt(payload,receipt)
+            except ValueError:
+                pass  # Container/preparation evidence is not a sent message.
+            else:
+                db.execute("UPDATE outbox SET state='accepted',updated=? WHERE id=? AND state IN ('sending','unknown') AND digest=?",
+                           (time.time(),row['id'],row['digest']))
     return _result(get(owner,row['id'])) if row else None
+
+
+def _validate_receipt(payload, receipt):
+    if (not isinstance(receipt,dict) or receipt.get('scope')!='provider_accepted'
+            or receipt.get('service')!=payload['service']
+            or receipt.get('destination')!=payload['destination']
+            or not isinstance(receipt.get('remote_id'),str) or not 1<=len(receipt['remote_id'])<=300):
+        raise ValueError('Provider kabul makbuzu kesin servis/hedefle eşleşmiyor.')
+    return receipt
 
 
 def _result(record):
     if record['state']=='accepted':
+        _validate_receipt(record['payload'],record['receipt'])
         return {'state':'done','text':'Servis işlemi kabul etti; teslim/izlenme garantisi değildir.',
                 'id':record['id'],'receipt':record['receipt'],'payload_sha256':record['digest']}
     if record['state'] in ('sending','unknown'):
@@ -193,12 +216,37 @@ def _permission_decision(owner, payload, now, legacy_expiry, authorized_until):
 
 
 def dispatch(owner, oid, *, approve=False):
+    from modules import resource_leases, scheduler_resource_gate
+    record=get(owner,oid)
+    if record['state'] not in ('prepared','preparing'):return _result(record)
+    try:
+        with scheduler_resource_gate.provider_resource_claim(record['payload']['service']):
+            return _dispatch(owner,oid,approve=approve)
+    except resource_leases.LeaseConflict:
+        return {'state':'blocked','id':oid,'text':'Bu sağlayıcı başka bir işlemde; onay tüketilmedi, gönderim başlamadı.'}
+
+
+def _dispatch(owner, oid, *, approve=False):
     requests_state.check()
     record=get(owner,oid)
     if record['state'] not in ('prepared','preparing'):return _result(record)
     payload=record['payload']
     with service_store.database(owner) as db:
         now = time.time()
+        # Re-read under the same SQLite write transaction as consume/send claim.
+        # Another process may have cancelled or admitted this operation meanwhile.
+        fresh=db.execute('SELECT * FROM outbox WHERE id=?',(oid,)).fetchone()
+        if fresh is None:raise ValueError('Gönderim kaydı bulunamadı.')
+        if fresh['state'] not in ('prepared','preparing'):
+            current=dict(fresh);current['payload']=json.loads(current['payload']);current['receipt']=json.loads(current['receipt'])
+            return _result(current)
+        if fresh['digest']!=record['digest'] or fresh['payload']!=service_store.encode(payload):
+            raise ValueError('Onaylanan gönderim içeriği değişmiş.')
+        record.update(dict(fresh));record['payload']=payload;record['receipt']=json.loads(fresh['receipt'])
+        if fresh['connection_digest']!=services.connection_digest(owner,payload):
+            return {'state':'blocked','id':oid,'text':'Onaylanan hesap bağlantısı değişmiş; yeni gönderim yapılmadı.'}
+        if approve and (fresh['approval_consumed'] or not now < fresh['approval_expires']):
+            return {'state':'blocked','id':oid,'text':'Gönderim onayı tüketilmiş veya süresi dolmuş; tekrar gönderilmedi.'}
         _budget_schema(db, now)
         if blocked := _budget_block(db, record, now):
             return blocked
@@ -227,6 +275,8 @@ def dispatch(owner, oid, *, approve=False):
         count=db.execute("UPDATE outbox SET state='sending',updated=?,authorized_until=? WHERE id=? AND state IN ('prepared','preparing') AND digest=?",
                          (time.time(),time.time()+86400 if approve else record['authorized_until'],oid,record['digest'])).rowcount
         if count!=1:return {'state':'failed','id':oid,'text':'Bu gönderim başka yürütücü tarafından alındı; tekrar uygulanmadı.'}
+        if approve:
+            db.execute('UPDATE outbox SET approval_consumed=? WHERE id=?',(now,oid))
         # Reservation and send-once claim commit together under BEGIN IMMEDIATE.
         # Any interruption rolls both back before the external adapter is called.
         db.execute('INSERT OR IGNORE INTO outbox_send_budget VALUES(?,?,?,?,?)',
@@ -237,7 +287,12 @@ def dispatch(owner, oid, *, approve=False):
             db.execute('UPDATE outbox SET receipt=?,updated=? WHERE id=? AND state=?',
                        (service_store.encode(receipt),time.time(),oid,'sending'))
     try:
-        receipt=services.send(owner,payload,progress,checkpoint=record['receipt']) if payload['service']=='instagram' else services.send(owner,payload,progress)
+        with services.approved_connection(owner,payload,record['connection_digest']):
+            receipt=services.send(owner,payload,progress,checkpoint=record['receipt']) if payload['service']=='instagram' else services.send(owner,payload,progress)
+        _validate_receipt(payload,receipt)
+        # A crash after this write is recoverable by local readback; neither a
+        # provider query nor a second send is required to recover acceptance.
+        progress(receipt)
         # No error body or credential-bearing URL is persisted.
         with service_store.database(owner) as db:
             db.execute("UPDATE outbox SET state='accepted',receipt=?,updated=? WHERE id=? AND state='sending'",

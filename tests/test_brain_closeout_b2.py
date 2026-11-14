@@ -75,6 +75,14 @@ class EndToEndTests(unittest.TestCase):
     """Real SessionStore -> build_active_context -> prepare (gates, candidates, understanding) -> handoff."""
 
     def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from modules import llm, service_store
+        token=llm._key_context.set(OWNER)
+        self.addCleanup(llm._key_context.reset,token)
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        checkpoint_root=patch.object(service_store,'ROOT',Path(temporary.name))
+        checkpoint_root.start();self.addCleanup(checkpoint_root.stop)
         self.store = session_state.SessionStore()
         self.state = self.store.for_owner(OWNER)
         self.runtime = SimpleNamespace(

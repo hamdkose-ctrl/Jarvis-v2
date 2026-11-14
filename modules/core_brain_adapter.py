@@ -169,6 +169,13 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
                 "Önce bekleyen yanıtı tamamla veya iptal et.", row, None)
     semantic = entry.understanding
     actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
+    from modules import brain_batch_checkpoint as checkpoint
+    prior = checkpoint.begin(entry.owner,entry.request_id,actions)
+    if prior is not None:
+        status = prior['state'] if prior['state'] in ('handled','needs_input','partial') else 'partial'
+        row=feedback(entry,result_status=status,reason_code='CORE_BATCH_CHECKPOINT_REPLAY_BLOCKED')
+        _LAST_FEEDBACK.set(row)
+        return checkpoint.replay_text(prior),row,_correlated_job_id(entry)
     outcomes: dict[str, str] = {}
     lines: list[str] = []
     from modules import requests_state
@@ -177,7 +184,9 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
         if any(outcomes.get(dep) != "succeeded" for dep in action["depends_on"]):
             outcomes[action_id] = "skipped_dependency"
             lines.append(f"{action_id}: önkoşul başarılı olmadığı için atlandı.")
+            checkpoint.record(entry.owner,entry.request_id,action_id,'skipped_dependency',lines[-1])
             continue
+        checkpoint.record(entry.owner,entry.request_id,action_id,'running')
         try:
             requests_state.check()
             # Re-enter the existing single-action Core handoff with typed fields only:
@@ -196,30 +205,38 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
                 # can unlock a dependent action; uninstrumented results remain unknown.
                 ok = getattr(output, "ok", None)
                 outcomes[action_id] = "succeeded" if ok is True else "failed" if ok is False else "unknown"
+                checkpoint.record(entry.owner,entry.request_id,action_id,outcomes[action_id],lines[-1])
                 continue
             outcomes[action_id] = action_feedback.result_status
+            checkpoint.record(entry.owner,entry.request_id,action_id,outcomes[action_id],lines[-1])
             # Existing Core owns any pending/onay state; no sibling may overwrite it.
             if action_feedback.result_status == "needs_input":
                 for later in actions:
                     later_id = str(later["action_id"])
                     if later_id not in outcomes:
                         outcomes[later_id] = "deferred_core_pending"
+                        checkpoint.record(entry.owner,entry.request_id,later_id,'deferred_core_pending')
                 break
         except requests_state.Cancelled:
             outcomes[action_id] = "cancelled"
+            checkpoint.record(entry.owner,entry.request_id,action_id,'cancelled')
             for later in actions:
                 later_id = str(later["action_id"])
                 if later_id not in outcomes:
                     outcomes[later_id] = "cancelled"
+                    checkpoint.record(entry.owner,entry.request_id,later_id,'cancelled')
+            checkpoint.finish(entry.owner,entry.request_id,'partial')
             raise
         except Exception:
             _record_failure("modules/brain_entry.py:batch_action")
-            outcomes[action_id] = "failed"
-            lines.append(f"{action_id}: yürütme başarısız oldu.")
+            outcomes[action_id] = "unknown"
+            lines.append(f"{action_id}: sonuç doğrulanamadı; otomatik tekrar yapılmayacak.")
+            checkpoint.record(entry.owner,entry.request_id,action_id,'unknown',lines[-1])
     status = ("needs_input" if "needs_input" in outcomes.values() else
               "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial")
     if status == "partial":
         lines.append("İşlemlerin tamamı başarılı olarak doğrulanamadı; sonuç kısmi.")
+    checkpoint.finish(entry.owner,entry.request_id,status)
     row = feedback(entry, result_status=status,
                    reason_code=("CORE_AWAITING_INPUT" if status == "needs_input" else
                                 "CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL"),

@@ -25,7 +25,8 @@ class ArchitectureGuardTests(unittest.TestCase):
     def test_ui_cannot_adopt_new_goal_control_or_execution_adapter_authority(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            for module in ('core_brain_adapter', 'canonical_goal_control', 'canonical_plan_revision', 'canonical_planning_queue'):
+            for module in ('core_brain_adapter', 'canonical_goal_control', 'canonical_plan_revision', 'canonical_planning_queue',
+                           'goal_approval','brain_batch_checkpoint'):
                 with self.subTest(module=module):
                     (root / 'web_team.py').write_text(f'from modules import {module}\n', encoding='utf-8')
                     report = self.guard.scan(root)

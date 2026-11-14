@@ -293,7 +293,12 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if data['action'].startswith('pc_') or data['action'] in {
             'file_open','open_folder','win','widget_set','restart','sleep','set_flag',
             'voice_set','rate_set','settings_save'}:_pc_owner(runtime,owner)
-        with app_actions._owned(runtime.profile) as bridge:
+        from modules import personalization, goal_approval
+        with personalization._LOCK, app_actions._owned(runtime.profile) as bridge:
+            if approval is not None:
+                target=goal_approval.local_target_digest(runtime.profile,data)
+                if target is not None and target!=identity.get('approval_target_digest'):
+                    raise PermissionError('Onaylanan yerel hedef kaydı değişmiş; işlem yapılmadı.')
             result=app_actions.run(bridge,runtime.profile,data['action'],data['params'],confirmed=approval is not None)
         if result.get('needs_confirmation'):
             return {'state':'approval','text':result['message'],'id':identity['task_id']}

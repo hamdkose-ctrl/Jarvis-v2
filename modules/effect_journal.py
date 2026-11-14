@@ -95,6 +95,10 @@ class Journal:
     """In-memory append-only model."""
     def __init__(self): self._entries = {}
 
+    def intents(self):
+        """Immutable readback for admission/recovery; never exposes writers."""
+        return tuple(copy.deepcopy(entry['intent']) for entry in self._entries.values())
+
     def record_intent(self, intent: dict) -> dict:
         row = validate_intent(intent)
         if row['effect_id'] in self._entries: raise ValueError('Effect intent zaten var.')
