@@ -81,6 +81,39 @@ class QueuedTurnLifecycleTests(unittest.TestCase):
         self.assertEqual(requests_state.request_state('alice','cancel-1'),
                          'cancelled')
 
+    def test_busy_engine_acknowledges_queued_turn_without_final_reply(self):
+        lock = threading.RLock()
+        self.runtime._execution_lock = lock
+        held = threading.Event()
+        release = threading.Event()
+
+        def foreground():
+            with lock:
+                held.set()
+                release.wait(3)
+
+        thread = threading.Thread(target=foreground)
+        thread.start()
+        self.assertTrue(held.wait(1))
+        try:
+            self.assertTrue(self.submit('queued-notice'))
+            self.assertEqual(self.runtime.events.qsize(), 1)
+            args = self.runtime._emit_for.call_args.args
+            self.assertIs(args[0], self.pc)
+            self.assertEqual(args[1], 'system')  # no premature assistant/phone completion
+            self.assertIn('sıraya alındı', args[2])
+            self.assertEqual(self.runtime._emit_for.call_args.kwargs['rid'],
+                             'queued-notice')
+        finally:
+            release.set()
+            thread.join(2)
+
+    def test_idle_engine_does_not_issue_false_wait_notice(self):
+        self.runtime._execution_lock = threading.RLock()
+        self.assertTrue(self.submit('no-wait'))
+        self.runtime._emit_for.assert_not_called()
+        self.assertEqual(self.runtime.events.qsize(),1)
+
     def test_unrelated_owner_and_background_deadline_unchanged(self):
         self.assertTrue(requests_state.register('alice', 'plain', seconds=120))
         self.assertTrue(requests_state.register_background(
