@@ -314,3 +314,54 @@ class VoiceSessionIdleProofTests(TestCase):
         self.assertTrue(session.submit_voice("araştır"))
         self.assertTrue(runtime.pause_listening.is_set())
         runtime.emit.assert_not_called()
+
+
+class ManualMicLockRaceTests(TestCase):
+    def runtime(self, lock):
+        return SimpleNamespace(
+            audio_lock=lock, flags={"mic": True},
+            stop_event=threading.Event(), mic_cancel=threading.Event(),
+            emit=Mock(), voice=SimpleNamespace(capture=Mock(return_value=b"recorded")),
+        )
+
+    def test_speaker_start_after_preflight_cannot_open_manual_microphone(self):
+        lane = _session(busy=False, unconfirmed=False).voice_lane
+
+        class StartSpeaker:
+            def __enter__(self):
+                lane.is_busy.return_value = True
+            def __exit__(self, *args):
+                lane.is_busy.return_value = False
+
+        runtime = self.runtime(StartSpeaker())
+        session = SimpleNamespace(voice_lane=lane, manual_local_stt=False)
+        # The UI initially allowed the push-to-talk; the device becomes busy
+        # while the microphone is waiting for the physical audio lock.
+        self.assertTrue(engine_loop._prepare_manual_listen(runtime, session))
+        with self.assertRaisesRegex(ValueError, "mikrofon açılmadı"):
+            engine_loop._capture_manual_voice(runtime, session)
+        runtime.voice.capture.assert_not_called()
+        runtime.emit.assert_not_called()
+
+    def test_silent_manual_capture_uses_one_physical_lock_and_real_state(self):
+        runtime = self.runtime(contextlib.nullcontext())
+        session = SimpleNamespace(
+            voice_lane=_session(busy=False, unconfirmed=False).voice_lane,
+            manual_local_stt=False)
+        self.assertEqual(engine_loop._capture_manual_voice(runtime, session),
+                         b"recorded")
+        runtime.emit.assert_called_once_with("state", "listening")
+        runtime.voice.capture.assert_called_once_with(
+            timeout=6, verbose=True, abort=runtime.mic_cancel,
+            on_captured=None)
+
+    def test_mic_revoked_after_preflight_is_denied_before_capture(self):
+        runtime = self.runtime(contextlib.nullcontext())
+        session = SimpleNamespace(
+            voice_lane=_session(busy=False, unconfirmed=False).voice_lane,
+            manual_local_stt=False)
+        self.assertTrue(engine_loop._prepare_manual_listen(runtime, session))
+        runtime.flags["mic"] = False
+        with self.assertRaisesRegex(ValueError, "Mikrofon kapalı"):
+            engine_loop._capture_manual_voice(runtime, session)
+        runtime.voice.capture.assert_not_called()
