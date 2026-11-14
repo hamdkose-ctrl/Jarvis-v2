@@ -1,5 +1,9 @@
 # Ses ve video (AGENTS.md alan notları)
 
+**14 Kasım #625 kod incelemesi:** PR, main `62988cd` (#626/#627 birleşmiş) ile aynı dalda hizalandı. Engine'in manual/queued/turn/idle kapıları aynı `speech_blocks_mic` kanıtını okur. Barge gözlemcisi mevcut `VoiceLane.outstanding_receipts(owner)` görünümünden canlı sesi izler; iptal edilen son bildirim aradaki konuşmayı gizleyemez. Uyandırma sonucu yalnız gözlenen current receipt'i atomik seçerek keser; eski receipt yeni sesi veya başka owner'ın bekleyen sesini kesemez. Speech mute gerçek kesilen request owner/turn'una yazılır; Core işi iptal edilmez. Hata tanısı ve `finally` temizliği ölü bir barge worker slotu bırakmaz. İkinci wake capture fiziksel lock altında shutdown'ı da tekrar kontrol eder.
+
+Mikrofon kilidi önceden alınmışsa, tek VoiceCoordinator `before_play` noktasında capture'ın bitmesini iptal edilebilir şekilde bekler; mevcut busy gate yeni normal capture'ı engeller. Bekleme sonrası owner/currency/TTL/cancel yeniden kontrol edilir. Audio lock hoparlör oynarken tutulmaz; mevcut barge-in kanalı açık kalır. Yeni Scheduler, ses kuyruğu, ses seçimi, provider veya model çağrısı yoktur. Kod incelemesi ve kabul sınırı: `docs/architecture/VOICE_625_REVIEW_2026-11-14.md`. Fiziksel duyma, echo/AEC, ilk kelime, gerçek latency p95/p99 ve yük kabulü bu mock-adapter regresyonlarının yerine geçmez.
+
 BRAIN-03 (#613): `engine_voice` içindeki `threading.Event` tür başvurusunun eksik import'u tamamlandı; bu değişiklik ses gecikmesi veya oynatma davranışı eklemez. Hatırlatma kaydı değişince mevcut owner/event ses kuyruğunun geçersizleştirilmesi `main_planner` sahibindedir.
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.

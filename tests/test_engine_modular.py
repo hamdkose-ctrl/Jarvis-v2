@@ -320,11 +320,13 @@ class ModularEngineTests(unittest.TestCase):
 
         with patch.object(wakeword, "wanted", return_value=True), \
                 patch.object(wakeword, "ready", return_value=True), \
-                patch.object(wakeword, "wait", side_effect=fake_wait):
+                patch.object(wakeword, "wait", side_effect=fake_wait), \
+                patch('modules.voice_runtime.interrupt_receipt',return_value=True) as cut:
             session._barge_watch(done)
         self.assertEqual(beside_a_free_stream, [False, False, False])
         self.assertEqual(set(slices), {2.0})
-        speaker.stop_speaking.assert_called_once_with()
+        cut.assert_called_once_with(getattr(session,'voice_lane',None),done)
+        speaker.stop_speaking.assert_not_called()
         self.assertGreater(session.state["awake_until"], time.time())
 
     def test_barge_hit_after_the_utterance_ended_does_not_cut_the_next_answer(self):

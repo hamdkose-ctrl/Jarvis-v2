@@ -1,5 +1,7 @@
 # Historical redirect — BEKLEYEN_ISLER
 
+- **VOICE #625:** güncel main ile aynı PR'da hizalanmış kod güvenliği incelemesi: `docs/architecture/VOICE_625_REVIEW_2026-11-14.md`. Kod CI/PC kabulü ile fiziksel duyma, ilk kelime, echo ve p95/p99 ölçümü ayrı tutulur. #626/#627 birleşmiştir; yeni ses PR'ı açılmaz.
+
 - **BRAIN-08 tek PR kod adayı (14 Kasım):** onay binding/expiry/consume, Outbox exact receipt/readback ve ortak provider claim, duplicate effect admission fence ve batch checkpoint mevcut sahiplerine bağlandı. Plan: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`. Final exact-source CI/PC ayrıca izlenir; trusted OAuth subject/genel effectful reconcile/canlı veya fiziksel kabul yapılmış sayılmaz. #626 birleşti; BRAIN-03/07 açık geniş kabul kayıtları korunur.
 
 > **AKTİF İŞ LİSTESİ / ROADMAP DEĞİLDİR.**
