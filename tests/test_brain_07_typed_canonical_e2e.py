@@ -1125,66 +1125,73 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 # reserved -> delivered commit. Only the callback return
                 # means that second write has finished (or failed).
                 callback_returned.set()
-        try:
-            with ExitStack() as patches:
-                for obj, attribute, value in (
-                    (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
-                    (task_queue, '_THREAD', None),
-                    (task_queue, '_OWNER_TICKS', {}),
-                    (task_queue, '_CANONICAL_WORKERS', {}),
-                    (task_queue, '_LAST_ADMITTED', {}),
-                    (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
-                    (task_queue, '_DAILY_NOTIFY', None),
-                    (task_agents, 'worker', research_worker),
-                    (untrusted_flow, 'observe', lambda *_: None),
-                ):
-                    patches.enter_context(patch.object(obj, attribute, value))
-                patches.enter_context(patch.object(
-                    model_wait, 'ask', return_value=json.dumps({
-                        'action': 'complete', 'goal': 0, 'evidence': ['first'],
-                    }),
-                ))
-                task_queue.start(
-                    stop, allowed_owners=lambda: {self.owner},
-                    canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
-                    canonical_result_notify=finished,
-                )
-                self.assertTrue(completed.wait(25), 'Real Scheduler did not publish verified result')
-                self.assertEqual(len(messages), 1)
-                self.assertEqual(messages[0][0:2], (self.owner, job_id))
-                self.assertIn('Source-backed comparison', messages[0][2])
-                # Do not race the post-notify durable delivery write with a
-                # fixed five-second disk-polling window. Wait for the actual
-                # worker callback to return, then assert BOTH its success
-                # and the persisted Core/journal evidence. This is stricter
-                # than treating notify() as completion or sleeping longer.
-                self.assertTrue(
-                    callback_returned.wait(25),
-                    'Canonical completion callback did not return after notification',
-                )
-                self.assertEqual(
-                    callback_results, [True],
-                    'Canonical completion callback returned without a durable delivery commit',
-                )
-                state, journal = self.persisted(job_id)
-                self.assertEqual(state['state'], 'done')
-                self.assertEqual(journal['_canonical_delivery'], 'delivered')
-                self.assertEqual(journal['_canonical_result_event_id'], 'canonical:' + job_id)
-                self.assertIn('Source-backed comparison', journal['_canonical_result_text'])
-                self.assertIn('Source-backed comparison', canonical_goal_flow.read_completed_result(
-                    self.owner, job_id,
-                ))
-                self.assertEqual(journal['goals'][0]['state'], 'done')
-                self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
-                self.assertEqual(len(messages), 1)
-                self.run_goal.assert_not_called()
-        finally:
-            stop.set()
-            if task_queue._THREAD is not None:
-                task_queue._THREAD.join(10)
-            for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
-                worker.join(10)
-
+        with ExitStack() as patches:
+            for obj, attribute, value in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', research_worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+            ):
+                patches.enter_context(patch.object(obj, attribute, value))
+            patches.enter_context(patch.object(
+                model_wait, 'ask', return_value=json.dumps({
+                    'action': 'complete', 'goal': 0, 'evidence': ['first'],
+                }),
+            ))
+            # Stop and join while Scheduler globals and provider mocks are
+            # STILL patched. Windows will not remove the test owner directory
+            # until every worker has released its *.control.lock handle.
+            def close_scheduler():
+                stop.set()
+                scheduler = task_queue._THREAD
+                if scheduler is not None:
+                    scheduler.join(12)
+                    self.assertFalse(scheduler.is_alive(),
+                                     'Scheduler still owns a Windows test lock')
+                for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    worker.join(12)
+                    self.assertFalse(worker.is_alive(),
+                                     'Canonical worker leaked its *.control.lock')
+            patches.callback(close_scheduler)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=finished,
+            )
+            self.assertTrue(completed.wait(25), 'Real Scheduler did not publish verified result')
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0][0:2], (self.owner, job_id))
+            self.assertIn('Source-backed comparison', messages[0][2])
+            # Do not race the post-notify durable delivery write with a
+            # fixed five-second disk-polling window. Wait for the actual
+            # worker callback to return, then assert BOTH its success
+            # and the persisted Core/journal evidence. This is stricter
+            # than treating notify() as completion or sleeping longer.
+            self.assertTrue(
+                callback_returned.wait(25),
+                'Canonical completion callback did not return after notification',
+            )
+            self.assertEqual(
+                callback_results, [True],
+                'Canonical completion callback returned without a durable delivery commit',
+            )
+            state, journal = self.persisted(job_id)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal['_canonical_delivery'], 'delivered')
+            self.assertEqual(journal['_canonical_result_event_id'], 'canonical:' + job_id)
+            self.assertIn('Source-backed comparison', journal['_canonical_result_text'])
+            self.assertIn('Source-backed comparison', canonical_goal_flow.read_completed_result(
+                self.owner, job_id,
+            ))
+            self.assertEqual(journal['goals'][0]['state'], 'done')
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
+            self.assertEqual(len(messages), 1)
+            self.run_goal.assert_not_called()
 
     def test_real_scheduler_clarification_answer_completes_without_worker_replay(self):
         """One actual Scheduler for question→answer→Core completion.
