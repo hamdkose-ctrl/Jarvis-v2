@@ -28,6 +28,43 @@ def _release_inline_voice_pause(runtime, source):
         runtime.pause_listening.clear()
 
 
+def _notify_waiting_while_busy(runtime, owner, user, source, rid):
+    """Non-final, owner-scoped queue acknowledgment; never start another turn.
+
+    An HTTP phone response waiter only accepts assistant completions, not a
+    system activity notice, so this cannot masquerade as the actual result.
+    """
+    lock = getattr(runtime, '_execution_lock', None)
+    if lock is None:
+        return
+    acquired = lock.acquire(blocking=False)
+    if acquired:
+        lock.release()
+        return
+    try:
+        if source in ('ses', 'yazı'):
+            profile = runtime.pc_profile()
+            if profile.slug != owner:
+                return
+        else:
+            registered = runtime.match_user(user)
+            if not registered or runtime.slugify(registered) != owner:
+                return
+            profile = runtime._get_profile(registered)
+            if profile.slug != owner:
+                return
+        runtime._emit_for(
+            profile, 'system',
+            'İsteğin sıraya alındı. Önceki uzun işlem bitince işlenecek; '
+            'kuyruk bekleme süresi en fazla 5 dakika.',
+            source, rid=rid,
+        )
+    except Exception:
+        # A UI notification is never an authority to retry/destroy the
+        # already registered command.
+        runtime._record_failure('modules/engine_queue.py:queue_wait_notice')
+
+
 def submit(runtime, text: str, source: str = "yazı", user: str | None = None, rid: str | None = None) -> bool:
     """Arayüzden ya da telefondan gelen komutu motora iletir; 'dur' okumayı keser.
     user: komutu gönderen kişi (telefonlar). Boşsa bilgisayardaki aktif kullanıcı.
@@ -185,6 +222,7 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         _release_inline_voice_pause(runtime, source)
         return True
     runtime.events.put(("command", text, source, user, rid))
+    _notify_waiting_while_busy(runtime, owner, user, source, rid)
     return True
 
 def submit_audio(runtime, path: str, source: str = "telefon", user: str | None = None, rid: str | None = None) -> bool:
