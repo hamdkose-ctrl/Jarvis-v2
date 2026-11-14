@@ -1302,7 +1302,7 @@ def status_summary(job):
         if article and isinstance(url, str) and url.strip():
             urls.add(url.strip())
         if not report and isinstance(output.get('file'), str):
-            report = ' '.join(output['file'].split())[:260]
+            report = output['file']
     request = job.get('request', '')
     request = ' '.join(request.split())[:120] if isinstance(request, str) else ''
     summary = f"Durum: {states.get(job.get('state'), 'belirsiz')} · {completed}/{len(steps)} adım · {len(urls)} kaynak"

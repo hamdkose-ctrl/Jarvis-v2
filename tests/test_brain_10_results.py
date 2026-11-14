@@ -75,6 +75,12 @@ class ResultDeliveryTests(unittest.TestCase):
         self.assertIn('0/1',reply);self.assertNotIn(output['file'],reply)
         self.assertIn('doğrulanamadı',reply)
 
+    def test_status_keeps_the_exact_verified_file_identity(self):
+        output=self.writer();path=self.root/'report  final.md'
+        Path(output['file']).rename(path);output['file']=str(path)
+        output=task_results.seal('writer',output)
+        self.assertIn('Rapor dosyası: '+str(path),goal_executor.status_summary(self.goal_job(output)))
+
     def test_partial_report_path_needs_the_same_file_evidence(self):
         output=self.writer();job=self.goal_job(output)
         job['state']='paused';job['goals'][0].update(state='pending',evidence=[])
