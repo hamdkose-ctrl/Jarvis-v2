@@ -123,13 +123,27 @@ def request_identity(owner):
     if key[0]!=owner:raise PermissionError('Model isteği başka kullanıcının runtime bağlamında.')
     return key[1]
 
-def register(user, rid, seconds=90):
+def register(user, rid, seconds=90, *, execution_seconds=None):
+    """Register one request; optional queued wait is separate from its turn budget.
+
+    A spoken/text request may sit behind a long foreground task. The wait
+    allowance is finite, and its *execution* clock starts only after this
+    request is actually activated. Background workers and existing callers
+    without execution_seconds retain their original deadline contract.
+    """
+    if execution_seconds is not None and (
+            type(execution_seconds) not in (int, float)
+            or not 0 < execution_seconds <= 1800):
+        raise ValueError('İstek yürütme süresi geçersiz.')
     key = (user, rid)
     with _lock:
         if key in _records or _archived(key):
             return False
         # Completed/cancelled identifiers remain tombstones: retries never apply again.
-        _records[key] = {'state': 'queued', 'deadline': time.monotonic()+seconds}
+        record = {'state': 'queued', 'deadline': time.monotonic()+seconds}
+        if execution_seconds is not None:
+            record['execution_seconds'] = execution_seconds
+        _records[key] = record
         try:
             _save()
         except BaseException:
@@ -182,8 +196,21 @@ def activate(user, rid, *, complete=True):
     try:
         check()
         with _lock:
-            if (user,rid) in _records:
-                _records[(user,rid)]['state'] = 'running'
+            record = _records.get((user, rid))
+            if record is not None:
+                # check() above and this lock may be separated by another
+                # thread's explicit cancellation. Never turn a cancelled or
+                # timed-out record back into running by a late activation.
+                now = time.monotonic()
+                if record['state'] == 'cancelled' or now >= record['deadline']:
+                    record['state'] = 'cancelled'
+                    _save_terminal_state()
+                    raise Cancelled('İstek iptal edildi veya bekleme süresi doldu.')
+                if record['state'] == 'queued':
+                    turn = record.pop('execution_seconds', None)
+                    if turn is not None:
+                        record['deadline'] = now + turn
+                    record['state'] = 'running'
         yield
     finally:
         try:
@@ -224,6 +251,23 @@ def allow_long_operation(seconds):
         record = _records.get(key)
         if record and record['state'] == 'running':
             record['deadline'] = max(record['deadline'], time.monotonic() + min(1800, max(90, seconds)))
+
+def request_state(user, rid):
+    """Owner/RID-scoped read for a client waiting on a queued turn.
+
+    A missing/tombstoned/expired record is never presented as still pending.
+    This observation authorizes no execution or cancellation.
+    """
+    with _lock:
+        key = (user, rid)
+        record = _records.get(key)
+        if record is not None:
+            if (record['state'] in ('queued', 'running')
+                    and time.monotonic() >= record['deadline']):
+                return 'cancelled'
+            return record['state']
+        return 'cancelled' if _archived(key) else None
+
 
 def is_cancelled(user,rid):
     with _lock:

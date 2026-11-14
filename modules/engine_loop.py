@@ -448,6 +448,22 @@ def main(runtime, ui=None):
             runtime._cur_source = source
             owner = runtime.slugify(user or runtime.pc_profile().name)
             if runtime.requests_state.is_cancelled(owner, runtime._cur_rid):
+                # A request can expire while a different foreground turn
+                # holds this one event loop. Previously it disappeared with
+                # no owner-visible result. This branch has not executed any
+                # tool or model; report non-execution without replay.
+                if callable(getattr(runtime, 'as_user', None)):
+                    try:
+                        with runtime.as_user(user):
+                            runtime._emit_for(
+                                runtime.profile, 'assistant',
+                                'Bu istek işlenmeden iptal edildi veya kuyrukta '
+                                'bekleme süresi doldu. Hiçbir işlem başlatılmadı; '
+                                'istersen yeniden gönderebilirsin.',
+                                source, rid=runtime._cur_rid,
+                            )
+                    except (ValueError, PermissionError):
+                        runtime._record_failure('main.py:expired_command_owner')
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
