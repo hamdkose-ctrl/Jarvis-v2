@@ -28,6 +28,9 @@ class FlowOutboxTests(unittest.TestCase):
         self.data = {'service': 'gmail', 'destination': 'ahmet@example.org', 'subject': 'Durum', 'text': 'Özet ' + CANARY}
         self.runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice', data={'contacts': {'Ahmet': 'ahmet@example.org'}}))
         self.identity = {'owner': 'alice', 'job_id': 'flow_job', 'task_id': 'send', 'request': "Ahmet'e mesaj gönder"}
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',root/'providers'))
+        self.enterContext(patch.object(outbox.services,'DATA_DIR',root/'connections'))
 
     def execute(self, data=None, sources=None):
         return goal_tools.execute(self.runtime, 'publish', data or self.data,

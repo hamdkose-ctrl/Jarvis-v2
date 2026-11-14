@@ -63,6 +63,21 @@ def _account_claim_root() -> Path:
     return root
 
 
+def provider_resource_key(service):
+    """Same trusted provider collision identity for reads and outbound writes."""
+    if not isinstance(service,str) or not service.isascii() or not service.islower() or not service.isalpha():
+        raise ReadOnlyAdmissionError('Provider identifier invalid.')
+    return (resource_leases.resource_key('gmail_account','shared') if service=='gmail'
+            else resource_leases.resource_key('provider',f'{service}-shared'))
+
+
+@contextmanager
+def provider_resource_claim(service):
+    """Physical exclusion only; never authorizes an effect or a Scheduler node."""
+    with resource_leases.process_resource_claim(_account_claim_root(),provider_resource_key(service)):
+        yield
+
+
 def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive keys from trusted capability metadata and canonical input.
 
@@ -123,12 +138,7 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
         # provider-wide collision key per OS account until a verified account
         # subject is available. This may serialize two DISTINCT accounts but
         # cannot accidentally overlap the SAME account through owner aliases.
-        if service == "gmail":
-            return (resource_leases.resource_key("gmail_account", "shared"),)
-        if not isinstance(service, str) or not service.isascii() or not service.islower():
-            raise ReadOnlyAdmissionError("Provider identifier invalid.")
-        # A model never supplies the resource key or the provider namespace.
-        return (resource_leases.resource_key("provider", f"{service}-shared"),)
+        return (provider_resource_key(service),)
 
     # Stateless research/finance and other read-only kinds are deliberately not
     # mapped to fake global resources. They remain outside this lease gate.

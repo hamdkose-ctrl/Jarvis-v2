@@ -12,10 +12,13 @@ class WorkTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         token=llm._key_context.set('alice');self.addCleanup(llm._key_context.reset,token)
-        for mod,name,sub in ((store,'ROOT','service'),(agents,'STORE','tasks'),(browser_agent,'STORE','browser')):
+        for mod,name,sub in ((store,'ROOT','service'),(agents,'STORE','tasks'),(browser_agent,'STORE','browser'),
+                             (services,'DATA_DIR','connections')):
             p=patch.object(mod,name,Path(self.tmp.name)/sub);p.start();self.addCleanup(p.stop)
         self.payload={'service':'gmail','destination':'friend@example.com','subject':'Hello','text':'Body'}
         self.receipt={'service':'gmail','destination':'friend@example.com','remote_id':'actual-id','scope':'provider_accepted'}
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',Path(self.tmp.name)/'providers'))
 
     def test_no_grant_waits_with_exact_preview_and_grant_is_destination_scoped(self):
         oid=outbox.prepare('alice',self.payload,'work')

@@ -4,7 +4,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 ## Çalışma kuralları
 
-- **Brain/Core:** Anlamlandırma Brain, yürütme/session Core sahibidir; runtime monkeypatch yok. Sözleşme: `docs/architecture/BRAIN_CORE_SINGLE_CLOSEOUT_2026-11-14.md`.
+- **Brain/Core:** anlam Brain; yürütme/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`; nonce/plan/target onayı effect öncesi tüketilir; unknown replay yok.
 
 - **Ponytail yaklaşımı:** Önce mevcut kodu oku. Küçük, kararlı ve geri alınabilir değişiklik yap. Gereksiz katman veya bağımlılık ekleme.
 - **Önce plan:** Yeni özellikte önce yapılacakları ve en az iki seçeneği Hamdi'ye sun. Hamdi "Tamam" demeden kod yazma.

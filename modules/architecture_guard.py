@@ -64,6 +64,8 @@ _DECISION_CONTEXT_KEYS = {
 # a second business/execution authority by importing Core authority internals.
 # This is deliberately an import/dependency boundary, not a keyword/name scan.
 _UI_AUTHORITY_MODULES = frozenset({
+    'modules.goal_approval',
+    'modules.brain_batch_checkpoint',
     'modules.core_brain_adapter',
     'modules.canonical_goal_control',
     'modules.canonical_plan_revision',

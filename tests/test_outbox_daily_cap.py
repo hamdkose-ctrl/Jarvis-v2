@@ -17,6 +17,8 @@ class DailyCapTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         root = patch.object(service_store, 'ROOT', Path(temporary.name))
         root.start(); self.addCleanup(root.stop)
+        credentials=patch.object(services,'DATA_DIR',Path(temporary.name)/'connections')
+        credentials.start();self.addCleanup(credentials.stop)
         token = llm._key_context.set('alice')
         self.addCleanup(llm._key_context.reset, token)
         self.clock = patch.object(outbox.time, 'time', return_value=datetime(2026, 10, 18, 10, tzinfo=timezone.utc).timestamp())
@@ -29,6 +31,8 @@ class DailyCapTests(unittest.TestCase):
         transport = patch.object(services, 'send', self.send)
         transport.start(); self.addCleanup(transport.stop)
         self.serial = 0
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',Path(temporary.name)/'providers'))
 
     def payload(self, service='gmail', text=None, destination=None, **extra):
         self.serial += 1
@@ -141,7 +145,8 @@ class DailyCapTests(unittest.TestCase):
         self.send.side_effect = services.Preparing()
         outbox.dispatch('alice', oid, approve=True)
         self.now.return_value += 86400
-        self.send.side_effect = lambda owner, data, progress, **kw: {'remote_id': 'id'}
+        self.send.side_effect = lambda owner, data, progress, **kw: {
+            'service':data['service'],'destination':data['destination'],'remote_id':'id','scope':'provider_accepted'}
         self.assertEqual(self.dispatch(self.payload('instagram'))['state'], 'done')
         self.assertEqual(outbox.dispatch('alice', oid, approve=True)['state'], 'blocked')
 
@@ -156,6 +161,12 @@ class DailyCapTests(unittest.TestCase):
             finally: llm._key_context.reset(token)
         with ThreadPoolExecutor(max_workers=5) as pool:
             states = list(pool.map(dispatch, ids))
+        # A provider-wide live claim may reject simultaneous admission before
+        # budget/approval consumption. Explicitly retry only those NOT started;
+        # the SQLite daily cap must still permit exactly two total sends.
+        for index, state in enumerate(states):
+            if state == 'blocked':
+                states[index] = outbox.dispatch('alice', ids[index], approve=True)['state']
         self.assertEqual(states.count('done'), 2)
         self.assertEqual(states.count('blocked'), 3)
         self.assertEqual(self.send.call_count, 2)

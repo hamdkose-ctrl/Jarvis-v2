@@ -1,5 +1,6 @@
 """Official outbound adapters. Invoked only through the durable outbox."""
 import base64
+import hashlib
 import json
 import os
 import tempfile
@@ -7,6 +8,8 @@ import threading
 from email.message import EmailMessage
 import re
 from pathlib import Path
+from contextlib import contextmanager
+from contextvars import ContextVar
 from urllib.parse import urlsplit
 from config import DATA_DIR
 from modules import privacy, requests_state, service_store, task_results
@@ -117,6 +120,49 @@ GOOGLE = {'gmail': ('gmail', 'v1', 'https://www.googleapis.com/auth/gmail.send')
           'youtube': ('youtube', 'v3', 'https://www.googleapis.com/auth/youtube.upload'),
           'youtube_reply': ('youtube','v3','https://www.googleapis.com/auth/youtube.force-ssl')}
 
+_APPROVED_CONNECTION = ContextVar('outbox_approved_connection',default=None)
+
+
+def _connection_digest(service, data):
+    # Access-token refresh/expiry is not an account change. A refresh credential
+    # or native connector configuration change IS a new connection generation.
+    if service in GOOGLE and data is not None:
+        data={key:data.get(key) for key in ('client_id','client_secret','refresh_token')}
+    return hashlib.sha256(json.dumps({'service':service,'connection':data},sort_keys=True,
+                                     ensure_ascii=False,allow_nan=False).encode()).hexdigest()
+
+
+def connection_digest(owner, payload):
+    """Opaque credential-generation binding, NOT a verified OAuth subject."""
+    service_store.identity(owner)
+    service=permission_key(payload)
+    if service in GOOGLE:
+        filename='google_'+service+'_write_token.json'
+        path=DATA_DIR/'google_users'/owner/filename
+        if not path.exists() and not path.is_symlink():path=DATA_DIR/filename
+    else:
+        service=payload['service'];path=DATA_DIR/'connector_users'/owner/(service+'.json')
+    _credential_path(path)
+    data=_read_private_json(path,migrate=False) if path.exists() or path.is_symlink() else None
+    return _connection_digest(service,data)
+
+
+@contextmanager
+def approved_connection(owner, payload, digest):
+    service=permission_key(payload)
+    if service not in GOOGLE:service=payload['service']
+    token=_APPROVED_CONNECTION.set((owner,service,digest))
+    try:yield
+    finally:_APPROVED_CONNECTION.reset(token)
+
+
+def _check_approved_connection(owner, service, data):
+    bound=_APPROVED_CONNECTION.get()
+    if bound is not None:
+        service_store.identity(owner)
+        if (owner,service)!=(bound[0],bound[1]) or _connection_digest(service,data)!=bound[2]:
+            raise PermissionError('Onaylanan hesap bağlantısı değişmiş; yeni dış işlem başlatılmadı.')
+
 
 def permission_key(data):
     return data['service']+('_reply' if data.get('operation')=='reply_comment' else '')
@@ -186,16 +232,24 @@ def configuration(owner, service):
         raise ValueError('Bağlantı dosyası sembolik bağ olamaz.')
     if not path.is_file():
         raise PermissionError('Servise ait yerel bağlantı yapılandırması gerekli.')
-    return _read_private_json(path, max_bytes=16000)
+    data=_read_private_json(path, max_bytes=16000)
+    _check_approved_connection(owner,service,data)
+    return data
 
 
 def google_service(service, interactive=False):
     from modules import google_api
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
     from googleapiclient.discovery import build
     name, version, scope=GOOGLE[service]
     scopes=[scope]+(['https://www.googleapis.com/auth/youtube.readonly'] if service=='youtube' else [])
     creds=google_api._creds(DATA_DIR/('google_'+service+'_write_token.json'),scopes,interactive)
-    return build(name,version,credentials=creds,cache_discovery=False)
+    bound=_APPROVED_CONNECTION.get()
+    if bound is not None:
+        _check_approved_connection(bound[0],service,json.loads(creds.to_json()))
+    client=AuthorizedHttp(creds,http=httplib2.Http(timeout=google_api._SERVICE_HTTP_TIMEOUT_SECONDS))
+    return build(name,version,http=client,cache_discovery=False)
 
 
 def media_upload(path,mimetype):

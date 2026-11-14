@@ -1,5 +1,7 @@
 # Historical redirect — BEKLEYEN_ISLER
 
+- **BRAIN-08 tek PR kod adayı (14 Kasım):** onay binding/expiry/consume, Outbox exact receipt/readback ve ortak provider claim, duplicate effect admission fence ve batch checkpoint mevcut sahiplerine bağlandı. Plan: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`. Final exact-source CI/PC ayrıca izlenir; trusted OAuth subject/genel effectful reconcile/canlı veya fiziksel kabul yapılmış sayılmaz. #626 birleşti; BRAIN-03/07 açık geniş kabul kayıtları korunur.
+
 > **AKTİF İŞ LİSTESİ / ROADMAP DEĞİLDİR.**
 >
 > Güncel iş sırası ve yapılacaklar için tek authority: [`Jarvis_Yol_Haritasi.md`](Jarvis_Yol_Haritasi.md)
