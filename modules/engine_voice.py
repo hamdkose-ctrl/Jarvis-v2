@@ -181,6 +181,7 @@ class VoiceSession:
         try:
             worker.start()
         except Exception:
+            _record_failure('modules/engine_voice.py:barge_thread_start')
             with self._barge_lock:
                 if self._barge_thread is worker:
                     self._barge_thread = None
