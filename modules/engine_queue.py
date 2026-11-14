@@ -77,7 +77,12 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         return False
     owner = runtime.slugify(user or runtime.pc_profile().name)
     rid = rid or runtime.secrets.token_hex(16)
-    if not runtime.requests_state.register(owner, rid):
+    # A second ordinary conversation may wait behind a synchronous legacy
+    # task. Keep a finite queue admission window (5 min), then start its own
+    # 90s execution clock only if it really reaches the engine. This is NOT
+    # background execution or an extension of effect permissions.
+    if not runtime.requests_state.register(
+            owner, rid, seconds=300, execution_seconds=90):
         return False
     user = user or runtime.pc_profile().name
     # A deliberately selected independent CREATE can be admitted while an
