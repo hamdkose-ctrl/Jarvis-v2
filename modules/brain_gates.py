@@ -516,6 +516,17 @@ def exact_state_gate(
         if match is not None:
             matches.append(match)
     if not matches:
+        closed = [ref for ref in rows if ref.kind == 'goal' and ref.source == 'goal_state'
+                  and ref.provenance.get('state') in {'done', 'cancelled'}]
+        if (normalized in _CONTINUE and not normalized.startswith('hedef ')
+                and len(closed) == 1 and not goal_open
+                and not active_context.goal_candidates and not active_context.pending_references
+                and not any(_foreground_open(ref)
+                            or (ref.source == 'desktop_agent' and ref.provenance.get('status') not in {'done', 'cancelled'})
+                            or (ref.source == 'task_agents' and ref.provenance.get('state') not in {'done', 'completed', 'cancelled', 'failed'})
+                            for ref in rows)):
+            return _hit(owner, request_id, 'state', 'goal.closed_resume',
+                        closed[0].id, 'BOUNDED_CLOSED_GOAL_STATUS')
         # "iptal" with no active target is an exact no-op status, not a
         # free-language command. Never let a chat/model or unrelated domain
         # interpret it as a new action; do not steal any foreground pending,

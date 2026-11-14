@@ -10,9 +10,10 @@ from provider_fixture import fresh_bundle
 class SmartRouterTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-        for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{}),('_LAST',{})]:
+        for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)
         fresh_bundle(self)
+        p=patch.object(llm,'local_label',return_value='Ollama');p.start();self.addCleanup(p.stop)
         self.local_model_patch=patch.object(llm,'_ollama_effective_model',return_value='local-test');self.local_model_patch.start();self.addCleanup(self.local_model_patch.stop)
         p=patch.object(router.privacy,'mode',return_value='normal');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_key',return_value='gem-key');p.start();self.addCleanup(p.stop)
@@ -61,17 +62,19 @@ class SmartRouterTests(unittest.TestCase):
     def test_local_deadline_ends_the_pool_without_punishing_the_provider(self):
         # Yerel süre bütçesi dolduğunda yeni aday boşuna denenmez ve sağlıklı sağlayıcı
         # cooldown'a düşürülmez: kök neden taşıma değil, çağıranın kendi sınırıdır.
+        router.configure('alice',True)
         calls=[]
         def callback(provider):
             calls.append(provider)
             raise requests_state.LocalDeadline('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
         with patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
             with self.assertRaises(requests_state.LocalDeadline):
-                router.run('alice','merhaba dünya',callback)
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=callback:callback(spec.provider)).text
         self.assertEqual(calls,['groq'])
         self.assertEqual(router._HEALTH,{})
 
     def test_a_provider_error_that_arrives_after_the_budget_uses_the_same_no_cooldown_path(self):
+        router.configure('alice',True)
         # Yalnız callback'in kendi deadline'i değil: taşıma hatası bütçe dolduktan SONRA
         # çıkarsa llm._timed'in hata çıkışı onu LocalDeadline'e çevirir ve router bu kök nedeni
         # taşıma hatası saymaz — sağlıklı aday cezalanmaz, sıradaki aday boşuna denenmez.
@@ -89,12 +92,13 @@ class SmartRouterTests(unittest.TestCase):
                 patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
             with requests_state.budget(1):
                 with self.assertRaises(requests_state.LocalDeadline) as caught:
-                    router.run('alice','merhaba dünya',callback)
+                    router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=callback:callback(spec.provider)).text
         self.assertEqual(calls,['groq'])
         self.assertEqual(router._HEALTH,{})
         self.assertIsInstance(caught.exception.__cause__,llm.CloudError)
 
     def test_a_late_key_rejection_still_gets_its_own_cooldown_without_a_second_attempt(self):
+        router.configure('alice',True)
         # Denetim bulgusunun router yüzü: 401 gibi kesin bir kimlik bulgusu bütçe dolduktan sonra
         # gelirse bilgi LocalDeadline altında kalmaz; router kendi anahtar yolunu işler ve bozuk
         # adayı cooldown'a düşürür. Yine de sıradaki aday denemez: döngü başındaki bütçe denetimi
@@ -113,16 +117,16 @@ class SmartRouterTests(unittest.TestCase):
                 patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
             with requests_state.budget(1):
                 with self.assertRaises(requests_state.LocalDeadline):
-                    router.run('alice','merhaba dünya',callback)
+                    router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=callback:callback(spec.provider)).text
         self.assertEqual(calls,['groq'])
-        self.assertEqual([p for (u,p) in router._HEALTH],['groq'])
-        self.assertGreater(router._HEALTH[('alice','groq')]['until'],router.time.monotonic())
-        self.assertEqual(router._HEALTH[('alice','groq')]['error'],'CloudError')
+        self.assertEqual([key[1] for key in router._HEALTH],['groq'])
+        self.assertGreater(router._HEALTH[router._health_key('alice','groq','*')]['until'],router.time.monotonic())
+        self.assertEqual(router._HEALTH[router._health_key('alice','groq','*')]['error'],'CloudError')
 
     def test_status_shows_owner_cooldown_without_claiming_live_success(self):
         router.configure('alice',True)
-        router._HEALTH[('alice','gemini')]={'until':router.time.monotonic()+300}
-        router._HEALTH[('bob','groq')]={'until':router.time.monotonic()+300}
+        router._HEALTH[router._health_key('alice','gemini',llm.active_model('alice'))]={'until':router.time.monotonic()+300}
+        router._HEALTH[router._health_key('bob','groq',llm.groq_model())]={'until':router.time.monotonic()+300}
         status=router.status('alice')
         policies={r['provider']:r['policy'] for r in status['capabilities']}
         self.assertIn('beklemede',policies['gemini'])
@@ -132,7 +136,7 @@ class SmartRouterTests(unittest.TestCase):
     def test_quota_fallback_cooldown_and_routing_trace(self):
         router.configure('alice',True)
         call=Mock(side_effect=[RuntimeError('quota PRIVATE'), 'ollama answer'])
-        self.assertEqual(router.run('alice','merhaba',call),'ollama answer')
+        self.assertEqual(router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text,'ollama answer')
         self.assertEqual([c.args[0] for c in call.call_args_list],['groq','ollama'])   # Gemini PRIVATE zincirde hiç denenmez
         trace=router.status('alice')['last']
         self.assertEqual(trace['provider'],'ollama');self.assertNotIn('PRIVATE',json.dumps(trace))
@@ -156,7 +160,7 @@ class SmartRouterTests(unittest.TestCase):
         errors=[router.requests.HTTPError('PRIVATE body gem-key',response=response),
                 router.requests.ReadTimeout('PRIVATE prompt'),ConnectionError('PRIVATE url')]
         with self.assertRaises(RuntimeError) as caught:
-            router.run('alice','python',Mock(side_effect=errors),route='PUBLIC_RESEARCH')
+            router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,route='PUBLIC_RESEARCH'),lambda spec, callback=Mock(side_effect=errors):callback(spec.provider)).text
         message=str(caught.exception)
         self.assertIn('gemini: kota veya hız sınırı (HTTPError, HTTP 429)',message)
         self.assertIn('groq: zaman aşımı',message)
@@ -172,47 +176,33 @@ class SmartRouterTests(unittest.TestCase):
         call=Mock(side_effect=AssertionError('no call'))
         with patch.object(router,'selection',return_value={'candidates':[],'skipped':[]}):
             with self.assertRaisesRegex(RuntimeError,'denenecek sağlayıcı yok'):
-                router.run('alice','python',call)
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
         call.assert_not_called()
 
     def test_router_status_exposes_only_current_owner_safe_last_attempts(self):
         with self.assertRaises(RuntimeError):
-            router.run('alice','python',Mock(side_effect=TimeoutError('PRIVATE')))
+            router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=TimeoutError('PRIVATE')):callback(spec.provider)).text
         with patch.object(router.requests,'post',side_effect=AssertionError('no network')):
             self.assertIn('ollama: zaman aşımı (TimeoutError)',router.handle('alice','router durumu'))
             self.assertNotIn('Son çağrı denemeleri',router.handle('bob','router durumu'))
         self.assertNotIn('PRIVATE',router.handle('alice','router durumu'))
 
     def test_gemini_quota_never_falls_to_groq_or_ollama_inside_llm(self):
-        quota=llm.errors.ClientError(429,{'error':{'message':'quota','status':'RESOURCE_EXHAUSTED'}})
-        with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=quota), \
-             patch.object(llm,'_groq',side_effect=AssertionError('cross fallback')),patch.object(llm,'_ollama',side_effect=AssertionError('cross fallback')):
-            with self.assertRaises(llm.errors.ClientError):llm._send_provider('gemini','merhaba','',100,None)
-        with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=llm.errors.ClientError(400,{'error':{'message':'bad'}})),patch.object(llm,'_groq',side_effect=AssertionError('400')):
-            with self.assertRaises(llm.errors.ClientError):llm._send_provider('gemini','merhaba','',100,None)
+        for code in (429,400):
+            cli=Mock();cli.chats.create.return_value.send_message.side_effect=llm.errors.ClientError(code,{'error':{'message':'quota'}})
+            with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=cli),patch.object(llm,'_groq') as groq,patch.object(llm,'_ollama') as local:
+                with self.assertRaises(llm.errors.ClientError):llm._send_provider('gemini','merhaba','',100,None,model='exact')
+            cli.chats.create.return_value.send_message.assert_called_once();groq.assert_not_called();local.assert_not_called()
 
-    def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
+    def test_local_only_profile_uses_exact_preference_and_one_shared_repair_budget(self):
         self.local_model_patch.stop()
-        with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
-             patch.object(llm,'load_settings',return_value={}), \
-             patch.object(llm,'ollama_models',return_value=['llama3.2','qwen2.5:7b']):
-            self.assertEqual(llm.ollama_model_for('merhaba nasılsın'),'llama3.2')
-            self.assertEqual(llm.ollama_model_for('Python hatasını düzelt'),'qwen2.5:7b')
-            with patch.object(llm,'_ollama',return_value='ok') as call:
-                llm._ollama_task([],'',100,'bu pdf belgeyi analiz et')
-                self.assertEqual(call.call_args.kwargs['model'],'qwen2.5:7b')
-            with patch.object(llm,'_ollama',side_effect=[llm.LocalModelError('bellek'),'küçük']) as call:
-                self.assertEqual(llm._ollama_task([],'',100,'kod yaz'),'küçük')
-                self.assertEqual([c.kwargs['model'] for c in call.call_args_list],['qwen2.5:7b','llama3.2'])
-            with patch.object(llm,'_ollama',side_effect=llm.ImageCapabilityError('x')) as call:
-                with self.assertRaises(llm.ImageCapabilityError):llm._ollama_task([],'',100,'kod yaz')
-                self.assertEqual(call.call_count,1)
-        with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
-             patch.object(llm,'load_settings',return_value={}),patch.object(llm,'ollama_models',return_value=['llama3.2']):
-            self.assertEqual(llm.ollama_model_for('kod yaz'),'llama3.2')   # 7b yüklü değil
-        llm.take_route()
+        from provider_fixture import routed_plan
+        request=router.ModelRequest(owner='alice',profile='local_only')
+        with routed_plan(provider='ollama',model='installed-local'),patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_ollama',side_effect=['invalid','valid']) as send:
+            result=router.run_request(request,lambda spec:llm.dispatch(request,spec,'Python ya da merhaba',''),validator=lambda text:None if text=='valid' else (_ for _ in ()).throw(ValueError()))
+        self.assertEqual(result.text,'valid');self.assertEqual(send.call_count,2)
+        self.assertEqual([c.kwargs['model'] for c in send.call_args_list],['installed-local','installed-local'])
+        self.assertFalse(hasattr(llm,'ollama_model_for'));self.assertFalse(hasattr(llm,'_ollama_task'))
 
     def test_route_trace_names_answering_model_and_fallbacks_only(self):
         llm.take_route()
@@ -221,19 +211,19 @@ class SmartRouterTests(unittest.TestCase):
         def answer(provider):
             if provider=='groq':raise quota
             return llm._timed('gemini',lambda:'cevap')
-        self.assertEqual(router.run('alice','merhaba',answer),'cevap')
+        self.assertEqual(router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=answer:callback(spec.provider)).text,'cevap')
         route=llm.take_route()
         self.assertEqual(route,[('Groq istek/token sınırına takıldı, sıradakine geçildi',False),('Cevap: Gemini',True)])
         self.assertNotIn('secret',str(route));self.assertEqual(llm.take_route(),[])
         llm._timed('groq',lambda:'a');llm._timed('ollama',lambda:'b')
-        self.assertEqual(llm.take_route(),[('Cevap: Ollama (yerel)',True)])
+        self.assertEqual(llm.take_route(),[('Cevap: '+llm.provider_label('ollama'),True)])
 
     def test_local_mode_never_cloud_and_empty_answer_is_failure(self):
         router.configure('alice',True)
         with patch.object(router.privacy,'mode',return_value='yerel'):
             self.assertEqual(router.candidates('alice','vision'),['ollama'])
-            with self.assertRaises(RuntimeError):router.run('alice','x',lambda p:'')
-        with self.assertRaises(requests_state.Cancelled):router.run('bob','x',Mock(side_effect=requests_state.Cancelled()))
+            with self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=lambda p:'':callback(spec.provider)).text
+        with self.assertRaises(requests_state.Cancelled):router.run_request(router.ModelRequest(owner='bob',profile='conversation'),lambda spec, callback=Mock(side_effect=requests_state.Cancelled()):callback(spec.provider)).text
 
     def test_actual_llm_auto_dispatch_preserves_history_and_strict_no_legacy_fallback(self):
         router.configure('alice',True)
@@ -241,13 +231,11 @@ class SmartRouterTests(unittest.TestCase):
             self.assertEqual(llm.ask('test'),'fast')
             self.assertEqual(groq.call_args.args[0][-1]['content'],'test')
         with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')),patch.object(llm,'_cli',side_effect=AssertionError('legacy fallback')):
-            with self.assertRaises(llm.LocalModelError):llm._send_provider('groq','x','',100,None)
+            with self.assertRaises(llm.LocalModelError):llm._send_provider('groq','x','',100,None,model='exact')
 
-    def test_task_classification_and_gizli_image_gate(self):
-        self.assertEqual(router.task_type('Python hatasını düzelt'),'code')
-        self.assertEqual(router.task_type('PDF belgeyi analiz et'),'analysis')
-        self.assertEqual(router.task_type('x',True),'vision')
-        with patch.object(llm.privacy,'mode',return_value='gizli'),patch.object(router,'run',side_effect=AssertionError('cloud')):
+    def test_declared_profile_replaces_prompt_classification_and_gizli_blocks_image(self):
+        self.assertFalse(hasattr(router,'task_type'))
+        with patch.object(llm.privacy,'mode',return_value='gizli'),patch.object(router,'run_request',side_effect=AssertionError('cloud')):
             self.assertIn('Gizli',llm.ask_image('missing.png','x'))
 
     def test_auxiliary_gemini_calls_cannot_bypass_budget_policy(self):
@@ -267,8 +255,9 @@ class SmartRouterTests(unittest.TestCase):
 
     def test_cancellation_after_provider_response_is_not_success(self):
         with patch.object(router.requests_state,'check',side_effect=[None,requests_state.Cancelled()]):
-            with self.assertRaises(requests_state.Cancelled):router.run('alice','test',lambda p:'late answer')
-        self.assertEqual(router.status('alice')['last'],{})
+            with self.assertRaises(requests_state.Cancelled):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=lambda p:'late answer':callback(spec.provider)).text
+        self.assertEqual(router.status('alice')['last']['state'],'cancelled')
+        self.assertFalse(any(a['ok'] for a in router.status('alice')['last']['attempts']))
 
     def test_ui_auto_now_calls_auto_provider(self):
         from modules import nxapi
@@ -279,7 +268,7 @@ class SmartRouterTests(unittest.TestCase):
         router.configure('alice',True)
         with patch.object(llm,'user_groq_key',return_value=''):
             with self.assertRaises(RuntimeError) as caught:
-                router.run('alice','araştırma raporu',Mock(side_effect=TimeoutError('PRIVATE')))
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=TimeoutError('PRIVATE')):callback(spec.provider)).text
             last=router.status('alice')['last']
         self.assertIn('groq: Bu kullanıcı için API anahtarı eksik',str(caught.exception))
         groq_skip=next(row for row in last['skipped'] if row['provider']=='groq')
@@ -290,12 +279,12 @@ class SmartRouterTests(unittest.TestCase):
 
     def test_groq_cooldown_is_visible_and_expiry_makes_it_eligible(self):
         router.configure('alice',True)
-        router._HEALTH[('alice','groq')]={'until':router.time.monotonic()+300}
+        router._HEALTH[router._health_key('alice','groq',llm.groq_model())]={'until':router.time.monotonic()+300}
         selected=router.selection('alice','analysis')
         self.assertNotIn('groq',selected['candidates'])
         row=next(r for r in selected['skipped'] if r['provider']=='groq')
         self.assertIn('beklemede',row['reason']);self.assertGreater(row['seconds'],0)
-        router._HEALTH[('alice','groq')]['until']=router.time.monotonic()-1
+        router._HEALTH[router._health_key('alice','groq',llm.groq_model())]['until']=router.time.monotonic()-1
         self.assertIn('groq',router.candidates('alice','analysis'))
 
     def test_429_label_does_not_claim_daily_quota_was_exhausted(self):
@@ -309,7 +298,7 @@ class SmartRouterTests(unittest.TestCase):
         with patch.object(router,'candidates',return_value=['ollama']), \
              patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
             with self.assertRaises(RuntimeError) as caught:
-                router.run('alice','test',Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))))
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))):callback(spec.provider)).text
         message=str(caught.exception)
         self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor',message)
         self.assertIn('(LocalModelError)',message)
@@ -320,7 +309,7 @@ class SmartRouterTests(unittest.TestCase):
         with patch.object(router,'candidates',return_value=['ollama']), \
              patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
             with self.assertRaises(RuntimeError) as caught:
-                router.run('alice','test',Mock(side_effect=error))
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=error):callback(spec.provider)).text
         self.assertNotIn('Ollama yüklü değil',str(caught.exception))
         self.assertNotIn('hint',router.status('alice')['last']['attempts'][0])
         self.assertIn('ollama: çağrı başarısız (LocalModelError)',str(caught.exception))
@@ -336,7 +325,7 @@ class SmartRouterTests(unittest.TestCase):
         with patch.object(router,'candidates',return_value=['ollama']), \
              patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
             with self.assertRaises(RuntimeError) as caught:
-                router.run('alice','test',Mock(side_effect=error))
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=error):callback(spec.provider)).text
         self.assertNotIn(secret,str(caught.exception))
         self.assertNotIn(secret,json.dumps(router.status('alice')['last']))
 
@@ -346,11 +335,9 @@ class SmartRouterTests(unittest.TestCase):
         def answer(provider):
             calls.append(provider)
             return provider
-        self.assertEqual(router.run('alice', 'brain semantic proposal', answer,
-                                    exclude_providers={'ollama'}), 'groq')
+        self.assertEqual(router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,exclude_providers={'ollama'}),lambda spec, callback=answer:callback(spec.provider)).text, 'groq')
         self.assertEqual(calls, ['groq'])
         with self.assertRaises(ValueError):
-            router.run('alice', 'brain semantic proposal', answer,
-                       exclude_providers={'invented-provider'})
+            router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,exclude_providers={'invented-provider'}),lambda spec, callback=answer:callback(spec.provider)).text
 
 if __name__=='__main__':unittest.main()

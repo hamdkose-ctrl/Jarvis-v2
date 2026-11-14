@@ -70,7 +70,7 @@ def _foreground_scope(boundary):
 def interactive_wait():
     """Lend the mic to the listener during an in-thread Brain provider route.
 
-    Primary semantic understanding uses smart_router.run rather than ask().
+    Primary semantic understanding uses typed smart_router.run_request rather than ask().
     This opt-in scope has the SAME failure-safe local foreground hook as ask,
     but does not add a worker, change provider routing, or release as_user.
     The model still runs synchronously: queued follow-ups are not executed here.
@@ -108,7 +108,7 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,ask_fn=None,*
             from modules import interactive_resource_gate
             with interactive_resource_gate.claim(
                     "llm", owner=owner, operation_id=secrets.token_hex(16)):
-                with requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
+                with requests_state.model_work_scope('interactive' if boundary is not None else 'background'),requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
                     if ask_fn is None:
                         box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
                     else:

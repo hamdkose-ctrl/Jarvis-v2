@@ -26,8 +26,6 @@ from modules.brain_contracts import (
     _freeze_json, _reject_authority_argument_keys,
 )
 
-_PAID = frozenset({"openai", "anthropic"})
-_LOCAL = frozenset({"ollama"})
 
 SCHEMA_VERSION = "brain-understanding.v2"
 MAX_ACTIONS = 5
@@ -62,6 +60,27 @@ def proposal_diagnostic(*, clear: bool = False) -> dict[str, Any]:
     if clear:
         _proposal_diagnostic.set(None)
     return dict(_proposal_diagnostic.get() or {})
+
+
+def _record_shape(row):
+    from modules.brain_core_map import CORE_INTENTS
+    # Retain only closed protocol enums, never arbitrary response fields/arguments.
+    detail = {}
+    for key, allowed in (('operation', OPERATIONS),
+                         ('conversation_relation', {v.value for v in ConversationRelation}),
+                         ('confidence', {v.value for v in Confidence})):
+        if isinstance(row.get(key), str) and row[key] in allowed:
+            detail[key] = row[key]
+    action_rows = row.get('actions')
+    if isinstance(action_rows, list):
+        detail['action_count'] = len(action_rows)
+        detail['goal_card_present'] = row.get('goal') is not None
+        goal_ids = row.get('target_goal_ids')
+        detail['target_goal_count'] = len(goal_ids) if isinstance(goal_ids, list) else None
+        detail['capabilities'] = [a['capability_id'] for a in action_rows
+            if isinstance(a,dict) and isinstance(a.get('capability_id'),str)
+            and a['capability_id'] in CORE_INTENTS]
+    _proposal_diagnostic.set(detail)
 
 
 def _reject(code: str):
@@ -1328,13 +1347,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         if llm.current_user() != owner:
             return _reject('PROFILE_OWNER_MISMATCH')
         selected = llm.provider()
-        # Açıkça seçilmiş ücretli/yerel rotalar Brain tarafından kullanılmaz veya sessiz geçilmez.
-        if selected in _PAID or selected in _LOCAL or llm.privacy.mode() == "yerel":
-            return _reject('PROVIDER_ROUTE_DISABLED')
         route = provider_privacy.ROUTE_PRIVATE_GENERAL
-        eligible = smart_router.selection(owner, "analysis", route=route).get("candidates", [])
-        if not any(name in {"groq", "cloudflare"} for name in eligible):
-            return _reject('PROVIDER_UNAVAILABLE')
 
         from modules.brain_core_map import CORE_INTENTS
         slot_rows, _, _ = _file_slots(current)
@@ -1506,21 +1519,12 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         )
         deadline = time.monotonic() + _MODEL_BUDGET_SECONDS
 
-        def send(provider: str, model: str | None = None) -> str:
-            requests_state.check()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise requests_state.LocalDeadline("Brain model understanding budget expired.")
-            # Dördüncü argüman saniye değil token limiti. Süre tek yerden gelir:
-            # requests_state bütçesi (yukarıdaki deadline ile aynı _MODEL_BUDGET_SECONDS);
-            # llm.transport_timeouts soket zaman aşımlarını o bütçenin üstüne çıkarmaz,
-            # ama asıl sınır bütçenin kendisidir — soket süresi toplam deadline değildir.
-            return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None, model=model)
-
         def validate_response(raw: str) -> None:
             nonlocal response_received
             response_received = True
-            proposal = _build(_decode(raw), owner=owner, text=text, current=current,
+            decoded=_decode(raw)
+            _record_shape(decoded)
+            proposal = _build(decoded, owner=owner, text=text, current=current,
                               deterministic_arguments=arguments, protected_relation=protected_relation,
                               file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
                               last_verified_level_property=last_verified_level_property,
@@ -1529,36 +1533,22 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
 
         with requests_state.budget(_MODEL_BUDGET_SECONDS):
-            # Primary understanding uses smart_router.run, not model_wait.ask.
+            # Primary understanding uses the typed smart_router.run_request entry.
             # The current voice turn may lend the mic back during this REAL
             # provider wait while preserving owner, budget and request fences.
             # No second execution lane or provider selection is introduced.
             from modules import model_wait
             with model_wait.interactive_wait():
-                raw = smart_router.run(
-                    owner, prompt + "\\n" + system, send, route=route,
-                    exclude_providers={"ollama"}, include_model=True, validator=validate_response, deadline=deadline,
-                )
+                request=smart_router.ModelRequest(owner=owner,request_id=getattr(current,'request_id',''),
+                    profile='brain_understanding',data_scope='conversation',work_class='interactive',route=route,
+                    features=frozenset({'text','structured_output'}),max_output_tokens=_RESPONSE_MAX_TOKENS,deadline=deadline,
+                    selection_mode='local_only' if selected=='ollama' else 'configured')
+                raw=smart_router.run_request(request,lambda spec:llm.dispatch(request,spec,prompt,system),
+                                             validator=validate_response).text
             requests_state.check()
         response_received = True
         row = _decode(raw)
-        # Retain only closed protocol enums, never arbitrary response fields/arguments.
-        detail = {}
-        for key, allowed in (('operation', OPERATIONS),
-                             ('conversation_relation', {v.value for v in ConversationRelation}),
-                             ('confidence', {v.value for v in Confidence})):
-            if isinstance(row.get(key), str) and row[key] in allowed:
-                detail[key] = row[key]
-        action_rows = row.get('actions')
-        if isinstance(action_rows, list):
-            detail['action_count'] = len(action_rows)
-            detail['goal_card_present'] = row.get('goal') is not None
-            goal_ids = row.get('target_goal_ids')
-            detail['target_goal_count'] = len(goal_ids) if isinstance(goal_ids, list) else None
-            detail['capabilities'] = [a['capability_id'] for a in action_rows
-                if isinstance(a,dict) and isinstance(a.get('capability_id'),str)
-                and a['capability_id'] in CORE_INTENTS]
-        _proposal_diagnostic.set(detail)
+        _record_shape(row)
         result = _build(
             row, owner=owner, text=text, current=current,
             deterministic_arguments=arguments, protected_relation=protected_relation,

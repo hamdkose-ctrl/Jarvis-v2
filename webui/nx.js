@@ -2038,22 +2038,22 @@ const SX={};          // sayfa içi geçici durum (mesajlar)
 const AI_CARDS=[['auto','Otomatik Model Seçimi','Jarvis seçer · anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],
   ['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],
   ['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],
+  ['cloudflare','Cloudflare','İlave ücretsiz metin yedeği','<span class="lg">☁</span>'],
   ['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],
-  ['openai','OpenAI','Kendi API anahtarın · ücretli','<span class="lg">O</span>'],
-  ['anthropic','Claude','Kendi API anahtarın · ücretli','<span class="lg">C</span>'],
+  ['custom','Özel API','İlave bağlantı ve kullanım rolü','<span class="lg">＋</span>'],
   ['google','Gmail ve Takvim','Google hesabın · salt okuma','<span class="lg">✉</span>'],
   ['youtube','YouTube','Çalışma videoları · isteğe bağlı','<span class="lg">▶</span>']];
 function aiStates(sn){
-  const l=sn.llm||{},q=l.groq||{},paid=l.paid||{},g=sn.google||{},y=sn.youtube||{},r=SX.router||{};
+  const l=sn.llm||{},q=l.groq||{},g=sn.google||{},y=sn.youtube||{},r=SX.router||{};
   const on=(v,t='Bağlı')=>v?['ok',t]:['bad','Bağlı değil'];
-  return {auto:['ok','Hazır'],gemini:on(l.key),groq:on(q.key),ollama:on(l.ollama_up,'Çalışıyor'),
-    openai:on(paid.openai?.key),anthropic:on(paid.anthropic?.key),google:g.token?['ok','Bağlı']:g.cred?['warn','İzin bekliyor']:['bad','Bağlı değil'],
+  return {auto:['ok','Hazır'],gemini:on(l.key),groq:on(q.key),cloudflare:on((SX.routerOwner===(sn.user||{}).slug?r.connection_states?.cloudflare:false)),ollama:on(l.ollama_up,'Çalışıyor'),
+    custom:(r.custom_connections||l.custom_connections||[]).some(c=>c.enabled)?['ok','Etkin']:['warn','İsteğe bağlı'],google:g.token?['ok','Bağlı']:g.cred?['warn','İzin bekliyor']:['bad','Bağlı değil'],
     youtube:!y.key?['bad','Bağlı değil']:y.ok===false?['bad','Hata']:y.ok===true?['ok','Bağlı']:['warn','Deneniyor']};
 }
 function aiPage(sn,panels,extra=''){
   const l=sn.llm||{},raw=String(l.provider||'gemini').toLowerCase(),active=raw==='smart_router'?'auto':raw,st=aiStates(sn),sel=panels[SX.aiSel]?SX.aiSel:(panels[active]?active:'auto');
   const cards=AI_CARDS.map(([id,t,s,lg])=>`<button class="apv st-${st[id][0]} ${sel===id?'sel':''} ${active===id?'act':''}" data-act="aipick" data-k="${id}" title="${esc(st[id][1])}" aria-label="${esc(t+': '+st[id][1]+(active===id?' · şu an kullanılıyor':''))}" aria-pressed="${sel===id}">${lg}<span><b>${t}</b><small>${s}</small></span><i class="sd"></i></button>`).join('');
-  const usable=['auto','gemini','groq','ollama'].includes(sel);
+  const usable=['auto','ollama'].includes(sel);
   const use=usable?`<div class="apuse">${active===sel?'<span class="pill good">Şu an kullanılıyor</span>':`<button class="btn sm pri" data-act="sval" data-k="ai_mode" data-v="${sel}">Bunu kullan</button>`}</div>`:'';
   return `<div class="apgrid">${cards}</div>${use}<div class="appanel">${panels[sel]}</div>${$('#mn-win')?'':extra}`;
 }
@@ -2219,7 +2219,7 @@ async function drawSettings(){
         srow('bolt','Groq',q.key?'Kayıtlı …'+esc(q.tail||''):'Yok','')+field('Groq anahtarı',inp('qk','gsk_…','','password'))+field('Groq modeli',inp('qm','openai/gpt-oss-120b',q.model))+pad18(`<button class="btn sm pri" data-act="qsave">Kaydet ve dene</button> <span class="mut">${esc(SX.q||'')}</span>`));
     const pYt=sbox('play','YouTube · Çalışma videoları (isteğe bağlı)','Çalışma ekranında anlatılan konunun videoları yanda listelensin. Anahtar: console.cloud.google.com › YouTube Data API v3 › Kimlik Bilgileri › API anahtarı',
         srow('play','YouTube',(()=>{const y=sn.youtube||{};return !y.key?'Yok — yalnız “YouTube’da ara” bağlantısı':y.ok===true?'Kayıtlı · çalışıyor':y.ok===false?'Kayıtlı · HATA: '+esc(y.msg||''):'Kayıtlı · deneniyor…'})(),'')+field('YouTube API anahtarı',inp('ytk','AIza…','','password'))+pad18(`<button class="btn sm pri" data-act="ytsave">Kaydet</button>${sn.youtube_key?' <button class="btn sm" data-act="ytdel">Sil</button>':''}`));
-    h=aiPage(sn,{auto:routerBox('policy'),gemini:pGem,groq:pGroq,ollama:pOll,openai:paidProviderBoxes(sn,'openai'),anthropic:paidProviderBoxes(sn,'anthropic'),google:gsBox+pGoogle,youtube:pYt},learnBox)}
+    h=aiPage(sn,{auto:routerBox('policy'),gemini:pGem,groq:pGroq,ollama:pOll,custom:routerConnectionsBox(sn),cloudflare:cloudflareBox(sn),google:gsBox+pGoogle,youtube:pYt},learnBox)}
   else if(k==='ses'){let st={},vo={voices:[]},devs=[],ls={};try{[st,vo,devs,ls]=await Promise.all([api('settings'),api('voice_options'),api('input_devices'),api('local_stt_status')])}catch(e){}
     const sel=(id,opts,cur)=>`<select class="sel" id="${id}" style="width:100%">${opts.map(([v,t])=>`<option value="${esc(v)}" ${String(cur)===String(v)?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
     h+=$('#mn-win')?sesBoxes({st,vo,devs,ls,sel,f,u,sn}):sbox('vol','Ses','Konuşma ve dinleme.',
@@ -2277,7 +2277,7 @@ async function drawSettings(){
   const vs=$('#vsel');if(vs)vs.onchange=()=>tryApi('voice_set',vs.value);
 }
 function connectionHelpProvider(title){
-  return [['gemini',/^Gemini/],['github',/^GitHub/],['google',/^Gmail/],['groq',/^Groq/],['openai',/^OpenAI/],['anthropic',/^Claude/],['youtube',/^YouTube/],['ollama',/^Ollama/]].find(([,re])=>re.test(title))?.[0]||'';
+  return [['gemini',/^Gemini/],['github',/^GitHub/],['google',/^Gmail/],['groq',/^Groq/],['custom',/^Özel API/],['youtube',/^YouTube/],['ollama',/^Ollama/]].find(([,re])=>re.test(title))?.[0]||'';
 }
 function installConnectionHelp(el){
   if(!el.querySelectorAll)return;
@@ -2305,15 +2305,22 @@ ACT.connecthelp=el=>{
 function routerBox(mode){   // Otomatik Model Seçimi kartı
   const owner=((S.snap||{}).user||{}).slug;if(SX.routerOwner!==owner){SX.router=null;SX.routerOwner=owner}const r=SX.router||{};
   if(!SX.routerLoading&&!SX.router){SX.routerLoading=true;api('smart_router_status').then(v=>{if(SX.routerOwner!==owner){SX.routerLoading=false;return}SX.router=v;SX.routerLoading=false;if(S.sset==='baglanti'||S.sset==='ai')drawSettings()}).catch(()=>{SX.routerLoading=false})}
+  const limits=r.application_limits||{daily_requests:200,max_parallel:2,interactive_reserved:1,interactive_daily_reserve:20};
+  const maintenance=['gemini','groq','cloudflare'].map(provider=>field(provider+' proje/kota grubu',inp('router-project-'+provider,'Aynı projeyi paylaşan hesaplarda aynı ad',(r.account_scopes||{})[provider]||''))+pad18(`<button class="btn sm" data-act="routerfree" data-provider="${provider}">${provider} ücretsiz plan beyanını güncelle</button>`)).join('');
+  const traces=(r.traces||[]).map(t=>`<details><summary>${esc(t.request_id)} · ${esc(t.profile)} · ${esc(t.state)}</summary><p>${esc(t.policy_version)} · ${esc(t.provider||'—')} / ${esc(t.model||'—')} · ${t.duration_ms??'—'} ms</p><p>Ana / yedek: ${(t.planned||[]).map(x=>esc(x.provider+' / '+x.model)).join(' → ')||'Uygun aday yok'}</p><p>Rezervasyon üst sınırı: ${t.reservation?.token_upper_bound??'bilinmiyor'} token; parasal sınır ${t.reservation?.cost_upper_bound_microusd??'bilinmiyor'} µUSD. Gerçek kullanım: giriş ${t.usage?.input_tokens??'bilinmiyor'}, çıkış ${t.usage?.output_tokens??'bilinmiyor'}, reasoning ${t.usage?.reasoning_tokens??'bilinmiyor'}, cache ${t.usage?.cached_tokens??'bilinmiyor'}. İlk token: ${t.first_token_ms??'ölçülmedi'}. ${esc(t.finish_reason||'')}</p><p>${(t.attempts||[]).map(x=>esc(x.model+' · '+(x.kind||x.state))).join('; ')}</p><p>${(t.skipped||[]).map(x=>esc(x.provider+': '+x.reason)).join('; ')}</p></details>`).join('');
   if(mode==='policy'||(!mode&&S.sset==='ai'))return sbox('bolt','Otomatik Model Seçimi','Jarvis işe göre bağlı sağlayıcılar arasından seçim yapar. Bu özellik için ayrı API anahtarı gerekmez.',
-    pad18(`<label class="router-confirm"><input type="checkbox" id="rfree" ${r.cloud_free_confirmed?'checked':''}><span>Gemini Ve Groq Hesaplarımda Ücretli Faturalama Kapalı; Otomatik Seçimde Kullanılabilir.</span></label><div class="connection-actions"><button class="btn sm pri" data-act="routerpolicy">Tercihi Kaydet</button><button class="btn sm" data-act="routerstatus">Model Yetenekleri</button></div><p class="mut">Anahtarlar her yapay zekânın kendi kartında yönetilir. OpenAI ve Claude otomatik havuza dahil edilmez.</p>`));
+    pad18(`<label class="router-confirm"><input type="checkbox" id="rfree" ${r.cloud_free_confirmed?'checked':''}><span>Hazır bulut hesaplarım ücretsiz planda; ücretli faturalama kapalı.</span></label><label class="router-confirm"><input type="checkbox" id="rgchat" ${(r.gemini_scopes||[]).includes('conversation')?'checked':''}><span>Gemini konuşma ve anlamlandırma için gerekli bağlamı kullanabilir.</span></label><label class="router-confirm"><input type="checkbox" id="rgselected" ${(r.gemini_scopes||[]).includes('selected_content')?'checked':''}><span>Gemini iş için seçtiğim dosya ve görüntüleri analiz edebilir.</span></label><p class="mut">Google ücretsiz hizmete gönderilen içeriği ürün geliştirme/eğitim için kullanabilir. Bu kapsam yalnız senin hesabına aittir ve geri alınabilir; yerel/gizli mod daha dar kalır.</p><div class="connection-actions"><button class="btn sm pri" data-act="routerpolicy">Tercihi Kaydet</button><button class="btn sm" data-act="routerstatus">Model Yetenekleri</button></div><p class="mut">Hazır havuz Gemini, uygun Groq/Cloudflare ve isteğe bağlı yerel modellerdir. Diğer sağlayıcıları Özel API alanından rol seçerek ekle. Ücretsiz kota ve model uygunluğu ayrıca doğrulanır. Kalan kota bilinmiyorsa bilinmiyor kalır; uygulama tavanları sağlayıcının gerçek limiti değildir.</p>`)+
+    field('Günlük uygulama çağrı tavanı',inp('router-daily','200',limits.daily_requests))+field('En fazla eşzamanlı bulut çağrısı',inp('router-parallel','2',limits.max_parallel))+field('Sohbet için ayrılan eşzamanlı pay',inp('router-reserved','1',limits.interactive_reserved))+field('Sohbete ayrılan günlük çağrı payı',inp('router-daily-reserve','20',limits.interactive_daily_reserve??20))+maintenance+pad18(`<button class="btn sm" data-act="routerlocalcaps">Yerel modelin görüntü yeteneğini kontrol et</button> <span class="mut">${esc(SX.localCapsMsg||'Model indirilmez veya inference yapılmaz. Ollama runtime bilgisi 5 dakika geçerlidir; diğer backend desteği doğrulanmadan açılmaz.')}</span>`)+pad18(traces||'Bu kullanıcı için kayıtlı model çağrısı yok.'));
   return '';
 }
-ACT.routerpolicy=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save',$('#rfree').checked);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
+ACT.routerpolicy=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save',$('#rfree').checked,[['conversation','rgchat'],['selected_content','rgselected']].filter(([,id])=>$('#'+id).checked).map(([scope])=>scope),owner,{daily_requests:Number($('#router-daily').value),max_parallel:Number($('#router-parallel').value),interactive_reserved:Number($('#router-reserved').value),interactive_daily_reserve:Number($('#router-daily-reserve').value)},Object.fromEntries(['gemini','groq','cloudflare'].map(p=>[p,$('#router-project-'+p).value.trim()]).filter(([,v])=>v)));if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.routerstatus=()=>say('router durumu');
-function modes(){const u=S.ui||{},selected=((S.snap||{}).llm||{}).provider||u.provider||'gemini',m=selected;
-  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Jarvis seçer · ayrı anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],['openai','OpenAI','Kendi API anahtarın · ücretli','<span class="lg">O</span>'],['anthropic','Claude','Kendi API anahtarın · ücretli','<span class="lg">C</span>']]
-    .map(([v,t,s,l])=>`<button class="mode ${m===v?'on':''}" data-act="${['openai','anthropic'].includes(v)?'paidmode':'sval'}" data-k="ai_mode" data-v="${v}">${l}<span><b>${t}</b><small>${s}</small></span><span class="rd"></span></button>`).join('')}</div>`}
+ACT.routerfree=async el=>{const owner=((S.snap||{}).user||{}).slug;if(!$('#rfree').checked)return toast('Önce ücretsiz plan ve ücretli faturalamanın kapalı olduğu beyanını seç.','bad');try{const r=await api('router_free_account_confirm',el.dataset.provider,true,true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
+ACT.routerlocalcaps=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('router_local_capabilities',owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.localCapsMsg=r.ok?(r.vision?'Görüntü destekli runtime doğrulandı: ':'Runtime görüntü desteği bildirmiyor: ')+r.model:r.reason;drawSettings()}catch(e){toast(e.message,'bad')}};
+function modes(){
+  const m=(((S.snap||{}).llm||{}).provider||'auto')==='ollama'?'ollama':'auto';
+  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Hazır ücretsiz havuz ve seçilmiş özel roller'],['ollama','Yalnız yerel','Ollama, LM Studio veya llama.cpp']].map(([v,t,s])=>`<button class="mode ${m===v?'on':''}" data-act="sval" data-k="ai_mode" data-v="${v}"><span><b>${t}</b><small>${s}</small></span><span class="rd"></span></button>`).join('')}</div>`}
+
 async function setUi(k,v){const r=await tryApi('nx_set',k,v);if(r){S.ui=r;await refresh();applyTheme();drawSettings();toast('Kaydedildi.')}}
 ACT.smenu=el=>{S.sset=el.dataset.k;S.sq='';render()};
 ACT.aiconnections=()=>openAiHub('baglanti');
@@ -2331,38 +2338,60 @@ ACT.fdel=el=>sAfter(api('fact_delete',+el.dataset.i));
 ACT.rdel=el=>sAfter(api('rule_delete',+el.dataset.i));
 ACT.pfok=el=>sAfter(api('pending_approve',+el.dataset.i));
 ACT.pfno=el=>sAfter(api('pending_reject',+el.dataset.i));
-function paidProviderBoxes(sn,only){
-  const paid=(sn.llm||{}).paid||{};
-  return [['openai','OpenAI','platform.openai.com/api-keys'],['anthropic','Claude','platform.claude.com/settings/keys']].filter(([p])=>!only||p===only).map(([provider,label,url])=>{
-    const state=paid[provider]||{},id='paid-'+provider,rows=((SX.paidModels||{})[provider]||[]);
-    return sbox('spark',label+' · '+((sn.user||{}).name||'Kullanıcı')+' (isteğe bağlı)',
-      'Kendi API anahtarın · kullanım ücretlidir. Kaydetmek sağlayıcıyı değiştirmez. Anahtar: '+url,
-      srow('key','Durum',state.key?'Anahtar kayıtlı':'Anahtar yok','')+
-      field('API anahtarı',inp(id+'-key','Anahtarını buraya gir','','password'),'Boş bırakırsan kayıtlı anahtar korunur.')+
-      field('Model',`<input class="sel" style="width:100%" id="${id}-model" list="${id}-models" value="${esc(state.candidate_model||state.model||'')}" placeholder="Modelleri getir veya model kimliğini yaz" autocomplete="off"><datalist id="${id}-models">${rows.map(row=>`<option value="${esc(row.id)}">${esc(row.name)}</option>`).join('')}</datalist>`,'Hesabındaki model kimliğini seç. Model değişikliği kullanmak için ayrıca onay ister.')+
-      (provider==='anthropic'?field('Çalışma alanı kimliği (isteğe bağlı)',inp(id+'-workspace','wrkspc_…',state.workspace||''),'Yalnız çoklu çalışma alanı anahtarın gerektiriyorsa doldur.'):'')+
-      pad18(`<button class="btn sm" data-act="paidsave" data-provider="${provider}">Kaydet</button> <button class="btn sm" data-act="paidmodels" data-provider="${provider}">Modelleri getir</button> <button class="btn sm pri" data-act="paidactivate" data-provider="${provider}">Seç ve kullan</button> ${state.key?`<button class="btn sm" data-act="paiddelete" data-provider="${provider}">Anahtarı sil</button>`:''}<span class="mut">${esc((SX.paidMsg||{})[provider]||'')}</span>`));
-  }).join('');
+function cloudflareBox(sn){
+  const owner=(sn.user||{}).slug,ready=SX.routerOwner===owner&&SX.router?.connection_states?.cloudflare;
+  return sbox('cloud','Cloudflare · '+esc((sn.user||{}).name||'Kullanıcı'),'Workers AI için bu kullanıcıya ait Account ID ve API token. Kaydetmek model çağırmaz.',
+    field('Account ID',inp('cf-account','32 karakter; kayıtlı değeri korumak için boş bırak',''))+
+    field('API token',inp('cf-token','Kayıtlı anahtarı korumak için boş bırak','','password'))+
+    pad18(`<button class="btn sm pri" data-act="routercfsave">Kaydet</button> ${ready?'<button class="btn sm" data-act="routercfdelete">Kaldır</button>':''}<p class="mut">${esc(ready?'Bu kullanıcı için bağlantı kayıtlı; ücretsiz plan ve rol uygunluğu ayrı doğrulanır.':'Bu kullanıcı için bağlantı eksik.')} Workers Free planı ve ücretli faturalamanın kapalı olması ayrıca Otomatik Model Seçimi alanından beyan edilir.</p>`));
 }
-async function paidSave(provider){
-  const id='paid-'+provider;
-  return api('paid_provider_save',provider,$('#'+id+'-key').value.trim(),$('#'+id+'-model').value.trim(),provider==='anthropic'?$('#'+id+'-workspace').value.trim():'');
+ACT.routercfsave=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('router_cloudflare_save',$('#cf-account').value,$('#cf-token').value,false,owner);if(owner!==((S.snap||{}).user||{}).slug)return;$('#cf-token').value='';SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
+ACT.routercfdelete=async()=>{const owner=((S.snap||{}).user||{}).slug;if(!await ask('Bu kullanıcının Cloudflare bağlantısı kaldırılsın mı?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;try{const r=await api('router_cloudflare_save','','',true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
+const ROUTER_ROLES=[['brain_understanding','Ana model / Brain'],['conversation','Sohbet'],['public_research','Araştırma'],['long_worker','Uzun işler'],['vision','Görüntü analizi']];
+function routerConnectionsBox(sn){
+  const owner=(sn.user||{}).slug;
+  if(SX.customOwner!==owner){SX.customOwner=owner;SX.customId='';SX.customModels=[];SX.customMsg='';SX.localCapsMsg=''}
+  const rows=(SX.routerOwner===owner?SX.router?.custom_connections:null)||sn.llm?.custom_connections||[];
+  const r=rows.find(x=>x.id===SX.customId)||{protocol:'openai_compatible',role:'conversation',billing:'unknown',daily_requests:25,max_output_tokens:4096,data_scopes:[]};
+  const select=(id,values,current)=>`<select class="sel" id="${id}">${values.map(([value,label])=>`<option value="${value}" ${value===current?'selected':''}>${esc(label)}</option>`).join('')}</select>`;
+  const checked=(id,label,value)=>`<label class="router-confirm"><input type="checkbox" id="${id}" ${value?'checked':''}><span>${label}</span></label>`;
+  const saved=rows.map(c=>`<div class="connection-actions"><span>${esc(c.name)} · ${esc(c.model||'Model seçilmedi')} · ${esc(ROUTER_ROLES.find(x=>x[0]===c.role)?.[1]||c.role)} · ${c.enabled?'Etkin':c.migration_pending?'Eski bağlantı · etkinleştirme bekliyor':'Kapalı'}</span><button class="btn sm" data-act="customedit" data-id="${esc(c.id)}">Düzenle</button><button class="btn sm" data-act="customdelete" data-id="${esc(c.id)}">Kaldır</button></div>`).join('');
+  return sbox('spark','Özel API','Hazır görev düzeni sabittir. Eklediğin bağlantının kullanım rolünü seçebilirsin. Kaydetmek API denemesi yapmaz.',
+    pad18(saved+`<button class="btn sm" data-act="customnew">İlave API ekle</button>`)+
+    field('Bağlantı adı',inp('custom-name','Bağlantım',r.name||''))+
+    field('API temel adresi',inp('custom-url','https://…/v1',r.base_url||''),'Uzak adres HTTPS; yerel sunucu loopback adresi kullanır.')+
+    field('API biçimi',select('custom-protocol',[['openai_compatible','OpenAI uyumlu Chat Completions'],['responses','Responses'],['anthropic_messages','Anthropic Messages']],r.protocol))+
+    field('API anahtarı',inp('custom-key','Kayıtlı anahtarı korumak için boş bırak','','password'))+
+    field('Exact model kimliği',`<input class="sel" id="custom-model" list="custom-models" value="${esc(r.model||'')}" autocomplete="off"><datalist id="custom-models">${(SX.customModels||[]).map(m=>`<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</datalist>`)+
+    field('Kullanım rolü',select('custom-role',ROUTER_ROLES,r.role),'Bu rol için etkinleştirdiğin özel bağlantı kullanılır; ücretsiz havuz ücretliye kendiliğinden geçmez.')+
+    field('Hesabın ücret sınıfı',select('custom-billing',[['unknown','Bilinmiyor'],['free','Ücretsiz plan beyanı'],['trial','Deneme'],['paid','Ücretli']],r.billing),'Sınıf seçimi tek başına ücretsiz hesap veya kalan kota kanıtı değildir. Ücretsiz havuza katılım ayrıca incelenmiş hesap/model/veri kanıtı ister; bilinmeyen uygunlukta aday gönderilmez.')+
+    field('Günlük Jarvis çağrı tavanı',inp('custom-daily','25',r.daily_requests),'Sağlayıcının gerçek kotası veya parasal harcama garantisi değildir.')+
+    field('Çağrı başına çıktı sınırı',inp('custom-output','4096',r.max_output_tokens))+
+    field('Günlük yerel parasal tavan (USD, isteğe bağlı)',inp('custom-money','Boş: parasal tavan yok',r.daily_cost_microusd==null?'':r.daily_cost_microusd/1000000),'Bu tavan provider billing limiti değildir. Doluysa doğrulanmış maliyet üst sınırı olmadan çağrı gönderilmez; bilinmeyen fiyat sıfır sayılmaz.')+
+    field('Çalışma alanı (gerekiyorsa)',inp('custom-workspace','',r.workspace||''))+
+    field('Ortak hesap/proje kota grubu (varsa)',inp('custom-quota','Aynı hesapta aynı ad',r.quota_group||''),'Boşsa endpoint ve anahtar parmak izine göre paylaşılır; anahtar görüntülenmez.')+
+    pad18(checked('custom-conversation','Bu bağlantıya konuşma bağlamı gönderilebilir.',r.data_scopes.includes('conversation'))+
+      checked('custom-selected','Bu bağlantıya iş için seçtiğim içerik gönderilebilir.',r.data_scopes.includes('selected_content'))+
+      checked('custom-public','Herkese açık araştırma kaynakları gönderilebilir.',r.data_scopes.includes('public'))+
+      checked('custom-paid','Bu bağlantıda ücretli kullanım ihtimalini kabul ediyor ve etkinleştiriyorum.',r.paid_enabled)+
+      checked('custom-enabled','Seçtiğim rol için bu bağlantıyı kullan.',r.enabled)+
+      checked('custom-freepool','Yalnız doğrulanmış ücretsiz hesap/model ise sabit hazır havuza ilave aday olarak kat.',r.free_pool)+
+      `<div class="connection-actions"><button class="btn sm pri" data-act="customsave">Kaydet</button>${r.id?'<button class="btn sm" data-act="custommodels">Modelleri getir</button><button class="btn sm" data-act="customtest">Tek bağlantı denemesi</button><button class="btn sm" data-act="customvisiontest">Görüntü desteğini dene</button>':''}</div><p class="mut">${esc(SX.customMsg||'Model yeterliliği, vision desteği ve ücretsiz uygunluk ayrıca doğrulanır.')}</p>`));
 }
-ACT.paidsave=async el=>{el.disabled=true;const provider=el.dataset.provider;try{const r=await paidSave(provider);SX.paidMsg=SX.paidMsg||{};SX.paidMsg[provider]=r.msg;$('#paid-'+provider+'-key').value='';await refresh();drawSettings()}catch(e){toast(e.message,'bad')}finally{el.disabled=false}};
-ACT.paidmodels=async el=>{el.disabled=true;const provider=el.dataset.provider,owner=((S.snap||{}).user||{}).slug;try{
-  await paidSave(provider);$('#paid-'+provider+'-key').value='';const r=await api('paid_provider_models',provider);
-  await refresh();if(owner!==((S.snap||{}).user||{}).slug)return;
-  SX.paidModels=SX.paidModels||{};SX.paidModels[provider]=r.models||[];SX.paidMsg=SX.paidMsg||{};SX.paidMsg[provider]=(r.models||[]).length+' model getirildi. Model alanından seçebilirsin.';drawSettings();
-}catch(e){toast(e.message,'bad')}finally{el.disabled=false}};
-async function activatePaid(provider,model='',prepare=null){
-  const label=provider==='openai'?'OpenAI':'Claude';
-  if(!await ask(label+' API kullanımın ücretli olabilir. Kendi anahtarınla bu sağlayıcı'+(model?' ve “'+model+'” modeli':'')+' kullanılsın mı?'))return false;
-  if(prepare)await prepare();
-  await api('llm_set',provider,model,'');await loadUi();await refresh();drawSettings();toast(label+' seçildi.');return true;
-}
-ACT.paidactivate=async el=>{const provider=el.dataset.provider,model=$('#paid-'+provider+'-model').value.trim();if(!model)return toast('Önce model seç.','bad');el.disabled=true;try{await activatePaid(provider,model,async()=>{await paidSave(provider);$('#paid-'+provider+'-key').value=''})}catch(e){toast(e.message,'bad')}finally{el.disabled=false}};
-ACT.paidmode=async el=>{try{const provider=el.dataset.v,state=(((S.snap||{}).llm||{}).paid||{})[provider]||{};await activatePaid(provider,state.candidate_model||state.model||'')}catch(e){toast(e.message,'bad')}};
-ACT.paiddelete=async el=>{const provider=el.dataset.provider;if(!await ask('Bu kullanıcının '+(provider==='openai'?'OpenAI':'Claude')+' API anahtarı silinsin mi?'))return;await tryApi('paid_provider_delete',provider);await refresh();drawSettings()};
+ACT.customnew=()=>{SX.customId='';SX.customModels=[];SX.customMsg='';drawSettings()};
+ACT.customedit=el=>{SX.customId=el.dataset.id;SX.customModels=[];SX.customMsg='';drawSettings()};
+ACT.customsave=async el=>{
+  const owner=((S.snap||{}).user||{}).slug;
+  const record={name:$('#custom-name').value.trim(),protocol:$('#custom-protocol').value,base_url:$('#custom-url').value.trim(),model:$('#custom-model').value.trim(),role:$('#custom-role').value,billing:$('#custom-billing').value,enabled:$('#custom-enabled').checked,paid_enabled:$('#custom-paid').checked,free_pool:$('#custom-freepool').checked,daily_cost_microusd:$('#custom-money').value.trim()?Math.round(Number($('#custom-money').value)*1000000):null,data_scopes:[['conversation','custom-conversation'],['selected_content','custom-selected'],['public','custom-public']].filter(([,id])=>$('#'+id).checked).map(([value])=>value),daily_requests:Number($('#custom-daily').value),max_output_tokens:Number($('#custom-output').value),workspace:$('#custom-workspace').value.trim(),quota_group:$('#custom-quota').value.trim()};
+  if(SX.customId)record.id=SX.customId;
+  el.disabled=true;
+  try{const r=await api('router_connection_save',record,$('#custom-key').value,owner);if(owner!==((S.snap||{}).user||{}).slug)return;$('#custom-key').value='';SX.customId=r.connection.id;SX.customMsg=r.msg;SX.router=null;await refresh();drawSettings()}catch(e){toast(e.message,'bad')}finally{el.disabled=false}
+};
+ACT.custommodels=async()=>{const owner=((S.snap||{}).user||{}).slug,r=await api('router_connection_models',SX.customId,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.customModels=r.models||[];SX.customMsg='Model listesi alındı; rol yeterliliği veya ücretsiz kullanım kanıtı değildir.';drawSettings()};
+ACT.customtest=async()=>{const owner=((S.snap||{}).user||{}).slug,id=SX.customId;if(!await ask('Kaydedilmiş bağlantıda tek küçük gerçek model çağrısı yapılacak. Sağlayıcı ücretlendirebilir. Denensin mi?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;const r=await api('router_connection_test',id,true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.customMsg=r.msg;drawSettings()};
+ACT.customvisiontest=async()=>{const owner=((S.snap||{}).user||{}).slug,id=SX.customId;if(!await ask('Bu bağlantıya yalnız sentetik bir test görüntüsüyle tek küçük çağrı yapılacak. Sağlayıcı ücretlendirebilir. Denensin mi?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;try{const r=await api('router_connection_vision_test',id,true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.customMsg=r.msg;drawSettings()}catch(e){toast(e.message,'bad')}};
+ACT.customdelete=async el=>{const owner=((S.snap||{}).user||{}).slug,id=el.dataset.id;if(!await ask('Bu özel bağlantı kaldırılsın mı?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;await api('router_connection_delete',id,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.customId='';SX.router=null;await refresh();drawSettings()};
+
 const msgOf=r=>(r&&r.ok?'✓ ':'✗ ')+((r&&r.msg)||'');
 ACT.gksave=async el=>{const v=$('#gk').value.trim();if(!v){SX.gk='Anahtarı yaz.';return drawSettings()}SX.gk='Deneniyor…';el.disabled=true;
   try{const r=await api('api_key_save',v,'','');const bad=Object.values(r||{}).filter(x=>!x.ok);SX.gk=bad.length?'✗ '+bad.map(x=>x.error).join(' | '):'✓ Kaydedildi. Model denemesi yapılmadı.'}catch(e){SX.gk='✗ '+e.message}sAfter(0)};

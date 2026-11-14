@@ -21,8 +21,8 @@ class WebModels:
             return {'ok': True, 'msg': f'{name} için Gemini anahtarı silindi. Başka kullanıcının anahtarı kullanılmayacak.'}
         try:
             from google import genai as _g
-            test_client = _g.Client(api_key=key, http_options={'timeout': 45000})
-            test_client.models.generate_content(model=runtime.llm.model_names(slug)[0], contents="Yalnızca 'tamam' yaz.")
+            test_client = _g.Client(api_key=key, http_options=runtime.llm._gemini_http_options())
+            test_client.models.generate_content(model=runtime.llm.model_names(slug)[0], contents="Yalnızca 'tamam' yaz.",config={"max_output_tokens":32})
         except Exception as e:
             runtime._record_failure('web_models.py:user_key_set')
             low = str(e).lower()
@@ -84,6 +84,18 @@ class WebModels:
         })
         return st
 
+    def router_local_capabilities(self, expected_owner: str='') -> dict:
+        owner=self._router_owner(expected_owner)
+        from modules import llm,model_capabilities
+        with llm.owner_context(owner):
+            config=llm.provider_configuration()
+            model=llm._ollama_effective_model(config,refresh_missing=False)
+            return model_capabilities.refresh_local(model,config)
+
+    def router_request_trace(self, request_id: str, expected_owner: str='') -> dict:
+        from modules import smart_router
+        return {'trace':smart_router.trace(self._router_owner(expected_owner),request_id)}
+
     def llm_set(self, provider: str, model: str='', url: str='') -> dict:
         runtime = self._runtime
         runtime.llm.set_user_context(runtime._p().slug)
@@ -107,11 +119,38 @@ class WebModels:
         from modules import smart_router
         return smart_router.status(runtime._p().slug)
 
-    def smart_router_save(self, cloud_free_confirmed: bool | None=False) -> dict:
+    def smart_router_save(self, cloud_free_confirmed: bool | None=False, gemini_scopes: list | None=None,
+                          expected_owner: str | None=None,application_limits: dict | None=None,
+                          account_scopes: dict | None=None) -> dict:
         runtime = self._runtime
         from modules import smart_router
-        state = smart_router.configure(runtime._p().slug, cloud_free_confirmed)
+        owner=runtime._p().slug if expected_owner is None else self._router_owner(expected_owner)
+        state = smart_router.configure(owner, cloud_free_confirmed,gemini_scopes=gemini_scopes,
+            application_limits=application_limits,account_scopes=account_scopes)
         return {'ok': True, 'msg': 'Model bağlantısı ve seçim tercihleri kaydedildi.', 'status': state}
+
+    def router_cloudflare_save(self, account_id: str='', token: str='', remove: bool=False, expected_owner: str='') -> dict:
+        from modules import image_gen
+        import re
+        owner=self._router_owner(expected_owner)
+        if type(remove) is not bool:raise ValueError('Silme seçimi geçersiz.')
+        if remove:
+            image_gen.set_user_cloudflare(owner,None,None)
+            return {'ok':True,'msg':'Yalnız bu kullanıcının Cloudflare bağlantısı kaldırıldı.'}
+        account=(account_id or '').strip() or image_gen.user_cloudflare_account(owner)
+        secret=(token or '').strip() or image_gen.user_cloudflare_token(owner)
+        if not re.fullmatch(r'[a-fA-F0-9]{32}',account):raise ValueError('Cloudflare Account ID32 hex karakter olmalı.')
+        if not secret or len(secret)>4096 or any(ord(c)<33 for c in secret):raise ValueError('Cloudflare token geçersiz.')
+        image_gen.set_user_cloudflare(owner,account,secret)
+        return {'ok':True,'msg':'Cloudflare kaydedildi; API veya model çağrısı yapılmadı. Ücretsiz plan uygunluğunu ayrıca güncelle.'}
+
+    def router_free_account_confirm(self, provider: str, free_plan: bool=False, no_paid_billing: bool=False,
+                                    expected_owner: str='') -> dict:
+        from modules import smart_router
+        result=smart_router.confirm_free_account(self._router_owner(expected_owner),provider,
+            free_plan_confirmed=free_plan,no_paid_billing=no_paid_billing)
+        return {'ok':True,'msg':'Ücretsiz plan beyanı ve resmî model koşulları kaydedildi. Hesap API doğrulaması veya kalan kota ölçümü yapılmadı.',
+                'evidence':result}
 
     def groq_key_save(self, key: str='', model: str='', activate: bool=False) -> dict:
         """Groq anahtarını kaydeder, küçük bir çağrıyla dener. activate=True ise sağlayıcı Groq olur."""
@@ -153,24 +192,69 @@ class WebModels:
         label = 'Groq' if provider == 'groq' else 'Yerel model'
         return {'ok': True, 'msg': f'{label} için {model} kaydedildi ({p.name}).', 'status': runtime.llm.status()}
 
-    def paid_provider_save(self, provider: str, key: str='', model: str='', workspace: str='') -> dict:
-        runtime = self._runtime
-        from modules import paid_providers
-        if provider not in paid_providers.PROVIDERS:
-            raise ValueError('Sağlayıcı geçersiz.')
-        state = paid_providers.configure(runtime._p().slug, provider, api_key=key.strip() or None, candidate_model=model or None, workspace=workspace)
-        return {'ok': True, 'msg': 'Kaydedildi. Sağlayıcı değişmedi; model seçip ayrıca etkinleştir.', 'status': state}
+    def _router_owner(self,expected_owner):
+        owner=self._runtime._p().slug
+        if expected_owner!=owner:raise PermissionError('Kullanıcı değişti; bağlantı işlemi uygulanmadı.')
+        return owner
 
-    def paid_provider_models(self, provider: str) -> dict:
-        runtime = self._runtime
-        from modules import paid_providers
-        return {'ok': True, 'models': paid_providers.models(runtime._p().slug, provider)}
+    def router_connection_save(self, record: dict, key: str='', expected_owner: str='') -> dict:
+        from modules import router_connections
+        row=router_connections.save(self._router_owner(expected_owner),record,secret=key or None)
+        return {'ok':True,'msg':'Özel bağlantı kaydedildi; model denemesi yapılmadı.','connection':row}
 
-    def paid_provider_delete(self, provider: str) -> dict:
-        runtime = self._runtime
-        from modules import paid_providers
-        paid_providers.configure(runtime._p().slug, provider, api_key='')
-        return {'ok': True, 'msg': 'Yalnız bu kullanıcının anahtarı silindi.'}
+    def router_connection_delete(self, identity: str, expected_owner: str='') -> dict:
+        from modules import router_connections
+        router_connections.remove(self._router_owner(expected_owner),identity)
+        return {'ok':True,'msg':'Bu kullanıcının özel bağlantısı kaldırıldı.'}
+
+    def router_connection_models(self, identity: str, expected_owner: str='') -> dict:
+        from modules import router_connections,provider_protocols,llm,requests_state
+        owner=self._router_owner(expected_owner)
+        requests_state.request_identity(owner)
+        row,secret=router_connections.resolve(owner,identity,require_enabled=False)
+        with llm.owner_context(owner):
+            return {'ok':True,'models':provider_protocols.models(row,secret)}
+
+    def router_connection_test(self, identity: str, accept_charge: bool=False, expected_owner: str='') -> dict:
+        from modules import router_connections,provider_protocols,router_quota,smart_router,usage_meter,llm,requests_state
+        if accept_charge is not True:raise ValueError('Tek gerçek API denemesi için açık tercih gerekli.')
+        owner=self._router_owner(expected_owner)
+        row,secret=router_connections.resolve(owner,identity,require_enabled=False)
+        # A test never enables a connection or attests role/vision/free-tier quality.
+        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
+            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        requests_state.request_identity(owner)
+        with llm.owner_context(owner),usage_meter.capture_attempt(owner,'connection-test:'+identity,'test:'+identity):
+            answer=provider_protocols.generate(owner,row,secret,[{'role':'user','content':'Reply only OK.'}],'',min(32,row['max_output_tokens']))
+        if answer.finish_reason not in (None,'stop','end_turn','stop_sequence'):
+            raise ValueError('API deneme yanıtı tamamlanmadı.')
+        return {'ok':True,'msg':'Tek API çağrısı yanıt verdi; rol yeterliliği veya ücretsiz hesap kabulü değildir.',
+                'model':row['model'],'usage':answer.usage}
+
+    def router_connection_vision_test(self, identity: str, accept_charge: bool=False, expected_owner: str='') -> dict:
+        from modules import router_connections,provider_protocols,router_quota,smart_router,llm,requests_state
+        import secrets,tempfile
+        from pathlib import Path
+        from PIL import Image,ImageDraw,ImageFont
+        if accept_charge is not True:raise ValueError('Tek gerçek görüntü denemesi için açık tercih gerekli.')
+        owner=self._router_owner(expected_owner)
+        requests_state.request_identity(owner)
+        row,secret=router_connections.resolve(owner,identity,require_enabled=False)
+        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
+            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        # The answer exists ONLY in image pixels. A successful text connection,
+        # a model name or a user checkbox cannot produce this observation.
+        expected=''.join(secrets.choice('0123456789') for _ in range(8))
+        with tempfile.TemporaryDirectory(prefix='jarvis-vision-check-') as folder,llm.owner_context(owner):
+            path=Path(folder)/'challenge.png'
+            image=Image.new('RGB',(400,100),'white')
+            ImageDraw.Draw(image).text((15,20),expected,font=ImageFont.load_default(size=48),fill='black')
+            image.save(path)
+            answer=provider_protocols.generate(owner,row,secret,[{'role':'user','content':'Read the eight digits in the image. Reply with digits only.'}],'',min(32,row['max_output_tokens']),image_path=str(path))
+        if answer.finish_reason not in (None,'stop','end_turn','stop_sequence') or answer.text.strip()!=expected:
+            raise ValueError('Görüntü desteği doğrulanamadı; model görüntüdeki kodu doğru okuyamadı.')
+        router_connections.record_vision_observation(owner,row)
+        return {'ok':True,'msg':'Bu bağlantı/exact model tek sentetik görüntüyü doğru okudu. Genel görüntü doğruluğu veya Brain rol kabulü değildir.','usage':answer.usage}
 
     def llm_measure(self) -> dict:
         runtime = self._runtime
@@ -187,7 +271,7 @@ class WebModels:
             for name in names:
                 t0 = runtime.time.monotonic()
                 try:
-                    client.models.generate_content(model=name, contents="Sadece 'tamam' yaz.")
+                    client.models.generate_content(model=name, contents="Sadece 'tamam' yaz.",config={"max_output_tokens":32})
                     out[name] = {'ok': True, 'sec': round(runtime.time.monotonic() - t0, 1)}
                 except Exception:
                     runtime._record_failure('web_models.py:llm_measure')

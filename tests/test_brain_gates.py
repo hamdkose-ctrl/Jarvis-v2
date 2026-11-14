@@ -116,9 +116,12 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result.protocol, protocol)
                 self.assertEqual(result.selection, selection)
 
-    def test_closed_goal_is_not_resumable_state(self):
+    def test_closed_goal_is_read_only_status_not_resumable_state(self):
         done = ref("goal-1", kind="goal", source="goal_state", state="done")
-        self.assertFalse(self.state("devam", active_context=ctx(goals=(done,))).matched)
+        result = self.state("devam", active_context=ctx(goals=(done,)))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, 'goal.closed_resume')
+        self.assertEqual(result.selection, done.id)
 
     def test_job_resume_ignores_unrelated_weather_pending(self):
         weather = ref("pending_weather_location", value=True)

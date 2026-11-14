@@ -37,7 +37,7 @@ _CONTACTS = b3._CONTACTS
 
 def _keyed_run(rows):
     """Cümleye göre zarf döndüren sahte sağlayıcı (ağ yok)."""
-    def run(owner, payload, send, *, route, exclude_providers, **kwargs):
+    def run(request, spec, payload, system, **kwargs):
         reply = rows.get(_utterance_of(payload))
         return _chat_envelope() if reply is None else _envelope(*reply)
     return run

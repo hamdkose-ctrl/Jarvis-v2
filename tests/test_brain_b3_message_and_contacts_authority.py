@@ -21,6 +21,7 @@ Mock model zarfları **bağlantı kanıtıdır**, modelin doğal dili anladığ�
 semantik kabul ayrıca gerçek sağlayıcıyla ölçülür (`scripts/brain_semantic_holdout.py`).
 """
 from __future__ import annotations
+from provider_fixture import routed_response, routed_plan
 
 import ast
 import json
@@ -126,7 +127,7 @@ def _utterance_of(payload: str) -> str:
     return row["utterance"]
 
 
-def _stub_run(owner, payload, send, *, route, exclude_providers, **kwargs):
+def _stub_run(request, spec, payload, system, **kwargs):
     reply = MODEL_STUB_REPLIES.get(_utterance_of(payload))
     return _chat_envelope() if reply is None else _envelope(*reply)
 
@@ -138,16 +139,17 @@ class _ModelStubMixin:
         self.model_calls: list[str] = []
         real_run = run or _stub_run
 
-        def counted(owner, payload, send, *, route, exclude_providers, **kwargs):
+        def counted(request, spec, payload, system, **kwargs):
             self.model_calls.append(_utterance_of(payload))
-            return real_run(owner, payload, send, route=route, exclude_providers=exclude_providers)
+            return real_run(request, spec, payload, system)
 
+        self.enterContext(routed_plan(count=1))
         for target, value in (("modules.llm.current_user", lambda: self.owner),
                               ("modules.llm.provider", lambda: "groq"),
                               ("modules.llm.privacy.mode", lambda: "normal"),
                               ("modules.smart_router.selection",
                                lambda *a, **k: {"candidates": ["groq"]}),
-                              ("modules.smart_router.run", counted)):
+                              ("modules.llm.dispatch", counted)):
             stub = patch(target, value)
             stub.start()
             self.addCleanup(stub.stop)
@@ -240,7 +242,7 @@ class _ZarfHarness(unittest.TestCase):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", return_value=raw):
+                routed_response(raw):
             return model.propose(owner=self.OWNER, text=text, current=current,
                                  arguments=dict(current.arguments))
 
@@ -277,7 +279,7 @@ class MessageModelAuthorityTests(_ZarfHarness):
         from modules.brain_core_map import CORE_INTENTS
         captured: dict[str, str] = {}
 
-        def fake_run(owner, text, send, *, route, exclude_providers, **kwargs):
+        def fake_run(request, spec, text, system, **kwargs):
             captured["payload"] = text
             return _envelope("weather.read", {"location": "izmir"})
 
@@ -286,7 +288,7 @@ class MessageModelAuthorityTests(_ZarfHarness):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", side_effect=fake_run):
+                routed_plan(count=1), patch("modules.llm.dispatch", side_effect=fake_run):
             self.assertIsNotNone(model.propose(
                 owner=self.OWNER, text="bugün hava nasıl", current=current,
                 arguments=dict(current.arguments)))
@@ -310,7 +312,7 @@ class MessageModelAuthorityTests(_ZarfHarness):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", return_value=raw):
+                routed_response(raw):
             adopted = understanding.apply_model_understanding(deterministic, self.SEND)
         self.assertEqual(adopted.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(adopted.capability_hint, _MESSAGE)
@@ -416,7 +418,7 @@ class MessageModelFailureTests(_ZarfHarness):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", side_effect=RuntimeError("sağlayıcı yok")):
+                patch("modules.smart_router.run_request", side_effect=RuntimeError("sağlayıcı yok")):
             adopted = understanding.apply_model_understanding(current, self.SEND)
         self.assertIsNone(adopted.capability_hint)
         self.assertNotEqual(adopted.request_kind, RequestKind.CAPABILITY)
@@ -432,7 +434,7 @@ class MessageModelFailureTests(_ZarfHarness):
                         patch("modules.llm.privacy.mode", return_value="normal"), \
                         patch("modules.smart_router.selection",
                               return_value={"candidates": ["groq"]}), \
-                        patch("modules.smart_router.run", return_value=raw):
+                        routed_response(raw):
                     adopted = understanding.apply_model_understanding(current, self.SEND)
                 self.assertIsNone(adopted.capability_hint)
 
@@ -446,7 +448,7 @@ class MessageModelFailureTests(_ZarfHarness):
                         patch("modules.llm.privacy.mode", return_value=privacy), \
                         patch("modules.smart_router.selection",
                               return_value={"candidates": ["groq"]}), \
-                        patch("modules.smart_router.run", return_value=self._grounded()) as run:
+                        patch("modules.llm.dispatch") as run:
                     adopted = understanding.apply_model_understanding(current, self.SEND)
                 run.assert_not_called()
                 self.assertIsNone(adopted.capability_hint)
@@ -874,7 +876,7 @@ class MessageTurnTests(_MessageTurnHarness):
 
 def _reply(capability, arguments, sources=None):
     """Sabit bir zarfla cevap veren sahte sağlayıcı (dayanak/uydurma senaryoları için)."""
-    def run(owner, payload, send, *, route, exclude_providers, **kwargs):
+    def run(request, spec, payload, system, **kwargs):
         return _envelope(capability, arguments, sources)
     return run
 
@@ -912,7 +914,7 @@ class MessageSideEffectTests(_MessageTurnHarness):
 
     def test_a_provider_failure_does_not_fall_back_to_a_word_pattern(self):
         # §2: model başarısız olduğunda regex/kelime listesi onun yerine NL kararı veremez.
-        def failing(owner, payload, send, *, route, exclude_providers, **kwargs):
+        def failing(request, spec, payload, system, **kwargs):
             raise RuntimeError("sağlayıcı yanıt vermedi")
 
         self._start_model_stub(run=failing)
@@ -920,7 +922,7 @@ class MessageSideEffectTests(_MessageTurnHarness):
         self._assert_no_send_side_effect(out, entry, _MESSAGE)
 
     def test_a_malformed_envelope_sends_nothing(self):
-        self._start_model_stub(run=lambda owner, payload, send, *, route, exclude_providers: "{bozuk")
+        self._start_model_stub(run=lambda request, spec, payload, system: "{bozuk")
         entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
         self._assert_no_send_side_effect(out, entry, _MESSAGE)
 
@@ -935,7 +937,7 @@ class MessageSideEffectTests(_MessageTurnHarness):
     def test_approval_off_does_not_send_on_a_provider_failure(self):
         self.ctx.load_approve.return_value = False
 
-        def failing(owner, payload, send, *, route, exclude_providers, **kwargs):
+        def failing(request, spec, payload, system, **kwargs):
             raise RuntimeError("sağlayıcı yanıt vermedi")
 
         self._start_model_stub(run=failing)

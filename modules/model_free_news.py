@@ -39,6 +39,9 @@ def _fold(value):
     return str(value).casefold().replace('ı','i').replace('\u0307','')
 
 
+_FOLDED_STOP = frozenset(_fold(word) for word in _STOP)
+
+
 def terms(value):
     """Return topical words only; generic news/request words do not create false relevance."""
     result=[]
@@ -49,7 +52,7 @@ def terms(value):
             topical = re.sub(r'(?<!\w)'+re.escape(_fold(alias))+r'(?!\w)', ' ', topical)
     for word in re.findall(r'[\wçğıöşüâîû-]+',topical,re.UNICODE):
         word=word.strip('-_')
-        if len(word)<3 or word in _STOP or word.isdigit():continue
+        if len(word)<3 or word in _FOLDED_STOP or word.isdigit():continue
         if word not in result:result.append(word)
         if len(result)>=16:break
     return result

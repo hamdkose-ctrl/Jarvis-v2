@@ -49,9 +49,9 @@ class OllamaRouteTextTests(unittest.TestCase):
             if name == 'gemini':
                 raise quota
             raise AssertionError('Gemini hatasından sonra başka sağlayıcı denenmemeli: ' + name)
-        with patch.object(llm, '_timed', side_effect=timed), patch.object(llm, '_ollama_task', side_effect=AssertionError('Ollama çağrılmamalı')), patch.object(llm, '_groq', side_effect=AssertionError('Groq çağrılmamalı')):
+        with patch.object(llm, '_timed', side_effect=timed), patch.object(llm, '_ollama', side_effect=AssertionError('Ollama çağrılmamalı')), patch.object(llm, '_groq', side_effect=AssertionError('Groq çağrılmamalı')):
             with self.assertRaises(llm.errors.ClientError) as raised:
-                llm._send_provider('gemini', 'Haber isteği', '', 100, [])
+                llm._send_provider('gemini', 'Haber isteği', '', 100, [],model='exact')
         from modules import failure_policy
         text = failure_policy.explain(raised.exception)
         self.assertIn('kullanım sınırı', text)
@@ -63,9 +63,9 @@ class OllamaRouteTextTests(unittest.TestCase):
             if name == 'gemini':
                 raise AssertionError('Ollama hatasında Gemini denenmemeli')
             return function()
-        with patch.object(self.llm, '_timed', side_effect=timed), patch.object(self.llm, '_ollama_task', side_effect=self.error(True)):
+        with patch.object(self.llm, '_timed', side_effect=timed), patch.object(self.llm, '_ollama', side_effect=self.error(True)):
             with self.assertRaises(self.llm.LocalModelError):
-                self.llm._send_provider('ollama', 'Haber', '', 100, [])
+                self.llm._send_provider('ollama', 'Haber', '', 100, [],model='exact')
 
     def test_timeout_is_not_claimed_to_be_missing_service(self):
         from modules import ollama_hint

@@ -24,7 +24,29 @@ _GROQ_EXPIRES_AT = 1794830400   # 16 Nov 2026 12:00 UTC
 # Only context/output capacities are asserted. Although Groq docs describe
 # native structured outputs, our transport has not implemented schema-bearing
 # API requests, so NO native JSON/tool capability is advertised here.
+CUSTOM_FREE_ACCOUNTS: dict[tuple, dict] = {}  # reviewed developer facts; never user claims
 CATALOG: dict[tuple[str, str], dict] = {
+    ('cloudflare','@cf/google/gemma-4-26b-a4b-it'):{
+        # Adapter is text-only and caps output at4096. Official vision/tool
+        # support is not advertised until that wire contract is implemented.
+        'features':frozenset(),'context_limit':256000,'output_limit':4096,
+        'source_url':'https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/',
+        'verified_at':1794614400,'expires_at':1795824000,
+    },
+    ('gemini', 'gemini-3.5-flash-lite'): {
+        'features': frozenset({'verified_vision'}),
+        'context_limit': 1048576, 'output_limit': 65536,
+        'source_url': 'https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite',
+        # Official model card rechecked 14 Nov; the Gemini adapter's image-parts
+        # transport is covered separately. No native schema/tool claim is made.
+        'verified_at': 1794614400, 'expires_at': 1795824000,
+    },
+    ('gemini', 'gemini-3.5-flash'): {
+        'features': frozenset(),
+        'context_limit': 1048576, 'output_limit': 65536,
+        'source_url': 'https://ai.google.dev/gemini-api/docs/models',
+        'verified_at': 1794614400, 'expires_at': 1795824000,
+    },
     ('groq', 'openai/gpt-oss-120b'): {
         'features': frozenset(),
         'context_limit': 131072, 'output_limit': 65536,
@@ -71,6 +93,7 @@ def _valid_entry(raw, *, now: float) -> bool:
 def evidence(provider: str, model: str, *, now: float | None = None) -> dict | None:
     """Return a bounded COPY of current exact-model claims, never mutable registry data."""
     current = time.time() if now is None else now
+    if provider=='ollama':return local_evidence(model)
     raw = CATALOG.get((provider,model))
     if not _valid_entry(raw, now=current):
         return None
@@ -105,3 +128,33 @@ def check(provider: str, model: str, *, native_features=frozenset(),
                     'reason':'İstenen çıktı üst sınırı doğrulanmış model sınırını aşıyor.'}
     return {'ok':True,'features':frozenset() if raw is None else raw['features'],
             'context_limit':None if raw is None else raw['context_limit']}
+
+# Runtime facts are a short-lived observation, never a model-name/checkbox guess.
+_LOCAL_FACTS = {}
+
+
+def refresh_local(model, config):
+    from modules import llm,requests_state
+    import requests
+    requests_state.check()
+    if config.get('backend','ollama')!='ollama':
+        return {'ok':False,'reason':'Bu backend native vision yeteneğini doğrulayan bir bilgi uç noktası sunmuyor.'}
+    endpoint=str(config['url']).rstrip('/')
+    response=requests.post(endpoint+'/api/show',json={'model':model},timeout=llm.transport_timeouts(3,5),allow_redirects=False)
+    response.raise_for_status()
+    data=response.json()
+    capabilities=data.get('capabilities') if isinstance(data,dict) else None
+    if not isinstance(capabilities,list) or any(not isinstance(c,str) for c in capabilities):
+        raise ValueError('Yerel runtime yetenek bilgisi doğrulanamadı.')
+    facts={'features':frozenset({'verified_vision'}) if 'vision' in capabilities else frozenset(),
+           'context_limit':None,'output_limit':None,'expires_at':time.time()+300}
+    _LOCAL_FACTS[(endpoint,model)]=facts
+    return {'ok':True,'model':model,'vision':'verified_vision' in facts['features'],'expires_at':facts['expires_at']}
+
+
+def local_evidence(model):
+    from modules import llm
+    config=llm.provider_configuration()
+    raw=_LOCAL_FACTS.get((str(config['url']).rstrip('/'),model))
+    if not raw or raw['expires_at']<=time.time():return None
+    return {k:raw[k] for k in ('features','context_limit','output_limit')}

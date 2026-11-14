@@ -12,7 +12,7 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        for target, value in [('_STORE', Path(self.tmp.name)), ('_HEALTH', {}), ('_LAST', {})]:
+        for target, value in [('_STORE', Path(self.tmp.name)), ('_HEALTH', {})]:
             p = patch.object(router, target, value)
             p.start(); self.addCleanup(p.stop)
         for target, name, value in [

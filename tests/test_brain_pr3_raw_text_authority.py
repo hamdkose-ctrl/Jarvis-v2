@@ -6,6 +6,7 @@ etki tam bir kez, doğrulanmış Core intent'i üzerinden uygulanır. Bu dosya R
 yazıldı: dallar henüz retire edilmediği için canonical effect testleri düşer.
 """
 from __future__ import annotations
+from provider_fixture import routed_response
 
 import ast
 from dataclasses import replace
@@ -196,7 +197,7 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
                    action(capability_id="app.open", arguments={"app": "chrome"}, action_id="a3")]
         raw = envelope(operation="action_batch", actions=actions)
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             entry, _, _, feedback = self.turn_real("önce sesi yüzde 30 yap sonra sessize al ve chrome aç",
                                                    model_understanding=True)
         self.assertEqual(len(entry.understanding.actions), 3)

@@ -2,6 +2,7 @@
 
 Mock envelopes prove wiring and effect isolation, not real-model Turkish accuracy.
 """
+from provider_fixture import routed_plan
 import uuid
 import dataclasses
 import json
@@ -26,12 +27,13 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
         self.ctx.output.save_text_result = self.save
         self.probes = Mock(return_value=[{'name': 'Test', 'status': 'ok', 'detail': 'OK'}])
         self.model = Mock(return_value=_model_envelope('chat'))
+        self.enterContext(routed_plan(count=1))
         for target, value in (
             ('modules.llm.current_user', lambda: self.owner),
             ('modules.llm.provider', lambda: 'groq'),
             ('modules.llm.privacy.mode', lambda: 'normal'),
             ('modules.smart_router.selection', lambda *a, **k: {'candidates': ['groq']}),
-            ('modules.smart_router.run', self.model),
+            ('modules.llm.dispatch', self.model),
             ('modules.diagnose.run', self.probes),
         ):
             p = patch(target, value); p.start(); self.addCleanup(p.stop)
@@ -96,7 +98,7 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
     def test_model_sees_only_output_metadata_not_document_content(self):
         self.proposal('documents.export')
         self.turn_real('Hazırladığın sonucu sakla.', model_understanding=True)
-        prompt = self.model.call_args.args[1]
+        prompt = self.model.call_args.args[2]
         self.assertIn('session_artifacts', prompt)
         self.assertIn('last_doc', prompt)
         self.assertNotIn('Rapor içeriği', prompt)

@@ -21,7 +21,7 @@ ROUTES = frozenset({ROUTE_PUBLIC_RESEARCH, ROUTE_PRIVATE_GENERAL})
 # Only the Router may use these; order is the fallback order inside one route.
 CHAINS: dict[str, tuple[str, ...]] = {
     ROUTE_PUBLIC_RESEARCH: ("gemini", "groq", "cloudflare", "ollama"),
-    ROUTE_PRIVATE_GENERAL: ("groq", "cloudflare", "ollama"),
+    ROUTE_PRIVATE_GENERAL: ("gemini", "groq", "cloudflare", "ollama"),
 }
 
 EXCLUDED_PROVIDERS = frozenset({"nvidia", "nvidia_nim"})
@@ -60,8 +60,8 @@ PROVIDER_BUNDLE: dict[str, dict] = {
         "free_no_card": True,
         "trains_on_data": True,
         "retention": "unpaid services: content may be used and human-reviewed to improve Google products",
-        "allowed_routes": (ROUTE_PUBLIC_RESEARCH,),
-        "input_restriction": "sanitized public query + public evidence only; no history/memory/attachment",
+        "allowed_routes": (ROUTE_PUBLIC_RESEARCH, ROUTE_PRIVATE_GENERAL),
+        "input_restriction": "public research or explicit owner-scoped conversation/selected-content consent",
         "source_url": "https://ai.google.dev/gemini-api/terms",
         "evidence_ref": "ai.google.dev/gemini-api/terms#unpaid-services",
         "verified_at": _VERIFIED_AT,
@@ -71,7 +71,7 @@ PROVIDER_BUNDLE: dict[str, dict] = {
 
 
 def privacy_gate(provider: str, route: str | None = None, *, now: float | None = None,
-                 bundle: dict | None = None) -> dict:
+                 bundle: dict | None = None, consent_scopes=(), data_scope='conversation') -> dict:
     """Is ``provider`` privacy-eligible (for ``route``, when given)? Unknown is never eligible."""
     facts_by_provider = PROVIDER_BUNDLE if bundle is None else bundle
     name = provider if type(provider) is str else ""
@@ -100,8 +100,8 @@ def privacy_gate(provider: str, route: str | None = None, *, now: float | None =
     else:
         if route not in ROUTES or route not in allowed:
             return _deny("PROVIDER_ROUTE_NOT_ALLOWED", "Bu sağlayıcı bu rota için izinli değil.")
-        if facts["trains_on_data"] and route != ROUTE_PUBLIC_RESEARCH:
-            return _deny("PROVIDER_ROUTE_NOT_ALLOWED", "Veriyi eğitimde kullanabilen sağlayıcı yalnız herkese açık araştırmada kullanılır.")
+        if facts["trains_on_data"] and route != ROUTE_PUBLIC_RESEARCH and data_scope not in consent_scopes:
+            return _deny("PROVIDER_ROUTE_NOT_ALLOWED", "Bu veri kapsamı için Gemini kurulum izni kapalı; ücretsiz içerik eğitimde kullanılabilir.")
     return {"ok": True, "reason_code": None, "reason": "Gizlilik kanıtı geçerli.", "facts": dict(facts)}
 
 

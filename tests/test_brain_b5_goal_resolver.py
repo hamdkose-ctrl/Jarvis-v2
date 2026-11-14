@@ -10,6 +10,7 @@ yanlış/uydurma/belirsiz bir önerinin zincirin hiçbir halkasında başka bir 
 üretmemesidir.
 """
 from __future__ import annotations
+from provider_fixture import routed_response
 
 import dataclasses
 import json
@@ -203,7 +204,7 @@ class GoalEnvelopeFenceTests(unittest.TestCase):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", return_value=json.dumps(row)) as transport:
+                routed_response(json.dumps(row)) as transport:
             proposal = envelope.propose(owner=OWNER, text=text, current=base,
                                         arguments=dict(base.arguments),
                                         goal_candidates=tuple(cards), **changes)
@@ -584,7 +585,7 @@ class GoalProductionSeamTests(fixtures._CanonicalAuthorityHarness):
         handler = Mock(return_value="HANDLER")
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
-            with patch("modules.smart_router.run", return_value=raw):
+            with routed_response(raw):
                 entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text,
                                             source="yazı", model_understanding=True)
                 out, feedback, job_id = brain_entry.handoff(self.ctx, entry, handler, text)

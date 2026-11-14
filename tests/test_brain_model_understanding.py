@@ -5,6 +5,7 @@ BRAIN-01'de kaldırıldığı için bu dosyadaki beklentiler modelin karar üret
 yetkinin ise Core'da kaldığını birlikte doğrular.
 """
 from __future__ import annotations
+from provider_fixture import routed_response, routed_plan
 
 import json
 import time
@@ -85,7 +86,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def ask(self, raw, text="rapor dosyasını özetle", *, active=None, args=None, **kwargs):
         active = current() if active is None else active
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, routed_response(raw):
             return model.propose(owner=OWNER, text=text, current=active,
                                  arguments=(active.arguments if args is None else args), **kwargs)
 
@@ -93,14 +94,14 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         """Modelin gerçekten gördüğü yükü yakalar: sözleşme metni burada denetlenir."""
         captured = {}
 
-        def run(owner, combined, callback, **router):
+        def run(request, spec, combined, system, **router):
             captured["payload"], _ = json.JSONDecoder().raw_decode(combined)
-            self.model_input = combined
+            self.model_input = combined+'\n'+system
             return answer()
 
         active = current() if active is None else active
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", side_effect=run):
+        with p1, p2, p3, routed_plan(), patch("modules.llm.dispatch", side_effect=run):
             model.propose(owner=OWNER, text=text, current=active,
                           arguments=active.arguments, **kwargs)
         return captured["payload"]
@@ -204,21 +205,21 @@ class BrainModelUnderstandingTests(unittest.TestCase):
 
     def test_owner_mismatch_never_uses_another_profiles_provider_key(self):
         with patch("modules.llm.current_user", return_value="other"), \
-                patch("modules.smart_router.run") as run:
+                patch("modules.smart_router.run_request") as run:
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
         run.assert_not_called()
 
-    def test_paid_provider_is_never_used_by_brain_understanding(self):
-        with patch("modules.llm.provider", return_value="openai"), patch("modules.smart_router.run") as ask:
+    def test_legacy_paid_preference_cannot_bypass_router_qualification(self):
+        with patch("modules.llm.provider", return_value="openai"), patch("modules.llm._send_provider") as ask:
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_local_ollama_is_not_silently_started_or_selected(self):
-        with patch("modules.llm.provider", return_value="ollama"), patch("modules.smart_router.run") as ask:
+        with patch("modules.llm.provider", return_value="ollama"), patch("modules.llm._send_provider") as ask:
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
@@ -227,7 +228,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_no_verified_free_provider_means_no_model_call(self):
         p1, p2, _ = self.eligible()
         with p1, p2, patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}), \
-                patch("modules.smart_router.run") as ask:
+                patch("modules.llm._send_provider") as ask:
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
@@ -261,14 +262,14 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_request_cancellation_propagates_instead_of_becoming_chat_fallback(self):
         from modules import requests_state
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run",
+        with p1, p2, p3, patch("modules.smart_router.run_request",
                                side_effect=requests_state.Cancelled("cancelled")):
             with self.assertRaises(requests_state.Cancelled):
                 model.propose(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
 
     def test_model_timeout_fails_closed_without_changing_existing_proposal(self):
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", side_effect=TimeoutError("late")):
+        with p1, p2, p3, patch("modules.smart_router.run_request", side_effect=TimeoutError("late")):
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
@@ -356,7 +357,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         def through_router(owner, prompt, callback, **kwargs):
             return callback("groq")
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
+        with p1, p2, p3, routed_plan(), \
                 patch.object(requests_state, "budget", wraps=requests_state.budget) as budget, \
                 patch("modules.llm._send_provider", return_value=raw) as send:
             result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
@@ -373,13 +374,13 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         from modules import requests_state
         raw = direct("documents.export", confidence="HIGH")
 
-        def late_run(owner, prompt, callback, **kwargs):
+        def late_run(*args, **kwargs):
             time.sleep(.08)
             return raw
 
         p1, p2, p3 = self.eligible()
         with requests_state.budget(.02), p1, p2, p3, \
-                patch("modules.smart_router.run", side_effect=late_run):
+                routed_plan(), patch("modules.llm._send_provider", side_effect=late_run):
             result = model.propose(owner=OWNER, text="sonucu belge olarak sakla",
                                    current=current(), arguments=current().arguments)
         self.assertIsNone(result)
@@ -390,17 +391,16 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         # düşmez. Saat ileri sarılır, ağ beklenmez; ölçülen yalnız sürenin kendisidir.
         from modules import requests_state
         clock = {'t': 1000.0}
-        stub = SimpleNamespace(monotonic=lambda: clock['t'])
+        stub = SimpleNamespace(monotonic=lambda: clock['t'],time=time.time)
 
-        def slow_run(owner, prompt, callback, **kwargs):
-            raw = callback('groq')
+        def slow_run(*args, **kwargs):
+            raw = answer(confidence="HIGH")
             clock['t'] += 13.0
             return raw
 
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), \
-                patch("modules.smart_router.run", side_effect=slow_run), \
-                patch("modules.llm._send_provider", return_value=answer(confidence="HIGH")):
+        with p1, p2, p3, patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), patch('modules.smart_router.time',stub), \
+                routed_plan(), patch("modules.llm._send_provider", side_effect=slow_run):
             result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
                                    current=current(), arguments=current().arguments)
         self.assertIsNotNone(result)
@@ -411,18 +411,17 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         # çıkılmaz; 8 sn'de dönen yanıt uygulanmaz ve kendi kök nedenini yazar.
         from modules import requests_state
         clock = {'t': 1000.0}
-        stub = SimpleNamespace(monotonic=lambda: clock['t'])
+        stub = SimpleNamespace(monotonic=lambda: clock['t'],time=time.time)
 
-        def slow_run(owner, prompt, callback, **kwargs):
-            raw = callback('groq')
+        def slow_run(*args, **kwargs):
+            raw = answer(confidence="HIGH")
             clock['t'] += 8.0
             return raw
 
         p1, p2, p3 = self.eligible()
         with p1, p2, p3, \
-                patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), \
-                patch("modules.smart_router.run", side_effect=slow_run), \
-                patch("modules.llm._send_provider", return_value=answer(confidence="HIGH")), \
+                patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), patch('modules.smart_router.time',stub), \
+                routed_plan(), patch("modules.llm._send_provider", side_effect=slow_run), \
                 requests_state.budget(6):
             result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
                                    current=current(), arguments=current().arguments)
@@ -457,8 +456,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                     calls.append(provider)
                     return next(responses)
                 with patch.object(smart_router, '_STORE', Path(temp)), \
-                        patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
-                        patch.object(smart_router, 'settings', return_value={'cloud_free_confirmed': True}), \
+                        patch.object(smart_router, '_HEALTH', {}),                         patch.object(smart_router,'plan',return_value=smart_router.RoutePlan((smart_router.ModelSpec('groq','fixture-groq'),smart_router.ModelSpec('cloudflare','fixture-cf')),(),2)), \
                         patch.object(smart_router, '_evidence_gate', return_value={'ok': True}), \
                         patch.object(usage_meter, 'observed_exhaustion', return_value=None), \
                         patch('modules.llm.provider', return_value='groq'), \
@@ -467,11 +465,10 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                         patch.object(cloudflare_chat, 'configured', return_value=True), \
                         patch('modules.llm._send_provider', side_effect=transport):
                     first = model.propose(owner=OWNER, text='merhaba', current=current(), arguments=current().arguments)
-                    trace = smart_router._LAST[OWNER]['attempts']
+                    trace = smart_router.status(OWNER)['last']['attempts']
                     self.assertIsNotNone(first)
                     self.assertEqual(trace[0]['kind'], 'response_validation')
-                    self.assertNotIn((OWNER, 'groq'), smart_router._HEALTH)
-                    self.assertIn('groq', smart_router.selection(OWNER, 'text')['candidates'])
+                    self.assertEqual(smart_router._HEALTH,{})
                     second = model.propose(owner=OWNER, text='merhaba', current=current(), arguments=current().arguments)
                 self.assertIsNotNone(second)
                 self.assertEqual(calls, ['groq', 'cloudflare', 'groq'])
@@ -500,11 +497,10 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             return response
 
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
+        with p1, p2, p3, routed_plan(), \
                 patch("modules.llm.user_groq_key", return_value="test-only"), \
                 patch("modules.llm.groq_model", return_value="openai/gpt-oss-120b"), \
-                patch("modules.smart_router.settings", return_value={}), \
-                patch("modules.llm._fallback_states", {}), \
+                                patch("modules.llm._fallback_states", {}), \
                 patch("modules.llm._limited", return_value=None), \
                 patch("modules.llm._timed", side_effect=lambda name, fn: fn()), \
                 patch("modules.usage_meter.record"), patch("modules.usage_meter.observe_limits"), \

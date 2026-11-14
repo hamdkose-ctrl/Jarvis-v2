@@ -64,17 +64,16 @@ def _preflight() -> tuple[str, bool, str]:
     if not owner:
         return "", False, "etkin kullanıcı yok (~/.jarvis yapılandırması okunamadı)"
     selected = llm.provider()
-    from modules.brain_model_understanding import _LOCAL, _PAID
     if llm.privacy.mode() == "yerel":
         return owner, False, "gizlilik modu 'yerel': Brain buluta zarf göndermez"
-    if selected in _PAID:
+    if selected not in ('auto','gemini','groq','ollama'):
         return owner, False, f"seçili sağlayıcı ücretli ({selected}): Brain ücretli havuza giremez"
-    if selected in _LOCAL:
+    if selected=='ollama':
         return owner, False, f"seçili sağlayıcı yerel ({selected}): ölçüm ücretsiz bulut rotası ister"
     route = provider_privacy.ROUTE_PRIVATE_GENERAL
     selection = smart_router.selection(owner, "analysis", route=route)
     eligible = selection.get("candidates", [])
-    if not any(name in {"groq", "cloudflare"} for name in eligible):
+    if not any(name in {"gemini", "groq", "cloudflare"} for name in eligible):
         skipped = "; ".join(f"{row.get('provider')}={row.get('reason_code')}"
                             for row in selection.get("skipped", ()))
         return owner, False, (f"ücretsiz bulut adayı yok (adaylar: {eligible or 'boş'}) — "
