@@ -186,19 +186,68 @@ class ModularEngineTests(unittest.TestCase):
     def test_voice_stop_and_rejected_registration_release_listening(self):
         context=self.context();context.emit=Mock()
         context.voice=SimpleNamespace(stop_speaking=Mock())
-        context.requests_state=SimpleNamespace(cancel=Mock(),register=Mock(return_value=False))
-        with patch('modules.pc_guide.stop'):
+        context.requests_state=SimpleNamespace(
+            cancel=Mock(), cancel_unambiguous=Mock(return_value=('cancelled', 'one')),
+            register=Mock(return_value=False),
+        )
+        with patch('modules.pc_guide.stop') as guide:
             session=VoiceSession(context)
             self.assertFalse(session.submit_voice('dur'))
         self.assertFalse(context.pause_listening.is_set())
         self.assertTrue(context.events.empty())
-        context.requests_state.cancel.assert_called_once()
+        context.requests_state.cancel_unambiguous.assert_called_once()
+        context.requests_state.cancel.assert_not_called()
+        guide.assert_not_called()
         self.assertFalse(session.submit_voice('reddedilen komut'))
         self.assertFalse(context.pause_listening.is_set())
         context.requests_state.register.return_value=True
         self.assertTrue(session.submit_voice('merhaba'))
         self.assertTrue(context.pause_listening.is_set())
         self.assertEqual(context.events.get_nowait()[1],'merhaba')
+
+    def test_bare_dur_does_not_sweep_sibling_jobs_when_owner_ambiguous(self):
+        context=self.context()
+        context.voice=SimpleNamespace(stop_speaking=Mock())
+        context._emit_for=Mock()
+        context._get_profile=Mock(return_value=context.profile)
+        context.requests_state=SimpleNamespace(
+            cancel=Mock(), cancel_unambiguous=Mock(return_value=('ambiguous', None)),
+            register=Mock(),
+        )
+        with patch('modules.pc_guide.stop') as guide:
+            self.assertFalse(context.submit('dur', 'telefon', context.profile.name, 'stop-rid'))
+        context.requests_state.cancel_unambiguous.assert_called_once_with(
+            context.slugify(context.profile.name))
+        context.requests_state.cancel.assert_not_called()
+        guide.assert_not_called()
+        context.voice.stop_speaking.assert_called_once()
+        answer=context._emit_for.call_args.args[2]
+        self.assertIn('Hiçbiri iptal edilmedi', answer)
+        self.assertEqual(context._emit_for.call_args.kwargs['rid'], 'stop-rid')
+        self.assertTrue(context.events.empty())
+
+    def test_prequeue_status_uses_unified_goal_reader_not_legacy_latest(self):
+        from modules import brain_entry, goal_executor
+        context=self.context()
+        context._emit_for=Mock()
+        context._get_profile=Mock(return_value=context.profile)
+        context.requests_state=SimpleNamespace(
+            register=Mock(return_value=True), activate=lambda *args: contextlib.nullcontext(),
+        )
+        with patch.object(brain_entry, 'fast_lane',
+                          return_value=SimpleNamespace(selection='status')), \
+             patch.object(goal_executor, 'fast_status',
+                          return_value='Açık hedefler: canonical') as reader, \
+             patch.object(goal_executor, 'latest',
+                          side_effect=AssertionError('Legacy pointer cannot own status')):
+            self.assertTrue(context.submit(
+                'hedef durumu', 'web', context.profile.name, 'status-rid',
+            ))
+        reader.assert_called_once_with(context.slugify(context.profile.name),
+                                       details=False)
+        self.assertEqual(context._emit_for.call_args.args[2],
+                         'Açık hedefler: canonical')
+        self.assertTrue(context.events.empty())
 
     def test_silence_only_does_not_cancel_active_work(self):
         context=self.context();context.emit=Mock()
