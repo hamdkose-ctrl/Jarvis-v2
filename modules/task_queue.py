@@ -50,7 +50,7 @@ def _wait_for_scheduler_tick(stop_event):
     while not stop_event.is_set():
         left=deadline-time.monotonic()
         if left<=0:
-            return True
+            return not stop_event.is_set()
         if _SCHEDULER_WAKE.wait(timeout=min(0.25,left)):
             _SCHEDULER_WAKE.clear()
             return not stop_event.is_set()
@@ -666,4 +666,8 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     finally:llm._key_context.reset(token)
         _THREAD=threading.Thread(target=loop,name='jarvis-task-queue',daemon=True)
         _THREAD.start()
+        # The first scan need not wait for the fallback five-second timer.
+        # Especially important when the restart discovers already queued
+        # canonical records that were committed while Jarvis was offline.
+        wake_scheduler()
 
