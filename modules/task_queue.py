@@ -12,6 +12,9 @@ from modules.diagnostics import record_failure as _record_failure
 
 _START_LOCK=threading.Lock()
 _THREAD=None
+# Admission must fail once engine shutdown begins, even while the old
+# scheduler OS thread is still alive and draining its current iteration.
+_SCHEDULER_STOP_EVENT=None
 # One bounded pool of scheduled owner executions, owned by the existing
 # scheduler loop. No second task poller or GoalState writer.
 _OWNER_TICKS={}
@@ -403,7 +406,9 @@ def is_cancelled(owner,qid):
 def scheduler_active():
     """True only when the existing engine-owned poll loop is live."""
     with _START_LOCK:
-        return bool(_THREAD is not None and _THREAD.is_alive())
+        return bool(_THREAD is not None and _THREAD.is_alive()
+                    and _SCHEDULER_STOP_EVENT is not None
+                    and not _SCHEDULER_STOP_EVENT.is_set())
 
 
 def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
@@ -415,9 +420,10 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
     workers use the same poll loop, pinned profiles, and the existing Core
     ResourceLease/WorkerResult fences. Voice is never serialized behind them.
     """
-    global _THREAD
+    global _THREAD, _SCHEDULER_STOP_EVENT
     with _START_LOCK:
         if _THREAD and _THREAD.is_alive():return
+        _SCHEDULER_STOP_EVENT = stop_event
 
         def admit_owner(owner):
             # The only scheduler thread owns this registry. An owner may not
