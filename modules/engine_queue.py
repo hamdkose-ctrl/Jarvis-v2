@@ -80,22 +80,31 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     if exact is not None:
         profile = runtime._get_profile(user)
         with runtime.requests_state.activate(owner, rid):
-            runtime._emit_for(profile, 'user', text, source, rid=rid)
-            if exact.group(1) == 'sonucu':
-                from modules import canonical_goal_flow
-                reply = canonical_goal_flow.read_result_command(owner, text)
-                if reply is None:
-                    reply = 'Bu kimliğe ait sonuç sorgusu doğrulanamadı; iş başlatılmadı.'
-            else:
-                from modules import goal_executor
-                try:
-                    reply = goal_executor.cancel_job(owner, exact.group(2))
-                except (ValueError, PermissionError, OSError):
-                    # Do not reveal another owner's job state or silently
-                    # retry an uncertain cancel; existing Core fences decide.
-                    reply = ('Bu hedefin iptali doğrulanamadı; başka bir hedefe '
-                             'işlem uygulanmadı. Hedef kartından durumunu kontrol et.')
-            runtime._emit_for(profile, 'assistant', reply, source, rid=rid)
+            # Core's service_store.identity requires the caller's ContextVar
+            # to match this authenticated request owner. The main event-loop
+            # normally installs it through as_user; this out-of-queue path
+            # must bind it *per thread*, never change mutable runtime.profile.
+            from modules import llm
+            token = llm._key_context.set(owner)
+            try:
+                runtime._emit_for(profile, 'user', text, source, rid=rid)
+                if exact.group(1) == 'sonucu':
+                    from modules import canonical_goal_flow
+                    reply = canonical_goal_flow.read_result_command(owner, text)
+                    if reply is None:
+                        reply = 'Bu kimliğe ait sonuç sorgusu doğrulanamadı; iş başlatılmadı.'
+                else:
+                    from modules import goal_executor
+                    try:
+                        reply = goal_executor.cancel_job(owner, exact.group(2))
+                    except (ValueError, PermissionError, OSError):
+                        # Do not reveal another owner's job state or silently
+                        # retry an uncertain cancel; existing Core fences decide.
+                        reply = ('Bu hedefin iptali doğrulanamadı; başka bir hedefe '
+                                 'işlem uygulanmadı. Hedef kartından durumunu kontrol et.')
+                runtime._emit_for(profile, 'assistant', reply, source, rid=rid)
+            finally:
+                llm._key_context.reset(token)
         _release_inline_voice_pause(runtime, source)
         return True
     from modules import brain_entry
