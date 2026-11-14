@@ -82,11 +82,9 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
             or accepted['capability_version'] != str(selected['version'])):
         return False
     intervening = current['audit'][expected_version + 1:]
-    if not intervening or any(
-        item['op'] != 'append_evidence' or item['reason_code'] != _REASON
-        for item in intervening
-    ):
+    if not intervening or any(not goal_plan_gate.worker_compatible_audit(item) for item in intervening):
         return False
+    intervening = [item for item in intervening if item['op'] == 'append_evidence']
     if len(current['evidence']) < len(intervening):
         return False
     # The new result must match its canonical node payload exactly; a caller
@@ -114,7 +112,7 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     ).encode('utf-8')
     if accepted['input_digest'] != hashlib.sha256(canonical).hexdigest():
         return False
-    appended = current['evidence'][-len(intervening):]
+    appended = current['evidence'][-len(intervening):] if intervening else []
     seen = set()
     passed_child = False
     for row in appended:

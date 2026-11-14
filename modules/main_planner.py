@@ -21,20 +21,6 @@ def _add_note(runtime, text: str, photo: str | None=None) -> dict:
     runtime._last_note[runtime.profile.slug] = runtime.time.time()
     return item
 
-def _fix_word(runtime, text: str, right: str) -> str | None:
-    """Son nottaki, doğru yazılışa en çok benzeyen kelimeyi düzeltir ("israliyesini" + "irsaliye" -> "irsaliyesini")."""
-    words, rl = (text.split(), runtime._tr_lower(right))
-    best, bi = (0.0, -1)
-    for i, w in enumerate(words):
-        r = runtime.difflib.SequenceMatcher(None, rl, runtime._tr_lower(w)[:len(rl)]).ratio()
-        if r > best:
-            best, bi = (r, i)
-    if best < 0.6:
-        return None
-    w = words[bi]
-    new = right if not w[:1].islower() else runtime._tr_lower(right)
-    words[bi] = new + (w[len(right):] if len(w) > len(right) else '')
-    return ' '.join(words)
 
 def _notes_text(runtime) -> str:
     items = runtime.profile.data['items']
@@ -279,7 +265,6 @@ def _week_plan(runtime, kind: str) -> str:
     return ' '.join(parts)
 
 
-
 def _add_event(runtime, title: str, when: str) -> str:
     runtime.profile.add_event(title, when)
     return f'Takvime ekledim: {title}, {runtime.whenmod.describe(when)}.'
@@ -508,7 +493,6 @@ def notes_summary(runtime, note_id: str | None = None) -> str:
     if text and note_id is not None:
         remember_note_target(runtime, rows[0])
     return text or 'Notları özetleyemedim.'
-
 
 
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
@@ -859,28 +843,6 @@ def reminder_create(runtime, parsed: dict) -> str:
 def reminder_core(runtime, args: dict, command: str, cmd_lower: str) -> str:
     """Core ``reminder`` is a validated creation plan; raw words cannot mutate prior events."""
     return reminder_create(runtime, args)
-
-
-_AGENDA_READ = re.compile('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*')
-_AGENDA_WRITE = re.compile('\\b(ekle|yaz|sil|not et)\\b')
-_AGENDA_OPEN = re.compile('\\b(aç|açar mısın|açsana|göster|getir)')
-
-
-def agenda_read_request(cmd_lower: str, now) -> tuple[str, str] | None:
-    """Tam-cümle takvim okuma grameri ("takvimime bak/kontrol et/aç") -> (gün, etiket) | None.
-
-    Yazma sözcüğü geçen cümle okuma değildir. Tek sahibi burasıdır: hem ham cümleyi yürüten
-    planner kolu hem de `command_manager.typo_read_recovery`nin salt-okuma kurtarması bu grameri
-    çağırır; gramer kopyalanmaz. Tarayıcı açtan alt biçim `agenda_open_request`te kalır — düzeltilmiş
-    bir yazım o etkiyi hiç seçemez."""
-    if _AGENDA_READ.search(cmd_lower) is None or _AGENDA_WRITE.search(cmd_lower) is not None:
-        return None
-    return now.strftime('%Y-%m-%d'), 'Bugün'
-
-
-def agenda_open_request(cmd_lower: str) -> bool:
-    """Okuma gramerinin tarayıcı açan alt biçimi; etki yetkisi yalnız ham cümlede kalır."""
-    return _AGENDA_OPEN.search(cmd_lower) is not None
 
 
 def continue_pending_event_title(runtime, command: str, cmd_lower: str) -> str | None:

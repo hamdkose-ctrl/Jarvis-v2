@@ -4,6 +4,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 ## Çalışma kuralları
 
+- **Brain/Core:** anlam Brain; yürütme/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`; nonce/plan/target onayı effect öncesi tüketilir; unknown replay yok.
+
 - **Ponytail yaklaşımı:** Önce mevcut kodu oku. Küçük, kararlı ve geri alınabilir değişiklik yap. Gereksiz katman veya bağımlılık ekleme.
 - **Önce plan:** Yeni özellikte önce yapılacakları ve en az iki seçeneği Hamdi'ye sun. Hamdi "Tamam" demeden kod yazma.
 - **Ayrı dal:** Her iş ayrı bir dalda yapılır, PR ile onaya sunulur. `main`'e doğrudan yazılmaz, `--force` kullanılmaz.
@@ -70,13 +72,13 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
-- **B07-FINAL-A (#610 DRAFT):** Core CAS–ExecutionRecord kesintisinde sonuç yalnız Core ve exact WorkerResult kanıtıyla sahibine okutulur. Bildirim/replay tekrar edilmez. Kabul: #584 ve aynı SHA CI+PC; PASS/merge değil.
+- **B07-FINAL-A (tarihsel #610):** Core CAS–ExecutionRecord kesintisinde sonuç yalnız Core ve exact WorkerResult kanıtıyla sahibine okutulur. Bildirim/replay tekrar edilmez. Kabul: #584 ve aynı SHA CI+PC; PASS/merge değil.
 
 ## BRAIN-04 action_batch
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
-- **BRAIN-03 tek üretim kararı (#613):** `prepare(model_understanding=True)` nötr veriyle tek birincil model önerisi alır; Core doğrular, mevcut worker uygular. Accepted CHAT veya model hatası ham domain fallback'i başlatmaz. Tam State/Fast/UI/makro/PC/workflow/admin protokolleri korunur. Eski `understand`, `model_understanding=False` karakterizasyon yüzeyidir; talimatsız fotoğrafın yalnız “ne yapayım?” bekleme metadatası da modelsizdir. Serbest kullanıcı talimatı ve iç adımlar bu yoldan etki seçemez.
+- **BRAIN-03 (#613):** Serbest dil nötr gözlem → tek model → Core → worker yolundadır. CHAT veya model hatası raw fallback açmaz. Exact State/Fast/UI/makro/PC/admin korunur; eski `understand` karakterizasyon ve talimatsız fotoğraf metadatasıdır. Ayrıntı görev çekirdeği alan notlarında.
 - **BRAIN-03 geliştirme alanı:** `development.manage` şifreli UI sahibine typed request/control verir; request hiçbir zaman apply/undo komutu olarak yorumlanmaz. Kontrolün özgün metni Core entry'den gelir, ek yolları owner file slotlarından bağlanır. Görev silme mevcut State onayını, tema mevcut UI ayar sahibini kullanır.
 - **BRAIN-03 parite/bağlam:** Model kataloğundaki her Core yeteneğinin alan sözleşmesi olmalı; `freeform` eksik tarif kabul edilmez. Gerçek dosya/not/konuşma kimlikleri ve saat Core gözleminden bağlanır. Hatırlatma değişimi exact snapshot + State onayı ister; çalan tekrarın snooze'u sonraki normal tekrarı bozmaz, eski ses kuyruğu geçersizleşir. Masaüstü soru cevabı aynı job/soru ve aktif PC sahibine bağlıdır. Ayrıntı ilgili alan dosyaları ve final envanterdedir; canlı kabul ayrı ve açıktır.
 - **Not sıra numarası:** `N numaralı`, `N.`, sıra sözcüğü ve `son not` güncel Profile liste konumudur; ortak kayıt kimliği değildir. `#ID`/`id: ID` kimlik gösterir. Sıra metadata'sı eski ActiveContext'ten taşınmaz; bütçe yüzünden gözlenmeyen hedef tahmin edilmez. Operasyonu yine tek model/Core seçer.

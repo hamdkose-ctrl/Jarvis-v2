@@ -63,6 +63,21 @@ def _account_claim_root() -> Path:
     return root
 
 
+def provider_resource_key(service):
+    """Same trusted provider collision identity for reads and outbound writes."""
+    if not isinstance(service,str) or not service.isascii() or not service.islower() or not service.isalpha():
+        raise ReadOnlyAdmissionError('Provider identifier invalid.')
+    return (resource_leases.resource_key('gmail_account','shared') if service=='gmail'
+            else resource_leases.resource_key('provider',f'{service}-shared'))
+
+
+@contextmanager
+def provider_resource_claim(service):
+    """Physical exclusion only; never authorizes an effect or a Scheduler node."""
+    with resource_leases.process_resource_claim(_account_claim_root(),provider_resource_key(service)):
+        yield
+
+
 def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive keys from trusted capability metadata and canonical input.
 
@@ -123,12 +138,7 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
         # provider-wide collision key per OS account until a verified account
         # subject is available. This may serialize two DISTINCT accounts but
         # cannot accidentally overlap the SAME account through owner aliases.
-        if service == "gmail":
-            return (resource_leases.resource_key("gmail_account", "shared"),)
-        if not isinstance(service, str) or not service.isascii() or not service.islower():
-            raise ReadOnlyAdmissionError("Provider identifier invalid.")
-        # A model never supplies the resource key or the provider namespace.
-        return (resource_leases.resource_key("provider", f"{service}-shared"),)
+        return (provider_resource_key(service),)
 
     # Stateless research/finance and other read-only kinds are deliberately not
     # mapped to fake global resources. They remain outside this lease gate.
@@ -448,8 +458,7 @@ def dependent_research_worker(
                     expected['expected_job_version'] + 1:
                 ]
                 if not intervening or any(
-                    row['op'] != 'append_evidence'
-                    or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                    not goal_plan_gate.worker_compatible_audit(row)
                     for row in intervening
                 ):
                     raise ReadOnlyAdmissionError(
@@ -468,10 +477,9 @@ def dependent_research_worker(
                 pinned = expected['expected_job_version']
                 advances = current['audit'][pinned + 1:]
                 if (current['version'] < pinned or not advances
-                        or any(row['op'] != 'append_evidence'
-                               or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                        or any(not goal_plan_gate.worker_compatible_audit(row)
                                for row in advances)
-                        or len(current['evidence']) < len(advances)):
+                        or len(current['evidence']) < sum(row['op'] == 'append_evidence' for row in advances)):
                     raise ReadOnlyAdmissionError(
                         'Dependent research changed after non-worker mutation.'
                     )
@@ -479,7 +487,8 @@ def dependent_research_worker(
                     node['id']: node
                     for node in current['goal_plan']['nodes']
                 }
-                for row in current['evidence'][-len(advances):]:
+                count = sum(row['op'] == 'append_evidence' for row in advances)
+                for row in (current['evidence'][-count:] if count else []):
                     if (not isinstance(row, dict)
                             or row.get('kind') != 'worker_result'
                             or row.get('owner') != selected.owner

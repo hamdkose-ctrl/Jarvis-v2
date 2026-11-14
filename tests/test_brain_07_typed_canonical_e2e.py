@@ -185,7 +185,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.ctx, goal_executor, self.owner,
                 GoalOperation.CONTINUE, job_id, 'hedef devam', {},
             )
-        self.assertIn('ikinci bir çalışma başlatmadı', reply)
+        self.assertIn('ikinci yürütme başlatılmadı', reply)
         self.assertEqual(self.persisted(job_id), before)
 
     def test_direct_bounded_legacy_resume_cannot_reenter_canonical_goal(self):
@@ -205,7 +205,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             reply = goal_executor.handle(
                 self.ctx, f'hedef devam {job_id} {control}',
             )
-        self.assertIn('ikinci bir yürütme başlatılmadı', reply)
+        self.assertIn('ikinci yürütme başlatılmadı', reply)
         self.assertEqual(self.persisted(job_id), before)
 
     def test_direct_executor_approval_cannot_start_canonical_worker(self):
@@ -1192,6 +1192,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
             self.assertEqual(len(messages), 1)
             self.run_goal.assert_not_called()
+
 
     def test_real_scheduler_clarification_answer_completes_without_worker_replay(self):
         """One actual Scheduler for question→answer→Core completion.

@@ -563,7 +563,7 @@ class AuthorityInvariantsTests(EngineFixture):
         control = command_manager.engine_control
         brain_entry._install_core_guards(self.ctx)
         self.assertIs(command_manager.engine_control, control)
-        self.assertTrue(getattr(command_manager, "_brain_engine_control_guard_installed", False))
+        self.assertFalse(getattr(command_manager, "_brain_engine_control_guard_installed", False))
 
     def test_engine_control_still_requires_an_exact_canonical_fast_match(self):
         brain_entry._install_core_guards(self.ctx)

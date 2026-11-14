@@ -15,6 +15,9 @@ class TrackingTests(unittest.TestCase):
         token=llm._key_context.set('alice');self.addCleanup(llm._key_context.reset,token)
         self.settings={'webhook_enabled':True,'app_secret':'secret-is-local-and-long','verify_token':'verify-token-long-enough','phone_number_id':'123'}
         p=patch.object(services,'configuration',return_value=self.settings);p.start();self.addCleanup(p.stop)
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',Path(self.tmp.name)/'providers'))
+        self.enterContext(patch.object(services,'DATA_DIR',Path(self.tmp.name)/'connections'))
 
     def payload(self,**changes):
         value={'metadata':{'phone_number_id':'123'},'messages':[{'id':'wamid.1','from':'905001234567','timestamp':'100','type':'text','text':{'body':'Merhaba'}}],**changes}

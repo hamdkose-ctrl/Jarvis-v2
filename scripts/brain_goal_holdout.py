@@ -33,14 +33,13 @@ FRESH_CORPUS = ROOT / 'tests/data/brain_goal_holdout_fresh.json'
 def ask(owner, case, index):
     from modules.brain_contracts import ActiveContext, ContextReference
     from modules.brain_model_understanding import propose
-    from modules.brain_understanding import understand
+    from modules.brain_contracts import neutral_observation
     cards = tuple(ContextReference(
         id=goal['id'], kind='goal', source='goal_state', owner=owner,
         provenance={'title':goal['title'], 'state':goal['state'], 'priority':1},
     ) for goal in case['goals'])
     active = ActiveContext(owner=owner, request_id=f'goal-holdout-{index}', goal_candidates=cards)
-    current = understand(owner=owner, request_id=active.request_id, text=case['text'],
-                         active_context=active, candidates=(), references=())
+    current = neutral_observation(owner=owner, request_id=active.request_id, text=case['text'])
     return propose(owner=owner, text=case['text'], current=current,
                    arguments=current.arguments,
                    protected_relation=(current.pending_owner is not None or

@@ -312,38 +312,29 @@ class BrainProductionEntryTests(unittest.TestCase):
         self.assertFalse(_RESERVED.intersection(metadata))
 
     def test_goal_execution_save_guard_adds_metadata_not_goal_authority(self):
+        from contextlib import nullcontext
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from modules import goal_executor, goal_job_control, execution_record
         module = self.module()
-        from modules import goal_executor
         result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY))
         original = goal_executor._save
-        marker = Mock()
-        had_flag = getattr(goal_executor, "_brain_save_guard_installed", False)
-        had_legacy = hasattr(goal_executor, "_brain_legacy_save")
-        old_legacy = getattr(goal_executor, "_brain_legacy_save", None)
-        old_flag = getattr(goal_executor, "_brain_gate_guard_installed", None)
-        try:
-            if hasattr(goal_executor, "_brain_save_guard_installed"):
-                delattr(goal_executor, "_brain_save_guard_installed")
-            goal_executor._save = marker
-            module._install_goal_save_guard()
-            job = {"id": "0" * 16, "owner": OWNER, "request": "x", "state": "running", "goals": [], "steps": [], "outputs": {}}
+        module._install_goal_save_guard()
+        self.assertIs(goal_executor._save, original)
+        job = {"id": "0" * 16, "owner": OWNER, "request": "x", "state": "running",
+               "goals": [], "steps": [], "outputs": {}}
+        with TemporaryDirectory() as folder, \
+             patch.object(goal_executor, '_root', return_value=Path(folder)), \
+             patch.object(goal_job_control, 'locked', return_value=nullcontext()), \
+             patch.object(goal_job_control, 'assert_fresh'), \
+             patch.object(goal_job_control, 'saved_version', return_value=0), \
+             patch.object(execution_record, 'load', return_value=job), \
+             patch.object(goal_executor.release_guard, 'atomic') as save:
             with module.bind(result):
-                goal_executor._save(job)
-            self.assertEqual(job["brain"]["request_id"], RID)
-            self.assertFalse(_RESERVED.intersection(job["brain"]))
-            marker.assert_called_once_with(job)
-        finally:
-            goal_executor._save = original
-            if hasattr(goal_executor, "_brain_save_guard_installed"):
-                delattr(goal_executor, "_brain_save_guard_installed")
-            if had_flag:
-                goal_executor._brain_save_guard_installed = True
-            if had_legacy:
-                goal_executor._brain_legacy_save = old_legacy
-            elif hasattr(goal_executor, "_brain_legacy_save"):
-                delattr(goal_executor, "_brain_legacy_save")
-            if old_flag is not None:
-                goal_executor._brain_gate_guard_installed = old_flag
+                original(job)
+        self.assertEqual(job['brain']['request_id'], RID)
+        self.assertFalse(_RESERVED.intersection(job['brain']))
+        self.assertEqual(save.call_count, 2)
 
     def test_photo_artifact_cannot_cross_owner(self):
         module = self.module()

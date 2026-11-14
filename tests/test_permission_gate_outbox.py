@@ -13,17 +13,21 @@ class OutboxPermissionGateTests(unittest.TestCase):
         td=tempfile.TemporaryDirectory();self.addCleanup(td.cleanup)
         root=Path(td.name)
         self.enterContext(patch.object(service_store,'ROOT',root/'outbox'))
+        self.enterContext(patch.object(services,'DATA_DIR',root/'connections'))
         self.enterContext(patch.object(permission_grants,'ROOT',root/'grants'))
         self.enterContext(patch.object(permission_audit,'DATA_DIR',root))
         token=llm._key_context.set('alice');self.addCleanup(llm._key_context.reset,token)
         req=requests_state._current.set(None);self.addCleanup(requests_state._current.reset,req)
         self.enterContext(patch.object(outbox.time,'time',return_value=1792418400.0))
-        self.send=self.enterContext(patch.object(services,'send',return_value={'remote_id':'fake','scope':'provider_accepted'}))
+        self.send=self.enterContext(patch.object(services,'send',side_effect=lambda owner,data,progress,**kwargs:
+            {'service':data['service'],'destination':data['destination'],'remote_id':'fake','scope':'provider_accepted'}))
         self.real_audit=permission_audit.record
         self.audit_root=root/'permission_audit'
         self.audit=self.enterContext(patch.object(permission_audit,'record'))
         self.target='ahmet@example.org'
         self.serial=0
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',root/'providers'))
 
     def prepare(self,**changes):
         self.serial+=1
@@ -168,7 +172,8 @@ class OutboxPermissionGateTests(unittest.TestCase):
 
     def test_preparation_poll_preserves_bound_prior_approval(self):
         oid=self.prepare(service='instagram',destination='123',image_url='https://example.org/image.jpg')
-        self.send.side_effect=[services.Preparing(),{'remote_id':'ready'}]
+        self.send.side_effect=[services.Preparing(),{'service':'instagram','destination':'123',
+                                                   'remote_id':'ready','scope':'provider_accepted'}]
         self.assertEqual(outbox.dispatch('alice',oid,approve=True)['state'],'approval')
         self.assertEqual(outbox.get('alice',oid)['state'],'preparing')
         self.assertEqual(outbox.dispatch('alice',oid)['state'],'done')

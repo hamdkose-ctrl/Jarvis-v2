@@ -28,7 +28,7 @@ _TRANSITIONS = {
     'pending': frozenset({'running', 'waiting', 'paused', 'failed', 'done', 'cancelled'}),
     'running': frozenset({'waiting', 'paused', 'failed', 'done', 'cancelled'}),
     'waiting': frozenset({'running', 'paused', 'failed', 'cancelled'}),
-    'paused': frozenset({'running', 'waiting', 'failed', 'cancelled'}),
+    'paused': frozenset({'pending', 'running', 'waiting', 'failed', 'cancelled'}),
     'failed': frozenset({'running', 'waiting', 'paused', 'cancelled'}),
     'done': frozenset(),
     'cancelled': frozenset(),
@@ -94,6 +94,8 @@ def apply(current: dict, proposal: dict) -> dict:
         if goal_state.authority(state) != 'canonical':
             raise InvalidTransitionError('Goal intent yalnız canonical authority üzerinde değiştirilebilir.')
         operation = proposal.get('operation')
+        if proposal.get('reason_code') == 'USER_GOAL_PRIORITY' and operation != 'prioritize':
+            raise InvalidTransitionError('Scheduling-only priority audit cannot authorize a semantic edit.')
         text = proposal.get('text')
         priority = proposal.get('priority')
         intent = copy.deepcopy(state.get('goal_intent', {
@@ -158,6 +160,8 @@ def apply(current: dict, proposal: dict) -> dict:
     if op == 'set_blocker':
         reason = _reason(proposal)
         blocker = proposal.get('blocker')
+        if reason == 'USER_GOAL_PAUSE_REQUESTED' and blocker != {'code': 'PAUSE_REQUESTED'}:
+            raise InvalidTransitionError('Pause-request audit requires the exact scheduling blocker.')
         if not isinstance(blocker, dict) or not isinstance(blocker.get('code'), str) or not blocker['code']:
             raise ValueError('Reducer blocker geçersiz.')
         _json_only(blocker, 'Reducer blocker JSON uyumlu değil.')
@@ -167,6 +171,8 @@ def apply(current: dict, proposal: dict) -> dict:
 
     if op == 'clear_blocker':
         reason = _reason(proposal)
+        if reason == 'USER_GOAL_PAUSE_WITHDRAWN' and current.get('blocker') != {'code': 'PAUSE_REQUESTED'}:
+            raise InvalidTransitionError('Only a pending pause request can be withdrawn without revoking work.')
         next_state = copy.deepcopy(state)
         next_state['blocker'] = None
         return _audit(next_state, op=op, reason_code=reason)

@@ -93,8 +93,7 @@ def _accepted_row(current: dict, owner: str, job_id: str,
             raise ProjectionFenceError('Only Core-verified terminal results can be read.')
         later = later[:-1]
     if any(
-        audit['op'] != 'append_evidence'
-        or audit['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+        not goal_plan_gate.projection_compatible_audit(audit)
         for audit in later
     ):
         raise ProjectionFenceError('Canonical goal changed after worker acceptance.')

@@ -151,7 +151,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if runtime._session().pending_confirm:
                 return "Önce açık onayı tamamla veya iptal et; yeni not silme onayı başlatılmadı."
             if not runtime.profile.data.get("items"):
-                return "Not defterin zaten boş."
+                return ActionOutcome("Not defterin zaten boş.", True)
             runtime._session().pending_confirm = {
                 "action": "notes_clear",
                 "owner": runtime.profile.slug,
@@ -166,7 +166,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             note = runtime._add_note(item_text)
             from modules import main_planner
             main_planner.remember_note_target(runtime, note)
-            return f"Not aldım: {item_text}"
+            return ActionOutcome(f"Not aldım: {item_text}", True)
         case "agenda_read":
             # Calendar reader remains the original Google+Jarvis read worker;
             # not a new natural language parsing entry or event mutation.
@@ -292,26 +292,26 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import tasks
             operation = a["operation"]
             if operation == "list":
-                return tasks.list_text(runtime.profile)
+                return ActionOutcome(tasks.list_text(runtime.profile), True)
             if operation == "clear_done":
                 return tasks.clear_done_preview(runtime.profile, runtime._session())
             if operation == "add":
                 task = tasks.add(runtime.profile, a["text"])
-                return f"Görev ekledim: {task['text']}."
+                return ActionOutcome(f"Görev ekledim: {task['text']}.", True)
             if operation == "delete":
                 from modules import personalization
                 with personalization._LOCK:
                     matches = [task for task in runtime.profile.data.get("tasks", [])
                                if task.get("text") == a["text"]]
                     if len(matches) != 1:
-                        return "Bu adla tek bir görev bulamadım; hiçbir görev silinmedi."
+                        return ActionOutcome("Bu adla tek bir görev bulamadım; hiçbir görev silinmedi.", False)
                     return app_actions.voice({"action": "task_delete", "params": {"tid": matches[0]["id"]}},
                         runtime._session(), runtime.profile, runtime.emit, command)
             completed = tasks.complete_exact(runtime.profile, a["text"])
             if completed is None:
-                return ("Bu adla tek bir açık görev bulamadım; "
-                        "hiçbir görevi tamamlandı olarak işaretlemedim.")
-            return f"“{completed}” görevini tamamlandı olarak işaretledim."
+                return ActionOutcome("Bu adla tek bir açık görev bulamadım; "
+                                     "hiçbir görevi tamamlandı olarak işaretlemedim.", False)
+            return ActionOutcome(f"“{completed}” görevini tamamlandı olarak işaretledim.", True)
         case "kb_query":
             from modules import kb
             return kb.answer(runtime.profile, a["question"])
@@ -613,7 +613,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
         case "notes_read":
             if a.get("which") == "count":
-                return f"Not defterinde {len(runtime.profile.data.get('items', []))} notun var."
+                return ActionOutcome(f"Not defterinde {len(runtime.profile.data.get('items', []))} notun var.", True)
             if a.get("which") == "search":
                 from modules import main_planner
                 return main_planner.notes_search(runtime, str(a.get("query") or ""), a.get("window"))
@@ -625,8 +625,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 if note is not None:
                     from modules import main_planner
                     main_planner.remember_note_target(runtime, note)
-                return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
-            return runtime._notes_text()
+                return ActionOutcome(f"Notun: {note['text']}" if note else "Bu notu bulamadım.", note is not None)
+            return ActionOutcome(runtime._notes_text(), True)
         case "notes_write":
             from modules import main_planner, personalization, requests_state
             # Atomic check-and-effect with the Profile owner's existing
@@ -650,7 +650,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         return ActionOutcome("Not silme işlemi doğrulanamadı; silindi demiyorum.", False)
                     from modules import session_state
                     session_state.clear_note(runtime._session())
-                    return f"Notu sildim: {old}"
+                    return ActionOutcome(f"Notu sildim: {old}", True)
                 if a.get("operation") == "update":
                     text = a.get("text")
                     if not isinstance(text, str) or not text.strip():
@@ -664,7 +664,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         note["text"] = old_text
                         raise
                     main_planner.remember_note_target(runtime, note)
-                    return f"Düzelttim: {note['text']}"
+                    return ActionOutcome(f"Düzelttim: {note['text']}", True)
                 return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
         case "weather":
             location = str(a.get("location") or "").strip()
@@ -673,11 +673,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # BRAIN-03 dilim 1: hedef Brain'in önerisi, biçim Core'un hükmü; burası tek yazma yeri.
             city = str(a.get("location") or "")
             runtime.profile.set_pref("city", city)
-            return f"Şehrini {city} olarak kaydettim; hava durumuna bu şehre göre bakacağım."
+            return ActionOutcome(f"Şehrini {city} olarak kaydettim; hava durumuna bu şehre göre bakacağım.", True)
         case "city_reset":
             runtime.profile.data["prefs"].pop("city", None)
             runtime.profile.save()
-            return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
+            return ActionOutcome("Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım.", True)
         case "message_send":
             # BRAIN-03 dilim 2: alıcı/gövde Core'da doğrulandı; oturum ve gönderim onayı mevcut
             # `pending_msg` protokolünde kalır. Onay kullanıcının KENDİ cevabıdır; burada

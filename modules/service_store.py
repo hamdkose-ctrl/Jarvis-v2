@@ -39,6 +39,9 @@ def database(owner):
           state TEXT, job_id TEXT, created REAL, error TEXT, lease REAL DEFAULT 0,
           lease_token TEXT DEFAULT '', cron TEXT DEFAULT '');
         ''')
+        # Serialize additive migrations with the same SQLite writer claim.
+        # Two fresh processes must not both observe a missing approval column.
+        db.execute('BEGIN IMMEDIATE')
         if 'lease' not in [row[1] for row in db.execute('PRAGMA table_info(queue)')]:
             db.execute('ALTER TABLE queue ADD COLUMN lease REAL DEFAULT 0')
         columns=[row[1] for row in db.execute('PRAGMA table_info(queue)')]
@@ -50,7 +53,13 @@ def database(owner):
         db.execute('CREATE TABLE IF NOT EXISTS queue_runs(qid TEXT,job_id TEXT PRIMARY KEY,state TEXT,finished REAL)')
         if 'authorized_until' not in [row[1] for row in db.execute('PRAGMA table_info(outbox)')]:
             db.execute('ALTER TABLE outbox ADD COLUMN authorized_until REAL DEFAULT 0')
-        db.execute('BEGIN IMMEDIATE')
+        outbox_columns = {row[1] for row in db.execute('PRAGMA table_info(outbox)')}
+        if 'approval_expires' not in outbox_columns:
+            db.execute('ALTER TABLE outbox ADD COLUMN approval_expires REAL DEFAULT 0')
+        if 'approval_consumed' not in outbox_columns:
+            db.execute('ALTER TABLE outbox ADD COLUMN approval_consumed REAL DEFAULT 0')
+        if 'connection_digest' not in outbox_columns:
+            db.execute("ALTER TABLE outbox ADD COLUMN connection_digest TEXT DEFAULT ''")
         yield db
         db.commit()
     except BaseException:

@@ -71,6 +71,9 @@ class PolicyEnforcementTests(unittest.TestCase):
         token = llm._key_context.set('alice'); self.addCleanup(llm._key_context.reset, token)
         req = requests_state._current.set(None); self.addCleanup(requests_state._current.reset, req)
         self.send = self.enterContext(patch.object(services, 'send', return_value={'remote_id': 'f', 'scope': 'provider_accepted'}))
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',root/'providers'))
+        self.enterContext(patch.object(outbox.services,'DATA_DIR',root/'connections'))
 
     def prepare(self, n):
         payload = {'service': 'gmail', 'destination': 'ahmet@example.org', 'subject': 'S', 'text': 'Merhaba %d' % n}

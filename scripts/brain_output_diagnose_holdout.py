@@ -35,7 +35,7 @@ def ask(owner, case, index):
     from modules.brain_context import document_fingerprint
     from modules.brain_contracts import ActiveContext, ContextReference
     from modules.brain_model_understanding import propose
-    from modules.brain_understanding import understand
+    from modules.brain_contracts import neutral_observation
     refs = ()
     cards = ()
     if case['has_output']:
@@ -44,8 +44,7 @@ def ask(owner, case, index):
                             'document_digest':document_fingerprint(('Sentetik sonuç',None,'araştırma özeti'))}),)
         cards = ({'slot':'last_doc','label':'araştırma özeti'},)
     active = ActiveContext(owner=owner, request_id=f'dilim4-holdout-{index}', active_artifacts=refs)
-    current = understand(owner=owner, request_id=active.request_id, text=case['text'],
-                         active_context=active, candidates=refs, references=refs)
+    current = neutral_observation(owner=owner, request_id=active.request_id, text=case['text'], references=refs)
     # Expected labels never reach the model. Score only the real proposal, never a fallback.
     return propose(owner=owner, text=case['text'], current=current, arguments=current.arguments,
                    protected_relation=current.pending_owner is not None or current.conversation_relation.value != 'NEW_REQUEST',

@@ -113,6 +113,10 @@ def _root(owner):
 
 
 def _save(job,*,move_pointer=True):
+    from modules import brain_entry
+    entry = brain_entry.current()
+    if entry is not None and job.get('owner') == entry.owner:
+        job['brain'] = brain_entry.execution_metadata(entry.owner)
     root=_root(job['owner'])
     with goal_job_control.locked(root,job['id']):
         if '_canonical_version' in job:
@@ -187,7 +191,11 @@ def _read_locked(root,owner,identity):
     job=execution_record.load(root,owner,identity)
     state=goal_job_control.capture(root,job)
     if state and 'goal_intent' in state:
-        _project_intent(job,state['goal_intent'])
+        if 'goal_plan' in state or '_planner_rid' in job:
+            job['goal_intent']=copy.deepcopy(state['goal_intent'])
+            job['priority']=state['goal_intent']['priority']
+        else:
+            _project_intent(job,state['goal_intent'])
     return job
 
 
@@ -239,6 +247,9 @@ def _priority(job):
 
 def pause_job(owner,identity,*,expected_snapshot=None):
     """Park only a safely stopped open goal, after checking the offered snapshot."""
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'pause',expected_snapshot=expected_snapshot)
+    if controlled is not None:return controlled
     root=_owner_root(owner)
     with _LOCK, goal_job_control.locked(root,identity):
         job=read_job(owner,identity)
@@ -279,16 +290,25 @@ def _intent_mutation(owner,identity,operation,*,text=None,priority=None,expected
 
 
 def append_goal_task(owner,identity,text,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'add_task',expected_snapshot=expected_snapshot, text=text)
+    if controlled is not None:return controlled
     job=_intent_mutation(owner,identity,'add_task',text=text,expected_snapshot=expected_snapshot)
     return 'Bu hedefe yeni sonuç olarak eklendi: '+text.strip()[:300]+'\n\n'+render(job)
 
 
 def revise_job(owner,identity,text,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'revise',expected_snapshot=expected_snapshot, text=text)
+    if controlled is not None:return controlled
     job=_intent_mutation(owner,identity,'revise',text=text,expected_snapshot=expected_snapshot)
     return 'Hedef düzeltmesi kaydedildi.\n\n'+render(job)
 
 
 def prioritize_job(owner,identity,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'prioritize',expected_snapshot=expected_snapshot)
+    if controlled is not None:return controlled
     priority=max([_priority(current) for current in open_jobs(owner) if current['id']!=identity]+[0])+1
     job=_intent_mutation(owner,identity,'prioritize',priority=priority,expected_snapshot=expected_snapshot)
     return 'Bu hedef öncelikli olarak kaydedildi.\n\n'+render(job)
@@ -342,7 +362,8 @@ def _identity(job,step):
                 'risk':'physical_effect' if tool=='desktop' else 'local_destructive',
                 'replay_safe':False,'attempt':step.get('attempts', 0),'outcome':'pending'}
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
-    return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'request_started_at':job.get('created'),'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
+    approved_target=((step.get('approval') or {}).get('binding') or {}).get('target_state_digest')
+    return {**result,'approval_target_digest':approved_target,'source_only':step.get('source_only') is True,'request':job['request'],'request_started_at':job.get('created'),'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
 
 
@@ -355,7 +376,8 @@ def _reconcile(runtime,job,step):
         if effect_recovery_runtime.required(step['tool']):
             _enriched,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
             return effect_recovery_runtime.reconcile(
-                expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')))
+                expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')),
+                receipt_readback=step['tool']=='publish')
     recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint'))
     if isinstance(recovered,dict) and recovered.get('state')=='done':
         from modules import reconcile_worker_result
@@ -459,6 +481,15 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    if approval is not None:
+        from modules import goal_approval
+        row=step.get('approval')
+        if (not isinstance(row,dict) or row.get('consumed_at') is None or row.get('execution_started_at') is not None
+                or row.get('binding') != goal_approval.binding(job,step,approval,runtime.profile)):
+            raise PermissionError('Bu attempt için tüketilmiş, hedefe bağlı Core onayı gerekli.')
+        row['execution_started_at']=time.time()
+    # Approval caches are local to one admitted attempt, never durable grants.
+    step.pop('runtime_approved', None)
     # A transient version marker is not authority: if the canonical sidecar
     # still exists, a forged/missing _canonical_version must not allow a
     # dependent step to checkpoint before preflight. Legacy jobs without a
@@ -487,7 +518,10 @@ def _record(runtime,job,step,approval=None):
         with model_wait.guard(lambda:_ensure(runtime,job)):
             # A separate process might cancel the goal after the last save.
             _ensure(runtime,job)
-            output=specialist_orchestrator.execute_step(runtime,job,step,_identity(job,step),approval=approval)
+            try:
+                output=specialist_orchestrator.execute_step(runtime,job,step,_identity(job,step),approval=approval)
+            finally:
+                step.pop('runtime_approved',None)
         if not isinstance(output,dict) or output.get('state') not in {'done','failed','blocked','approval','unavailable'}:
             raise ValueError('Araç durumlu bir sonuç döndürmedi.')
         if output['state']=='done':goal_tools.verify(output,job['owner'])
@@ -516,7 +550,11 @@ def _record(runtime,job,step,approval=None):
         source=urlunsplit((parsed.scheme,parsed.hostname or '',parsed.path,'',''))
         if source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
         job.setdefault('feedback',[]).append('Kaynak doğrulanamadı: '+source+'. Erişim veya içerik nedeniyle bu kaynaktan soruyu yanıtlayan kanıt alınamadı. Mevcut hedefleri ve tamamlanan adımları koru; kullanıcı yalnız bu kaynağı şart koşmadıysa başka ilgili kaynakla sürdür. Aynı başarısız adresi tekrar deneme.')
-    if output['state']=='approval':job['state']='approval';job['waiting']=step['id'];job['approval_at']=time.time()
+    step.pop('runtime_approved', None)
+    if output['state']=='approval':
+        from modules import goal_approval
+        step['approval']=goal_approval.prepare(job,step,output,runtime.profile)
+        job['state']='approval';job['waiting']=step['id'];job['approval_at']=time.time()
     elif output['state']!='done' and not goal_tools.replay_safe(step['tool'],step['input']):
         safe_initial_browser=step['tool']=='browser' and approval is None
         safe_code=False
@@ -923,7 +961,11 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
         ))
     with _owned(runtime) as owner:
         # Seçilen hedef kendi kimliğinden okunur; `latest.json` tek hedef seçicisi değildir.
-        job=read_job(owner,job_id) if job_id is not None else latest(owner)
+        if approve and job_id is None and expected_job_id is None:
+            from modules import goal_approval
+            job=goal_approval.select(owner)
+        else:
+            job=read_job(owner,job_id) if job_id is not None else latest(owner)
         if job_id is not None and not job:
             raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
         if expected_job_id is not None and (not job or job['id']!=expected_job_id):
@@ -937,6 +979,10 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             # this direct legacy command nor a retry may enter its model loop.
             canonical_status = canonical_scheduler_status(owner, job['id'], job)
             if canonical_status is not None:
+                if resume and not approve:
+                    from modules import canonical_goal_control
+                    controlled=canonical_goal_control.control(owner,job['id'],'resume')
+                    if controlled is not None:return controlled
                 return (canonical_status
                         + '\n\nBu arka plan hedefini Scheduler yürütür; '
                           'ikinci bir yürütme başlatılmadı.')
@@ -959,8 +1005,11 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             if job['state']=='approval':
                 step=next(s for s in job['steps'] if s['id']==job['waiting'])
                 if not approve:return render(job)
-                if time.time()-job['approval_at']>120:
-                    job['state']='review';job['blocker']='İşlem onayının süresi doldu; eski işlem uygulanmadı.';_save(job);return render(job)
+                from modules import goal_approval
+                try:
+                    goal_approval.consume(job,step,job['outputs'][step['id']],profile=runtime.profile)
+                except PermissionError as exc:
+                    job['state']='review';job['blocker']=str(exc);_save(job);return render(job)
                 output=_record(runtime,job,step,approval=job['outputs'][step['id']])
                 if output['state']!='done':return render(job)
             if job['state']=='review':return render(job)
@@ -1184,9 +1233,16 @@ def canonical_scheduler_owned(owner, identity, *, root=None):
     from modules import goal_state
     source = root if root is not None else _owner_root(owner)
     state = goal_job_control.canonical(source, owner, identity)
-    return bool(state is not None
-                and goal_state.authority(state) == 'canonical'
-                and isinstance(state.get('goal_plan'), dict))
+    if state is None or goal_state.authority(state) != 'canonical':
+        return False
+    if isinstance(state.get('goal_plan'), dict):
+        return True
+    try:
+        record=execution_record.load(source,owner,identity)
+    except FileNotFoundError:
+        return False
+    return (isinstance(record.get('_planner_rid'),str)
+            and record.get('request','').strip()==state['goal'])
 
 
 def canonical_scheduler_status(owner, identity, job=None):
@@ -1253,6 +1309,12 @@ def handle(runtime,command):
     if not brain_entry.allow_legacy_goal_control(command):
         return None
     low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
+    if low in {'evet','onaylıyorum','onayla','hedef onayla'}:
+        from modules import goal_approval
+        choices=goal_approval.pending(runtime.profile.slug)
+        if len(choices)>1:
+            return ('Birden fazla hedef onay bekliyor. Hedef kartındaki kimlikli onay düğmesini kullan: '
+                    +', '.join(item['id'] for item in choices))
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
     if bound:
         if bound[1].casefold()=='yanıtla' and not (bound[4] or '').strip():raise ValueError('Yanıt boş olamaz.')

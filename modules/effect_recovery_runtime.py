@@ -17,6 +17,11 @@ _FENCE = ('owner', 'job_id', 'step_id', 'command_id', 'attempt',
           'expected_job_version', 'capability_id', 'capability_version', 'input_digest')
 
 
+class EffectReplayBlocked(effect_journal.ContractViolation):
+    reason_code = 'EFFECT_REPLAY_BLOCKED'
+    recovery_class = 'manual_review'
+
+
 def required(kind: str) -> bool:
     """Whether this task capability needs write-ahead effect recovery.
 
@@ -47,30 +52,48 @@ def _effect_id(expected: dict) -> str:
     return 'effect:' + hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-def _journal(expected: dict):
+def _journal(expected: dict, *, existing=False):
     expected = _checked(expected)
     from modules import goal_executor
     path = goal_executor._root(expected['owner']) / (expected['job_id'] + '.effects.json')
-    return effect_journal.PersistentJournal(path), _effect_id(expected)
+    journal=effect_journal.PersistentJournal(path)
+    effect_id=_effect_id(expected)
+    if existing and journal.status(effect_id)=='not_started':
+        # Lifecycle CAS may advance across restart. The immutable operation
+        # identity/attempt/input must still match exactly; never adopt a result
+        # from a renamed task, new input, new attempt or ambiguous old entries.
+        fields=('owner','job_id','command_id','capability_id','capability_version','input_digest')
+        matches=[row for row in journal.intents() if all(row[k]==expected[k] for k in fields)]
+        if len(matches)>1:raise effect_journal.ContractViolation('Effect recovery kaydı tekil değil.')
+        if matches:effect_id=matches[0]['effect_id']
+    return journal, effect_id
 
 
 def record_intent(expected: dict) -> str:
     """Persist one immutable intent before a provider effect can begin."""
     expected = _checked(expected)
-    journal, effect_id = _journal(expected)
-    if journal.status(effect_id) != 'not_started':
-        return effect_id
-    journal.record_intent({
-        'schema':'effect_intent.v1', 'effect_id':effect_id,
-        'owner':expected['owner'], 'job_id':expected['job_id'],
-        'command_id':expected['command_id'], 'capability_id':expected['capability_id'],
-        'capability_version':expected['capability_version'], 'input_digest':expected['input_digest'],
-    })
+    from modules import goal_executor, goal_job_control
+    import re
+    root = goal_executor._root(expected['owner'])
+    with goal_job_control.locked(root, expected['job_id']):
+        journal, effect_id = _journal(expected)
+        for prior in journal.intents():
+            if (prior['owner'] == expected['owner'] and prior['job_id'] == expected['job_id']
+                    and (prior['command_id'] == expected['command_id']
+                         or re.fullmatch(re.escape(expected['step_id']) + r':\d+(?::p\d+)?', prior['command_id']))):
+                raise EffectReplayBlocked(
+                    'Bu effect adımı daha önce başladı; yeni attempt/sürüm replay yetkisi değildir. Salt-okunur recovery gerekli.')
+        journal.record_intent({
+            'schema':'effect_intent.v1', 'effect_id':effect_id,
+            'owner':expected['owner'], 'job_id':expected['job_id'],
+            'command_id':expected['command_id'], 'capability_id':expected['capability_id'],
+            'capability_version':expected['capability_version'], 'input_digest':expected['input_digest'],
+        })
     return effect_id
 
 
 def status(expected: dict) -> str:
-    journal, effect_id = _journal(expected)
+    journal, effect_id = _journal(expected,existing=True)
     return journal.status(effect_id)
 
 
@@ -86,27 +109,34 @@ def _receipt_ref(output: dict) -> str:
 
 def record_receipt(expected: dict, output: dict) -> None:
     """Persist a verified provider receipt after a normal or reconciled result."""
-    journal, effect_id = _journal(expected)
-    if journal.status(effect_id) == 'not_started':
-        raise effect_journal.ContractViolation('Effect intent yokken receipt kabul edilmez.')
-    if journal.status(effect_id) == 'unknown':
-        journal.record_receipt({
-            'schema':'effect_receipt.v1', 'effect_id':effect_id,
-            'provider_receipt_ref':_receipt_ref(output), 'verified':True,
-        })
+    from modules import goal_executor, goal_job_control
+    with goal_job_control.locked(goal_executor._root(expected['owner']), expected['job_id']):
+        journal, effect_id = _journal(expected,existing=True)
+        if journal.status(effect_id) == 'not_started':
+            raise effect_journal.ContractViolation('Effect intent yokken receipt kabul edilmez.')
+        if journal.status(effect_id) == 'unknown':
+            journal.record_receipt({
+                'schema':'effect_receipt.v1', 'effect_id':effect_id,
+                'provider_receipt_ref':_receipt_ref(output), 'verified':True,
+            })
 
 
-def reconcile(expected: dict, read_only_reconcile):
+def reconcile(expected: dict, read_only_reconcile, *, receipt_readback=False):
     """Read-only recovery: no intent means no reconcile; no effect is retried."""
     expected = _checked(expected)
-    journal, effect_id = _journal(expected)
+    journal, effect_id = _journal(expected,existing=True)
     decision = crash_recovery.decide(journal, effect_id)
     if decision['state'] == 'not_started':
         return None
     if decision['state'] == 'succeeded':
-        # A verified receipt proves the effect happened.  It is not itself a
-        # global completion decision and must not trigger a provider reread.
-        return None
+        # Only the existing publish Outbox has local exact-payload receipt
+        # readback. Other capabilities retain the no-provider-reread contract.
+        if not receipt_readback or expected['capability_id']!='task.publish':return None
+        current=runtime_worker_result.canonical_snapshot(expected)
+        fields=tuple(k for k in _FENCE if k!='expected_job_version')
+        if any(row.get('kind')=='worker_result' and all(row.get(k)==expected[k] for k in fields)
+               for row in current['evidence']):
+            return None
     output = read_only_reconcile()
     if not isinstance(output, dict) or output.get('state') != 'done':
         return output
@@ -114,6 +144,8 @@ def reconcile(expected: dict, read_only_reconcile):
     # alone. Domain verification comes before receipt and WorkerResult CAS.
     from modules import goal_tools
     goal_tools.verify(output, expected['owner'])
+    if decision['state']=='succeeded' and journal.receipt(effect_id)['provider_receipt_ref']!=_receipt_ref(output):
+        raise effect_journal.ContractViolation('Kalıcı receipt ile yerel readback eşleşmiyor.')
     if decision['state'] == 'unknown':
         record_receipt(expected, output)
     fenced = worker_result_hook.wrap_output(output, expected)

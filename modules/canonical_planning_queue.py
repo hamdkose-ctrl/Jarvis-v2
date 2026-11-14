@@ -29,10 +29,12 @@ _FOREGROUND_QUERY = re.compile(r"hedef ön plan\s+([0-9a-f]{16})\s*[.!?]?\Z", re
 _PLANNER_SECONDS = 60
 
 
-def _identity(owner: str, request_id: str):
+def _identity(owner: str, request_id: str, generation: int = 0):
+    if type(generation) is not int or generation < 0:
+        raise ValueError('Planner generation invalid.')
     job_id = hashlib.sha256((owner + "\0" + request_id).encode("utf-8")).hexdigest()[:16]
     planner_rid = hashlib.sha256(
-        (owner + "\0" + request_id + "\0background-planner").encode("utf-8")
+        (owner + "\0" + request_id + "\0background-planner" + (f'\0{generation}' if generation else '')).encode("utf-8")
     ).hexdigest()[:32]
     return job_id, planner_rid
 
@@ -51,7 +53,7 @@ def _check_pair(root, owner: str, job_id: str, *, request_id=None, text=None):
             or record.get("request") != state["goal"]
             or not isinstance(record.get("request_id"), str)
             or job_id != _identity(owner, record["request_id"])[0]
-            or record.get("_planner_rid") != _identity(owner, record["request_id"])[1]
+            or record.get("_planner_rid") != _identity(owner, record["request_id"], record.get('_planner_generation', 0))[1]
             or (request_id is not None and record["request_id"] != request_id)
             or (text is not None and record["request"] != text)):
         raise ValueError("Background planner owner/request identity mismatch.")
@@ -125,10 +127,17 @@ def discover(owner: str, *, max_jobs: int = 16, max_results: int = 3):
             continue
         try:
             with goal_job_control.locked(root, job_id):
-                state, record = _check_pair(root, owner, job_id)
-                if (record.get("state") == "planning_queued"
+                from modules import canonical_goal_control
+                canonical_goal_control.settle_pause(owner, job_id)
+                _root, state, record = canonical_goal_control._pair(owner, job_id)
+                record = canonical_goal_control.reconcile_control_projection(root, state, record)
+                if record.get("state") != "revision_queued":
+                    state, record = _check_pair(root, owner, job_id)
+                if (record.get("state") == "revision_queued" and state["state"] == "paused" and "goal_plan" in state
+                        and (state.get('blocker') or {}).get('code') != 'PAUSED_BY_USER'):
+                    ready.append(job_id)
+                elif (record.get("state") == "planning_queued"
                         and state["state"] == "pending"
-                        and state["version"] == 0
                         and "goal_plan" not in state):
                     ready.append(job_id)
             if len(ready) >= max_results:
@@ -165,9 +174,16 @@ def execute(profile, job_id: str, *, stop_event=None):
         raise PermissionError("Pinned owner or planning identity invalid.")
     root = goal_executor._owner_root(owner)
     with goal_job_control.locked(root, job_id):
+        from modules import canonical_goal_control
+        _root, state, record = canonical_goal_control._pair(owner, job_id)
+        revision = record.get("state") == "revision_queued"
+    if revision:
+        from modules import canonical_plan_revision
+        return canonical_plan_revision.execute(profile, job_id, stop_event=stop_event)
+    with goal_job_control.locked(root, job_id):
         state, record = _check_pair(root, owner, job_id)
         if (record.get("state") != "planning_queued"
-                or state["state"] != "pending" or state["version"] != 0
+                or state["state"] != "pending"
                 or "goal_plan" in state):
             return False
         planner_rid = record["_planner_rid"]
@@ -180,7 +196,11 @@ def execute(profile, job_id: str, *, stop_event=None):
         record["updated"] = time.time()
         release_guard.atomic(execution_record.path_for(root, job_id),
                              execution_record.encode(record))
-        text = record["request"]
+        intent = state.get('goal_intent', {})
+        text = (json.dumps({'request': record['request'], 'user_goal_intent': intent,
+                            'user_goal_changes': goal_state.intent_history(state),
+                            'instruction': 'Apply user_goal_changes in order; later edits may replace earlier scope.'}, ensure_ascii=False)
+                if intent.get('revision') or intent.get('additions') else record['request'])
     if cancelled:
         _park(root, owner, job_id, reason="PLANNER_CANCELLED_BEFORE_START")
         return "review"
@@ -223,7 +243,7 @@ def execute(profile, job_id: str, *, stop_event=None):
                     if stop_event is not None and stop_event.is_set():
                         raise requests_state.Cancelled("Scheduler stopped.")
                     if (record.get("state") != "planning_running"
-                            or state["state"] != "pending" or state["version"] != 0
+                            or state["state"] != "pending"
                             or "goal_plan" in state):
                         return False
                     saved = goal_state_compat.apply_goal_plan(

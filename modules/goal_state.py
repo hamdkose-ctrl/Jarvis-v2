@@ -48,6 +48,32 @@ def validate_goal_intent(intent):
     return copy.deepcopy(intent)
 
 
+def intent_history(state):
+    """Read ordered Core-accepted user edits, separate from worker evidence.
+
+    The aggregate intent remains compatible with older snapshots. New edits
+    also retain their order: an addition before a revision is different from
+    an addition after it. This view neither mutates nor grants execution.
+    """
+    appends = [row for row in state['audit'] if row['op'] == 'append_evidence']
+    if len(appends) != len(state['evidence']):
+        raise ValueError('Goal intent history evidence/audit mismatch.')
+    history = []
+    for audit, evidence in zip(appends, state['evidence']):
+        if not isinstance(evidence, dict) or evidence.get('kind') != 'goal_intent_change':
+            continue
+        version = evidence.get('intent_version')
+        if (audit['reason_code'] != 'USER_GOAL_INTENT_RECORDED'
+                or type(version) is not int or audit['version'] != version + 1
+                or not any(row['version'] == version and row['op'] == 'mutate_goal_intent'
+                           and row['reason_code'] == 'USER_GOAL_INTENT' for row in state['audit'])
+                or evidence.get('operation') not in ('revise', 'add_task')
+                or not isinstance(evidence.get('text'), str) or not evidence['text'].strip()):
+            raise ValueError('Goal intent history lacks Core acceptance.')
+        history.append(copy.deepcopy(evidence))
+    return history
+
+
 def validate_goal_plan(plan):
     """Bounded canonical plan proposal, not execution state or worker authority."""
     if not isinstance(plan, dict) or set(plan) != {'plan_version', 'nodes'}:

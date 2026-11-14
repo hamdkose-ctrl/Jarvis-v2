@@ -2,6 +2,10 @@
 
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
 
+- **BRAIN-08 (14 Kasım):** Outbox immutable payload/work_key üzerinde süreli tek tüketimli onayı aynı send-claim SQLite transaction ile alır. Onay gönderici bağlantısının opaque credential-generation hash'ini de bağlar; token refresh korunur, bağlantı değişimi yeni gönderimi durdurur. Provider receipt exact servis/hedef/remote_id/scope ister; hatalı/eksik sonuç unknown kalır. Final accepted yazımı kesilince kalıcı tam makbuzdan yerel readback yapılır; container receipt gönderim kanıtı değildir. Read/write aynı provider-wide process claim'i kullanır; trusted OAuth subject uydurulmaz. Google write transport mevcut bounded AuthorizedHttp kullanır.
+
+- **14 Kasım domain sonucu:** not/görev ekleme ve doğrulanmış not yazma sonucu typed `ActionOutcome` taşır; batch bağımlılığı yalnız gerçek domain başarısıyla açılır. Save hatasında not ekleme/silme/temizleme ve görev ekleme bellek değişikliği geri alınır; sonraki kayıtta hayalet işlem oluşmaz. Core session etkileri `core_brain_adapter` sahibindedir. Eski tasks/media/outlook serbest `handle` cepheleri ve kullanılmayan agenda/_fix_word grameri kaldırılmıştır; gerçek domain işçileri korunur.
+
 Serbest not/takvim/mail dili model önerisiyle Core'a girer; plansız eski planner veya `not al:` kaçamağı yoktur. Aşağıdaki tarihli regex/parite kayıtları geçmiş uygulamadır.
 
 - `meeting.prepare(hint=...)` aynı `meeting_prep.handle_typed` okuma işçisini kullanır; hint kullanıcı sözünden dayanaklıdır, web gizliliği ve istek iptali korunur.

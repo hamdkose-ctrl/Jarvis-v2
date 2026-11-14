@@ -350,6 +350,8 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
     } for step in job['steps']]
     prompt = json.dumps({
         'request': job['request'], 'goals': job['goals'],
+        'user_goal_intent': job.get('goal_intent'),
+        'user_goal_changes': job.get('goal_intent_history', []),
         'verified_steps': evidence,
         'required_evidence': list(node_ids),
         'user_clarification': (
@@ -367,6 +369,7 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
         'kullanıcı isteği somut olarak karşılandıysa döndür. '
         'Yetersizse {"action":"ask","question":"..."} döndür. '
         'Yalnız gerçekten doğrulanmış node kimliklerini kullan; '
+        'user_goal_changes sıralı kullanıcı değişiklikleridir; sonraki düzeltme önceki kapsamı değiştirebilir. '
         'araç çalıştırma veya yeniden planlama önerme.'
     )
     token = llm._key_context.set(owner)
@@ -533,7 +536,8 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     with goal_job_control.locked(root, job_id):
         job = execution_record.load(root, owner, job_id)
         if (goal_job_control.fingerprint(job) != proof.record_digest
-                or job.get('state') != 'running' or job.get('_canonical_delivery')):
+                or job.get('state') != 'running' or job.get('_canonical_delivery')
+                or job.get('_pause_requested')):
             return False
     dialog = job.get('_canonical_dialog')
     if dialog is not None and (

@@ -51,12 +51,23 @@ def _load(owner: str, job_id: str) -> tuple[dict, dict]:
     # short OS job lock already protects writers; share it for BOTH snapshots.
     # This is reentrant for the already-locked pre-dispatch revalidation path.
     with goal_job_control.locked(root, job_id):
+        from modules import canonical_goal_control
+        try:
+            canonical_goal_control.settle_pause(owner, job_id)
+        except (ValueError, PermissionError, OSError) as exc:
+            raise DispatchFenceError('Canonical kontrol kaydı doğrulanamadı.') from exc
         state = goal_state_store.load(state_path)
+        record = execution_record.load(root, owner, job_id)
+        record = canonical_goal_control.reconcile_control_projection(root, state, record)
         if ((state['owner'], state['job_id']) != (owner, job_id)
                 or goal_state.authority(state) != 'canonical'
                 or state['state'] not in ('pending', 'running')):
             raise DispatchFenceError('The canonical goal is not schedulable.')
-        record = execution_record.load(root, owner, job_id)
+        if '_pending_plan_projection' in record:
+            from modules import canonical_plan_revision
+            record = canonical_plan_revision.recover_projection(root, state, record)
+        if (state.get('blocker') or {}).get('code') == 'PAUSE_REQUESTED':
+            raise DispatchFenceError('Hedef çalışan adımın güvenli sonunu bekliyor.')
         if (record.get('state') != 'running'
                 or not isinstance(record.get('request'), str)
                 or not record['request'].strip()

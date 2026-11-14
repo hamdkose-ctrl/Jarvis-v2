@@ -97,6 +97,14 @@ def recoverable_completions(owner: str, *, max_jobs: int = 8,
     return tuple(offered)
 
 
+def prefer(owner: str, job_id: str):
+    """Selection hint only; readiness and durable Core priority are revalidated."""
+    root = goal_executor._owner_root(owner)
+    execution_record.path_for(root, job_id)
+    with _SCAN_LOCK:
+        _SCAN_CURSOR[(str(root), owner)] = (job_id + '.execution.json')[:-1]
+
+
 def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
     """Bounded read of previously published, running canonical goal journals."""
     if (type(max_jobs) is not int or not 1 <= max_jobs <= 32
@@ -124,21 +132,23 @@ def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
         if not match or path.is_symlink() or not path.is_file():
             continue
         try:
-            offers.extend(canonical_scheduler_lane.ready_offers(
-                owner, match.group(1), limit=max_offers,
-            ))
+            candidates = canonical_scheduler_lane.ready_offers(owner, match.group(1), limit=max_offers)
+            with goal_job_control.locked(root, match.group(1)):
+                state = goal_state_store.load(root / (match.group(1) + '.goalstate.json'))
+                priority = state.get('goal_intent', {}).get('priority', 0)
+            offers.extend((priority, len(offers) + index, offer) for index, offer in enumerate(candidates))
         except (ValueError, PermissionError, OSError, TypeError):
             # A corrupt or foreign job cannot stop unrelated owner work.
             continue
-        if len(offers) >= max_offers:
-            break
-    return tuple(offers[:max_offers])
+    offers.sort(key=lambda row: (-row[0], row[1]))
+    return tuple(offer for _priority, _index, offer in offers[:max_offers])
 
 
 def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
                                  *, plan_version: int, node_digest: str,
                                  deadline_expired: bool = False,
-                                  outcome_reason: str | None = None) -> None:
+                                  outcome_reason: str | None = None,
+                                  provider_still_running: bool = False) -> None:
     """Never clobber a projected result, terminal job, or an accepted success.
 
     If a provider stops or fails, its started first attempt is durably fenced
@@ -198,6 +208,10 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
             # that its remote read definitely did not happen.
             reason_code = 'CANONICAL_PROVIDER_RESULT_UNKNOWN_UNACCEPTED'
         job["outputs"][node_id]["reason_code"] = reason_code
+        if provider_still_running:
+            job["outputs"][node_id]["quarantined"] = True
+            job['blocker'] = ('Sağlayıcı süre sınırını aştı; sonuç belirsiz. Çalışan çağrı ve kaynak '
+                              'sahipliği dönene kadar korunuyor; bu adım tekrar başlatılmayacak.')
         job["updated"] = time.time()
         release_guard.atomic(path, execution_record.encode(job))
 
