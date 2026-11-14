@@ -126,6 +126,12 @@ class VoiceSession:
         self.state = {"awake_until": 0.0}
         self.voice_lane = None
         self.voice_core_fault = None
+        # Many queued utterances must share ONE barge-in watcher rather than
+        # leaving a separate microphone contender alive for each speech receipt.
+        self._barge_lock = threading.Lock()
+        self._barge_thread = None
+        self._barge_pending = None
+        self._barge_closed = threading.Event()
         from modules import voice_runtime
         try:
             self.voice_lane, piper_enabled = voice_runtime.maybe_start(runtime)
@@ -139,9 +145,96 @@ class VoiceSession:
             runtime.emit("system", "Yerel Voice Core etkin: ses arka planda oynatılır, seçili ses değişmez.")
 
     def close(self):
+        closed = getattr(self, "_barge_closed", None)
+        if closed is not None:
+            closed.set()
         lane = getattr(self, "voice_lane", None)
         if lane is not None:
             lane.close()
+
+    def _schedule_barge_watch(self, done: threading.Event) -> None:
+        """At most one barge-in microphone contender for this VoiceSession.
+
+        The latest receipt is a wake-up hint; the existing lane remains the
+        queue authority. A cancelled newest notice must not hide older live
+        audio. Never start N wakeword threads for N progress notices.
+        """
+        # Some standalone speech fixtures construct VoiceSession without the
+        # engine __init__. Production always installs these fields in __init__;
+        # the lazy branch preserves compatibility with those no-device callers.
+        runtime = self.runtime
+        if not hasattr(self, "_barge_lock"):
+            self._barge_lock = threading.Lock()
+            self._barge_thread = None
+            self._barge_pending = None
+            self._barge_closed = threading.Event()
+        with self._barge_lock:
+            if self._barge_closed.is_set():
+                return
+            self._barge_pending = done
+            if self._barge_thread is not None:
+                return
+            worker = self.runtime.threading.Thread(
+                target=self._barge_watch_loop, daemon=True,
+                name="jarvis-voice-barge",
+            )
+            self._barge_thread = worker
+        try:
+            worker.start()
+        except Exception:
+            runtime._record_failure('modules/engine_voice.py:barge_thread_start')
+            with self._barge_lock:
+                if self._barge_thread is worker:
+                    self._barge_thread = None
+                    self._barge_pending = None
+            raise
+
+    def _barge_watch_loop(self) -> None:
+        """Coalesce queued speech events, keeping one physical wake claimant."""
+        runtime = self.runtime
+        current = threading.current_thread()
+        try:
+            while True:
+                with self._barge_lock:
+                    if self._barge_closed.is_set() or self.runtime.stop_event.is_set():
+                        self._barge_thread = None
+                        self._barge_pending = None
+                        return
+                    latest = self._barge_pending
+                    target = latest
+                    receipts = getattr(getattr(self,'voice_lane',None),'outstanding_receipts',None)
+                    if callable(receipts):
+                        owner = self.runtime.pc_profile().slug
+                        target = next((event for event in receipts(owner) if not event.is_set()),None)
+                        if target is None:
+                            self._barge_thread = None
+                            self._barge_pending = None
+                            return
+                retry = False
+                if target is not None:
+                    try:
+                        retry = self._barge_watch(target)
+                    except Exception:
+                        runtime._record_failure('modules/engine_voice.py:barge_loop')
+                with self._barge_lock:
+                    if callable(receipts) and (target.is_set() or retry):
+                        continue
+                    if latest is self._barge_pending:
+                        self._barge_thread = None
+                        self._barge_pending = None
+                        return
+        except Exception:
+            runtime._record_failure('modules/engine_voice.py:barge_loop')
+        finally:
+            with self._barge_lock:
+                if self._barge_thread is current:
+                    self._barge_thread = None
+                    self._barge_pending = None
+
+    def _idle_if_silent(self):
+        """Never claim a quiet UI while the actual speaker cut is unconfirmed."""
+        if not self.speech_blocks_mic():
+            self.runtime.emit("state", "idle")
 
     def submit_voice(self, command: str) -> bool:
         """Only an accepted command leaves listening paused for the event loop."""
@@ -154,7 +247,7 @@ class VoiceSession:
         finally:
             if not accepted:
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                self._idle_if_silent()
 
     def speech_blocks_mic(self) -> bool:
         """True while this machine's speaker may still be carrying audio.
@@ -200,13 +293,26 @@ class VoiceSession:
         runtime = self.runtime
         """Jarvis konuşurken "Hey Jarvis" denirse susup dinlemeye geçer (internetsiz dinleyici hazırsa)."""
         from modules import wakeword
+        profile = getattr(runtime,'pc_profile',None)
+        owner = profile().slug if callable(profile) else None
         if self.manual_local_stt or not self.listening_enabled or not runtime.flags["mic"] or not wakeword.wanted(runtime.WAKE_WORD) or not wakeword.ready():
             return
         if done.wait(1.2):                 # konuşmanın ilk anı: hoparlör sesi yankı yapıp uyandırmasın
             return
 
+        def scope_stopped() -> bool:
+            closed = getattr(self, "_barge_closed", None)
+            return (runtime.stop_event.is_set()
+                    or (closed is not None and closed.is_set())
+                    or (owner is not None and runtime.pc_profile().slug != owner)
+                    or not runtime.flags["mic"])
+
         def stopped() -> bool:
-            return done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"]
+            return done.is_set() or scope_stopped() or receipt_rotated()
+
+        def receipt_rotated() -> bool:
+            current=getattr(getattr(self,'voice_lane',None),'receipt_is_current',None)
+            return callable(current) and not current(done)
 
         # The wake microphone is the same capture device the recorder uses, and the
         # engine owns it under audio_lock. Opening this second stream outside that
@@ -230,10 +336,18 @@ class VoiceSession:
         except Exception:
             runtime._record_failure('main.py:_barge_watch')
             return
-        if hit is not None and not done.is_set():
-            runtime.voice.stop_speaking()
+        # A wake result delivered after shutdown/mic-off/receipt completion
+        # must not stop the next owner's or next session's speech.
+        if hit is not None and not stopped():
+            from modules import voice_runtime
+            if not voice_runtime.interrupt_receipt(getattr(self,'voice_lane',None),done):
+                return True  # The observed receipt finished; inspect the live owner again.
+            if scope_stopped():
+                return
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS   # şimdi söyleneni ad beklemeden dinle
-            runtime.log.info("Konuşma kesildi: Hey Jarvis")
+            runtime.log.info("Konuşmayı kesme istendi: Hey Jarvis")
+        if not done.is_set() and not scope_stopped() and receipt_rotated():
+            return True  # Queue priority changed; follow the actual output owner.
 
     def speak(self, text: str, slow: bool = False, shown: bool = False,
               identity: dict | None = None) -> None:
@@ -281,9 +395,7 @@ class VoiceSession:
             # "speaking" is claimed by the lane at the real playback_started
             # boundary, not here at enqueue: synthesis/queue acceptance is not
             # audible speech. Barge-in watching still starts for the live utterance.
-            runtime.threading.Thread(
-                target=self._barge_watch, args=(done,), daemon=True,
-            ).start()
+            self._schedule_barge_watch(done)
 
     def offline_wake_step(self) -> bool:
         runtime = self.runtime
@@ -314,23 +426,27 @@ class VoiceSession:
             return True                   # "Hey Jarvis" duyulmadı; döngü yeniden dinler
         cmd = runtime._strip_wake(runtime.voice.recognize(audio) or "") if audio else ""
         if should_stop():
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if not cmd and not runtime.flags.get("sleep") and not should_stop():
             # Komut duyulmadı ya da yalnızca "Jarvis"in sonu duyuldu ("servis"): sormadan bir kez daha dinle
             runtime.emit("state", "listening")
             with runtime.audio_lock:
+                # A playback may begin after the pre-lock check. Never open
+                # the follow-up microphone over Jarvis's own unconfirmed audio.
+                if should_stop():
+                    return True
                 raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel))
             again = runtime.voice.recognize(raw or b"", announce_fail=False)
             cmd = runtime._strip_wake(again or "")
             audio = audio or (b"x" if again else b"")
         if should_stop():
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if runtime.flags.get("sleep"):            # hazırda bekle: yalnızca "Hey Jarvis, uyan"
             if runtime.re.search(r"uyan|kalk|devam|hazır|aç", runtime._tr_lower(cmd)):
                 runtime.set_sleep(False)
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if not cmd:
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS    # adı duydu, komutu bekliyor
@@ -338,7 +454,7 @@ class VoiceSession:
                 runtime.pause_listening.set()
                 runtime.events.put(("say", "Anlayamadım, tekrar söyler misin?"))
             else:
-                runtime.emit("state", "idle")
+                self._idle_if_silent()
             return True
         self.submit_voice(cmd)
         return True
@@ -423,8 +539,9 @@ class VoiceSession:
                 continue
             last_error = None
 
-            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"]:
-                continue  # Discard recognition completed after shutdown/mute.
+            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                    or self.speech_blocks_mic():
+                continue  # Discard stale recognition after speaker/mute/shutdown.
 
             # Mikrofon tamamen sessizse (gürültü tam 0) kullanıcıyı bir kez uyar.
             if runtime.voice.last_noise == 0:
@@ -465,6 +582,12 @@ class VoiceSession:
                 runtime.emit("state", "listening")
                 try:
                     with runtime.audio_lock:
+                        # An output notification can start between recognizing
+                        # the wake name and opening the second capture stream.
+                        # Check speaker proof with physical mic ownership held.
+                        if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                                or self.speech_blocks_mic():
+                            continue
                         raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime.mic_cancel)
                     cmd = runtime.voice.recognize(raw or b"", announce_fail=True)
                 except Exception:
@@ -475,7 +598,8 @@ class VoiceSession:
                     continue
                 cmd = cmd.strip()
 
-            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"]:
+            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                    or self.speech_blocks_mic():
                 continue
 
             self.submit_voice(cmd)

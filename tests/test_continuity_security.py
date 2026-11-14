@@ -261,7 +261,10 @@ class CancellationRaceTests(unittest.TestCase):
         branch=next(n for n in ast.walk(main) if isinstance(n,ast.Try) and any(isinstance(x,ast.With) and 'requests_state.activate' in ast.unparse(x.items) for x in n.body))
         loop=ast.For(target=ast.Name(id='_',ctx=ast.Store()),iter=ast.List(elts=[ast.Constant(value=1)],ctx=ast.Load()),body=[branch],orelse=[])
         emit=Mock()
-        ns={'requests_state':r,'as_user':lambda user:contextlib.nullcontext(),'slugify':lambda user:user,'pc_profile':lambda:SimpleNamespace(name='a'),'owner':'a','user':'a','_cur_rid':'id','pause_listening':threading.Event(),'emit':emit}
+        from modules import engine_loop
+        ns={'requests_state':r,'as_user':lambda user:contextlib.nullcontext(),'slugify':lambda user:user,'pc_profile':lambda:SimpleNamespace(name='a'),'owner':'a','user':'a','_cur_rid':'id','pause_listening':threading.Event(),'emit':emit,
+            'runtime':SimpleNamespace(emit=emit),'voice_session':SimpleNamespace(voice_lane=None),
+            '_emit_idle_if_silent':engine_loop._emit_idle_if_silent}
         with tempfile.TemporaryDirectory() as td,patch.object(r,'_records',{}),patch.object(r,'_journal',Path(td)/'requests.json'):
             r.register('a','id');r.cancel('a','id')
             exec(compile(ast.fix_missing_locations(ast.Module(body=[loop],type_ignores=[])),'real-command-loop','exec'),ns)
@@ -277,7 +280,10 @@ class QueuedVoiceCancellationTests(unittest.TestCase):
         loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.List(elts=[ast.Constant(value=1)], ctx=ast.Load()), body=[branch], orelse=[])
         pause = threading.Event(); pause.set()
         emit = Mock()
-        ns = {'requests_state': r, 'slugify': lambda name: name, 'owner': 'a', 'user': 'a', '_cur_rid': 'voice-id', '_cur_source': 'ses', 'pause_listening': pause, 'emit': emit}
+        from modules import engine_loop
+        ns = {'requests_state': r, 'slugify': lambda name: name, 'owner': 'a', 'user': 'a', '_cur_rid': 'voice-id', '_cur_source': 'ses', 'pause_listening': pause, 'emit': emit,
+              'runtime':SimpleNamespace(emit=emit),'voice_session':SimpleNamespace(voice_lane=None),
+              '_emit_idle_if_silent':engine_loop._emit_idle_if_silent}
         with patch.object(r, '_records', {('a', 'voice-id'): {'state': 'cancelled', 'deadline': 0}}):
             exec(compile(ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[])), 'queued-cancel-production-branch', 'exec'), ns)
         self.assertFalse(pause.is_set())
@@ -288,7 +294,7 @@ class QueuedVoiceCancellationTests(unittest.TestCase):
 
 class DeletedQueuedUserTests(unittest.TestCase):
     def test_deleted_user_does_not_stop_command_audio_or_photo_loop(self):
-        from modules import requests_state as r
+        from modules import requests_state as r, engine_loop
         tree = engine_source.tree()
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
         cleanup = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_reject_queued_input')
@@ -324,7 +330,9 @@ class DeletedQueuedUserTests(unittest.TestCase):
                 ns = {'kind': kind, 'event': event, 'as_user': rejected_user, 'requests_state': r,
                       'slugify': lambda name: name, 'pc_profile': lambda: SimpleNamespace(name='deleted'), 'owner': 'deleted',
                       'user': 'deleted', '_cur_source': 'telefon', '_cur_rid': 'rid', 'pause_listening': pause,
-                      'emit': emit, '_record_failure': failure}
+                      'emit': emit, '_record_failure': failure,
+                      'runtime': SimpleNamespace(emit=emit), 'voice_session': SimpleNamespace(voice_lane=None),
+                      '_emit_idle_if_silent': engine_loop._emit_idle_if_silent}
                 exec(compile(ast.fix_missing_locations(ast.Module(body=[cleanup, loop], type_ignores=[])), 'deleted-user-production-loop', 'exec'), ns)
                 self.assertFalse(pause.is_set())
                 self.assertIsNone(ns['_cur_rid'])

@@ -190,6 +190,23 @@ def interrupt_active() -> bool:
     return True
 
 
+def interrupt_receipt(lane, done) -> bool:
+    """Barge-in can cut only the receipt the wake worker actually observed."""
+    if lane is None or active() is not lane:
+        return False
+    stopped=lane.interrupt_receipt(done)
+    if not stopped:
+        return False
+    from modules import requests_state
+    for owner,turn_id in {(row.owner,row.turn_id) for row in stopped if row.turn_id}:
+        try:
+            requests_state.mute_speech(owner,turn_id)
+        except Exception:
+            _record_failure('modules/voice_runtime.py:mute_receipt')
+        lane.invalidate(owner=owner,turn_id=turn_id)
+    return True
+
+
 def handoff_to_listen(timeout: float = 0.6) -> bool:
     """Safe push-to-talk handoff: cut speech, verify output stopped, then allow mic.
 
@@ -313,11 +330,24 @@ class VoiceLane:
         self._stop_unconfirmed = False
         self.busy_event = threading.Event()
         self._closed = False
+        def wait_for_capture(request, cancel):
+            # Admission already set busy_event, so a new normal capture will
+            # fail its existing gate. Wait out only a capture already inside
+            # audio_lock; release before playback so barge-in can still listen.
+            lock=getattr(runtime,'audio_lock',None)
+            if lock is not None:
+                while not cancel.is_set():
+                    if lock.acquire(timeout=0.05):
+                        lock.release()
+                        break
+                if cancel.is_set():
+                    return
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
             echo_note=self._echo_note,
             resource_scope=self._resource_scope,
+            before_play=wait_for_capture,
         )
 
     def _resource_scope(self, request: SpeechRequest, kind: str):
@@ -553,6 +583,28 @@ class VoiceLane:
         with self._lock:
             return any(current_owner == owner
                        for current_owner, _done in self._outstanding.values())
+
+    def outstanding_receipts(self, owner: str):
+        """Read the existing bounded speech owner; no second speech queue."""
+        current=self._coordinator.current_request_id()
+        with self._lock:
+            rows=[(key,done) for key,(current_owner,done) in self._outstanding.items() if current_owner==owner]
+        return tuple(done for key,done in rows if key==current)+tuple(done for key,done in rows if key!=current)
+
+    def receipt_is_current(self, done) -> bool:
+        current=self._coordinator.current_request_id()
+        with self._lock:
+            entry=self._outstanding.get(current)
+            return entry is not None and entry[1] is done
+
+    def interrupt_receipt(self, done):
+        with self._lock:
+            request_id=next((key for key,(_owner,event) in self._outstanding.items() if event is done),None)
+        if request_id is None or done.is_set():
+            return ()
+        # Coordinator checks current identity atomically with cancellation;
+        # completion between these reads cannot cut the next utterance.
+        return self._coordinator.interrupt_speech(expected_request_id=request_id)
 
     def _notice_for(self, receipt) -> str | None:
         if receipt.status == "failed":

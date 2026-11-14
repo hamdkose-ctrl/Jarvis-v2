@@ -278,6 +278,7 @@ class VoiceCoordinator:
         validate: Callable[[SpeechRequest], str] | None = None,
         echo_note: Callable[[SpeechRequest, str], None] | None = None,
         resource_scope: Callable[[SpeechRequest, str], object] | None = None,
+        before_play: Callable[[SpeechRequest, threading.Event], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         if max_pending < 1:
@@ -292,6 +293,7 @@ class VoiceCoordinator:
         # Only the production VoiceLane supplies this callback. Independent
         # VoiceCoordinator unit tests and the single output owner stay intact.
         self._resource_scope = resource_scope
+        self._before_play = before_play
         self._clock = clock
         self._pending: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_pending)
         self._lock = threading.Lock()
@@ -431,7 +433,12 @@ class VoiceCoordinator:
                 return items
             self._pending.task_done()
 
-    def interrupt_speech(self) -> tuple[SpeechRequest, ...]:
+    def current_request_id(self) -> str:
+        """Read the existing output owner; this snapshot grants no cut authority."""
+        with self._lock:
+            return self._current_request.request_id if self._current_request is not None else ""
+
+    def interrupt_speech(self, *, expected_request_id: str = "") -> tuple[SpeechRequest, ...]:
         """Interrupt playback and acknowledge all queued audio, not Core work.
 
         The cut utterances are returned so the caller can see exactly which
@@ -440,12 +447,20 @@ class VoiceCoordinator:
         to a GoalState or work queue.
         """
         with self._lock:
-            self._generation += 1
-            self._cancel_reason = "VOICE_INTERRUPTED"
             active = self._current_request
+            if expected_request_id and (active is None or active.request_id != expected_request_id):
+                return ()
+            if not expected_request_id:
+                self._generation += 1
+            self._cancel_reason = "VOICE_INTERRUPTED"
             if self._current_cancel is not None:
                 self._current_cancel.set()
             discarded = self._drain_waiting_locked()
+            if expected_request_id:
+                kept=[item for item in discarded if item[3].owner!=active.owner]
+                discarded=[item for item in discarded if item[3].owner==active.owner]
+                for item in kept:
+                    self._pending.put_nowait(item)
         stopped = tuple(([active] if active is not None else [])
                         + [item[3] for item in discarded])
         for item in discarded:
@@ -591,6 +606,11 @@ class VoiceCoordinator:
                         if not announced_ready:
                             announced_ready = True
                             self._stage(request, "audio_ready")
+                        if self._before_play is not None:
+                            self._before_play(request,cancel)
+                        if cancel.is_set():
+                            status, reason = 'cancelled', self._cancelled_reason()
+                            break
                         if self._expired(request, enqueued_at):
                             status, reason = "cancelled", "VOICE_TTL_EXPIRED"
                             break

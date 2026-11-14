@@ -2,6 +2,61 @@
 from __future__ import annotations
 import contextlib
 
+def _speech_blocks_mic(voice_session):
+    """One speaker proof for manual listening and engine idle claims.
+
+    A failed physical stop is still potentially audible even after the output
+    queue became empty. Trust the already-installed VoiceSession gate when it
+    exists; standalone engine test sessions may expose only the lane.
+    """
+    gate = getattr(voice_session, "speech_blocks_mic", None)
+    if callable(gate):
+        return bool(gate())
+    lane = getattr(voice_session, "voice_lane", None)
+    return bool(lane and (lane.is_busy()
+                         or (callable(getattr(lane, "stop_unconfirmed", None))
+                             and lane.stop_unconfirmed())))
+
+
+def _emit_idle_if_silent(runtime, voice_session):
+    """Emit truthful idle only after the single speaker's physical stop proof."""
+    if not _speech_blocks_mic(voice_session):
+        runtime.emit("state", "idle")
+
+
+def _prepare_manual_listen(runtime, voice_session):
+    """Fail closed on unverified speaker stop; do not start microphone capture."""
+    if not _speech_blocks_mic(voice_session):
+        return True
+    from modules import voice_runtime
+    if voice_runtime.handoff_to_listen():
+        return True
+    runtime.emit("system",
+                 "Jarvis sesi henüz doğrulanmış biçimde durmadı; "
+                 "mikrofon açılmadı.")
+    return False
+
+
+def _capture_manual_voice(runtime, voice_session):
+    """Check the real speaker under the mic lock immediately before capture.
+
+    A notice may start playing after the preliminary UI handoff. Never start a
+    second physical stream over unconfirmed playback; the caller releases its
+    pause claim and preserves the written/UI error through the existing path.
+    """
+    with runtime.audio_lock:
+        if not runtime.flags.get("mic", True) or runtime.stop_event.is_set():
+            raise ValueError("Mikrofon kapalı; ses kaydı başlatılmadı.")
+        if _speech_blocks_mic(voice_session):
+            raise ValueError("Jarvis konuşurken mikrofon açılmadı; sesi tekrar durdur.")
+        runtime.emit("state", "listening")
+        return runtime.voice.capture(
+            timeout=6, verbose=True, abort=runtime.mic_cancel,
+            on_captured=(lambda: runtime.emit("state", "thinking"))
+            if voice_session.manual_local_stt else None,
+        )
+
+
 def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     """Existing owner event sink for an already-reserved canonical event.
 
@@ -58,7 +113,7 @@ def _turn_with_listening_foreground(voice_session, invoke):
         return invoke()
 
 
-def _queued_audio(runtime, event):
+def _queued_audio(runtime, event, voice_session=None):
     """Carry the accepted recording ID through transcription and command handoff."""
     _, aud_path, source, user, rid = (tuple(event) + (None,))[:5]
     owner = runtime.slugify(user or runtime.pc_profile().name)
@@ -102,7 +157,11 @@ def _queued_audio(runtime, event):
             runtime.os.remove(aud_path)
         except (OSError, TypeError):
             pass
-        runtime.emit("state", "idle")
+        if voice_session is None:
+            # Standalone helper callers do not have an active voice session.
+            runtime.emit("state", "idle")
+        else:
+            _emit_idle_if_silent(runtime, voice_session)
 
 def main(runtime, ui=None):
     from modules.engine_voice import VoiceSession
@@ -265,38 +324,27 @@ def main(runtime, ui=None):
                 finally:
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()
-                    lane = getattr(voice_session, "voice_lane", None)
-                    # "idle" may only be claimed when nothing is outstanding AND the
-                    # newest cut was confirmed by the device: an unconfirmed stop can
-                    # still be audible, so the orb must not go quiet over live speech.
-                    if lane is None or (not lane.is_busy() and not lane.stop_unconfirmed()):
-                        runtime.emit("state", "idle")
+                    # The same device proof protects every idle claim and
+                    # manual microphone handoff, not just queued notifications.
+                    _emit_idle_if_silent(runtime, voice_session)
                 continue
 
             if kind == "listen" and not runtime.flags.get("mic", True):
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
 
-            if kind == "listen" and getattr(voice_session, "voice_lane", None) is not None \
-                    and voice_session.voice_lane.is_busy():
-                # Push-to-talk safe handoff: cut speech and verify the player stopped
-                # before opening the mic, so one-shot recording never transcribes
-                # Jarvis's own speaker output. If output does not stop in time, keep
-                # the protection. Barge-in wake detection is a separate channel.
-                from modules import voice_runtime
-                if not voice_runtime.handoff_to_listen():
-                    runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
+            if kind == "listen":
+                # A finished queue is not evidence of an audible output stop.
+                # Both a live speaker and an unconfirmed stop require a verified
+                # physical handoff before capture can own the device.
+                if not _prepare_manual_listen(runtime, voice_session):
                     continue
 
 
             if kind == "listen":
                 runtime.pause_listening.set()
-                runtime.emit("state", "listening")
                 try:
-                    with runtime.audio_lock:
-                        raw = runtime.voice.capture(timeout=6, verbose=True, abort=runtime.mic_cancel,
-                                                    on_captured=(lambda: runtime.emit("state", "thinking"))
-                                                    if voice_session.manual_local_stt else None)
+                    raw = _capture_manual_voice(runtime, voice_session)
                     # The STT wait is not a reason to keep the only capture device:
                     # the stream is closed, so the lock is released before the text.
                     heard = runtime.voice.recognize(raw or b"", announce_fail=True,
@@ -314,14 +362,14 @@ def main(runtime, ui=None):
                         voice_session.submit_voice(heard.strip())
                     else:
                         runtime.pause_listening.clear()
-                        runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
                 else:
                     runtime.pause_listening.clear()
-                    runtime.emit("state", "idle")
+                    _emit_idle_if_silent(runtime, voice_session)
                 continue
 
             if kind == "audio":
-                _queued_audio(runtime, event)
+                _queued_audio(runtime, event, voice_session)
                 continue
 
             if kind == "photo":
@@ -387,7 +435,7 @@ def main(runtime, ui=None):
                         out = runtime._finalize(out)
                         print("Jarvis:", out)
                         runtime.emit("assistant", out)
-                        runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
                 except ValueError:
                     runtime._record_failure('main.py:queued_photo')
                     runtime._reject_queued_input()
@@ -403,7 +451,7 @@ def main(runtime, ui=None):
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
             try:
                 with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid):
@@ -528,14 +576,12 @@ def main(runtime, ui=None):
                             voice_session.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS
                         runtime.time.sleep(0.3)
                         runtime.pause_listening.clear()
-                        lane = getattr(voice_session, "voice_lane", None)
-                        if lane is None or not lane.is_busy():
-                            runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
             except runtime.requests_state.Cancelled:
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
             except ValueError:
                 runtime._record_failure('main.py:queued_command')

@@ -1,0 +1,367 @@
+"""Real engine voice handoff: no microphone or idle without a verified stop.
+
+This is a deterministic safety test. Audio is mocked at the physical adapter
+boundary; it does NOT claim the Windows speaker actually stopped.
+"""
+from types import SimpleNamespace
+import contextlib
+import threading
+from unittest import TestCase
+from unittest.mock import Mock, patch
+
+from modules import engine_loop, engine_voice, requests_state
+
+
+def _session(*, busy=False, unconfirmed=False):
+    lane = SimpleNamespace(
+        is_busy=Mock(return_value=busy),
+        stop_unconfirmed=Mock(return_value=unconfirmed),
+    )
+    return SimpleNamespace(voice_lane=lane)
+
+
+class EngineSpeakerSafetyTests(TestCase):
+    def setUp(self):
+        self.runtime = SimpleNamespace(emit=Mock())
+
+    def test_unconfirmed_stop_on_empty_queue_is_still_potentially_audible(self):
+        voice = _session(busy=False, unconfirmed=True)
+        self.assertTrue(engine_loop._speech_blocks_mic(voice))
+        with patch("modules.voice_runtime.handoff_to_listen", return_value=False) as cut:
+            self.assertFalse(engine_loop._prepare_manual_listen(self.runtime, voice))
+        cut.assert_called_once_with()
+        self.runtime.emit.assert_called_once()
+        self.assertEqual(self.runtime.emit.call_args.args[0], "system")
+        self.assertIn("mikrofon açılmadı", self.runtime.emit.call_args.args[1])
+
+    def test_acknowledged_stop_can_authorize_manual_capture(self):
+        voice = _session(busy=False, unconfirmed=True)
+        with patch("modules.voice_runtime.handoff_to_listen", return_value=True) as cut:
+            self.assertTrue(engine_loop._prepare_manual_listen(self.runtime, voice))
+        cut.assert_called_once_with()
+        self.runtime.emit.assert_not_called()
+
+    def test_busy_speaker_requires_verified_stop_even_without_unconfirmed_flag(self):
+        voice = _session(busy=True, unconfirmed=False)
+        with patch("modules.voice_runtime.handoff_to_listen", return_value=False):
+            self.assertFalse(engine_loop._prepare_manual_listen(self.runtime, voice))
+        self.assertTrue(engine_loop._speech_blocks_mic(voice))
+
+    def test_idle_speaker_uses_no_cut_or_extra_device(self):
+        voice = _session(busy=False, unconfirmed=False)
+        with patch("modules.voice_runtime.handoff_to_listen", side_effect=AssertionError("unneeded")):
+            self.assertTrue(engine_loop._prepare_manual_listen(self.runtime, voice))
+        self.assertFalse(engine_loop._speech_blocks_mic(voice))
+        self.runtime.emit.assert_not_called()
+
+    def test_installed_voice_session_gate_takes_precedence_over_test_stub_lane(self):
+        voice = _session(busy=False, unconfirmed=False)
+        voice.speech_blocks_mic = Mock(return_value=True)
+        with patch("modules.voice_runtime.handoff_to_listen", return_value=False):
+            self.assertFalse(engine_loop._prepare_manual_listen(self.runtime, voice))
+        voice.speech_blocks_mic.assert_called()
+
+    def test_no_speaker_lane_does_not_block_text_only_operation(self):
+        voice = SimpleNamespace(voice_lane=None)
+        self.assertFalse(engine_loop._speech_blocks_mic(voice))
+        with patch("modules.voice_runtime.handoff_to_listen", side_effect=AssertionError("unexpected")):
+            self.assertTrue(engine_loop._prepare_manual_listen(self.runtime, voice))
+
+
+class _RaceAtSecondMicLock:
+    """A real audio_lock boundary with speaker state changing between captures."""
+
+    def __init__(self, lane, stop=None):
+        self.lane = lane
+        self.stop = stop
+        self.count = 0
+        self.lock = threading.RLock()
+
+    def __enter__(self):
+        self.lock.acquire()
+        self.count += 1
+        if self.count == 2:
+            self.lane.is_busy.return_value = True
+            if self.stop is not None:
+                self.stop.set()
+        return self
+
+    def __exit__(self, *exc):
+        self.lock.release()
+
+
+class WakeFollowupRaceTests(TestCase):
+    @staticmethod
+    def session(runtime, lane):
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.voice_lane = lane
+        session.listening_enabled = True
+        session.manual_local_stt = False
+        session.state = {"awake_until": 0.0}
+        return session
+
+    def test_offline_wake_second_capture_is_fenced_inside_physical_lock(self):
+        from modules import wakeword
+        lane = _session().voice_lane
+        runtime = SimpleNamespace(
+            stop_event=threading.Event(), pause_listening=threading.Event(),
+            flags={"mic": True}, WAKE_WORD="Hey Jarvis", mic_cancel=threading.Event(),
+            time=SimpleNamespace(time=lambda: 100.0),
+            audio_lock=_RaceAtSecondMicLock(lane),
+            voice=SimpleNamespace(recognize=Mock(return_value=""), capture=Mock()),
+            _strip_wake=lambda text: "", _AnyAbort=lambda *events: None,
+            emit=Mock(), log=Mock(),
+        )
+        session = self.session(runtime, lane)
+        with (
+            patch.object(wakeword, "wanted", return_value=True),
+            patch.object(wakeword, "ready", return_value=True),
+            patch.object(wakeword, "wait", return_value=b"wake"),
+            patch("modules.engine_voice._physical_mic_claim",
+                  return_value=contextlib.nullcontext()),
+        ):
+            self.assertTrue(session.offline_wake_step())
+        self.assertEqual(runtime.audio_lock.count, 2)
+        runtime.voice.capture.assert_not_called()
+
+    def test_online_wake_second_capture_drops_if_speaker_just_started(self):
+        lane = _session().voice_lane
+        # The production wake loop uses the lane's busy_event as an abort
+        # fence for capture; the test must supply that real contract.
+        lane.busy_event = threading.Event()
+        stop = threading.Event()
+        runtime = SimpleNamespace(
+            stop_event=stop, pause_listening=threading.Event(),
+            flags={"mic": True}, WAKE_WORD="Hey Jarvis", mic_cancel=threading.Event(),
+            time=SimpleNamespace(time=lambda: 100.0),
+            audio_lock=_RaceAtSecondMicLock(lane, stop),
+            voice=SimpleNamespace(
+                recognize=Mock(return_value="hey jarvis"),
+                capture=Mock(return_value=b"first"),
+                last_noise=1),
+            _AnyAbort=lambda *events: None,
+            find_wake=lambda text: 0,
+            _strip_wake=lambda text: "",
+            _tr_lower=str.lower, events=SimpleNamespace(put=Mock()),
+            emit=Mock(), log=Mock(), _record_failure=Mock(),
+        )
+        session = self.session(runtime, lane)
+        session.offline_wake_step = Mock(return_value=False)
+        session.submit_voice = Mock()
+        session.listen_for_wake_word()
+        self.assertEqual(runtime.audio_lock.count, 2)
+        self.assertEqual(runtime.voice.capture.call_count, 1,
+                         "initial capture must occur; second must be blocked by speaker")
+        runtime._record_failure.assert_not_called()
+        session.submit_voice.assert_not_called()
+
+
+class BargeWorkerBoundTests(TestCase):
+    def test_many_queued_speech_receipts_share_one_microphone_watcher(self):
+        started = threading.Event()
+        release = threading.Event()
+        first, middle, last = threading.Event(), threading.Event(), threading.Event()
+        seen = []
+        factory = Mock(side_effect=lambda **kw: threading.Thread(**kw))
+        runtime = SimpleNamespace(
+            threading=SimpleNamespace(Thread=factory),
+            stop_event=threading.Event(), flags={"speak": True, "mic": True},
+            profile=SimpleNamespace(slug="speaker-owner",
+                                    data={"prefs": {"voice": "tr_erkek"}}),
+            _cur_rid="turn-a", emit=Mock(), _record_failure=Mock(),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.speak_enabled = True
+        session.voice_core_fault = None
+        session.voice_lane = SimpleNamespace(say=Mock(side_effect=[first, middle, last]))
+
+        def observe(done):
+            seen.append(done)
+            if done is first:
+                started.set()
+                self.assertTrue(release.wait(10), "first watcher never released")
+
+        session._barge_watch = observe
+        try:
+            session.speak("first")
+            self.assertTrue(started.wait(10), "barge watcher did not start")
+            session.speak("middle")
+            session.speak("last")
+            self.assertEqual(factory.call_count, 1,
+                             "each queued notice spawned a separate microphone contender")
+        finally:
+            release.set()
+            worker = getattr(session, "_barge_thread", None)
+            if worker is not None:
+                worker.join(timeout=10)
+        self.assertEqual(seen, [first, last],
+                         "one worker must advance to the newest waiting speech")
+        self.assertIsNone(session._barge_thread)
+        self.assertEqual(factory.call_count, 1)
+
+    def test_closed_session_never_creates_new_wake_capture_worker(self):
+        factory = Mock(side_effect=AssertionError("closed session started barge worker"))
+        runtime = SimpleNamespace(threading=SimpleNamespace(Thread=factory))
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session._barge_lock = threading.Lock()
+        session._barge_pending = None
+        session._barge_thread = None
+        session._barge_closed = threading.Event()
+        session._barge_closed.set()
+        session._schedule_barge_watch(threading.Event())
+        factory.assert_not_called()
+
+
+class LateWakeResultFenceTests(TestCase):
+    def test_shutdown_during_wake_capture_cannot_interrupt_future_speech(self):
+        from modules import wakeword
+        stop = threading.Event()
+        speaker = SimpleNamespace(stop_speaking=Mock())
+        runtime = SimpleNamespace(
+            flags={"mic": True}, stop_event=stop, voice=speaker,
+            time=SimpleNamespace(time=lambda: 10.0),
+            audio_lock=contextlib.nullcontext(), WAKE_WORD="Hey Jarvis",
+            SESSION_SECONDS=30, log=Mock(), _record_failure=Mock(),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.listening_enabled = True
+        session.manual_local_stt = False
+        session._barge_closed = threading.Event()
+        session.state = {"awake_until": 0.0}
+        done = Mock()
+        done.wait.return_value = False
+        done.is_set.return_value = False
+
+        def delayed_hit(*args, **kwargs):
+            stop.set()  # The old engine has exited before wake returns.
+            return b"late-wake"
+
+        with (
+            patch.object(wakeword, "wanted", return_value=True),
+            patch.object(wakeword, "ready", return_value=True),
+            patch.object(wakeword, "wait", side_effect=delayed_hit),
+            patch("modules.engine_voice._physical_mic_claim",
+                  return_value=contextlib.nullcontext()),
+        ):
+            session._barge_watch(done)
+        speaker.stop_speaking.assert_not_called()
+        self.assertEqual(session.state["awake_until"], 0.0)
+
+
+class QueuedAudioIdleSafetyTests(TestCase):
+    def runtime(self):
+        return SimpleNamespace(
+            slugify=lambda name: name,
+            pc_profile=lambda: SimpleNamespace(name="desktop-owner"),
+            _record_failure=Mock(), _reject_queued_input=Mock(),
+            requests_state=requests_state,
+            os=SimpleNamespace(remove=Mock()), emit=Mock(),
+        )
+
+    def test_phone_audio_error_does_not_claim_idle_over_unconfirmed_speaker(self):
+        runtime = self.runtime()
+        session = _session(busy=False, unconfirmed=True)
+        engine_loop._queued_audio(
+            runtime, ("audio", "cached.wav", "telefon", "desktop-owner", None),
+            session)
+        runtime._reject_queued_input.assert_called_once()
+        runtime.emit.assert_not_called()
+        runtime.os.remove.assert_called_once_with("cached.wav")
+
+    def test_phone_audio_error_releases_idle_when_speaker_is_silent(self):
+        runtime = self.runtime()
+        session = _session(busy=False, unconfirmed=False)
+        engine_loop._queued_audio(
+            runtime, ("audio", "cached.wav", "telefon", "desktop-owner", None),
+            session)
+        runtime.emit.assert_called_once_with("state", "idle")
+
+
+class VoiceSessionIdleProofTests(TestCase):
+    def session(self, *, busy, unconfirmed, accepted):
+        lane = _session(busy=busy, unconfirmed=unconfirmed).voice_lane
+        pause = threading.Event()
+        pause.set()
+        runtime = SimpleNamespace(
+            pause_listening=pause, emit=Mock(),
+            submit=Mock(return_value=accepted),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.voice_lane = lane
+        return session, runtime
+
+    def test_rejected_voice_command_does_not_claim_idle_after_failed_stop(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=True, accepted=False)
+        self.assertFalse(session.submit_voice("sus"))
+        self.assertFalse(runtime.pause_listening.is_set())
+        runtime.emit.assert_not_called()
+
+    def test_rejected_voice_command_claims_idle_after_confirmed_silence(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=False, accepted=False)
+        self.assertFalse(session.submit_voice("sus"))
+        runtime.emit.assert_called_once_with("state", "idle")
+
+    def test_accepted_voice_command_remains_paused_for_existing_event_loop(self):
+        session, runtime = self.session(
+            busy=False, unconfirmed=False, accepted=True)
+        self.assertTrue(session.submit_voice("araştır"))
+        self.assertTrue(runtime.pause_listening.is_set())
+        runtime.emit.assert_not_called()
+
+
+class ManualMicLockRaceTests(TestCase):
+    def runtime(self, lock):
+        return SimpleNamespace(
+            audio_lock=lock, flags={"mic": True},
+            stop_event=threading.Event(), mic_cancel=threading.Event(),
+            emit=Mock(), voice=SimpleNamespace(capture=Mock(return_value=b"recorded")),
+        )
+
+    def test_speaker_start_after_preflight_cannot_open_manual_microphone(self):
+        lane = _session(busy=False, unconfirmed=False).voice_lane
+
+        class StartSpeaker:
+            def __enter__(self):
+                lane.is_busy.return_value = True
+            def __exit__(self, *args):
+                lane.is_busy.return_value = False
+
+        runtime = self.runtime(StartSpeaker())
+        session = SimpleNamespace(voice_lane=lane, manual_local_stt=False)
+        # The UI initially allowed the push-to-talk; the device becomes busy
+        # while the microphone is waiting for the physical audio lock.
+        self.assertTrue(engine_loop._prepare_manual_listen(runtime, session))
+        with self.assertRaisesRegex(ValueError, "mikrofon açılmadı"):
+            engine_loop._capture_manual_voice(runtime, session)
+        runtime.voice.capture.assert_not_called()
+        runtime.emit.assert_not_called()
+
+    def test_silent_manual_capture_uses_one_physical_lock_and_real_state(self):
+        runtime = self.runtime(contextlib.nullcontext())
+        session = SimpleNamespace(
+            voice_lane=_session(busy=False, unconfirmed=False).voice_lane,
+            manual_local_stt=False)
+        self.assertEqual(engine_loop._capture_manual_voice(runtime, session),
+                         b"recorded")
+        runtime.emit.assert_called_once_with("state", "listening")
+        runtime.voice.capture.assert_called_once_with(
+            timeout=6, verbose=True, abort=runtime.mic_cancel,
+            on_captured=None)
+
+    def test_mic_revoked_after_preflight_is_denied_before_capture(self):
+        runtime = self.runtime(contextlib.nullcontext())
+        session = SimpleNamespace(
+            voice_lane=_session(busy=False, unconfirmed=False).voice_lane,
+            manual_local_stt=False)
+        self.assertTrue(engine_loop._prepare_manual_listen(runtime, session))
+        runtime.flags["mic"] = False
+        with self.assertRaisesRegex(ValueError, "Mikrofon kapalı"):
+            engine_loop._capture_manual_voice(runtime, session)
+        runtime.voice.capture.assert_not_called()

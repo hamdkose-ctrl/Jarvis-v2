@@ -513,7 +513,7 @@ class SurfaceParityTests(unittest.TestCase):
         # Telefon sesi ayrı bir tur yorumlanmaz: aynı rid ile tek command turuna döner.
         text = source("engine_loop")
         self.assertIn('runtime.events.put(("command", heard, source, user, rid))', text)
-        self.assertIn("_queued_audio(runtime, event)", text)
+        self.assertIn("_queued_audio(runtime, event, voice_session)", text)
 
 
 class LearnedRuleAuthorityTests(unittest.TestCase):
