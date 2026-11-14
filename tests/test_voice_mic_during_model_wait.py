@@ -487,12 +487,16 @@ class LongJobStaysHeard(unittest.TestCase):
         release, blocking = threading.Event(), threading.Event()
         thread = self._planner_turn(runtime, session, release, blocking)
         result = {}
+        def second_voice_turn():
+            # A real VoiceSession.submit_voice has just paused the mic again
+            # for the accepted follow-up, even though the first provider wait
+            # had temporarily reopened capture.
+            runtime.pause_listening.set()
+            result['accepted'] = engine_queue.submit(runtime, 'hava durumu', 'ses')
+            result['pause_after'] = runtime.pause_listening.is_set()
         try:
             with patch('modules.brain_entry.fast_lane', return_value=None):
-                caller = threading.Thread(
-                    target=lambda: result.update(
-                        accepted=engine_queue.submit(runtime, 'hava durumu', 'ses')),
-                    daemon=True)
+                caller = threading.Thread(target=second_voice_turn, daemon=True)
                 caller.start()
                 caller.join(5)
             self.assertFalse(caller.is_alive(), 'queueing a follow-up waited for the planner')
@@ -500,6 +504,8 @@ class LongJobStaysHeard(unittest.TestCase):
             self.assertEqual(self.queued[0][0], 'command')
             self.assertEqual([event[1] for event in self.queued], ['hava durumu'])
             self.assertEqual(self.queued[0][2], 'ses')
+            self.assertFalse(result['pause_after'],
+                             'second spoken follow-up muted the listener until the old provider finished')
             notice = runtime._emit_for.call_args.args
             self.assertEqual(notice[1], 'system')
             self.assertIn('sıraya alındı', notice[2])

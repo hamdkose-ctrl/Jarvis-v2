@@ -108,6 +108,78 @@ class QueuedTurnLifecycleTests(unittest.TestCase):
             release.set()
             thread.join(2)
 
+    def test_busy_spoken_follow_up_reopens_wake_capture_before_first_turn_finishes(self):
+        lock = threading.RLock()
+        self.runtime._execution_lock = lock
+        self.runtime.pause_listening = threading.Event()
+        self.runtime.pause_listening.set()
+        self.runtime.pc_profile = lambda: self.pc
+        held, release = threading.Event(), threading.Event()
+
+        def long_turn():
+            with lock:
+                held.set()
+                release.wait(3)
+
+        thread = threading.Thread(target=long_turn)
+        thread.start()
+        self.assertTrue(held.wait(1))
+        try:
+            with patch.object(brain_entry, 'fast_lane', return_value=None):
+                self.assertTrue(engine_queue.submit(
+                    self.runtime, 'Bir de farklı bir konu araştır.',
+                    source='ses', user='Alice', rid='voice-during-long-turn'))
+            self.assertFalse(release.is_set())
+            self.assertFalse(self.runtime.pause_listening.is_set(),
+                             'queued voice follow-up must not mute wake capture until foreground ends')
+            self.assertEqual(self.runtime.events.qsize(), 1)
+            self.assertEqual(self.runtime._emit_for.call_args.args[1], 'system')
+            self.assertEqual(self.runtime._emit_for.call_args.kwargs['rid'],
+                             'voice-during-long-turn')
+        finally:
+            release.set()
+            thread.join(2)
+
+    def test_idle_spoken_turn_stays_paused_for_its_own_engine_consumer(self):
+        self.runtime._execution_lock = threading.RLock()
+        self.runtime.pause_listening = threading.Event()
+        self.runtime.pause_listening.set()
+        with patch.object(brain_entry, 'fast_lane', return_value=None):
+            self.assertTrue(engine_queue.submit(
+                self.runtime, 'Bir konu araştır.', source='ses',
+                user='Alice', rid='voice-idle'))
+        self.assertTrue(self.runtime.pause_listening.is_set())
+        self.assertEqual(self.runtime.events.qsize(), 1)
+        self.runtime._emit_for.assert_not_called()
+
+    def test_foreign_spoken_owner_never_releases_pc_microphone(self):
+        lock = threading.RLock()
+        self.runtime._execution_lock = lock
+        self.runtime.pause_listening = threading.Event()
+        self.runtime.pause_listening.set()
+        started, release = threading.Event(), threading.Event()
+
+        def long_turn():
+            with lock:
+                started.set()
+                release.wait(3)
+
+        thread = threading.Thread(target=long_turn)
+        thread.start()
+        self.assertTrue(started.wait(1))
+        try:
+            with patch.object(brain_entry,'fast_lane',return_value=None):
+                self.assertTrue(engine_queue.submit(
+                    self.runtime, 'Başka kullanıcı işi', source='ses',
+                    user='Bob', rid='voice-foreign'))
+            self.assertTrue(self.runtime.pause_listening.is_set(),
+                            'foreign owner cannot open local capture')
+            self.runtime._emit_for.assert_not_called()
+            self.assertEqual(self.runtime.events.qsize(), 1)
+        finally:
+            release.set()
+            thread.join(2)
+
     def test_idle_engine_does_not_issue_false_wait_notice(self):
         self.runtime._execution_lock = threading.RLock()
         self.assertTrue(self.submit('no-wait'))
