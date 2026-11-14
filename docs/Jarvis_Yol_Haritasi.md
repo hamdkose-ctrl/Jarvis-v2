@@ -950,3 +950,14 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Açık sınır:** Bu, tüm serbest doğal dil komutlarının eşzamanlı çalıştığı veya sesin gerçek cihazdan duyulduğu anlamına gelmez. İlk planlamanın desteklenen alt kümesi mevcut canonical Scheduler'a devredilmiştir; kalan legacy effectful ön planın kimlik/oturum güvenli biçimde devri, gerçek uzun süreli full-duplex, p95/p99 gecikme, 15–20 fiziksel Windows+ses kullanıcı kabulü ayrı ölçüm ve iş olarak açıktır. **Son HEAD Windows CI ve aynı HEAD gerçek PC watcher PASS olmadan kod kabul edilmez veya merge edilmez.**
 
+
+### Ses öncelikli bağımsız hedef girişi — açık kullanıcı protokolü (14 Kasım 2026; kabul bekliyor)
+
+**Doğrulanan darboğaz:** Normal serbest konuşmanın `brain_entry.prepare` aşaması `engine_loop.main` içinde tek thread ve `as_user/_execution_lock` altında ilerler. Kanonik `task_queue` ve `canonical_planning_queue.enqueue` ise owner'a sabit kimlikle arka planda ilk planı hazırlayıp desteklenen salt-okuma DAG'larını mevcut Scheduler üzerinde yürütebiliyor. Model kararını güvenli olmadan ikinci thread'e taşımak, mutable profil/session ve pending cevabı başka göreve bağlayabilir.
+
+**Bu kod değişikliği:** Kullanıcı kesin olarak `Yeni hedef: <serbest metin>` veya `Yeni bağımsız hedef: <serbest metin>` dediğinde, `engine_queue` normal meşgul ön planı beklemeden aynı `requests_state` istek kaydı/kimlik bağlamı altında **yalnız mevcut** `canonical_planning_queue.enqueue` çağırır. Authenticated profil eşleşmesi veya seçilmiş yerel PC kullanıcısı doğrulanır; `llm._key_context` çağıranın thread'inde geçici olarak sabitlenir ve geri alınır. Scheduler çalışmıyorsa açıkça reddedilir, eski effectful yürütücüye düşülmez. Desteği olmayan/effectful planlar yürütülmez, mevcut tek-seferlik foreground incelemesinde durur. Kesin yeni hedef oluşturma kararı kullanıcı protokolünden gelir; belirsiz serbest konuşma, düzeltme, açık soru veya bekleyen yanıt hâlâ model ve Core denetimindedir. Aynı RID tekrarından ikinci plan çıkmaz. Inline sesli kabul sonrasında mikrofon duraklaması kaldırılır; gerçek hoparlör/STT kapıları aynı kalır.
+
+**Regresyon:** `tests/test_voice_independent_goal_admission.py` gerçek GoalState + ExecutionRecord kayıtlarıyla, başka thread ön plan kilidi tutarken yeni hedef yayınını, farklı owner kimliğini, izinsiz remote reddini, Scheduler kapalıyken eski iş yürütücüsünün hiç başlamamasını, çift RID'yi, açık olmayan ifadelerin Brain kuyruğuna gitmesini ve mikrofonun yeniden dinlemesini kapsar.
+
+**Sınır / kabul:** Tam serbest doğal dilin eşzamanlı sınıflandırılması veya effectful işlerin otomatik arka plana taşınması **çözülmedi**. Telefon/sesli konuşma fiziksel cihaz kabulü, kullanıcı gözlemli 15–20 senaryo, OAuth, p95/p99, kaynak maliyeti ve sağlayıcı uzun blokları hâlâ açık. Bu bölümün kodu son SHA Windows CI ve **aynı SHA** gerçek PC watcher General+Validation PASS olmadan merge edilmez.
+
