@@ -134,6 +134,44 @@ class SchedulerWakeTests(unittest.TestCase):
             task_queue.wake_scheduler()
             thread.join(2)
 
+    def test_worker_slot_wakes_only_after_os_thread_has_exited(self):
+        stop = threading.Event()
+        began = threading.Event()
+        release = threading.Event()
+        result = []
+
+        def blocking_worker():
+            began.set()
+            release.wait(3)
+
+        worker = threading.Thread(target=blocking_worker)
+        worker.start()
+        self.assertTrue(began.wait(1))
+        with patch.object(task_queue, "_CANONICAL_WORKERS",
+                          {("alice", "job", "node", 1): worker}), \
+             patch.object(task_queue, "_OWNER_TICKS", {}):
+            waiter = threading.Thread(
+                target=lambda: result.append(task_queue._wait_for_scheduler_tick(stop)))
+            waiter.start()
+            try:
+                self.assertTrue(worker.is_alive(),
+                                "busy provider must not release its scheduler slot")
+                self.assertTrue(waiter.is_alive(),
+                                "live worker falsely triggered an empty-slot scan")
+                release.set()
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+                waiter.join(2)
+                self.assertFalse(waiter.is_alive(),
+                                 "finished worker did not trigger prompt scheduler rescan")
+                self.assertEqual(result, [True])
+            finally:
+                stop.set()
+                release.set()
+                task_queue.wake_scheduler()
+                worker.join(2)
+                waiter.join(2)
+
     def test_stop_remains_responsive_without_busy_db_poller(self):
         stop = threading.Event()
         result = []
