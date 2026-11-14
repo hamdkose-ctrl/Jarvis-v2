@@ -5,6 +5,10 @@ import re
 
 # Exact owner+job-ID protocols only; natural-language intent still uses Brain.
 _FAST_GOAL_ID = re.compile(r'hedef (sonucu|iptal) ([a-f0-9]{16})[.!]?\Z')
+# User explicitly selects CREATE: the words after ':' are still natural language
+# and are planned by the existing owner-pinned Scheduler/Brain planner.
+# No inference about an ambiguous conversational follow-up is made here.
+_INDEPENDENT_GOAL = re.compile(r'yeni (?:bağımsız )?hedef\s*:\s*(.*)\Z', re.IGNORECASE | re.DOTALL)
 
 
 def _release_inline_voice_pause(runtime, source):
@@ -71,6 +75,50 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     if not runtime.requests_state.register(owner, rid):
         return False
     user = user or runtime.pc_profile().name
+    # A deliberately selected independent CREATE can be admitted while an
+    # unrelated legacy foreground turn holds the mutable profile lock.
+    # No second executor/model: the existing owner-pinned Scheduler does all
+    # planning, and only allowlisted read-only DAGs may actually run there.
+    # Without a live Scheduler, never silently run the goal in this thread.
+    selected_goal = _INDEPENDENT_GOAL.fullmatch(text)
+    if selected_goal is not None:
+        profile = runtime._get_profile(user)
+        with runtime.requests_state.activate(owner, rid):
+            runtime._emit_for(profile, 'user', text, source, rid=rid)
+            from modules import llm, task_queue
+            token = llm._key_context.set(owner)
+            try:
+                # Unlike normal queued turns, no as_user() call will authorize
+                # this route. Verify the owner against the registered profile
+                # list, or the selected local PC user for local inputs.
+                registered = runtime.match_user(user)
+                local_pc = (source in ('yazı', 'ses')
+                            and runtime.pc_profile().slug == owner)
+                if (profile.slug != owner or
+                        not (local_pc or (registered is not None and
+                                          runtime.slugify(registered) == owner))):
+                    reply = 'Kullanıcı kimliği doğrulanamadı; hedef oluşturulmadı.'
+                elif not selected_goal.group(1).strip():
+                    reply = 'Yeni hedef için somut bir istek söyle; iş başlatılmadı.'
+                elif len(selected_goal.group(1)) > 20000:
+                    reply = 'Yeni hedef çok uzun; iş başlatılmadı.'
+                elif not task_queue.scheduler_active():
+                    reply = ('Arka plan görev yürütücüsü şu anda hazır değil; '
+                             'yeni hedef kaydedilmedi veya çalıştırılmadı.')
+                else:
+                    from modules import canonical_planning_queue
+                    try:
+                        _job_id, reply = canonical_planning_queue.enqueue(
+                            owner, rid, selected_goal.group(1).strip(),
+                        )
+                    except (ValueError, PermissionError, OSError):
+                        reply = ('Yeni hedefin güvenli kaydı doğrulanamadı; '
+                                 'başka bir görev başlatılmadı. Durumu kontrol et.')
+                runtime._emit_for(profile, 'assistant', reply, source, rid=rid)
+            finally:
+                llm._key_context.reset(token)
+        _release_inline_voice_pause(runtime, source)
+        return True
     # An explicit goal ID needs no semantic model or mutable foreground
     # session. Keep status/cancel responsive even while the normal engine
     # event loop holds as_user for an unrelated, long-running task.
