@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import json
 import hashlib
-from contextlib import contextmanager,ExitStack
+from contextlib import contextmanager,ExitStack,closing
 from pathlib import Path
 import re
 import sqlite3
@@ -29,7 +29,7 @@ def write_trace(owner, record, *, directory):
     if not isinstance(owner,str) or not _OWNER.fullmatch(owner):raise ValueError('Rota sahibi geçersiz.')
     path=Path(directory)/'atomic_requests.sqlite3';path.parent.mkdir(parents=True,exist_ok=True)
     if path.is_symlink():raise ReservationUnavailable('Rota kaydı sembolik bağ olamaz.')
-    with sqlite3.connect(str(path),timeout=8) as db:
+    with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
         db.execute('CREATE TABLE IF NOT EXISTS route_traces (owner TEXT,request_id TEXT,call_id TEXT,updated REAL,body TEXT,PRIMARY KEY(owner,request_id,call_id))')
         db.execute('INSERT OR REPLACE INTO route_traces VALUES(?,?,?,?,?)',
                    (owner,record['request_id'],record['call_id'],record['updated'],json.dumps(record,ensure_ascii=False,allow_nan=False)))
@@ -40,7 +40,7 @@ def read_trace(owner, request_id, *, directory):
     path=Path(directory)/'atomic_requests.sqlite3'
     if not path.exists():return None
     if path.is_symlink():raise ReservationUnavailable('Rota kaydı sembolik bağ olamaz.')
-    with sqlite3.connect(str(path),timeout=8) as db:
+    with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE name='route_traces'").fetchone():return None
         row=db.execute('SELECT body FROM route_traces WHERE owner=? AND request_id=? ORDER BY updated DESC LIMIT 1',(owner,request_id)).fetchone()
     return json.loads(row[0]) if row else None
@@ -50,7 +50,7 @@ def recent_traces(owner, *, directory, limit=12):
     path=Path(directory)/'atomic_requests.sqlite3'
     if not path.exists():return []
     if path.is_symlink():raise ReservationUnavailable('Rota kaydı sembolik bağ olamaz.')
-    with sqlite3.connect(str(path),timeout=8) as db:
+    with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE name='route_traces'").fetchone():return []
         rows=db.execute('SELECT body FROM route_traces WHERE owner=? ORDER BY updated DESC LIMIT ?',
                         (owner,min(50,max(1,limit)))).fetchall()
@@ -60,7 +60,7 @@ def recent_traces(owner, *, directory, limit=12):
 def role_qualified(owner,provider,model,connection_id,*,fingerprint,binding,directory):
     path=Path(directory)/'atomic_requests.sqlite3'
     if not path.exists() or path.is_symlink():return False
-    with sqlite3.connect(str(path),timeout=8) as db:
+    with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE name='role_qualifications'").fetchone():return False
         row=db.execute('SELECT fingerprint,binding,expires FROM role_qualifications WHERE owner=? AND provider=? AND model=? AND connection_id=?',
                        (owner,provider,model,connection_id or '')).fetchone()
@@ -84,7 +84,7 @@ def qualify_role(owner,spec,report,*,fingerprint,directory,corpus_sha256,expecte
         raise ValueError('Tam ve ölçülmüş Brain rol kabulü gerekli.')
     path=Path(directory)/'atomic_requests.sqlite3';path.parent.mkdir(parents=True,exist_ok=True)
     if path.is_symlink():raise ReservationUnavailable('Kabul kaydı sembolik bağ olamaz.')
-    with sqlite3.connect(str(path),timeout=8) as db:
+    with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
         db.execute('CREATE TABLE IF NOT EXISTS role_qualifications(owner TEXT,provider TEXT,model TEXT,connection_id TEXT,fingerprint TEXT,binding TEXT,expires REAL,head TEXT,corpus TEXT,PRIMARY KEY(owner,provider,model,connection_id))')
         db.execute('INSERT OR REPLACE INTO role_qualifications VALUES(?,?,?,?,?,?,?,?,?)',
             (owner,spec.provider,spec.model,spec.connection_id or '',fingerprint,spec.binding or str(spec.connection_revision),
@@ -342,7 +342,7 @@ def reconcile(owner,attempt_id,usage,*,directory):
     path=Path(directory)/'atomic_requests.sqlite3'
     if not path.exists() or path.is_symlink():return
     try:
-        with sqlite3.connect(str(path),timeout=8) as db:
+        with closing(sqlite3.connect(str(path),timeout=8)) as db, db:
             columns={r[1] for r in db.execute('PRAGMA table_info(requests)')}
             if 'actual_tokens' not in columns:return
             db.execute('UPDATE requests SET actual_tokens=?,token_units=? WHERE owner=? AND attempt_id=?',

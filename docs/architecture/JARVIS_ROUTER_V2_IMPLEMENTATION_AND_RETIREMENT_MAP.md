@@ -58,3 +58,12 @@ Açık kalan kabul: aynı source SHA için Windows CI/gerçekPC; gerçek ücrets
 Özel API vision için ek ölçüm dikişi: açık tek sentetik PNG çağrısında yalnız piksellerdeki8 haneli kodun doğru okunması; exact owner/endpoint/protokol/model/key/revision ve taşıyıcı source-fingerprint'e bağlı7 günlük native vision gözlemi üretir. Kod prompt'a konulmaz, challenge/yanıt depolanmaz, bağlantı etkinleştirilmez. Metin bağlantı testi veya checkbox yerine gerçek görüntü taşıma kanıtıdır; genel vision/Brain kalite kabulü sayılmaz. Bağlantı/secret/taşıyıcı değişimi gözlemi iptal eder. Normal kaydetme/açılış bu testi başlatmaz.
 
 Geliştirme sırasında main'e #630/#631 ses/Brain kontrol düzeltmeleri birleşti; Router dalı bunların `b3e3993c53ee375a26f6e5048b4a3e4db50e6c6e` tabanına taşınır. Açık #632 bağımsız ses işidir; devralınmaz. Son doğrulama bu birleşik kaynak üzerinde yapılır.
+
+
+### #633 Windows CI düzeltmesi —14 Kasım2026
+
+`ca9b02b` Windows koşumu [43613281563](https://github.com/hamdkose-ctrl/Jarvis-v2/actions/runs/43613281563) PASS değildir:6460 testte446 error/11 failure/7 skip. Birincil hata, SQLite `with connection` bloğunun commit/rollback yapıp handle'ı kapatmamasıydı; trace/rol kabulü/usage uzlaştırmasının tüm çıkışları `closing` ile açıkça kapanır. `reserve` kendi `finally: close` sahibini korur. Bağlantıları güçlü referansla bellekte tutan5 regresyon eski kodda5FAIL verdi; commit/rollback, erken dönüş, hata ve gerçek persist davranışı korunarak kapatma doğrulandı. Windows klasör temizliği gevşetilmez; GC/retry ile açık handle saklanmaz.
+
+Kalan11 failure, kurulu yerel model varken test sırasıyla yerelde yeniden üretildi. Bir fake sağlayıcı hatası `_HEALTH` kaydını diğer testlere bırakıyor, haber planlayıcısını gereksiz modelsiz kurtarmaya sokuyordu. Hata fixture'ı kendi Router store/health ve internet gözlemine ayrıldı; doğrudan typed planı gerçekten iki fiziksel fake denemeyle sınar. Aynı sıra/kurulu model koşulu düzeltmeden sonra31PASS, ilgili39 test PASS verdi. Disabled özel bağlantı testi var olan yerel rotanın korunmasını doğrular; makinede Ollama bulunmamasını şart koşmaz. Haber politikası, gerçek model sağlık beklemesi ve Core yetkisi değiştirilmedi.
+
+Bu takipte birleşen #632 mevcut kod olarak entegre edildi; yalnız roadmap append çakışmasında iki taraf da korundu. Son kaynak tam validation'dan tekrar geçer; yeni Windows CI/gerçekPC ve canlı model/vision kabulü hâlâ ayrı kapıdır.

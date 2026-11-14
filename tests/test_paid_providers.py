@@ -98,9 +98,16 @@ class PaidProviderTests(unittest.TestCase):
         self.request.assert_called_once();gemini.assert_not_called()
 
     def test_saved_disabled_connection_does_not_change_active_model(self):
-        before=user_models.choice('alice');self.configure(enabled=False,model='new-choice')
-        self.assertEqual(user_models.choice('alice'),before)
-        self.assertEqual(smart_router.plan(smart_router.ModelRequest(owner='alice')).candidates,())
+        # A developer PC may have a working Ollama. Disabled custom metadata
+        # must preserve that existing route, rather than require an empty plan.
+        with patch.object(llm,'_ollama_effective_model',return_value='installed-local'):
+            request=smart_router.ModelRequest(owner='alice')
+            before=user_models.choice('alice');before_plan=smart_router.plan(request).candidates
+            self.configure(enabled=False,model='new-choice')
+            self.assertEqual(user_models.choice('alice'),before)
+            self.assertEqual(smart_router.plan(request).candidates,before_plan)
+            self.assertTrue(before_plan)
+            self.assertTrue(all(spec.connection_id is None for spec in before_plan))
         self.request.assert_not_called()
 
     def test_legacy_vendor_selection_is_retired_and_paid_role_requires_own_key(self):

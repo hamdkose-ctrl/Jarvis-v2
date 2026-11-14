@@ -4,6 +4,8 @@ Test-first contract: provider/network failures get stable reason_code + recovery
 non-provider tool errors keep their specific message. No live provider/network call.
 """
 from contextlib import nullcontext
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -13,6 +15,12 @@ import test_goal_executor as fixture
 
 
 class GoalFailurePolicyTests(unittest.TestCase):
+    def setUp(self):
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        for name,value in (('_STORE',Path(folder.name)),('_HEALTH',{})):
+            p=patch.object(smart_router,name,value);p.start();self.addCleanup(p.stop)
+        p=patch.object(llm.ollama_hint,'internet_up',return_value=True);p.start();self.addCleanup(p.stop)
+
     def case(self):
         case = fixture.GoalTests(); case.setUp(); self.addCleanup(case.doCleanups); return case
 
@@ -90,15 +98,30 @@ class GoalFailurePolicyTests(unittest.TestCase):
 
     def test_all_providers_exhausted_has_stable_structured_failure(self):
         errors = [RuntimeError('429 quota PRIVATE'), TimeoutError('PRIVATE'), ConnectionError('PRIVATE')]
-        with patch.object(smart_router, 'candidates', return_value=['groq', 'gemini', 'ollama']), \
-             patch.object(smart_router, 'selection', return_value={'candidates': ['groq', 'gemini', 'ollama'], 'skipped': []}):
+        planned=smart_router.RoutePlan(tuple(smart_router.ModelSpec(p,'fixture-'+p) for p in ('groq','gemini','ollama')),(),2)
+        adapter=Mock(side_effect=errors)
+        with patch.object(smart_router,'plan',return_value=planned),patch.object(llm.privacy,'mode',return_value='normal'):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
-                smart_router.run_request(smart_router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=errors):callback(spec.provider)).text
-        exc = caught.exception
+                smart_router.run_request(smart_router.ModelRequest(owner='alice'),adapter)
+        self.assertEqual([call.args[0].provider for call in adapter.call_args_list],['groq','gemini'])
+        exc=caught.exception
         self.assertEqual(exc.reason_code, 'PROVIDER_POOL_EXHAUSTED')
         self.assertEqual(exc.recovery_class, 'fail_closed')
         self.assertEqual(failure_policy.classify(exc), failure_policy.PROVIDER_EXHAUSTED)
         self.assertNotIn('PRIVATE', failure_policy.explain(exc))
+
+    def test_failure_fixture_does_not_disable_news_when_local_model_is_installed(self):
+        from test_news_source_scope import NewsSourceScopeTests
+        with patch.object(llm,'ollama_models',return_value=['qwen2.5:3b']):
+            failure=GoalFailurePolicyTests();failure.setUp()
+            try:failure.test_all_providers_exhausted_has_stable_structured_failure()
+            finally:failure.doCleanups()
+            self.assertEqual(smart_router._HEALTH,{})
+            news=NewsSourceScopeTests()
+            try:
+                job,_fetched,reply=news.run_recovery()
+                self.assertEqual(job['state'],'done',reply)
+            finally:news.doCleanups()
 
     def test_non_provider_tool_error_keeps_its_own_specific_message(self):
         case = self.case()

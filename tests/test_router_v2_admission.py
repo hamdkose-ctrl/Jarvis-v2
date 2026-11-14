@@ -1,6 +1,7 @@
 """V2 shared SQLite/OS claims, cancellation, qualification and monetary uncertainty."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
 import hashlib
 import json
@@ -164,7 +165,7 @@ class AdmissionTests(unittest.TestCase):
                 )
             )
         self.assertEqual(sorted(outcomes), [False, True])
-        with sqlite3.connect(self.root / "atomic_requests.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "atomic_requests.sqlite3")) as db:
             self.assertEqual(
                 db.execute("SELECT count(*) FROM requests").fetchone()[0], 1
             )
@@ -336,7 +337,7 @@ class AdmissionTests(unittest.TestCase):
                 {"input_tokens": 2, "output_tokens": 3},
                 directory=self.root,
             )
-            with sqlite3.connect(self.root / "atomic_requests.sqlite3") as db:
+            with closing(sqlite3.connect(self.root / "atomic_requests.sqlite3")) as db:
                 self.assertEqual(
                     db.execute(
                         "SELECT token_units,actual_tokens FROM requests"
@@ -344,7 +345,7 @@ class AdmissionTests(unittest.TestCase):
                     (40, None),
                 )
             quota.reconcile("alice", "one", {"total_tokens": 7}, directory=self.root)
-            with sqlite3.connect(self.root / "atomic_requests.sqlite3") as db:
+            with closing(sqlite3.connect(self.root / "atomic_requests.sqlite3")) as db:
                 self.assertEqual(
                     db.execute(
                         "SELECT token_units,actual_tokens FROM requests"

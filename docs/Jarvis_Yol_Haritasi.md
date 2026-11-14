@@ -966,3 +966,6 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Sınır / kabul:** Tam serbest doğal dilin eşzamanlı sınıflandırılması veya effectful işlerin otomatik arka plana taşınması **çözülmedi**. Telefon/sesli konuşma fiziksel cihaz kabulü, kullanıcı gözlemli 15–20 senaryo, OAuth, p95/p99, kaynak maliyeti ve sağlayıcı uzun blokları hâlâ açık. Bu bölümün kodu son SHA Windows CI ve **aynı SHA** gerçek PC watcher General+Validation PASS olmadan merge edilmez.
 
+
+
+- 🔄 Router #633 Windows takibi: `ca9b02b` CI43613281563 başarısızdır (446error/11failure); SQLite handle'larının açık kalması `closing` ile giderildi.5 yaşam döngüsü regresyonu ve kurulu Ollama/test-sırası koşulu önce kırmızı, düzeltme sonrası yeşil üretildi; haber/worker politika sahipleri değiştirilmedi. Birleşen #632 mevcut ses koduyla entegre edildi. Son HEAD'in yerel full validation, Windows CI/PC ve canlı rol kabulü ayrı sonuçlardır; eski Linux PASS Windows kabulü diye sayılmaz. Ayrıntı Router V2 uygulama/emeklilik haritasındadır.
