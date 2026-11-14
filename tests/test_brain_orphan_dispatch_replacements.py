@@ -35,7 +35,7 @@ CAPABILITY_OWNERS = {
     'close_app': ('modules.system_control', 'close_application'),
     'open_url': ('modules.browser', 'handle'),
     'mail': ('modules.engine_tools', 'mail_read_typed'),
-    'media': ('modules.media', 'handle'),
+    'media': ('modules.media', 'youtube'),
     'note': ('modules.engine_tools', '_add_note'),
     'handoff': ('modules.handoff', 'handle'),
     'work': ('modules.worktrack', 'handle'),
@@ -153,8 +153,8 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
         for sentence, action in (('sonraki şarkıya geç', 'next'), ('önceki şarkıya dön', 'prev'),
                                  ('müziği durdur', 'play_pause')):
             control = Mock()
-            with self.subTest(sentence=sentence), patch.object(media, 'system_control', control):
-                out = media.handle(sentence)
+            with self.subTest(sentence=sentence):
+                out = run_owner_intent('media_action', {'action': action}, SimpleNamespace(system_control=control), sentence)
             self.assertTrue(out)
             control.media_control.assert_called_once_with(action)
 

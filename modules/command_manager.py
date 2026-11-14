@@ -162,6 +162,9 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None,
 
 def engine_control(normalized, *, source, sleeping, close, set_sleep):
     """Explicit engine controls bypass conversational guides and model routing."""
+    from modules import brain_entry
+    if not brain_entry.allow_legacy_engine_control():
+        return None
     normalized = normalized.replace('’', "'")
     # Fast control is an explicitly addressed, whole-utterance protocol.
     # Do not accept suffixes like "kapatma" ("do not close") or a question

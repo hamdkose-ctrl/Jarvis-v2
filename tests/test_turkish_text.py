@@ -39,7 +39,7 @@ class TurkishTextTests(unittest.TestCase):
         for query, saved in [('IĞDIR', 'ığdır'), ('ığdır', 'IĞDIR')]:
             with self.subTest(query=query):
                 profile = SimpleNamespace(data={'tasks': [{'id': 1, 'text': saved, 'done': False}]}, save=Mock())
-                result = tasks.handle(query + ' görevini bitir', profile)
+                result = tasks.complete_exact(profile, query)
                 self.assertTrue(profile.data['tasks'][0]['done'], result)
                 profile.save.assert_called_once()
 

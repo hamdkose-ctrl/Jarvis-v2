@@ -1,4 +1,4 @@
-"""YouTube, Spotify ve oynatma komutları (LLM'e gitmeden çalışır)."""
+"""Core tarafından seçilmiş YouTube ve Spotify arama/açma işçileri."""
 from __future__ import annotations
 
 import os
@@ -9,11 +9,9 @@ from urllib.parse import quote_plus, quote
 from modules import requests_state
 import requests
 
-from modules import system_control
 
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
        "Accept-Language": "tr-TR,tr;q=0.9"}
-_VERB = r"(?:aç|ara|çal|izle|oynat|dinle|göster|açar mısın)"
 
 
 def spotify_installed() -> bool:
@@ -104,31 +102,3 @@ def open_music() -> str:
     requests_state.check()
     webbrowser.open("https://music.youtube.com")
     return "YouTube Music'i açtım. Dinlemek istediğin şarkıyı seçebilirsin."
-
-
-def handle(cmd_lower: str) -> str | None:
-    """Komut bu modüle aitse yanıt döndürür, değilse None."""
-    t = cmd_lower.strip(" .!?")         # canlı konuşmadan "YouTube'u aç." gibi noktalı gelir
-    m = re.match(rf"^youtube(?:['’]?\s*(?:da|de|ta|te))?\s+(.+?)\s+{_VERB}$", t) \
-        or re.match(rf"^(.+?)\s+youtube(?:['’]?\s*(?:da|de|ta|te))?\s*{_VERB}$", t)
-    if m:
-        return youtube(m.group(1))
-    if re.match(r"^youtube(?:['’]?\s*[ıiuü])?\s+(?:aç|başlat|çalıştır)$", t):
-        return youtube("")
-    m = re.match(rf"^spotify(?:['’]?\s*(?:da|de|ta|te))?\s+(.+?)\s+{_VERB}$", t) \
-        or re.match(rf"^(.+?)\s+spotify(?:['’]?\s*(?:da|de|ta|te))?\s*{_VERB}$", t)
-    if m and not re.fullmatch(r"(?:uygulama\w*|program\w*)", m.group(1)):
-        return spotify(m.group(1))
-    if re.fullmatch(r"(?:bana\s+)?(?:bir\s+|biraz\s+)?(?:müzi[kğ]\w*|şarkı\w*)\s+(?:aç|açar mısın|çal|dinle)\w*", t):
-        return open_music()
-    if re.search(r"(müzi[kğ]\w*|şarkı\w*|videoyu|oynatmayı)\s+(durdur|duraklat|dur\b|başlat|devam|oynat|çal)|"
-                 r"\b(müzik|şarkı)\s+(dursun|durdur)|devam ettir", t):
-        system_control.media_control("play_pause")
-        return "Tamam."
-    if re.search(r"sonraki (şarkı|parça)|şarkıyı geç|parçayı geç|sonrakine geç|bir sonraki", t):
-        system_control.media_control("next")
-        return "Sonraki şarkıya geçtim."
-    if re.search(r"önceki (şarkı|parça)|bir önceki|öncekine dön|geri al şarkı", t):
-        system_control.media_control("prev")
-        return "Önceki şarkıya döndüm."
-    return None

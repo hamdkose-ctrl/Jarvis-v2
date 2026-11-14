@@ -118,9 +118,7 @@ def _require_canonical_goal_active(selection):
             if digests.get(selection.node_id) != selection.node_digest:
                 raise CanonicalWorkerRevoked('Canonical node or prerequisites changed.')
             advances = current['audit'][selection.expected_goal_version + 1:]
-            if any(row['op'] != 'append_evidence'
-                   or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
-                   for row in advances):
+            if any(not goal_plan_gate.worker_compatible_audit(row) for row in advances):
                 raise CanonicalWorkerRevoked('Non-worker canonical intent mutation.')
             # Verify accepted worker evidence/audit parity, not just a newer version.
             goal_plan_gate.ready_read_only_candidates(

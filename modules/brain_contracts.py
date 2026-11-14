@@ -359,6 +359,13 @@ _GOAL_CONTENT_REQUIRED = frozenset({GoalOperation.CREATE})
 _GOAL_TARGET_REQUIRED = frozenset(GoalOperation) - {GoalOperation.CREATE}
 
 
+def neutral_observation(*, owner: str, request_id: str, text: str,
+                        references: tuple[ContextReference, ...] = ()) -> UnderstandingResult:
+    """Shared production/measurement input: observations never preselect intent."""
+    return UnderstandingResult(owner=owner, request_id=request_id, request_kind=RequestKind.CHAT,
+                               arguments={'original_text': text}, references=references)
+
+
 def _check_goal_carrier(
     operation: GoalOperation | None,
     request_kind: RequestKind,

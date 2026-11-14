@@ -272,20 +272,30 @@ class Profile:
         self.data["items"].append(item)
         try:
             self.save()
-        except OSError:
+        except BaseException:
             self.data['items'].remove(item)
             raise
         return item
 
     def _delete_note_item(self, nid: int) -> bool:
-        before = len(self.data["items"])
+        previous = self.data["items"]
+        before = len(previous)
         self.data["items"] = [n for n in self.data["items"] if n["id"] != nid]
-        self.save()
+        try:
+            self.save()
+        except BaseException:
+            self.data['items'] = previous
+            raise
         return len(self.data["items"]) < before
 
     def _clear_note_items(self) -> None:
+        previous = self.data['items']
         self.data["items"] = []
-        self.save()
+        try:
+            self.save()
+        except BaseException:
+            self.data['items'] = previous
+            raise
 
     def _add_event(self, title: str, when: str, repeat: str | None = None) -> dict:
         ev = {"id": self._new_id(), "title": title.strip() or "Etkinlik", "when": when, "notified": False}

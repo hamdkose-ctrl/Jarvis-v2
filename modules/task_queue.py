@@ -38,6 +38,28 @@ RUN_NOW_STATES=frozenset({'queued','paused'})
 SCRIPT_AGENTS=frozenset({'account','verify','media'})
 
 
+def _quarantine_expired_workers():
+    """Journal overdue attempts without dropping a live thread or its claims."""
+    from modules import canonical_scheduler_dispatch
+    for worker in tuple(_CANONICAL_WORKERS.values()):
+        lifecycle = getattr(worker, '_canonical_lifecycle', None)
+        if not worker.is_alive() or not isinstance(lifecycle, dict) or lifecycle.get('quarantined'):
+            continue
+        deadline = lifecycle.get('deadline')
+        offer = lifecycle.get('offer')
+        if deadline is None or deadline.stop_reason() != 'worker_deadline' or offer is None:
+            continue
+        selected = offer.selection
+        try:
+            canonical_scheduler_dispatch._record_failed_if_unaccepted(
+                selected.owner, selected.job_id, selected.node_id,
+                plan_version=selected.plan_version, node_digest=selected.node_digest,
+                deadline_expired=True, provider_still_running=True)
+            lifecycle['quarantined'] = True
+        except Exception:
+            _record_failure('modules/task_queue.py:quarantine_overdue')
+
+
 def set_daily_notify(callback):
     """Register one lightweight engine-owned daily hook on the existing scheduler thread."""
     global _DAILY_NOTIFY, _DAILY_NEXT
@@ -464,7 +486,8 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 # The Scheduler can iterate another registered owner before
                 # this new OS thread begins executing; late-bound locals must
                 # never transplant one worker into another user's context.
-                def work(candidate=offer, pinned_owner=owner, pinned_profile=profile):
+                lifecycle = {'offer': offer, 'deadline': None, 'quarantined': False}
+                def work(candidate=offer, pinned_owner=owner, pinned_profile=profile, lifecycle=lifecycle):
                     from modules import runtime_worker_result
                     token = llm._key_context.set(pinned_owner)
                     try:
@@ -476,6 +499,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                             deadline = runtime_worker_result.CanonicalWorkerDeadline(
                                 stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS,
                             )
+                            lifecycle['deadline'] = deadline
                             completed = canonical_scheduler_dispatch.execute_offer(
                                 pinned_profile, candidate, stop_event=deadline,
                             )
@@ -496,6 +520,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     name='jarvis-canonical-'+owner[:16]+'-'+selected.node_id[:16],
                 )
                 _CANONICAL_WORKERS[key] = thread
+                thread._canonical_lifecycle = lifecycle
                 thread.start()
                 # A registered owner with no recent admission goes first on
                 # the next tick, even if earlier owners remain permanently busy.
@@ -552,6 +577,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
         def loop():
             global _DAILY_NEXT
             while not stop_event.wait(5):
+                _quarantine_expired_workers()
                 now=time.time()
                 if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
                     _DAILY_NEXT=now+60

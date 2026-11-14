@@ -448,8 +448,7 @@ def dependent_research_worker(
                     expected['expected_job_version'] + 1:
                 ]
                 if not intervening or any(
-                    row['op'] != 'append_evidence'
-                    or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                    not goal_plan_gate.worker_compatible_audit(row)
                     for row in intervening
                 ):
                     raise ReadOnlyAdmissionError(
@@ -468,10 +467,9 @@ def dependent_research_worker(
                 pinned = expected['expected_job_version']
                 advances = current['audit'][pinned + 1:]
                 if (current['version'] < pinned or not advances
-                        or any(row['op'] != 'append_evidence'
-                               or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                        or any(not goal_plan_gate.worker_compatible_audit(row)
                                for row in advances)
-                        or len(current['evidence']) < len(advances)):
+                        or len(current['evidence']) < sum(row['op'] == 'append_evidence' for row in advances)):
                     raise ReadOnlyAdmissionError(
                         'Dependent research changed after non-worker mutation.'
                     )
@@ -479,7 +477,8 @@ def dependent_research_worker(
                     node['id']: node
                     for node in current['goal_plan']['nodes']
                 }
-                for row in current['evidence'][-len(advances):]:
+                count = sum(row['op'] == 'append_evidence' for row in advances)
+                for row in (current['evidence'][-count:] if count else []):
                     if (not isinstance(row, dict)
                             or row.get('kind') != 'worker_result'
                             or row.get('owner') != selected.owner
