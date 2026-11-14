@@ -8,6 +8,11 @@ from modules import requests_state
 
 ROOT = DATA_DIR / 'service_work'
 
+# Durable per-file schema version, not a process-local or owner-scoped cache.
+# Old files are version 0. Migrations happen once under the same SQLite writer
+# lock as queue claims, including when two Jarvis processes start together.
+_SCHEMA_VERSION = 1
+
 
 def identity(owner):
     from modules import llm
@@ -31,35 +36,54 @@ def database(owner):
     db.row_factory = sqlite3.Row
     try:
         db.execute('PRAGMA synchronous=FULL')
-        db.executescript('''
-        CREATE TABLE IF NOT EXISTS grants(service TEXT, destination TEXT, expires REAL, PRIMARY KEY(service,destination));
-        CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, work_key TEXT UNIQUE, payload TEXT, digest TEXT,
-          state TEXT, created REAL, updated REAL, receipt TEXT, error TEXT);
-        CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY, tasks TEXT, instruction TEXT, due REAL,
-          state TEXT, job_id TEXT, created REAL, error TEXT, lease REAL DEFAULT 0,
-          lease_token TEXT DEFAULT '', cron TEXT DEFAULT '');
-        ''')
-        # Serialize additive migrations with the same SQLite writer claim.
-        # Two fresh processes must not both observe a missing approval column.
+        # Preserve BEGIN IMMEDIATE for atomic lease/claim operations. The
+        # old hot path also executed three CREATEs and multiple table scans on
+        # *every* read/write. A durable schema version skips that redundant
+        # work while retaining the exact transaction and owner fences.
+        observed_version = db.execute('PRAGMA user_version').fetchone()[0]
+        if observed_version > _SCHEMA_VERSION:
+            raise ValueError('İşlem veritabanı bu sürümden yeni; eski uygulamayla açılamaz.')
         db.execute('BEGIN IMMEDIATE')
-        if 'lease' not in [row[1] for row in db.execute('PRAGMA table_info(queue)')]:
-            db.execute('ALTER TABLE queue ADD COLUMN lease REAL DEFAULT 0')
-        columns=[row[1] for row in db.execute('PRAGMA table_info(queue)')]
-        if 'lease_token' not in columns:
-            db.execute("ALTER TABLE queue ADD COLUMN lease_token TEXT DEFAULT ''")
-        if 'repeat_seconds' not in columns:db.execute('ALTER TABLE queue ADD COLUMN repeat_seconds INTEGER DEFAULT 0')
-        if 'last_job_id' not in columns:db.execute("ALTER TABLE queue ADD COLUMN last_job_id TEXT DEFAULT ''")
-        if 'cron' not in columns:db.execute("ALTER TABLE queue ADD COLUMN cron TEXT DEFAULT ''")
-        db.execute('CREATE TABLE IF NOT EXISTS queue_runs(qid TEXT,job_id TEXT PRIMARY KEY,state TEXT,finished REAL)')
-        if 'authorized_until' not in [row[1] for row in db.execute('PRAGMA table_info(outbox)')]:
-            db.execute('ALTER TABLE outbox ADD COLUMN authorized_until REAL DEFAULT 0')
-        outbox_columns = {row[1] for row in db.execute('PRAGMA table_info(outbox)')}
-        if 'approval_expires' not in outbox_columns:
-            db.execute('ALTER TABLE outbox ADD COLUMN approval_expires REAL DEFAULT 0')
-        if 'approval_consumed' not in outbox_columns:
-            db.execute('ALTER TABLE outbox ADD COLUMN approval_consumed REAL DEFAULT 0')
-        if 'connection_digest' not in outbox_columns:
-            db.execute("ALTER TABLE outbox ADD COLUMN connection_digest TEXT DEFAULT ''")
+        # Re-check AFTER acquiring the write lock: a separate process may
+        # have completed the same migration while this one was waiting.
+        current_version = db.execute('PRAGMA user_version').fetchone()[0]
+        if current_version > _SCHEMA_VERSION:
+            raise ValueError('İşlem veritabanı şeması desteklenmiyor.')
+        if current_version < _SCHEMA_VERSION:
+            # executescript() implicitly commits an open SQLite transaction:
+            # use individual statements to make DDL + migration + version
+            # marker one atomic commit, even during concurrent startup.
+            db.execute('CREATE TABLE IF NOT EXISTS grants(service TEXT, destination TEXT, expires REAL, PRIMARY KEY(service,destination))')
+            db.execute('''CREATE TABLE IF NOT EXISTS outbox(
+                id TEXT PRIMARY KEY, work_key TEXT UNIQUE, payload TEXT, digest TEXT,
+                state TEXT, created REAL, updated REAL, receipt TEXT, error TEXT)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS queue(
+                id TEXT PRIMARY KEY, tasks TEXT, instruction TEXT, due REAL,
+                state TEXT, job_id TEXT, created REAL, error TEXT,
+                lease REAL DEFAULT 0, lease_token TEXT DEFAULT '', cron TEXT DEFAULT '')''')
+            queue_columns = {row[1] for row in db.execute('PRAGMA table_info(queue)')}
+            for column, ddl in (
+                ('lease', 'ALTER TABLE queue ADD COLUMN lease REAL DEFAULT 0'),
+                ('lease_token', "ALTER TABLE queue ADD COLUMN lease_token TEXT DEFAULT ''"),
+                ('repeat_seconds', 'ALTER TABLE queue ADD COLUMN repeat_seconds INTEGER DEFAULT 0'),
+                ('last_job_id', "ALTER TABLE queue ADD COLUMN last_job_id TEXT DEFAULT ''"),
+                ('cron', "ALTER TABLE queue ADD COLUMN cron TEXT DEFAULT ''"),
+            ):
+                if column not in queue_columns:
+                    db.execute(ddl)
+            db.execute('CREATE TABLE IF NOT EXISTS queue_runs(qid TEXT,job_id TEXT PRIMARY KEY,state TEXT,finished REAL)')
+            outbox_columns = {row[1] for row in db.execute('PRAGMA table_info(outbox)')}
+            for column, ddl in (
+                ('authorized_until', 'ALTER TABLE outbox ADD COLUMN authorized_until REAL DEFAULT 0'),
+                ('approval_expires', 'ALTER TABLE outbox ADD COLUMN approval_expires REAL DEFAULT 0'),
+                ('approval_consumed', 'ALTER TABLE outbox ADD COLUMN approval_consumed REAL DEFAULT 0'),
+                ('connection_digest', "ALTER TABLE outbox ADD COLUMN connection_digest TEXT DEFAULT ''"),
+            ):
+                if column not in outbox_columns:
+                    db.execute(ddl)
+            # Written inside the same transaction as schema changes. A crash
+            # rolls back both; stale/unknown schema never claims to be ready.
+            db.execute(f'PRAGMA user_version = {_SCHEMA_VERSION}')
         yield db
         db.commit()
     except BaseException:
