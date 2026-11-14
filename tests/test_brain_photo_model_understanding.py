@@ -6,6 +6,7 @@ bayrağı geçiyor mu), (2) gerçek `EngineContext` + canonical photo artifact �
 düzeyinde taklit edilir; anlamlandırma, çitler, `core_plan` ve photo executor gerçektir.
 """
 from __future__ import annotations
+from provider_fixture import routed_response, routed_plan
 
 import ast
 import inspect
@@ -161,7 +162,7 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
         artifact = brain_entry.photo_artifact(owner=self.owner, request_id=rid, path=PHOTO)
         p1, p2, p3, p4 = self.free_route()
         run = ({"side_effect": exc} if exc is not None else {"return_value": transport})
-        with p1, p2, p3, p4, patch("modules.smart_router.run", **run), \
+        with p1, p2, p3, p4, routed_plan(count=1), patch("modules.llm.dispatch", **run), \
                 requests_state.activate(self.owner, rid, complete=False):
             entry = brain_entry.prepare(
                 self.ctx, owner=self.owner, request_id=rid, text=text,
@@ -227,7 +228,7 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
         p1, p2, _p3, p4 = self.free_route()
         with p1, p2, p4, patch("modules.smart_router.selection",
                                return_value={"candidates": ["ollama"]}), \
-                patch("modules.smart_router.run") as run, \
+                patch("modules.llm.dispatch") as run, \
                 requests_state.activate(self.owner, rid, complete=False):
             entry = brain_entry.prepare(
                 self.ctx, owner=self.owner, request_id=rid, text="Bunu analiz et",
@@ -271,7 +272,7 @@ class PhotoEnvelopeAuthorityTests(unittest.TestCase):
             patch("modules.llm.privacy.mode", return_value="normal"),
             patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}),
         )
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             return model.propose(owner=self.OWNER, text=text,
                                  current=self.photo_result(),
                                  arguments=self.photo_result().arguments,

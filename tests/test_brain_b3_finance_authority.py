@@ -17,6 +17,7 @@ Testler model zarfının üretim zincirine bağlandığını doğrular; modelin 
 yerel taklitlerle kanıtlanmış sayılmaz.
 """
 from __future__ import annotations
+from provider_fixture import routed_plan
 
 import ast
 import json
@@ -166,12 +167,13 @@ class FinanceTurnTests(pr3a._CanonicalAuthorityHarness):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.model = Mock(return_value=_model_envelope("chat"))
+        self.enterContext(routed_plan(count=1))
         for target, value in (
                 ("modules.llm.current_user", lambda: self.owner),
                 ("modules.llm.provider", lambda: "groq"),
                 ("modules.llm.privacy.mode", lambda: "normal"),
                 ("modules.smart_router.selection", lambda *a, **k: {"candidates": ["groq"]}),
-                ("modules.smart_router.run", self.model)):
+                ("modules.llm.dispatch", self.model)):
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)

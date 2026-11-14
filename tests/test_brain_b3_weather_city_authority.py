@@ -15,6 +15,7 @@ sor/fiil biçimli "şehir adı" artık pref YAZMAZ, içinde "şehrimi sil" geçe
 cümlesi artık tercihi SİLMEZ — ikisi de tabanın ölçülen kusuruydu.
 """
 from __future__ import annotations
+from provider_fixture import routed_response, routed_plan
 
 import ast
 import json
@@ -560,7 +561,7 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", return_value=raw):
+                routed_response(raw):
             return model.propose(owner=self.OWNER, text=understanding._norm(text),
                                  current=current, arguments=dict(current.arguments))
 
@@ -601,7 +602,7 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
         from modules.brain_core_map import CORE_INTENTS
         captured: dict[str, str] = {}
 
-        def fake_run(owner, text, send, *, route, exclude_providers, **kwargs):
+        def fake_run(request, spec, text, system, **kwargs):
             captured["payload"] = text
             return self._envelope("weather.read", {"location": "izmir"})
 
@@ -610,7 +611,7 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run", side_effect=fake_run):
+                routed_plan(count=1), patch("modules.llm.dispatch", side_effect=fake_run):
             self.assertIsNotNone(model.propose(
                 owner=self.OWNER, text="bugün hava nasıl", current=current,
                 arguments=dict(current.arguments)))

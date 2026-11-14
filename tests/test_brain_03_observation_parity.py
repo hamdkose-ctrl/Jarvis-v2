@@ -3,6 +3,7 @@
 External model transport is fake; no preselected IDs or semantic results are
 injected. Temporary Profile, history and allowed file roots are real.
 """
+from provider_fixture import routed_plan
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,18 +28,18 @@ class ObservationParityTests(_CanonicalAuthorityHarness):
             actions=[row] if capability else [])
         seen = []
 
-        def transport(owner, prompt, send, **kwargs):
+        def transport(request, spec, prompt, system, **kwargs):
+            prompt = prompt + "\\n" + system
             seen.append(json.loads(prompt.split('\\n', 1)[0]))
             if error:
                 raise error
-            kwargs['validator'](raw)
             return raw
 
         with patch('modules.llm.current_user', return_value=self.owner), \
              patch('modules.llm.provider', return_value='groq'), \
              patch('modules.llm.privacy.mode', return_value='normal'), \
              patch('modules.smart_router.selection', return_value={'candidates': ['groq']}), \
-             patch('modules.smart_router.run', side_effect=transport) as model:
+             routed_plan(count=1), patch('modules.llm.dispatch', side_effect=transport) as model:
             entry, output, _, feedback = self.turn_real(text, model_understanding=True)
         self.assertEqual(model.call_count, 1)
         return entry, output, feedback, seen[0]

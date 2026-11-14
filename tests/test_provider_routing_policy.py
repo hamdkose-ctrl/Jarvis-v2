@@ -17,7 +17,7 @@ class RoutingPolicyTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.now = 1_794_700_000.0
-        for name, value in [('_STORE', Path(self.tmp.name)), ('_HEALTH', {}), ('_LAST', {})]:
+        for name, value in [('_STORE', Path(self.tmp.name)), ('_HEALTH', {})]:
             p = patch.object(router, name, value); p.start(); self.addCleanup(p.stop)
         for target, name, value in [
             (router.privacy, 'mode', 'normal'), (llm, 'user_key', 'gem-key'), (llm, 'user_groq_key', 'groq-key'),
@@ -71,13 +71,13 @@ class RoutingPolicyTests(unittest.TestCase):
             router._HEALTH.clear()
             call = Mock(side_effect=[error, error, error])
             with self.assertRaises(RuntimeError):
-                router.run('alice', 'özel not', call)
+                router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
             self.assertEqual([c.args[0] for c in call.call_args_list], ['groq', 'cloudflare'])
 
     def test_groq_429_falls_to_cloudflare_and_stops_at_two_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('down')])
         with self.assertRaises(RuntimeError) as caught:
-            router.run('alice', 'x', call)
+            router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual(call.call_count, 2)
         self.assertNotIn('gemini:', str(caught.exception).split('Atlanan')[0])
         self.assertIn('Ücretli modele geçilmedi', str(caught.exception))
@@ -85,7 +85,7 @@ class RoutingPolicyTests(unittest.TestCase):
     def test_public_chain_stops_after_two_failed_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('429'), 'yerel'])
         with self.assertRaises(RuntimeError):
-            router.run('alice', 'x', call, route=PUB)
+            router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,route=PUB),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq'])
 
     def test_missing_or_stale_evidence_skips_provider(self):
@@ -211,7 +211,7 @@ class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
 
     def test_vision_chain_is_local_only(self):
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
-        with patch.object(router, '_STORE', Path(tmp.name)), patch.object(router, '_HEALTH', {}), patch.object(router, '_LAST', {}), \
+        with patch.object(router, '_STORE', Path(tmp.name)), patch.object(router, '_HEALTH', {}), \
              patch.object(llm, 'user_key', return_value='k'), patch.object(llm, 'user_groq_key', return_value='k'), \
              patch.object(router.privacy, 'mode', return_value='normal'):
             router.configure('alice', True)
@@ -219,9 +219,12 @@ class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
             self.assertEqual(sel['candidates'], ['ollama'])
             self.assertEqual({r['provider'] for r in sel['skipped']}, {'gemini', 'groq', 'cloudflare'})
 
-    def test_no_gemini_content_call_remains_in_llm(self):
+    def test_vision_is_typed_and_embedding_stays_separate(self):
         source = inspect.getsource(llm)
-        for needle in ('generate_content', 'embed_content', 'Part.from_bytes', 'gemini-embedding'):
+        self.assertIn('generate_content',source)
+        self.assertIn('Part.from_bytes',source)
+        self.assertIn('smart_router.run_request',inspect.getsource(llm.ask_image))
+        for needle in ('embed_content', 'gemini-embedding'):
             self.assertNotIn(needle, source)
 
 

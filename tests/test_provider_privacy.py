@@ -90,8 +90,8 @@ class BundleTests(unittest.TestCase):
 
     def test_chains_follow_policy(self):
         self.assertEqual(pp.CHAINS[PUB], ("gemini", "groq", "cloudflare", "ollama"))
-        self.assertEqual(pp.CHAINS[PRIV], ("groq", "cloudflare", "ollama"))
-        self.assertNotIn("gemini", pp.CHAINS[PRIV])
+        self.assertEqual(pp.CHAINS[PRIV], ("gemini", "groq", "cloudflare", "ollama"))
+        self.assertIn("gemini", pp.CHAINS[PRIV])  # owner consent is enforced separately
         for chain in pp.CHAINS.values():
             for name in chain:
                 self.assertTrue(name == "ollama" or name in pp.PROVIDER_BUNDLE, name)
@@ -102,7 +102,7 @@ class RouterGateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        for target, value in [("_STORE", pathlib.Path(self.tmp.name)), ("_HEALTH", {}), ("_LAST", {})]:
+        for target, value in [("_STORE", pathlib.Path(self.tmp.name)), ("_HEALTH", {})]:
             patcher = patch.object(router, target, value)
             patcher.start()
             self.addCleanup(patcher.stop)

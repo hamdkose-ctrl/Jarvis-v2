@@ -4,6 +4,7 @@ Semantic model choices are stubbed. Real Brain prepare/handoff, Core argument
 validators and the existing domain executors run in an isolated EngineContext.
 These tests do NOT claim live Turkish understanding or PC device acceptance.
 """
+from provider_fixture import routed_response, routed_plan
 from dataclasses import replace
 from unittest.mock import Mock, patch, call
 import unittest
@@ -26,7 +27,7 @@ class BareLevelModelContractTests(unittest.TestCase):
             confidence="HIGH")
         current = deterministic(text)
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             return propose(
                 owner=OWNER, text=text, current=current,
                 arguments=current.arguments,
@@ -64,11 +65,12 @@ class BareLevelModelContractTests(unittest.TestCase):
             capability_id="pc.level.set",
             arguments={"property": "brightness", "level": 50})],
             confidence="HIGH")
-        def fake(owner, prompt, send, **kwargs):
+        def fake(request, spec, prompt, system, **kwargs):
+            prompt = prompt + "\\n" + system
             captured.append(prompt)
             return raw
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", side_effect=fake):
+        with p1, p2, p3, p4, routed_plan(count=1), patch("modules.llm.dispatch", side_effect=fake):
             result = propose(owner=OWNER, text="50", current=current,
                              arguments=current.arguments,
                              last_verified_level_property="brightness")

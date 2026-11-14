@@ -83,7 +83,7 @@ class GoalFailurePolicyTests(unittest.TestCase):
         with patch.object(smart_router, 'candidates', return_value=[]), \
              patch.object(smart_router, 'selection', return_value={'candidates': [], 'skipped': skipped}):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
-                smart_router.run('alice', 'python', Mock(side_effect=AssertionError('no call')))
+                smart_router.run_request(smart_router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=AssertionError('no call')):callback(spec.provider)).text
         self.assertEqual(caught.exception.reason_code, 'PROVIDER_CONFIGURATION_REQUIRED')
         self.assertEqual(caught.exception.recovery_class, 'user_action_required')
         self.assertNotEqual(caught.exception.reason_code, 'PROVIDER_AUTH')
@@ -93,7 +93,7 @@ class GoalFailurePolicyTests(unittest.TestCase):
         with patch.object(smart_router, 'candidates', return_value=['groq', 'gemini', 'ollama']), \
              patch.object(smart_router, 'selection', return_value={'candidates': ['groq', 'gemini', 'ollama'], 'skipped': []}):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
-                smart_router.run('alice', 'python', Mock(side_effect=errors))
+                smart_router.run_request(smart_router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=errors):callback(spec.provider)).text
         exc = caught.exception
         self.assertEqual(exc.reason_code, 'PROVIDER_POOL_EXHAUSTED')
         self.assertEqual(exc.recovery_class, 'fail_closed')

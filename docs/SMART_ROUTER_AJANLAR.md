@@ -1,5 +1,8 @@
 # Smart Router ve görev ajanları · 7 Ekim 2026
 
+> Tarihsel kayıt: Bu belgedeki eski sağlayıcı sırası/OpenRouter/ücretli vendor seçimi güncel hedef değildir.14 Kasım2026 Router V2 ve uygulama/emeklilik haritası geçerlidir: [güncel mimari](architecture/JARVIS_ROUTER_ARCHITECTURE_V2.md), [uygulama/kabul](architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md).
+
+
 Ayarlar > Bağlantılar bölümünde Smart Router anahtarını/ücretsiz hesap seçimini kaydet; Ayarlar > Yapay zekâ bölümünde Smart Router seç. Sohbetten `smart router aç` da aynı seçimi yapar. Mevcut elle seçilmiş sağlayıcı değişmez.
 
 API anahtarı tek başına hesabın ücretsiz olduğunu kanıtlamaz. Gemini/Groq otomatik havuzuna yalnız kullanıcı bu hesapların ücretsiz planda ve ücretli faturalamasının kapalı olduğunu doğrulayınca girer. Jarvis hesap faturalamasını uzaktan doğrulayamaz. Kota/bağlantı hatasında sonraki sağlayıcı denenir; hata veren sağlayıcı 60 saniye bekletilir. Otomatik modda Gemini ücretsiz hesap doğrulaması yoksa Gemini Live, Gemini STT, gömme ve arka plan model kontrolü de buluta çağrı yapmaz. Normal gizlilik modunda ses için mevcut ücretsiz Google web STT kullanılır; yerel/gizli modda web STT de kapalıdır. OpenAI/Claude hiçbir zaman otomatik fallback değildir; mevcut açık kullanıcı seçimiyle çalışır.

@@ -77,13 +77,13 @@ class UserModelChoiceTests(unittest.TestCase):
                 llm.set_provider('groq')
         self.assertEqual(user_models.choice('hamdi'), {})
 
-    def test_corrupt_record_falls_back_and_is_repaired(self):
+    def test_corrupt_record_fails_closed_without_destroying_connection_secrets(self):
         (self.root / 'models').mkdir(parents=True)
         (self.root / 'models' / 'hamdi.json').write_text('[bozuk', encoding='utf-8')
         self.assertEqual(llm.provider(), 'gemini')
         self.assertEqual(user_models.get('hamdi', ['d']), ['d'])
-        user_models.save_choice('hamdi', provider='ollama')
-        self.assertEqual(llm.provider(), 'ollama')
+        with self.assertRaises(ValueError):user_models.save_choice('hamdi', provider='ollama')
+        self.assertEqual((self.root/'models'/'hamdi.json').read_text(encoding='utf-8'),'[bozuk')
 
     def test_local_privacy_mode_still_forces_ollama(self):
         user_models.save_choice('hamdi', provider='groq')

@@ -13,7 +13,7 @@ from web_phone import WebPhone
 class AndroidSetupTests(unittest.TestCase):
     def test_unreadable_router_key_does_not_hide_local_provider(self):
         from modules import smart_router
-        with patch.object(smart_router,'settings',return_value={'key':'unreadable'}), \
+        with patch.object(smart_router,'settings',return_value={'cloud_free_confirmed':False,'free_tier_evidence':{},'gemini_scopes':[],'account_scopes':{},'application_limits':smart_router._APPLICATION_DEFAULTS}), \
              patch.object(smart_router.privacy,'unprotect',side_effect=OSError('protected record unavailable')), \
              patch.object(smart_router.privacy,'mode',return_value='normal'), \
              patch.object(smart_router,'_record_failure'),patch.object(smart_router,'_HEALTH',{}):

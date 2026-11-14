@@ -28,12 +28,14 @@ class BridgeModuleTests(unittest.TestCase):
     def test_key_validation_uses_owner_model_and_bounded_client(self):
         from google import genai
         bridge=self.models('hamdi');bridge._runtime.llm.model_names.return_value=['mine']
+        from modules import llm
+        bridge._runtime.llm._gemini_http_options.side_effect=llm._gemini_http_options
         client=Mock()
         with patch.object(genai,'Client',return_value=client) as factory:
             result=bridge.user_key_set('Hamdi','key')
         self.assertTrue(result['ok'])
-        factory.assert_called_once_with(api_key='key',http_options={'timeout':45000})
-        client.models.generate_content.assert_called_once_with(model='mine',contents="Yalnızca 'tamam' yaz.")
+        factory.assert_called_once_with(api_key='key',http_options={'timeout':45000,'retry_options':{'attempts':1}})
+        client.models.generate_content.assert_called_once_with(model='mine',contents="Yalnızca 'tamam' yaz.",config={'max_output_tokens':32})
 
     def test_model_measure_retains_owner_after_profile_switch(self):
         bridge=self.models('hamdi');gate=threading.Event();entered=threading.Event()

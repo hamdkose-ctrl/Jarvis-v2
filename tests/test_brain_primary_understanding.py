@@ -5,6 +5,7 @@ deterministik tabanı üretir, `apply_model_understanding` tek bounded model zar
 Yalnız model taşıması (`smart_router`) taklit edilir; hiçbir karar sahte değildir.
 """
 from __future__ import annotations
+from provider_fixture import routed_response, routed_plan
 
 import importlib
 import json
@@ -87,7 +88,7 @@ def applied(text: str, raw: str, *, references=(), candidates=(), **changes):
     if changes:
         base = replace(base, **changes)
     p1, p2, p3, p4 = eligible()
-    with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+    with p1, p2, p3, p4, routed_response(raw):
         return base, apply_model_understanding(base, text)
 
 
@@ -183,11 +184,12 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         utterance = "market notunu sil"
         current = deterministic(utterance, candidates=(note,), references=(note,))
         captured = []
-        def transport(owner, prompt, send, **kwargs):
+        def transport(request, spec, prompt, system, **kwargs):
+            prompt = prompt + "\\n" + system
             captured.append(prompt)
             return envelope(operation="chat", actions=[])
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", side_effect=transport):
+        with p1, p2, p3, p4, routed_plan(count=1), patch("modules.llm.dispatch", side_effect=transport):
             propose(owner=OWNER, text=utterance, current=current, arguments=current.arguments)
         self.assertEqual(len(captured), 1)
         prompt = captured[0]
@@ -353,7 +355,7 @@ class NoHintPreconditionTests(unittest.TestCase):
         raw = envelope(actions=[action(capability_id="pc.level.set",
                                        arguments={"property": "volume", "level": 40})])
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             result = apply_model_understanding(base, text)
         self.assertEqual(result.capability_hint, "pc.level.set")
 
@@ -417,7 +419,7 @@ class GroundingAndAuthorityTests(unittest.TestCase):
                                        arguments={"property": "volume", "level": 10})])
         p1, p2, p3, p4 = eligible()
         base = deterministic(text)
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             proposal = propose(owner=OWNER, text=text, current=base, arguments=base.arguments)
         self.assertIsNone(proposal)
 
@@ -426,7 +428,7 @@ class EnvelopeSchemaRejectionTests(unittest.TestCase):
     def reject(self, raw: str, text: str = "sesi kapat"):
         base = deterministic(text)
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             return propose(owner=OWNER, text=text, current=base, arguments=base.arguments)
 
     def test_not_json_is_rejected(self):
@@ -475,7 +477,7 @@ class PreservedFencesTests(unittest.TestCase):
             base, request_kind=RequestKind.CAPABILITY, capability_hint="pc.audio.action",
             arguments={"original_text": text, "audio": {"action": "mute"}})
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             result = apply_model_understanding(with_capability, text)
         self.assertIs(result.request_kind, RequestKind.CHAT)
         self.assertIsNone(result.capability_hint)
@@ -501,7 +503,7 @@ class PreservedFencesTests(unittest.TestCase):
         raw = envelope(actions=[action(capability_id="pc.audio.action",
                                        arguments={"audio": {"action": "mute"}})])
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             result = apply_model_understanding(ambiguous, text)
         self.assertIsNot(result, ambiguous)
         self.assertEqual(result.capability_hint, 'pc.audio.action')
@@ -517,7 +519,7 @@ class PreservedFencesTests(unittest.TestCase):
         base = deterministic(text)
         raw = envelope(operation="action_batch", actions=[one, two])
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, p4, routed_response(raw):
             proposal = propose(owner=OWNER, text=text, current=base, arguments=base.arguments)
             self.assertIsNotNone(proposal)
             self.assertEqual(proposal.operation, "action_batch")
@@ -564,7 +566,7 @@ class ProductionEntrySeamTests(unittest.TestCase):
         miss_state = GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH")
         miss_fast = GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH")
         p1, p2, p3, p4 = eligible()
-        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw), \
+        with p1, p2, p3, p4, routed_response(raw), \
                 patch.object(module, "_build_context", return_value=ctx()), \
                 patch.object(module, "_state_refs", return_value=()), \
                 patch.object(module, "exact_state_gate", return_value=miss_state), \

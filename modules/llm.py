@@ -1,6 +1,7 @@
 """Tüm modüllerin paylaştığı LLM istemcisi (Google Gemini)."""
 from modules.diagnostics import record_failure as _record_failure
 import re
+import hashlib
 import time
 import logging
 import threading
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jarvis.llm")
 from contextvars import ContextVar
+from contextlib import contextmanager
 from modules import failure_policy, requests_state, usage_meter
 
 from google import genai
@@ -60,6 +62,13 @@ def set_user_context(slug: str | None) -> str | None:
     target = (str(slug).strip() if slug else None) or None
     _key_context.set(target)
     return target
+
+
+@contextmanager
+def owner_context(owner):
+    token=_key_context.set(owner)
+    try:yield
+    finally:_key_context.reset(token)
 
 
 def key_state(slug: str | None = None) -> dict:
@@ -172,7 +181,7 @@ def _cfg() -> dict:
     s = load_settings()
     mine = _choice()
     configured = mine.get("provider") or s.get("provider") or "gemini"
-    if configured not in {"auto", "gemini", "groq", "ollama", "openai", "anthropic"}:
+    if configured not in {"auto", "gemini", "groq", "ollama"}:
         configured = "auto"   # unknown or removed provider names fall back to the router policy
     backend = s.get("local_backend") if s.get("local_backend") in LOCAL_BACKENDS else "ollama"
     if backend == "ollama":
@@ -224,8 +233,7 @@ def provider() -> str:
 
 
 def gemini_aux_allowed() -> bool:
-    """Provider Routing Policy v1: embed, STT, vision and Live carry private content (documents, voice,
-    screen), so none of them may reach Gemini. Gemini is only the PUBLIC_RESEARCH route (``research``)."""
+    """Auxiliary embed/STT operations keep their separate policy; typed vision has scoped consent."""
     return False
 
 
@@ -320,10 +328,10 @@ def model_check_background():
         set_user_context(owner)
         model_check()
     threading.Thread(target=run, daemon=True, name='model-check').start()
-def paid_status() -> dict:
-    from modules import paid_providers
+def connection_status() -> list:
+    from modules import router_connections
     owner=current_user()
-    return {name:paid_providers.status(owner,name) for name in paid_providers.PROVIDERS} if owner else {}
+    return router_connections.snapshot(owner) if owner else []
 
 
 def status() -> dict:
@@ -335,7 +343,7 @@ def status() -> dict:
     return {"groq_key": bool(user_groq_key(current_user())), "groq_model": groq_model(), "groq_models": GROQ_MODELS,
             "provider": provider(), "configured": c["provider"], "privacy": privacy.mode(),
             "model_validation": validation, "gemini_models": model_names(), "gemini_active": active_model(), "gemini_key": bool(user_key(current_user())),
-            "paid": paid_status(),
+            "custom_connections": connection_status(),
             "ollama_url": c["url"], "ollama_model": c["model"], "ollama_up": bool(om), "ollama_models": om,
             "local_backend": _backend(c), "local_label": LOCAL_LABELS[_backend(c)], "local_backends": LOCAL_LABELS}
 
@@ -360,18 +368,10 @@ def set_local_backend(backend: str, url: str = "", model: str = "") -> None:
 
 
 def set_provider(name: str, model: str | None = None, url: str | None = None) -> None:
-    if name not in ("auto", "gemini", "ollama", "groq", "openai", "anthropic"):
-        raise ValueError("Sağlayıcı gemini, groq, ollama, openai veya anthropic olmalı.")
+    if name not in ("auto", "gemini", "ollama", "groq"):
+        raise ValueError("Özel sağlayıcıyı Özel API alanından bağlantı ve rol seçerek ekle.")
     if name == "groq" and not user_groq_key(current_user()):
         raise ValueError("Bu kullanıcı için önce Groq API anahtarını Bağlantılar sayfasından ekle.")
-    if name in ('openai','anthropic'):
-        from modules import paid_providers
-        owner=current_user()
-        if not paid_providers.key(owner,name):raise ValueError('Önce kendi '+name+' API anahtarını Bağlantılar bölümünden ekle.')
-        state=paid_providers.settings(owner,name)
-        chosen=(model or state['candidate_model'] or state['model']).strip()
-        if not chosen:raise ValueError('Önce model seç.')
-        paid_providers.configure(owner,name,model=chosen)
     owner = current_user()
     if owner:
         # Seçim yalnız bu kullanıcıya yazılır; başka kullanıcının sağlayıcısı değişmez.
@@ -431,11 +431,13 @@ def _openai_local(messages: list[dict], system: str, max_tokens: int, images: li
             raise ImageCapabilityError(ollama_hint.IMAGE)
         raise LocalModelError(f"{label} hata verdi ({r.status_code}).")
     try:
-        text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        data=r.json()
+        text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
     except (ValueError, AttributeError, IndexError, TypeError) as e:
         usage_meter.record(backend, model, sent, 0, 'bozuk')
         raise LocalModelError(f"{label} yanıtı çözülemedi (geçersiz JSON).") from e
     text = text if isinstance(text, str) else ""
+    usage_meter.observe_response(data,finish_reason=(data.get('choices') or [{}])[0].get('finish_reason'))
     usage_meter.record(backend, model, sent, len(text), 'ok' if text else 'bos')
     _route.model = model
     return text
@@ -490,6 +492,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     except ValueError as e:
         usage_meter.record('ollama', model, sent, 0, 'bozuk')
         raise LocalModelError("Ollama yanıtı çözülemedi (geçersiz JSON).") from e
+    usage_meter.observe_response(data,finish_reason=data.get('done_reason'))
     usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos',
                        tokens=usage_meter.tokens_from(data))
     _route.model = model
@@ -499,32 +502,8 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
 OLLAMA_BIG_MODEL = "qwen2.5:7b"
 
 
-def ollama_model_for(prompt: str) -> str:
-    """Kod ve analizde yüklüyse büyük yerel model; sohbette kurulu effective yerel model."""
-    c = _cfg()
-    if _backend(c) != "ollama":      # LM Studio/llama.cpp: mevcut çözümleme davranışı korunur
-        return c["model"]
-    base = _ollama_effective_model(c)
-    big = (load_settings().get("ollama_big_model") or OLLAMA_BIG_MODEL).strip()
-    if not big or big == base:
-        return base
-    from modules import smart_router
-    if smart_router.task_type(prompt) in ("code", "analysis") and big in ollama_models():
-        return big
-    return base
 
 
-def _ollama_task(messages: list[dict], system: str, max_tokens: int, prompt: str) -> str:
-    """Legacy direct-call compatibility; router production calls ``_ollama`` once."""
-    c = _cfg(); base = _ollama_effective_model(c); model = ollama_model_for(prompt)
-    if model != base and base:
-        try:
-            return _ollama(messages, system, max_tokens, model=model)
-        except ImageCapabilityError:
-            raise
-        except LocalModelError:
-            note_route(f"{model} yanıt vermedi, {base} kullanılıyor", False)
-    return _ollama(messages, system, max_tokens, model=base or None)
 
 
 
@@ -558,7 +537,7 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
     msgs = ([{"role": "system", "content": system}] if system else []) + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     model = model or groq_model()
-    if _limited('groq', model) is not None:
+    if _limited('groq', model,credential=key) is not None:
         raise CloudError('Groq modeli kota beklemesinde.')
     body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
     requests_state.check()
@@ -575,7 +554,7 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
     if r.status_code == 429:
         headers_in = getattr(r, 'headers', None) or {}
         daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
-        _mark_limited('groq', model, 'HTTP 429', _limit_seconds(daily, headers_in.get('retry-after')))
+        _mark_limited('groq', model, 'HTTP 429', _limit_seconds(daily, headers_in.get('retry-after')),credential=key)
         raise CloudError('Groq istek/token sınırına takıldı (HTTP 429).')
     if r.status_code != 200:
         raise CloudError('Groq yanıt vermedi (HTTP ' + str(r.status_code) + ')')
@@ -586,6 +565,7 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
     except (KeyError, IndexError, TypeError, ValueError) as e:
         usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
         raise CloudError('Groq boş ya da geçersiz yanıt verdi.') from e
+    usage_meter.observe_response(data,finish_reason=data['choices'][0].get('finish_reason'))
     usage_meter.record('groq', model, usage_meter.size(msgs), len(text), tokens=usage_meter.tokens_from(data))
     _route.model = model
     return text
@@ -698,14 +678,20 @@ def _limit_seconds(daily: bool, retry_after=None) -> int:
     return 3600 if daily else 60
 
 
-def _mark_limited(provider_name: str, model: str, error, seconds: int) -> None:
+def _limit_key(owner,provider_name,model,credential=None):
+    from modules import smart_router
+    fingerprint=smart_router._connection_fingerprint(owner,provider_name) if credential is None else hashlib.sha256(credential.encode()).hexdigest()
+    return (owner,provider_name,model,fingerprint)
+
+
+def _mark_limited(provider_name: str, model: str, error, seconds: int,*,credential=None) -> None:
     with _fallback_lock:
-        _rate_limited[(current_user(), provider_name, model)] = (time.monotonic() + seconds, error)
+        _rate_limited[_limit_key(current_user(),provider_name,model,credential)] = (time.monotonic() + seconds, error)
 
 
-def _limited(provider_name: str, model: str):
+def _limited(provider_name: str, model: str,*,credential=None):
     """Model hâlâ 429 beklemesindeyse kayıtlı hatayı döndürür, değilse None."""
-    key = (current_user(), provider_name, model)
+    key = _limit_key(current_user(),provider_name,model,credential)
     with _fallback_lock:
         until, error = _rate_limited.get(key, (0, None))
         if until <= time.monotonic():
@@ -715,19 +701,9 @@ def _limited(provider_name: str, model: str):
 
 
 def quota_wait_seconds(owner=None) -> int:
-    """Seçili sağlayıcıların hepsi 429/bekleme içindeyse kalan en kısa saniye; denenebilecek yol varsa 0."""
-    owner = owner if owner is not None else current_user()
-    name = provider()
-    if name == 'auto':
-        from modules import smart_router
-        return smart_router.wait_seconds(owner)
-    if name != 'gemini' or user_groq_key(owner):
-        return 0                       # Groq/Ollama yedeği ya da başka sağlayıcı: denemeden bilemeyiz
-    now = time.monotonic()
-    with _fallback_lock:
-        left = [int(until - now + .999) if until > now else 0
-                for until in (_rate_limited.get((owner, 'gemini', m), (0, None))[0] for m in model_names(owner))]
-    return min(left) if left and all(left) else 0
+    """The typed Router owns both configured free and custom/local waiting."""
+    from modules import smart_router
+    return smart_router.wait_seconds(owner if owner is not None else current_user())
 
 
 def model_names(owner=None):
@@ -758,43 +734,18 @@ def _metered(call, chars_in, kind='gemini'):
     return call
 
 
-def _with_models(call, *, model=None):
-    """Compatibility for old direct callers; routed production passes ``model`` and calls once."""
-    if model is not None:
-        return call(model)
-    chars_in, kind = getattr(call, 'chars_in', 0), getattr(call, 'kind', 'gemini')
-    owner=current_user(); models=model_names(owner); last=None
-    for selected in models:
-        if (waiting := _limited('gemini', selected)) is not None:
-            last = waiting; continue
-        try:
-            result = call(selected)
-            usage_meter.record(kind, selected, chars_in, len(result) if isinstance(result, str) else 0,
-                               tokens=getattr(_route, 'tokens', None))
-            _route.model = selected
-            return result
-        except (errors.ServerError, errors.ClientError) as exc:
-            last = exc; code = getattr(exc, 'code', None)
-            usage_meter.record(kind, selected, chars_in, 0, usage_meter.outcome(exc))
-            if code == 429:
-                daily = _daily_quota(exc)
-                _mark_limited('gemini', selected, exc, _limit_seconds(daily, None if daily else _gemini_retry_after(exc)))
-                continue
-            raise
-    raise last or RuntimeError('Yanıt verecek model yapılandırılmamış.')
 
 
 # Arayüzdeki AI Modelleri kartı için: gerçek isteklerin son cevap süresi (ek/deneme isteği atılmaz, kota harcamaz).
 LAST_SEC: dict = {}
 
 
-_LABELS = {"gemini": "Gemini", "groq": "Groq", "cloudflare": "Cloudflare", "ollama": "Ollama (yerel)",
-           "openai": "OpenAI", "anthropic": "Claude"}
+_LABELS = {"gemini": "Gemini", "groq": "Groq", "cloudflare": "Cloudflare", "ollama": "Ollama (yerel)",'custom':'Özel API'}
 _route = threading.local()   # bu iş parçacığındaki isteğin model izi; yalnız sağlayıcı/model adı, metin yok
 
 
 def provider_label(name: str) -> str:
-    if name == "ollama" and _backend() != "ollama":
+    if name == "ollama":
         return local_label() + " (yerel)"
     return _LABELS.get(name, name)
 
@@ -862,30 +813,43 @@ def _timed(name: str, fn):
     return out
 
 
-_PAID = ('openai', 'anthropic')
-
-
-def _send(prompt: str, system: str, max_tokens: int, history, route=None) -> str:
-    """Text generation. Only the Router chooses a provider and decides every fallback; this function never
-    switches provider by itself. An explicit paid choice (OpenAI/Claude) stays outside the automatic pool."""
-    selected = provider()
-    if selected in _PAID or selected == 'ollama':   # explicit paid or local-only choice: no automatic pool
-        return _send_provider(selected, prompt, system, max_tokens, history)
+def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',route=None,structured=False):
     from modules import smart_router
-    request = smart_router.ModelRequest(owner=current_user(), route=route,
-        max_output_tokens=max_tokens, features=frozenset({'text'}))
-    return smart_router.run_request(request,
-        lambda spec: _send_provider(spec.provider, prompt, system, max_tokens, history, model=spec.model)).text
+    owner=current_user()
+    return smart_router.ModelRequest(owner=owner,request_id=requests_state.request_identity(owner) or '',
+        profile='local_only' if provider()=='ollama' else profile,data_scope=data_scope,route=route,
+        work_class=requests_state.model_work_class() or ('background' if profile in ('long_worker','public_research') else 'interactive'),max_output_tokens=max_tokens,
+        features=frozenset({'text','structured_output'} if structured else {'text'}))
 
 
-def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history, *, model: str | None = None) -> str:
+def dispatch(request,spec,prompt,system,history=None,*,image_path=None):
+    """One exact-model adapter boundary, including explicit owner custom connections."""
+    token=_key_context.set(request.owner)
+    try:
+        requests_state.request_identity(request.owner)
+        if spec.connection_id:
+            from modules import router_connections,provider_protocols
+            connection,secret=router_connections.resolve(request.owner,spec.connection_id,revision=spec.connection_revision)
+            if connection['model']!=spec.model:raise ValueError('Bağlantı modeli değişti.')
+            rows=_ohist_msgs(history)+[{'role':'user','content':prompt}]
+            return provider_protocols.generate(request.owner,connection,secret,rows,system,
+                                              request.max_output_tokens,image_path=image_path)
+        if image_path is not None:
+            return _image_transport(image_path,prompt,system,request.max_output_tokens,selected=spec.provider,model=spec.model)
+        return _send_provider(spec.provider,prompt,system,request.max_output_tokens,history,model=spec.model)
+    finally:_key_context.reset(token)
+
+
+def _send(prompt: str, system: str, max_tokens: int, history, route=None,*,profile='conversation',data_scope='conversation') -> str:
+    from modules import smart_router
+    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route)
+    return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system,history)).text
+
+
+def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history, *, model: str) -> str:
     """One provider, one attempt: transport only. No cross-provider fallback (the Router owns that)."""
     if name != 'ollama' and history:
         history = [types.Content(role=h.role,parts=[types.Part(text=privacy.redact(p.text)) for p in h.parts if getattr(p,'text',None)]) for h in history]
-    if name in _PAID:
-        from modules import paid_providers
-        return _timed(name,lambda:paid_providers.generate(current_user(),name,
-                      _ohist_msgs(history)+[{'role':'user','content':prompt}],system,max_tokens))
     if name == "groq":
         try:
             return _timed("groq", lambda: _groq(_ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
@@ -894,10 +858,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
             raise LocalModelError(str(e)) from e
     if name == "ollama":
         messages = _ohist_msgs(history) + [{"role": "user", "content": prompt}]
-        # Explicit/direct local compatibility preserves its prior model selection.
-        # Router-produced calls carry a concrete model and never invoke that helper.
-        return _timed("ollama", lambda: _ollama_task(messages, system, max_tokens, prompt)
-                      if model is None else _ollama(messages, system, max_tokens, model=model))
+        return _timed("ollama", lambda:_ollama(messages, system, max_tokens, model=model))
     if name == "cloudflare":
         from modules import cloudflare_chat
         try:
@@ -908,6 +869,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
             raise LocalModelError(str(e)) from e
     if name != "gemini":
         raise ValueError("Bilinmeyen sağlayıcı.")
+    if not isinstance(model,str) or not model.strip():raise ValueError('Exact model Router tarafından seçilmeli.')
     prompt = _need_cloud(prompt)
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok.")
@@ -925,7 +887,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
 
     cli = [_cli()]
 
-    chosen_model = model or active_model(current_user())
+    chosen_model = model
     def call(router_model=None) -> str:
         chat_session = cli[0].chats.create(model=router_model or chosen_model, config=cfg, history=history)
         try:
@@ -933,22 +895,22 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
         except Exception as exc:
             _record_failure('modules/llm.py:_send_provider:gemini_transport')
             # Routed Gemini calls otherwise lose failed attempts from the meter.
-            # Direct legacy _with_models already records its own failures.
             if model is not None:
                 usage_meter.record('gemini', router_model or chosen_model,
                                    usage_meter.size(prompt, system, history), 0,
                                    usage_meter.outcome(exc))
             raise
         _route.tokens = usage_meter.tokens_from(resp)
+        candidates=getattr(resp,'candidates',None)
+        usage_meter.observe_response(resp,finish_reason=getattr(candidates[0],'finish_reason',None) if candidates else None)
         return resp.text or ""
 
     call.chars_in = usage_meter.size(prompt, system, history)
     call.kind = 'gemini'
     def one_attempt():
         _route.tokens = None
-        result = _with_models(call, model=model) if model is not None else _with_models(call)
+        result = call(model)
         if model is not None:
-            # Direct legacy _with_models already records usage; routed calls do not.
             usage_meter.record('gemini', chosen_model, usage_meter.size(prompt, system, history),
                                len(result) if isinstance(result, str) else 0,
                                tokens=getattr(_route, 'tokens', None))
@@ -988,53 +950,30 @@ def _provider_name() -> str:
         return "unknown"
 
 
-def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
+def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None,profile='long_worker') -> str:
     """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için). Etiketsiz içerik daima PRIVATE rotadır."""
-    return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator))
+    return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator,profile=profile))
 
 
 def research(query: str, evidence, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
-    """Herkese açık araştırma: Gemini'ye giden tek kapı. Girdi yalnız maskelenmiş bağımsız sorgu ve etiketli
+    """Kaynak provenansı doğrulanan araştırma. Girdi yalnız maskelenmiş bağımsız sorgu ve etiketli
     kamuya açık kaynaklardır (geçmiş/hafıza/ek yok). Kaynaklardan biri bile PUBLIC etiketli değilse istek
-    PRIVATE olur ve Gemini hiçbir hatada denenmez."""
+    PRIVATE olur ve Gemini seçilmiş içerik iznine bağlıdır."""
     from modules import privacy_sources, provider_privacy
     items = list(evidence or [])
     public = privacy_sources.classify(items) is privacy_sources.RouteClass.PUBLIC
     route = provider_privacy.ROUTE_PUBLIC_RESEARCH if public else provider_privacy.ROUTE_PRIVATE_GENERAL
     parts = [str(getattr(item, "payload", item)) for item in items]
     prompt = privacy.redact(query) + ("\n\nKaynaklar:\n" + "\n\n".join(parts) if parts else "")
-    return _observed("research", lambda: _ask(prompt, system, max_tokens, validator=validator, route=route))
+    return _observed("research", lambda: _ask(prompt, system, max_tokens, validator=validator, route=route,
+        profile='public_research',data_scope='public' if public else 'selected_content'))
 
 
-def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None, route=None) -> str:
-    if validator is not None:
-        def checked(name, model=None):
-            return _send_provider(name, prompt, system, max_tokens, None, model=model)
-        if provider() in _PAID:
-            answer = checked(provider())
-            validator(answer)
-            return answer
-        if provider() == 'ollama':
-            # Explicit local model stays local. A validator repair is a second
-            # request to the SAME provider, bounded by the shared two-attempt policy.
-            for attempt in range(2):
-                requests_state.check()
-                answer = checked('ollama')
-                requests_state.check()
-                try:
-                    validator(answer)
-                except (ValueError, TypeError):
-                    if attempt == 0:
-                        continue
-                    raise
-                requests_state.check()
-                return answer
-        from modules import smart_router
-        request = smart_router.ModelRequest(owner=current_user(), route=route,
-            max_output_tokens=max_tokens, features=frozenset({'text', 'structured_output'}))
-        return smart_router.run_request(request,
-            lambda spec: checked(spec.provider, spec.model), validator=validator).text
-    return _send(prompt, system, max_tokens, None, route)
+def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None, route=None,
+         profile='long_worker',data_scope='selected_content') -> str:
+    from modules import smart_router
+    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route,structured=validator is not None)
+    return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system),validator=validator).text
 
 
 def chat(prompt: str, system: str = "", max_tokens: int = 2000, user: str = "default") -> str:
@@ -1076,42 +1015,71 @@ def commit_chat(prompt: str, text: str, user: str = "default") -> None:
 
 
 def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 2000, *, strict: bool = False) -> str:
-    """Ekran/görüntü özeldir: yalnız yerel görüntü modeli (veya açıkça seçilmiş ücretli sağlayıcı); Gemini yok."""
+    """Selected content keeps its private provenance; owner consent gates cloud vision."""
     if privacy.mode() == 'gizli':
         if strict:raise PermissionError('Gizli modda görüntü analizi kapalı.')
         return 'Gizli modda görüntü analizi kapalı.'
     selected = provider()
-    if selected in _PAID:
-        return _ask_image(image_path,prompt,system,max_tokens,selected,strict=strict)
     from modules import smart_router
-    if provider() == 'auto' or strict:
-        return smart_router.run(current_user(), prompt, lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True)
-    return _ask_image(image_path,prompt,system,max_tokens,'ollama',strict=strict)
+    request=smart_router.ModelRequest(owner=current_user(),profile='local_only' if selected=='ollama' else 'vision',
+        data_scope='selected_content',features=frozenset({'vision'}),max_output_tokens=max_tokens,
+        work_class=requests_state.model_work_class() or 'interactive')
+    try:
+        return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system,image_path=image_path)).text
+    except (requests_state.Cancelled,requests_state.LocalDeadline):raise
+    except Exception as exc:
+        _record_failure('modules/llm.py:vision_request')
+        if strict:raise
+        return 'Görüntü analizi yapılamadı: '+failure_policy.user_message(exc)
 
 
-def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
-    """Transport only: one provider, no fallback. Images never go to a Gemini/Groq/Cloudflare cloud."""
-    selected=selected or provider()
+def _image_transport(image_path, prompt, system, max_tokens, *, selected, model):
+    """Transport only; the Router pins exact model and selected-content admission."""
     requests_state.check()
     if privacy.mode() == "gizli":
-        return "Gizli modda görüntü analizi kapalı."
+        raise PermissionError("Gizli modda görüntü analizi kapalı.")
     try:
-        if selected in _PAID:
-            from modules import paid_providers
-            return _timed(selected,lambda:paid_providers.generate(current_user(),selected,
-                          [{'role':'user','content':prompt}],system,max_tokens,image_path=image_path))
+        if selected=='gemini':
+            if not model:raise ValueError('Görüntü modeli Router tarafından seçilmeli.')
+            from pathlib import Path
+            import mimetypes
+            path=Path(image_path)
+            mime=mimetypes.guess_type(str(path))[0]
+            if mime not in ('image/png','image/jpeg','image/webp') or not 0<path.stat().st_size<=20*1024*1024:
+                raise ValueError('Görüntü biçimi veya boyutu desteklenmiyor.')
+            data=path.read_bytes()
+            cli=_cli()
+            if cli is None:raise LocalModelError('Bu kullanıcının Gemini anahtarı yok.')
+            options={'system_instruction':privacy.redact(system) or None,'max_output_tokens':max_tokens,
+                     'automatic_function_calling':types.AutomaticFunctionCallingConfig(disable=True)}
+            if 'automatic_continuation' in getattr(types.GenerateContentConfig,'model_fields',{}):
+                options['automatic_continuation']=False
+            def call():
+                try:
+                    response=cli.models.generate_content(model=model,
+                        contents=[types.Part.from_text(text=privacy.redact(prompt)),types.Part.from_bytes(data=data,mime_type=mime)],
+                        config=types.GenerateContentConfig(**options))
+                except Exception as exc:
+                    _record_failure('modules/llm.py:gemini_vision_transport')
+                    usage_meter.record('gemini',model,len(prompt),0,usage_meter.outcome(exc));raise
+                candidates=getattr(response,'candidates',None)
+                usage_meter.observe_response(response,finish_reason=getattr(candidates[0],'finish_reason',None) if candidates else None)
+                text=response.text or ''
+                usage_meter.record('gemini',model,len(prompt),len(text),tokens=usage_meter.tokens_from(response))
+                _route.model=model
+                return text
+            return _timed('gemini',call)
         if selected != "ollama":
-            raise LocalModelError("Görüntü yalnızca yerel görüntü modeline gider.")
+            raise LocalModelError("Bu adapter seçilen sağlayıcı için görüntü desteklemiyor.")
         import base64
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
-        return _ollama([{"role": "user", "content": prompt}], system, max_tokens, images=[b64])
+        return _ollama([{"role": "user", "content": prompt}], system, max_tokens, images=[b64],model=model)
     except requests_state.Cancelled:
         raise
     except Exception as e:
         _record_failure('modules/llm.py:ask_image')
-        if strict: raise
-        return "Ekran resmi okunamadı: " + failure_policy.user_message(e)
+        raise
 
 
 def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: bytes | None = None,

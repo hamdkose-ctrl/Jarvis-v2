@@ -24,7 +24,7 @@ class CoderRecoveryTests(unittest.TestCase):
         (self.project/'original.py').write_text('untouched = True\n')
         for obj, name, value in [(dev,'PROJECT',self.project),(dev,'STORE',self.root/'dev'),
             (dev,'_AUTH',set()),(agents,'STORE',self.root/'tasks'),(nxapi,'FILES_DIR',self.root/'files'),
-            (router,'_STORE',self.root/'router'),(router,'_HEALTH',{}),(router,'_LAST',{})]:
+            (router,'_STORE',self.root/'router'),(router,'_HEALTH',{})]:
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)
         for obj,name,value in [(router.privacy,'mode','normal'),(llm,'provider','auto'),
              (llm,'current_user','alice'),(llm,'user_key','gem-key'),(llm,'user_groq_key','groq-key')]:
@@ -150,7 +150,8 @@ class CoderRecoveryTests(unittest.TestCase):
 
     def test_manual_provider_can_repair_schema_without_silently_switching_provider(self):
         def validate(text): dev._tool_call(text)
-        with patch.object(llm,'provider',return_value='ollama'), \
+        from provider_fixture import routed_plan
+        with routed_plan(provider='ollama',model='local-fixture'),patch.object(llm,'provider',return_value='ollama'), \
              patch.object(llm,'_send_provider',side_effect=['duz yazi','{"tool":"list"}']) as send:
             result=llm.ask('incele','schema',validator=validate)
         self.assertEqual(dev._tool_call(result)['tool'],'list')

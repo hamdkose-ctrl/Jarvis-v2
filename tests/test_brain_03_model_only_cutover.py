@@ -4,6 +4,7 @@ External model and hardware are replaced by deterministic boundary stubs.
 These tests are not evidence of live-model or Windows PC acceptance.
 """
 from __future__ import annotations
+from provider_fixture import routed_response
 
 from dataclasses import replace
 from unittest.mock import Mock, patch
@@ -162,7 +163,7 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
              patch("modules.llm.privacy.mode", return_value="normal"), \
              patch("modules.smart_router.selection",
                    return_value={"candidates": ["groq"]}), \
-             patch("modules.smart_router.run", return_value=raw):
+             routed_response(raw):
             # turn_real returns an ordinary bound method, not a Mock. Keep
             # the real handler available but spy on it so tests can assert the
             # accepted Core note path did not re-enter raw NLP.
