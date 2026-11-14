@@ -143,7 +143,7 @@ class WakeFollowupRaceTests(TestCase):
             _AnyAbort=lambda *events: None,
             find_wake=lambda text: 0,
             _strip_wake=lambda text: "",
-            _tr_lower=str.lower,
+            _tr_lower=str.lower, events=SimpleNamespace(put=Mock()),
             emit=Mock(), log=Mock(), _record_failure=Mock(),
         )
         session = self.session(runtime, lane)
@@ -151,8 +151,9 @@ class WakeFollowupRaceTests(TestCase):
         session.submit_voice = Mock()
         session.listen_for_wake_word()
         self.assertEqual(runtime.audio_lock.count, 2)
-        self.assertLessEqual(runtime.voice.capture.call_count, 1,
-                             "a second microphone capture started over speech")
+        self.assertEqual(runtime.voice.capture.call_count, 1,
+                         "initial capture must occur; second must be blocked by speaker")
+        runtime._record_failure.assert_not_called()
         session.submit_voice.assert_not_called()
 
 
