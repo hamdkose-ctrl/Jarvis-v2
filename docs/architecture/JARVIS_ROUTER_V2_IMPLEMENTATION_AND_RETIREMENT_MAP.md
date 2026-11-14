@@ -79,3 +79,12 @@ Kabulün açığa çıkardığı kapalı-hedef devam sorunu da sınırlı State 
 
 
 Canonical kabul girişinin mimari envanteri de aynı değişiklikte göçer: doğrudan `runtime.handle` için eski acceptance istisnası tamamen kaldırılır; `prepare`/`handoff` kapıları yalnız `acceptance_checks.py` için açık `--news`/sabit semantic fixture/senkron source gerekçesiyle kaydedilir. Statik tarama kapsamı ve eşitlik kontrolleri korunur; yeni başka bir kapı yine başarısız olur.
+
+
+## İkinci gerçek PC takibi ve #634 tabanı — 14 Kasım 2026
+
+`fd03dbabcc1a` için [Windows CI43619940254](https://github.com/hamdkose-ctrl/Jarvis-v2/actions/runs/43619940254) başarılıdır. [Gerçek PC raporu](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/633#issuecomment-6881316586) validation/yerel model/desktop passed, haber failed: üç senaryo hedef/dosya kontrollerinden sonra terminal devam mesajında kaldı; dış keşifte 6 adaydan doğrulanmış kaynak yoktu. Bekleyen bir gerçek profil olgusu ile aynı devam hatası yeniden üretildi. Kabulün yalnız Goal store'u değil değişebilir Profile/history/Task/desktop/filesend/request sahipleri de geçici alana ayrıldı; owner kimliği ve gerçek gizlilik ayarları korunur. Başka gerçek işe devam edilmez veya pending silinmez; kayıtlı kullanıcı profil/task/desktop dosyalarının değişmezliği sınanır. Üretim State önceliğine yeni bypass eklenmedi.
+
+Genel haber `araştır` fiili `_fold` ile `araştir` oluyordu; aynı normalizasyon uygulanmamış stop-word sözlüğü bu fiili konu sayıyor, araştırma sözcüğü içermeyen geçerli haberleri eliyordu. Sözcük/sözlük aynı şekilde katlanır; gerçek konunun, AI/coğrafyanın, yayın zamanının ve makale kimliğinin koşulları korunur. Katalog dışı gerçek parser/pipeline yolu kaynak taşıyıcısı taklidiyle sınanır; ek model/sağlayıcı/okuma bütçesi yoktur. Geliştirme ortamından üç bilinen PC adayına üretim HTTPS erişimi connection refused verdi; bu yoklama Windows canlı kabulü değildir.
+
+Bağımsız ses kuyruğu #634 `a3bd8e5` tabanı normal merge ile alındı. `requests_state.py` çatışmasında Router `request_identity` ve sesin `execution_seconds`/iptal-fence/`request_state` davranışları birlikte korundu; roadmap'in iki tarafı saklandı. Yeni exact-source tam validation, Windows ve gerçek PC kabulü ayrı kaydedilir.

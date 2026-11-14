@@ -985,3 +985,7 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Açık kalan gerçek mimari eksik:** Bu yama serbest doğal dilin başka bir modelle eşzamanlı anlaşılıp yürütülmesini sağlamaz. Eski legacy foreground'da bir tur hâlâ bekleyebilir ve sonlu kuyruk son tarihinde expire olabilir. Bu sınır, otomatik yetki/efekt ve çoklu oturum güvenliği kanıtı olmadan paralel işleme bahanesiyle atlanmaz.
 
+
+### Router #633 — ikinci PC haber kabulü ve #634 tabanı (14 Kasım 2026; yeni SHA kabulü bekler)
+
+`fd03dba` Windows CI ve PC validation/yerel model/desktop başarılı; haberin devam kontrolü ve dış keşfi failed. Kaydedilmiş kullanıcı pending'iyle aynı hata yeniden üretildi; kabulün owner'a ait değişebilir Profile/history/Task/desktop/filesend/request kayıtları yalıtıldı, gerçek kullanıcı kayıtları ve State önceliği korundu. Genel istekte `araştır` fiilinin sahte haber konusu olmasına neden olan stop-word normalizasyon farkı giderildi; gerçek konu/coğrafya/tarih/makale eşikleri korunur. Katalog dışı parser/pipeline ve kullanıcı dosyası değişmezliği regresyonları eklendi. #634 ses kuyruğu tabanı iki çatışmanın iki tarafı korunarak birleştirildi; Router aynı #633'tedir. Yeni source tam validation/Windows/PC ve canlı rol kabulü ayrı ölçülür; ürün fazı kapanmış sayılmaz.

@@ -3,12 +3,14 @@
 This suite measures no live Brain semantics or provider eligibility.
 """
 from pathlib import Path
+import json
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 from modules import acceptance_checks, engine_runtime, history, llm, news_pipeline
-from modules import personalization, requests_state
+from modules import desktop_agent, personalization, requests_state, task_agents
 from test_model_independent_news import istanbul_today, two_source_feeds
 
 
@@ -24,6 +26,8 @@ class NewsAcceptanceEntryTests(unittest.TestCase):
             (history, 'DIR', root / 'history'),
             (requests_state, '_journal', root / 'requests.json'),
             (requests_state, '_records', {}),
+            (desktop_agent, 'STORE', root / 'saved-desktop'),
+            (task_agents, 'STORE', root / 'saved-tasks'),
         ):
             self.enterContext(patch.object(module, attr, value))
         personalization.set_active('alice')
@@ -80,6 +84,30 @@ class NewsAcceptanceEntryTests(unittest.TestCase):
         self.assertEqual(state, 'failed')
         self.assertIn('makale=1; yayıncı=1', detail)
         self.assertNotIn('Haber hedefi oluşturulmadı', detail)
+
+    def test_unrelated_saved_pending_does_not_contaminate_or_change_news_acceptance(self):
+        profile = personalization.Profile('alice')
+        profile.data['pending_facts'] = ['A saved pending observation outside this scenario']
+        profile.save()
+        before = profile.path.read_bytes()
+        desktop_path = desktop_agent.STORE / 'alice' / 'job.json'
+        task_path = task_agents.STORE / 'alice' / 'savedjob.json'
+        saved = (
+            (desktop_path, {'owner': 'alice', 'status': 'question', 'history': [], 'question': 'Saved desktop question'}),
+            (task_path, {'owner': 'alice', 'id': 'savedjob', 'state': 'incomplete', 'updated': time.time(),
+                         'tasks': [], 'outputs': {}}),
+        )
+        for path, row in saved:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(row))
+        before_jobs = {path: path.read_bytes() for path, _row in saved}
+        with patch.object(task_agents, 'continue_job', side_effect=AssertionError('Unrelated job resumed')):
+            state, detail = acceptance_checks._news_scenario(
+                'alice', 'Son 7 gün güncel haberleri araştır')
+        self.assertEqual(state, 'passed', detail)
+        self.assertEqual(profile.path.read_bytes(), before)
+        for path, content in before_jobs.items():
+            self.assertEqual(path.read_bytes(), content)
 
 
 if __name__ == '__main__':

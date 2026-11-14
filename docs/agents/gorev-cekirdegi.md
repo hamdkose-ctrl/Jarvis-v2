@@ -329,3 +329,6 @@ Tamamlanmış/iptal edilmiş son hedefte çıplak `devam`/`sürdür`, `goal.clos
 
 
 Canonical kabul girişinin mimari envanteri de aynı değişiklikte göçer: doğrudan `runtime.handle` için eski acceptance istisnası tamamen kaldırılır; `prepare`/`handoff` kapıları yalnız `acceptance_checks.py` için açık `--news`/sabit semantic fixture/senkron source gerekçesiyle kaydedilir. Statik tarama kapsamı ve eşitlik kontrolleri korunur; yeni başka bir kapı yine başarısız olur.
+
+
+#633 kabul izolasyonu takibi: başka bir kayıtlı learning/Job/desktop pending, terminal-hedef devam State'ini üretimde engellemeye devam eder. Haber kabul aracı aynı owner'a ait temiz geçici Profile/history/Task/desktop/filesend/request sahiplerini kullanır; Core önceliği gevşetilmez, gerçek pending kaydı temizlenmez veya sürdürülmez. Kaydedilmiş pending profil + açık task job + masaüstü sorusu varken kabul ve kullanıcı dosyalarının byte-for-byte değişmezliği regresyonla korunur. #634 ses kuyruğu tabanı aynı PR'a alındı; execution_seconds ile Router owner/RID fence birlikte korunur.

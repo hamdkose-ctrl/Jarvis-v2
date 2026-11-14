@@ -91,3 +91,6 @@ Tek Router V2 kod göçü için uygulama/emeklilik kaydı `docs/architecture/JAR
 
 
 - Router #633 güncel kabul: `d2d6cf24ff1e` Windows CI/PC validation/yerel model başarılı, PC haber senaryoları eski raw girişte failed. Aynı PR'daki canonical fixture/Core giriş ve kapalı-hedef salt-okunur devam düzeltmesinin yeni SHA Windows/PC kanıtı gerekir. Fixture canlı Brain rolü, hesap limiti, vision/Türkçe doğruluk, gecikme veya Scheduler kabulü üretmez; bu ölçümler açık kalır.
+
+
+- Router #633 ikinci PC takibi: `fd03dba` Windows CI/validation/yerel model/desktop passed, haber failed. Kabulün bekleyen kullanıcı kaydından yalıtılması, genel haber fiili normalizasyonu ve #634 ses tabanıyla birleşimin yeni SHA tam validation/Windows/PC sonucu gerekir. Üretim State önceliği ile gerçek konu/tarih/makale/iki yayıncı eşikleri korunur; gerçek Windows taşıması/canlı Brain/vision/hesap ölçümü uydurulmaz.

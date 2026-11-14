@@ -172,12 +172,39 @@ def _news_turn(runtime, text, *, router_store, create_goal=False):
 def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
     """Live news/Core workflow; semantic admission is a fixture, not a live model test."""
     from modules import engine_runtime,goal_executor,nxapi,llm,task_results,model_free_news
+    from modules import personalization,task_agents,desktop_agent,history,filesend,requests_state
     from unittest.mock import patch
     from contextlib import ExitStack
     previous_store=goal_executor.STORE
     runtime=None
     with tempfile.TemporaryDirectory(prefix='jarvis-news-acceptance-') as temp_dir, ExitStack() as guards:
         files=Path(temp_dir)/'files'
+        # News acceptance owns a fresh scenario, not the user's pending lesson,
+        # learning consent, task job or desktop question. Keep the actual owner
+        # and real privacy policy; isolate their MUTABLE scenario stores.
+        profiles=Path(temp_dir)/'profiles'
+        profiles.mkdir()
+        with patch.object(personalization,'USERS_DIR',profiles):
+            profile=personalization.Profile(personalization.get_active())
+        if profile.slug != owner:
+            raise PermissionError('Haber kabul kullanıcısı aktif profille eşleşmiyor.')
+
+        def scenario_profile(name=None):
+            if personalization.slugify(name or personalization.get_active()) != owner:
+                raise PermissionError('Haber kabul profili başka kullanıcıya ait.')
+            return profile
+
+        guards.enter_context(patch.object(engine_runtime,'Profile',side_effect=scenario_profile))
+        guards.enter_context(patch.object(engine_runtime,'migrate_legacy'))
+        for module,attr,value in (
+            (task_agents,'STORE',Path(temp_dir)/'tasks'),
+            (desktop_agent,'STORE',Path(temp_dir)/'desktop'),
+            (history,'DIR',Path(temp_dir)/'history'),
+            (filesend,'_pending_by_owner',{}),
+            (requests_state,'_journal',Path(temp_dir)/'requests.json'),
+            (requests_state,'_records',{}),
+        ):
+            guards.enter_context(patch.object(module,attr,value))
         guards.enter_context(patch.object(nxapi,'FILES_DIR',files))
         model=guards.enter_context(patch.object(llm,'ask',side_effect=RuntimeError('Kabul sırasında model çağrısı kapalı.')))
         transport=guards.enter_context(patch.object(llm,'dispatch',side_effect=RuntimeError('Kabul sırasında canlı model taşıyıcısı kapalı.')))

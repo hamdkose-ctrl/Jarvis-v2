@@ -132,3 +132,6 @@ Ledger karar ve sırayı taşır; kanıt üretmez. Bir madde ancak kaynakta merg
 
 
 Router #633 kabul takibi: `d2d6cf24ff1e` Windows CI başarılı; gerçek PC validation/yerel model passed, haberin üç eski raw giriş senaryosu failed. Aynı PR'da canonical request/Brain/Core kabul girişi ve salt-okunur terminal-hedef devamı düzeltilir. Anlamlandırma fixture'ı rol/hesap/Brain/Scheduler canlı kanıtı değildir; haber kaynak/dosya doğrulaması korunur. Yeni exact-head Windows/gerçek PC ve canlı rol kabulü bekler; ayrı PR veya yeni yürütme sahibi yoktur.
+
+
+Router #633 ikinci PC takibi: `fd03dba` Windows CI/PC validation/yerel model/desktop başarılı, haber failed. Aynı PR'da pending kullanıcı durumundan bağımsız kabul alanı ve Türkçe stop-word normalizasyon düzeltmesi yapılır. #634 `main a3bd8e5` mevcut ses tabanı olarak normal merge ile alınır; `request_identity` ve `execution_seconds`/iptal/queue status sahipleri birlikte korunur. Yeni exact-head Windows/PC kanıtı gerekir; ayrı PR veya Core/Scheduler sahibi yoktur.

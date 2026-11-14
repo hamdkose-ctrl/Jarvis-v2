@@ -198,3 +198,6 @@ CI offline kalır. Brain rol açılması yalnız exact model/hesap/source-finger
 
 
 #633 haber kabulü takibi: eski raw `hedef` çağrısı yerine request-bound canonical prepare/handoff kullanılır. Anlamlandırma için yalnız sabit aday/adapter fixture'ı en fazla bir çağrı ile geçici Router store'dadır; envelope validator/Core gerçek, normal model taşıyıcısı yürütme sırasında kapalı ve sayılır. Bu fixture ücretsiz hesap, Brain rolü, Türkçe kalite veya çalışan Scheduler kabulü üretmez. Gerçek PC `d2d6cf24ff1e` raporunda validation ve yerel model passed, haber failed olarak korunur; yeni düzeltme aynı PR'dadır ve yeni SHA kanıtı bekler.
+
+
+#633 son PC takibi: `fd03dba` Windows CI43619940254 ve gerçek PC validation/yerel model/desktop passed; haber failed. Kabulün owner kimliği korunarak yalnız kendi değişebilir Profile/history/Task/desktop/filesend/request kayıtları geçici alana ayrılır; gerçek gizlilik politikası değişmez ve gerçek kullanıcı kayıtları tüketilmez. Birleşen #634 (`main a3bd8e5`) kuyruk için `register(execution_seconds=...)`, geç aktivasyonda iptal fence ve `request_state` okuması getirir; Router `request_identity` ile ikisi birlikte korunur. Yeni source için ayrı tam validation/Windows/PC kanıtı gerekir.
