@@ -248,9 +248,10 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
             handle.write(block)
         return path
 
-    def _build_clone(self, name):
-        root = os.path.join(tempfile.gettempdir(), name)
-        shutil.rmtree(root, ignore_errors=True)
+    def _build_clone(self, purpose):
+        # Sabit ad kullanılamaz: CI ve PC watcher aynı anda koşarsa ikinci süreç
+        # ilkinin klasörünü siler ve birbirinin kanıtını yok eder.
+        root = tempfile.mkdtemp(prefix='jarvis-brain-cleanup-%s-' % purpose)
         os.makedirs(os.path.join(root, 'alt'))
         with open(os.path.join(root, 'alt', 'dosya.txt'), 'w', encoding='utf-8') as handle:
             handle.write('x')
@@ -259,9 +260,9 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
 
     def test_clone_cleanup_deletes_the_clone_on_both_path_forms(self):
         cleanup = self._cleanup_script()
-        for name in ('jarvis-brain-cleanup-long', 'jarvis-brain-cleanup-short'):
-            root = self._build_clone(name)
-            if name.endswith('short'):
+        for form in ('long', 'short'):
+            root = self._build_clone(form)
+            if form == 'short':
                 got = self._powershell(
                     "(New-Object -ComObject Scripting.FileSystemObject).GetFolder('%s').ShortPath" % root)
                 root = got.stdout.strip()
@@ -276,12 +277,16 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
 
     def test_clone_cleanup_warns_and_keeps_the_path_visible_when_delete_fails(self):
         cleanup = self._cleanup_script()
-        root = self._build_clone('jarvis-brain-cleanup-locked')
+        root = self._build_clone('locked')
         locked = os.path.join(root, 'alt', 'dosya.txt')
+        # Tutamak bir değişkende kalmalı: Out-Null nesneyi bırakıyor, sonlandırıcı
+        # (finalizer) kilidi test ortasında açabilirdi. Dispose ancak finally'de,
+        # yani silme denemesi ve çıktı üretildikten sonra yapılır.
         run = self._powershell(
-            "[IO.File]::Open('%s','Open','ReadWrite','None') | Out-Null; . '%s'; $w=$null; "
+            "$fs=[IO.File]::Open('%s','Open','ReadWrite','None'); try { . '%s'; $w=$null; "
             "$ok=Remove-BrainCheckClone -Path '%s' -WarningVariable w -WarningAction SilentlyContinue; "
-            "'ok=' + $ok + ' warned=' + [bool]($w) + ' path=' + $w" % (locked, cleanup, root))
+            "'ok=' + $ok + ' warned=' + [bool]($w) + ' path=' + $w } "
+            "finally { $fs.Dispose() }" % (locked, cleanup, root))
         self.assertEqual(run.returncode, 0, msg=run.stdout + run.stderr)
         self.assertIn('ok=False warned=True', run.stdout)
         self.assertIn(root, run.stdout, 'Uyarı silinemeyen klasör yolını göstermeli.')
