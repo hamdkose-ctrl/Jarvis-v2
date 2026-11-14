@@ -1,3 +1,9 @@
+# BRAIN-10 sonuç görünürlüğü — 14 Kasım 2026
+
+Ekip merkezinin query projection'ı mevcut Core result_presentation servisini kullanır: kontrol edilen done adım, artifact ve receipt gösterilir; değişmiş/eksik/yanlış owner kanıtı unavailable/incomplete görünür. Projection özgün journal'ı değiştirmez. Butonların terminal kararı ve control fingerprint'i özgün record_state/kayıttan gelir; yalnız görünüm eksildi diye kapanmış task'a continue/stop önerilmez. İncomplete işler dikkat sayacına ve açık ayrıntıya dahil edilir. Kanıtı kontrol et butonu aynı Core/query sahibine gider; UI verifier, worker veya ikinci GoalState değildir.
+
+---
+
 # BRAIN-09 Hafıza tercihleri — 14 Kasım 2026
 
 Hafıza ekranında sunumun9 kapalı tercihi mevcut Profile sahibine `pref_set` ile yazılır. Etkin değerin açık/öğrenilmiş/default kaynağı gösterilir; açık seçim kaldırılır veya learned öneri ayrı silinir. Bridge Core persona servisini çağırır; UI anlam/izin kararı üretmez. Render response owner ile snapshot owner'ı eşleştirir; select/button event'i de güncel owner'ı tekrar kontrol eder. Geç eski kullanıcı cevabı/yazımı yeni kullanıcıya uygulanmaz. Alan notu: `docs/agents/persona.md`.

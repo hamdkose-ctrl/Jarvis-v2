@@ -582,7 +582,9 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     preview['goals'][0].update(state='done', evidence=list(node_ids))
     preview['state'] = 'done'
     try:
-        message = goal_executor.render(preview)
+        from modules import result_presentation
+        presentation=result_presentation.style_snapshot(owner,background=True)
+        message = goal_executor.render(preview,presentation=presentation)
     except Exception:
         _record_failure('modules/canonical_goal_flow.py:completion_render')
         return False
@@ -607,6 +609,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         # This pre-commit record is not a second GoalState or an outbox.
         prepared = copy.deepcopy(current)
         prepared['_canonical_result_text'] = message
+        prepared['_canonical_result_style'] = presentation
         prepared['_canonical_result_event_id'] = 'canonical:' + job_id
         prepared['updated'] = time.time()
         release_guard.atomic(record_path, execution_record.encode(prepared))
@@ -719,6 +722,10 @@ def read_completed_result(owner: str, job_id: str) -> str:
                 state, owner, job_id, node, outputs[node['id']],
                 allow_completed_read=True,
             )
+        from modules import result_presentation
+        presentation=(result_presentation.validate_style(journal['_canonical_result_style'])
+                      if '_canonical_result_style' in journal else
+                      {'version':result_presentation.VERSION,'verbosity':'orta'})
         result = journal.get('_canonical_result_text')
         if torn_after_core_cas:
             # Never trust a cached but uncommitted string on its own. Prove
@@ -732,11 +739,13 @@ def read_completed_result(owner: str, job_id: str) -> str:
             )
             preview['state'] = 'done'
             if (not isinstance(result, str) or not result.strip()
-                    or goal_executor.render(preview) != result):
+                    or goal_executor.render(preview,presentation=presentation) != result):
                 raise ValueError('Frozen completion result could not be verified.')
         elif not isinstance(result, str) or not result.strip():
             # Older completed journal without the new frozen result snapshot.
-            result = goal_executor.render(journal)
+            result = goal_executor.render(journal,presentation=presentation)
+        elif goal_executor.render(journal,presentation=presentation) != result:
+            raise ValueError('Frozen completion text differs from verified output presentation.')
         if not isinstance(result, str) or not result.strip():
             raise ValueError('Completed result is unreadable.')
     note = ('\n\nSonuç Core tarafından tamamlandı; ikinci kayıt kesintiye uğramış '

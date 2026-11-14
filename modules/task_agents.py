@@ -104,6 +104,8 @@ def _save(root, job):
     """
     from modules import goal_state_store, service_store
     with _LOCK:
+        if job.get('owner') not in (None,root.name):raise PermissionError('Görev sahibi kayıt yolu ile eşleşmiyor.')
+        job['owner']=root.name
         path=_job_path(root,job['id']); tmp=path.with_suffix('.tmp')
         if tmp.is_symlink(): raise ValueError('Geçici görev kaydı sembolik bağ olamaz.')
         with goal_state_store._exclusive(path.with_suffix('.taskjournal')):
@@ -138,6 +140,7 @@ def _load(owner, job_id):
     job=json.loads(raw.decode('utf-8'))
     if not isinstance(job,dict) or job.get('id')!=job_id or not isinstance(job.get('tasks'),list) or not isinstance(job.get('outputs'),dict):
         raise ValueError('Görev kaydı bozuk; otomatik işleme alınmadı.')
+    if job.get('owner') not in (None,owner):raise PermissionError('Görev başka kullanıcıya ait.')
     for task in job['tasks']:
         if not isinstance(task,dict):raise ValueError('Görev adımı bozuk.')
         if task.get('state')=='done' and job['outputs'].get(task.get('id'),{}).get('state')!='done':
@@ -145,6 +148,7 @@ def _load(owner, job_id):
     if _JOURNAL_FENCE in job:
         raise ValueError('Görev günlüğünde geçersiz geçici sürüm işareti var.')
     job[_JOURNAL_FENCE]=hashlib.sha256(raw).hexdigest()
+    job['owner']=owner
     return job
 
 
@@ -265,7 +269,7 @@ def _execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=N
     if (previous and previous['state'] in ('approval','interrupted','running')) or (browser_agent._root(owner)/'pending.json').exists(): raise ValueError('Önce açık görevi sürdür, onayla veya iptal et.')
     job_id=job_id or uuid.uuid4().hex[:12]
     if _job_path(root,job_id).exists():raise ValueError('Görev kimliği zaten kaydedilmiş; yeni iş olarak tekrar başlatılmaz.')
-    job={'id':job_id,'created':time.time(),'instruction':instruction,'state':'running',
+    job={'owner':owner,'id':job_id,'created':time.time(),'instruction':instruction,'state':'running',
          'tasks':[dict(copy.deepcopy(t),state='queued',attempts=0) for t in tasks],'outputs':{},'events':[],'schema':2}
     from modules import team_center
     for task in job['tasks']:
@@ -544,12 +548,11 @@ def render(job):
 
 def render_summary(job):
     """Human-facing outcome; journals and hashes remain available in task details."""
-    outputs=job.get('outputs',{})
-    for output in outputs.values():
-        snap=output.get('snapshot',{})
-        if snap.get('operation')=='list_unread' and snap.get('items')==[]:
-            return 'Okunmamış gelen kutunda mail yok.'
-    consumed={dep for t in job['tasks'] if t['agent']!='verify' for dep in t.get('depends',[])}
+    from modules import result_presentation
+    checked=result_presentation.inspect_job(job,'task')
+    job=checked['job'];outputs=job.get('outputs',{})
+    style=result_presentation.style_snapshot(job.get('owner') or 'kullanici')
+    consumed={dep for t in job['tasks'] if t['agent']!='verify' and t['id'] in checked['verified'] for dep in t.get('depends',[])}
     selected=[t for t in job['tasks'] if t['id'] not in consumed and t['agent']!='verify']
     lines=[]
     if job['state']!='done':
@@ -562,10 +565,10 @@ def render_summary(job):
             continue
         if snap.get('operation')=='read_message':
             item=snap['message']
-            lines.append('Maili okudum.\nKonu: '+item['subject']+'\nGönderen: '+item['from']+'\n\n'+item['body'][:2000])
+            lines.append('Maili okudum.\nKonu: '+item['subject']+'\nGönderen: '+item['from']+'\n\n'+result_presentation.preview(item['body'],style,normal=2000))
             if item['truncated'] or len(item['body'])>2000:lines.append('Metnin devamı görev ayrıntılarında.')
         elif snap.get('operation')=='list_unread':
-            lines.append('Okunmamış mailler:\n'+'\n'.join(str(i+1)+'. '+item['subject']+' — '+item['from'] for i,item in enumerate(snap['items'])))
+            lines.append(('Okunmamış gelen kutunda mail yok.' if not snap['items'] else 'Okunmamış mailler:\n')+'\n'.join(str(i+1)+'. '+item['subject']+' — '+item['from'] for i,item in enumerate(snap['items'])))
         elif task['agent']=='writer' and mail_draft:
             lines.append('Cevap taslağını dosyaya kaydettim. Mail gönderilmedi.')
         elif task['agent']=='media':
@@ -582,7 +585,7 @@ def render_summary(job):
             if item['truncated']:lines.append('Metin sınırda kesildi; tamamı okunmadı.')
         elif output.get('text')=='Seçilen sırada ek yok.':lines.append('Bu mailde seçtiğin sırada ek yok; okuyabileceğim bir ek bulunamadı.')
         elif output.get('text'):
-            lines.append(output['text'][:2000])
+            lines.append(result_presentation.preview(output['text'],style,normal=2000))
             if len(output['text'])>2000:lines.append('Metnin devamı dosyada veya görev ayrıntılarında.')
         if output.get('file'):lines.append('Dosya: '+output['file'])
         if task['agent']=='coder' and output.get('files'):

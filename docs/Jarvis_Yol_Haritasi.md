@@ -1,3 +1,11 @@
+# BRAIN-10 güncel kod adayı — 14 Kasım 2026
+
+#628 BRAIN-09, kaynak3354526 exact WindowsCI43572580953 ve gerçekPC6874150892 PASS sonrası main `f77ecb020f44476447f39241822398f635155f38` olarak birleşti. Yeni yetkilendirilmiş iş BRAIN-10 tek PR'dır.
+
+**Kod kapsamı:** sözleşme/expected-kind ve owner doğrulaması yazıldı; eski raw summary/done-count/cached-text güveni mevcut Domain/Core proof'a geçirildi; goal/task cevap, status, partial, Ekip merkezi ve kanıt query kullanıcı akışına bağlandı; boş-mail erken return, geçersiz artifact başarısı ve normal journal dökümü kaldırıldı. Canonical final text mevcut accepted output'larından frozen style ile yeniden üretilir. Plan: `docs/architecture/BRAIN_10_SINGLE_PR_PLAN_2026-11-14.md`. Yeni source exact full validation/Windows CI/PC sonucu PR'da ayrıca kaydedilir; fiziksel duyulma/AEC/gerçek p95-p99 veya Brain-11 insan kabulü otomatik kapanmaz. Önceki aday/bekliyor ifadeleri tarihsel kaynakları anlatır.
+
+---
+
 # BRAIN-09 güncel kod adayı — 14 Kasım 2026
 
 Hamdi'nin tek PR talimatıyla, main `1cc32a858b42fc90001f01d1638c5e55691572b1` üzerinde persona ve kullanıcı adaptasyonu mevcut Profile/SessionState/Core akışına bağlandı. #626 Brain/Core, #627 BRAIN-08 ve #625 VOICE birleşmiştir; aşağıdaki eski aday/bekliyor ifadeleri kendi tarihsel kaynaklarına aittir.

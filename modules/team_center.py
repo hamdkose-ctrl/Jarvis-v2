@@ -122,6 +122,11 @@ def _public(text, limit=1000):
 
 
 def _job(owner, job, kind):
+    from modules import result_presentation,goal_executor
+    if job.get('owner')!=owner:raise ValueError('Görev sahibi eşleşmiyor.')
+    original=job
+    checked=result_presentation.inspect_job(job,kind)
+    job=checked['job']
     steps = job.get('steps' if kind=='goal' else 'tasks',[])
     outputs = job.get('outputs',{})
     result = []
@@ -142,19 +147,22 @@ def _job(owner, job, kind):
                        'state':step.get('state','unknown'),'depends':step.get('depends',[]),
                        'text':_public(('Denenen kaynak: '+step.get('input',{}).get('url','')) if tool=='research' and step.get('state')=='running' else output.get('text',output.get('message','')),1200),
                        'artifacts':list(dict.fromkeys(artifacts)),
-                       'has_receipt':bool(output.get('verification')),
+                       'has_receipt':step['id'] in checked['verified'],
                        'attempts':step.get('attempts',1)})
     from modules import goal_executor
     pending=outputs.get(job.get('waiting'),{}) if kind=='goal' else {}
     if kind=='task':
         pending=next((outputs.get(s['id'],{}) for s in steps if s.get('state')=='approval'),{})
     return {'id':job['id'],'kind':kind,'state':job.get('state','unknown'),
-            'control':goal_executor.control_key(job),
+            'record_state':original.get('state','unknown'),
+            'verification_status':'unverified' if checked['unverified'] else 'checked',
+            'control':goal_executor.control_key(original),
             'approval':_public(pending.get('text',pending.get('message','')),4000) if job.get('state')=='approval' else '',
             'approval_id':pending.get('id','') if job.get('state')=='approval' else '',
             'request':_public(job.get('request',job.get('instruction','')),1500),
             'created':job.get('created',0),'steps':result,
-            'question':_public(('Model planı bekleniyor · '+str(max(0,int(time.time()-job.get('phase_started',time.time()))))+' saniye · çağrı sınırı '+str(goal_executor.PLANNER_SECONDS)+' saniye') if job.get('phase')=='planning' and job.get('state')=='running' else job.get('question',job.get('blocker',''))),
+            'question':_public(('Sonuç kanıtı doğrulanamadı; kayıtlı iş tekrar çalıştırılmadı. ' if checked['unverified'] else '')+
+                (('Model planı bekleniyor · '+str(max(0,int(time.time()-job.get('phase_started',time.time()))))+' saniye · çağrı sınırı '+str(goal_executor.PLANNER_SECONDS)+' saniye') if job.get('phase')=='planning' and job.get('state')=='running' else job.get('question',job.get('blocker','')))),
             'goals':[{'text':_public(g.get('text')),'state':g.get('state')} for g in job.get('goals',[])]}
 
 

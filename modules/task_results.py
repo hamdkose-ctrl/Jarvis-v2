@@ -32,6 +32,18 @@ def check(kind, output):
         chars = output.get('source_chars')
         if type(chars) is not int or chars < 80:
             raise ValueError('Araştırmanın kaynak okuma kanıtı eksik.')
+        if 'source_claims' in output:
+            from modules import research_evidence
+            claims=output['source_claims']
+            if not isinstance(claims,list) or len(claims)>10:raise ValueError('Araştırma claim kaydı geçersiz.')
+            for claim in claims:
+                if (not isinstance(claim,dict) or any(not isinstance(claim.get(key),str) for key in
+                        ('subject','scope','as_of','value','url','evidence'))):
+                    raise ValueError('Araştırma claim alanları geçersiz.')
+                _url(claim['url'])
+                import json
+                if research_evidence.parse_value_quote(json.dumps({'value':claim['value'],'quote':claim['evidence']}),claim['evidence']) is None:
+                    raise ValueError('Araştırma claim değeri kaynak alıntısıyla uyuşmuyor.')
         if output.get('news_article'):
             from modules import research_evidence
             research_evidence.news_receipt(output)
@@ -165,10 +177,12 @@ def seal(kind, output):
     return output
 
 
-def verify(output, owner=None):
+def verify(output, owner=None, *, expected_kind=None):
     metadata = output.get('verification', {}) if isinstance(output, dict) else {}
     if not isinstance(metadata, dict) or metadata.get('version') != VERSION:
         raise ValueError('Sonucun doğrulama kaydı eksik; eski kayıt başarı kanıtı olarak kullanılamaz.')
+    if metadata.get('scope')!='execution_evidence' or (expected_kind is not None and metadata.get('agent')!=expected_kind):
+        raise ValueError('Sonucun beklenen worker türü veya kanıt kapsamı eşleşmiyor.')
     checked = check(metadata.get('agent'), output)
     if metadata.get('outcome') is not None:
         outcome_contracts.validate_metadata(metadata.get('agent'), output, legacy_ok=False)

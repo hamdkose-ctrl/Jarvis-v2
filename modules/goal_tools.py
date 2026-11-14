@@ -135,18 +135,45 @@ def local_result(owner,kind,text,**extra):
     return outcome_contracts.attach(kind,output,local=True)
 
 
-def verify(output,owner):
-    if output.get('verification'):return task_results.verify(output,owner=owner)
+def verify(output,owner,*,kind=None,data=None):
+    if not isinstance(output,dict):raise ValueError('Araç sonucu geçersiz.')
+    if output.get('verification'):return task_results.verify(output,owner=owner,expected_kind=kind)
     if output.get('state')!='done' or output.get('owner')!=owner or output.get('local_evidence') not in LOCAL:
         raise ValueError('Yerel araç kanıtı veya sahibi geçersiz.')
     if not isinstance(output.get('text'),str) or not output['text'].strip():raise ValueError('Araç sonucu boş.')
     outcome_contracts.validate_common(output['local_evidence'],output,local=True)
+    if kind is not None and output['local_evidence']!=kind:raise ValueError('Beklenen yerel araç türü farklı.')
+    if output['local_evidence']=='desktop':
+        proof=output.get('desktop_evidence');receipt=output.get('receipt')
+        if (not isinstance(proof,dict) or proof.get('owner')!=owner or proof.get('id')!=output.get('desktop_id')
+                or proof.get('status')!='done' or not isinstance(proof.get('target'),str) or not proof['target']
+                or not isinstance(proof.get('goal'),str) or not proof['goal']
+                or not isinstance(proof.get('history'),list) or not 1<=len(proof['history'])<=50
+                or any(not isinstance(row,dict) or row.get('verified') is not True for row in proof['history'])
+                or not isinstance(receipt,dict) or receipt.get('service')!='desktop_uia'
+                or receipt.get('remote_id')!=proof['id']
+                or _desktop_digest(proof)!=output.get('desktop_evidence_sha256')):
+            raise ValueError('PC işleminin doğrulanmış native adım kanıtı eksik veya değişmiş.')
+        if data is not None and any(str(data.get(key,'')).strip()[:limit]!=proof[key]
+                                   for key,limit in (('target',200),('goal',2000))):
+            raise ValueError('PC işlem hedefi sonuç kanıtıyla uyuşmuyor.')
     if output.get('file') and task_results.file_digest(output['file'])!=output.get('sha256'):
         raise ValueError('Üretilen dosya değişmiş veya eksik.')
     if output.get('source_file') and task_results.file_digest(output['source_file'])!=output.get('source_sha256'):
         raise ValueError('Okunan dosya testten sonra değişmiş.')
     if output.get('source_receipt'):task_results.verify(output['source_receipt'],owner=owner)
     return True
+
+
+def _desktop_digest(proof):
+    return hashlib.sha256(json.dumps(proof,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()).hexdigest()
+
+
+def _desktop_result(owner,native,text,**extra):
+    proof={key:copy.deepcopy(native.get(key)) for key in ('owner','id','target','goal','status','history')}
+    return local_result(owner,'desktop',text,desktop_id=native['id'],
+                        receipt={'service':'desktop_uia','remote_id':native['id']},
+                        desktop_evidence=proof,desktop_evidence_sha256=_desktop_digest(proof),**extra)
 
 
 def _pc_owner(runtime,owner):
@@ -188,8 +215,7 @@ def reconcile(runtime,kind,data,identity,check):
         if (not isinstance(history,list) or not history or
                 not all(isinstance(row,dict) and row.get('verified') is True for row in history)):
             return None
-        return local_result(owner,kind,desktop_agent.render(native),desktop_id=native['id'],
-                            receipt={'service':'desktop_uia','remote_id':native['id']},reconciled=True)
+        return _desktop_result(owner,native,desktop_agent.render(native),reconciled=True)
     if kind=='system':
         # Only operations with an exact local readback are recoverable.  Never
         # replay the effect: if the requested state is not currently visible,
@@ -353,8 +379,7 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
                     'retry_safe':bool(native and not native.get('pending_effect') and all(h.get('verified') is True for h in native.get('history',[])))}
         if not native.get('history') or not all(h.get('verified') is True for h in native['history']):
             raise ValueError('Masaüstü adımlarının sonuç kanıtı eksik.')
-        return local_result(owner,kind,str(result),desktop_id=native['id'],
-                            receipt={'service':'desktop_uia','remote_id':native['id']})
+        return _desktop_result(owner,native,str(result))
     if kind=='document':
         from modules import docs,nxapi,conversion
         path=nxapi.allowed(data['path'])

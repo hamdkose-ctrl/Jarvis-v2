@@ -1,3 +1,11 @@
+# BRAIN-10 güncel kabul — 14 Kasım 2026
+
+- BRAIN-09 #628 kabul edildi ve mainf77ecb0 olarak birleşti. Tek aktif kullanıcı işi BRAIN-10 doğrulanmış sonuç/cevap/görünürlük PR'ıdır; plan `docs/architecture/BRAIN_10_SINGLE_PR_PLAN_2026-11-14.md`.
+- B10 kodu mevcut domain/Core kanıtına dayanan yanıt, partial/progress/bekleme, native receipt ve cached result readback kapsamını bağlar. Final source mandatory full validation + Windows CI ve aynı SHA gerçekPC kabulü PR metadata'sında izlenir; eski kaynak PASS'i taşınmaz.
+- Yerel/provider receipt, gerçek kullanıcının mesajı okuduğu/duyduğu kanıtı değildir. Fiziksel ses/AEC/gecikme ve Brain-11 operatör/live semantik son kabulü ayrıca açıktır; Router ürün işleri bu PR'a dahil edilmez.
+
+---
+
 # BRAIN-09 güncel kabul — 14 Kasım 2026
 
 - Tek PR kod kapsamı: sürümlü persona, kapalı sunum tercihleri, explicit/learned/session/turn ayrımı, Core owner/RID/provenance, öğrenme güveni/tazeliği ve UI liste/değiştir/sil bağlantısı. Plan: `docs/architecture/BRAIN_09_SINGLE_PR_PLAN_2026-11-14.md`.
