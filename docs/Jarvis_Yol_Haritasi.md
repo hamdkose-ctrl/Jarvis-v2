@@ -972,3 +972,12 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Açık kalan gerçek mimari eksik:** Bu yama serbest doğal dilin başka bir modelle eşzamanlı anlaşılıp yürütülmesini sağlamaz. Eski legacy foreground'da bir tur hâlâ bekleyebilir ve sonlu kuyruk son tarihinde expire olabilir. Bu sınır, otomatik yetki/efekt ve çoklu oturum güvenliği kanıtı olmadan paralel işleme bahanesiyle atlanmaz.
 
+
+### Sesli takip isteğinde mikrofonun meşgul foreground tarafından kilitlenmesi — 14 Kasım 2026 (kabul bekliyor)
+
+**Kod bulgusu:** `VoiceSession.submit_voice` her kabul edilen komuttan önce `pause_listening` set eder. `engine_queue.submit` yeni, normal doğal dil sesli komutunu başka foreground turu `as_user/_execution_lock` tutarken kuyruğa koyarsa o komuta ait bir engine tüketicisi henüz yoktur. Birinci turun model beklemesi sırasında açık olan mikrofon, ikinci komutun kaydıyla tekrar kapanıyordu ve eski turun bitişine kadar dinleyici erişilemez olabiliyordu. #634'te gelen kuyruğa alındı bildirimi tek başına ses duraklamasını kaldırmıyordu.
+
+**Dar üretim düzeltmesi:** Aynı gerçek owner'a ait sesli komut, engine kilidinin başka thread'de tutulduğu kanıtlanarak sıraya kabul edilmiş ve owner-bound `system` bekleme bildirimi verilmişse, `engine_queue` yalnız ikinci komutun açtığı `pause_listening` bayrağını hemen serbest bırakır. İstek kayıt/RID'si ve kuyruktaki asıl komut değişmez. Boş engine, yabancı owner, telefon/metin, sahte/başarısız bildirim aynı serbest bırakma yolunu almaz. `VoiceSession.speech_blocks_mic`, cihaz sesi için var olan output/capture claim ve engine'in kendi turunda dinlemeyi kapatma davranışı aynen kalır. İkinci bir Brain/VoiceCoordinator/Scheduler oluşturulmaz.
+
+**Regresyon:** `tests/test_voice_queue_wait_contract.py` gerçek `RLock` iki thread ile meşgul durumda sesli takip isteğini, RID korunmasını, dinleme bayrağının ilk görev bitmeden açılmasını, boş motorda yanlış mik açılmamasını ve farklı sahibin bu hakkı alamamasını doğrular. Gerçek mikrofon, TTS yankı kesmesi ve fiziksel konuşma geçişi yalnız taklit testleriyle kabul edilmiş sayılmaz. Son SHA Windows CI ve aynı SHA gerçek PC watcher General+Validation PASS koşulları korunur.
+
