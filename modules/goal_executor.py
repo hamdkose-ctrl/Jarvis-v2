@@ -292,7 +292,9 @@ def fast_status(owner,*,details=False):
     for ident in _job_stamps(root):
         job=read_job(owner,ident)
         if job is not None:
-            return render(job) if details else status_summary(job)
+            return (render(job) if details else
+                    'Son hedef (kayıtlı durum; sonuç kanıtı bu hızlı '
+                    'sorguda doğrulanmaz):\n' + _fast_progress_card(job))
     return 'Kayıtlı hedef yok.'
 
 
