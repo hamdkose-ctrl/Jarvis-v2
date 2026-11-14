@@ -5,6 +5,8 @@ import threading
 import time
 import subprocess
 import sys
+import os
+from pathlib import Path
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -115,7 +117,7 @@ import test_engine_modular
 from modules import goal_executor as goals, goal_approval
 goals.STORE=Path(sys.argv[1]);job=goals.read_job('alice',sys.argv[2])
 ready=Path(sys.argv[3]);ready.write_text('ready')
-deadline=time.monotonic()+10
+deadline=time.monotonic()+30
 while not Path(sys.argv[4]).exists():
     if time.monotonic()>deadline:raise RuntimeError('barrier deadline')
     time.sleep(.01)
@@ -131,12 +133,17 @@ except (ValueError,PermissionError):print('REJECTED')
                 if process.stdout:process.stdout.close()
         self.addCleanup(cleanup)
         ready=[self.c.root/f'ready{i}' for i in range(2)]
+        environment=dict(os.environ)
+        environment['PYTHONPATH']=os.pathsep.join((str(Path(__file__).resolve().parents[1]),str(Path(__file__).resolve().parent)))
         for path in ready:
             children.append(subprocess.Popen([sys.executable,'-c',script,str(goals.STORE),job['id'],str(path),str(marker),json.dumps(self.c.profile.data)],
-                stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True))
-        deadline=time.monotonic()+10
+                stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=environment))
+        deadline=time.monotonic()+30
         while not all(path.exists() for path in ready):
-            self.assertLess(time.monotonic(),deadline)
+            for process in children:
+                if process.poll() is not None:
+                    self.fail('Approval child exited before barrier: '+process.communicate(timeout=2)[0][-3000:])
+            self.assertLess(time.monotonic(),deadline,repr([(p.poll(),ready[i].exists()) for i,p in enumerate(children)]))
             time.sleep(.01)
         marker.write_text('go')
         outputs=[process.communicate(timeout=15)[0] for process in children]

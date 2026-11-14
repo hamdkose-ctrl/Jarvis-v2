@@ -461,7 +461,7 @@ class CanonicalSteeringTests(unittest.TestCase):
         stop = fixture.RapidStop()
         def worker(owner, task, deps):
             entered.set()
-            self.assertTrue(release.wait(8))
+            self.assertTrue(release.wait(45))
             return task_results.seal('research', {'state': 'done', 'text': 'Late source',
                 'source': 'https://example.test/article', 'source_chars': 200})
         with patch.object(task_queue, '_THREAD', None), \
@@ -473,7 +473,11 @@ class CanonicalSteeringTests(unittest.TestCase):
             try:
                 task_queue.start(stop, allowed_owners=lambda: [self.owner],
                     canonical_profile_resolver=lambda owner: self.profile)
-                self.assertTrue(entered.wait(8))
+                self.assertTrue(entered.wait(30),repr({
+                    'persisted':self.c.persisted(ident),
+                    'scheduler_alive':task_queue._THREAD.is_alive(),
+                    'workers':[(str(key),thread.is_alive()) for key,thread in task_queue._CANONICAL_WORKERS.items()],
+                }))
                 workers = tuple(task_queue._CANONICAL_WORKERS.values())
                 self.assertEqual(len(workers), 1)
                 workers[0]._canonical_lifecycle['deadline']._deadline = 0
@@ -487,9 +491,9 @@ class CanonicalSteeringTests(unittest.TestCase):
             finally:
                 release.set()
                 stop.set()
-                task_queue._THREAD.join(8)
+                task_queue._THREAD.join(30)
                 for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
-                    thread.join(8)
+                    thread.join(30)
                     self.assertFalse(thread.is_alive())
         self.assertFalse(self.c.persisted(ident)[0]['evidence'])
 

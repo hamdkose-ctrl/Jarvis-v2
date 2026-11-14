@@ -26,6 +26,8 @@ class OutboxPermissionGateTests(unittest.TestCase):
         self.audit=self.enterContext(patch.object(permission_audit,'record'))
         self.target='ahmet@example.org'
         self.serial=0
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',root/'providers'))
 
     def prepare(self,**changes):
         self.serial+=1

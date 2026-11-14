@@ -17,6 +17,8 @@ class WorkTests(unittest.TestCase):
             p=patch.object(mod,name,Path(self.tmp.name)/sub);p.start();self.addCleanup(p.stop)
         self.payload={'service':'gmail','destination':'friend@example.com','subject':'Hello','text':'Body'}
         self.receipt={'service':'gmail','destination':'friend@example.com','remote_id':'actual-id','scope':'provider_accepted'}
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',Path(self.tmp.name)/'providers'))
 
     def test_no_grant_waits_with_exact_preview_and_grant_is_destination_scoped(self):
         oid=outbox.prepare('alice',self.payload,'work')

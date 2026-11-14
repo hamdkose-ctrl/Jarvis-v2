@@ -31,6 +31,8 @@ class DailyCapTests(unittest.TestCase):
         transport = patch.object(services, 'send', self.send)
         transport.start(); self.addCleanup(transport.stop)
         self.serial = 0
+        from modules import scheduler_resource_gate
+        self.enterContext(patch.object(scheduler_resource_gate,'_ACCOUNT_CLAIM_ROOT',Path(temporary.name)/'providers'))
 
     def payload(self, service='gmail', text=None, destination=None, **extra):
         self.serial += 1
