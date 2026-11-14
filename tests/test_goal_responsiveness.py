@@ -29,7 +29,11 @@ class ResponsivenessTests(unittest.TestCase):
         finally:release.set();thread.join(1)
 
     def test_exact_goal_result_during_blocked_foreground_is_read_only(self):
-        from modules import canonical_goal_flow, brain_entry
+        from modules import canonical_goal_flow, brain_entry, service_store, llm
+        before_context=llm._key_context.get()
+        def read_owned(owner, text):
+            service_store.identity(owner)   # require the real request owner context
+            return 'Kanıtlı hedef sonucu'
         alice=SimpleNamespace(name='Alice',slug='alice')
         bob=SimpleNamespace(name='Bob',slug='bob')
         runtime=SimpleNamespace(
@@ -54,7 +58,7 @@ class ResponsivenessTests(unittest.TestCase):
                  patch.object(requests_state,'_journal',Path(tmp)/'requests.json'), \
                  patch.object(requests_state,'_records',{}), \
                  patch.object(canonical_goal_flow,'read_result_command',
-                              return_value='Kanıtlı hedef sonucu') as result, \
+                              side_effect=read_owned) as result, \
                  patch.object(goal_executor,'cancel_job') as cancel, \
                  patch.object(brain_entry,'fast_lane',
                               side_effect=AssertionError('Must not route through Brain')):
@@ -72,12 +76,18 @@ class ResponsivenessTests(unittest.TestCase):
                     runtime, f'hedef sonucu {goal_id}', source='telefon',
                     user='Bob',rid='read-1'))
                 result.assert_called_once()
+                self.assertEqual(llm._key_context.get(), before_context,
+                                 'phone owner leaked into next caller context')
         finally:
             free.set()
             thread.join(1)
 
     def test_exact_goal_cancel_during_foreground_never_cancels_siblings(self):
-        from modules import brain_entry
+        from modules import brain_entry, service_store, llm
+        before_context=llm._key_context.get()
+        def cancel_owned(owner, job_id):
+            service_store.identity(owner)  # matches the production cancel guard
+            return 'İptal kaydedildi'
         alice=SimpleNamespace(name='Alice',slug='alice')
         runtime=SimpleNamespace(
             _tr_lower=str.lower,slugify=str.lower,pc_profile=lambda:alice,
@@ -100,7 +110,7 @@ class ResponsivenessTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp, \
                  patch.object(requests_state,'_journal',Path(tmp)/'requests.json'), \
                  patch.object(requests_state,'_records',{}), \
-                 patch.object(goal_executor,'cancel_job',return_value='İptal kaydedildi') as cancel, \
+                 patch.object(goal_executor,'cancel_job',side_effect=cancel_owned) as cancel, \
                  patch.object(requests_state,'cancel',
                               side_effect=AssertionError('Global cancel forbidden')), \
                  patch.object(brain_entry,'fast_lane',
@@ -115,6 +125,8 @@ class ResponsivenessTests(unittest.TestCase):
                 self.assertFalse(engine_queue.submit(
                     runtime,f'hedef iptal {goal_id}',user='Alice',rid='cancel-id'))
                 cancel.assert_called_once()
+                self.assertEqual(llm._key_context.get(), before_context,
+                                 'exact cancel leaked its LLM owner context')
         finally:
             free.set()
             thread.join(1)
