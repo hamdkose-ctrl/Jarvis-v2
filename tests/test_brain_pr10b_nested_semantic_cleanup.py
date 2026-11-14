@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULES = ROOT / "modules"
 # Production kaynakları: motor modülleri ve kök uygulama dosyaları (web_chat gibi gerçek çağıranlar burada durur).
 PRODUCTION_SOURCES = (*sorted(MODULES.glob("*.py")), *sorted(ROOT.glob("*.py")))
-# Geliştirme kabul aracı; gerçek bir kullanıcı turn'ü değildir ve semantic authority taşımaz.
-NON_PRODUCTION_HANDLERS = {"acceptance_checks.py"}
+# Kabul aracı da prepare/handoff kullanır; doğrudan runtime.handle istisnası kalmadı.
+NON_PRODUCTION_HANDLERS = set()
 # PR10b ile emekli edilen ikinci semantic authority adları.
 RETIRED = ("chat_translation",)
 

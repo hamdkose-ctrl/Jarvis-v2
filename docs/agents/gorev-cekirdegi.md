@@ -326,3 +326,6 @@ Koşulsuz Ollama dışlaması kaldırılır; normal Brain adayının exact owner
 
 
 Tamamlanmış/iptal edilmiş son hedefte çıplak `devam`/`sürdür`, `goal.closed_resume` salt-okunur State protokolüdür. Terminal hedef açık model adayına dönüşmez. Başka açık hedef kartı, pending konuşma, etkin Job/desktop veya başka eşleşen State varsa bu protokol turu devralmaz. Gözlenen owner/kimlik Core'a taşınır; `closed_resume_status` güncel son hedefin aynı owner/kimlikte ve terminal olduğunu yeniden denetler, yalnız durum yanıtı verir. Kimlik/durum değişirse `run`, `_save` veya worker açılmaz. Haber kabulü gerçek canonical prepare/handoff kullanır; model anlamı sabit fixture'dır, Brain canlı semantik veya Scheduler kabulü değildir.
+
+
+Canonical kabul girişinin mimari envanteri de aynı değişiklikte göçer: doğrudan `runtime.handle` için eski acceptance istisnası tamamen kaldırılır; `prepare`/`handoff` kapıları yalnız `acceptance_checks.py` için açık `--news`/sabit semantic fixture/senkron source gerekçesiyle kaydedilir. Statik tarama kapsamı ve eşitlik kontrolleri korunur; yeni başka bir kapı yine başarısız olur.

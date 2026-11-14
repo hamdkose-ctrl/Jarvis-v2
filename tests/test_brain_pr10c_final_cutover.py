@@ -97,6 +97,9 @@ ROUTE_DICT_ALLOWLIST = {
                       "izdüşüren tek yer (_legacy_route_projection/route_command).",
 }
 BRAIN_TURN_ALLOWLIST = {
+    "acceptance_checks.py": ({"prepare", "handoff"},
+                             "Açık --news kabulünde sabit semantic adapter fixture'ı ile gerçek Core/haber iş akışı; "
+                             "source=acceptance senkron girişidir, üretim classifier veya canlı Brain/Scheduler kabulü değildir."),
     # Yüzey girdisi -> {çağrılan kapılar, neden}. Text/Web/kuyruk-audio/telefon/fotoğraf tek turda hazırlanır.
     "engine_loop.py": ({"prepare", "handoff", "bind"},
                        "Tek yüzey girdisi: motor olay döngüsü Brain turünü burada hazırlar ve Core'a devreder."),
