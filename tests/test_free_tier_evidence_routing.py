@@ -54,6 +54,26 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         row.update(overrides)
         return router.set_free_tier_evidence('alice', **row)
 
+    def test_in_app_free_plan_flow_records_fingerprinted_evidence(self):
+        # Beyan arayüz akışından alındığında kayıt parmak izli olur ve kapı geçer;
+        # satır betiği zorunlu değildir. Parmak izsiz eski kayıt ise ACCOUNT_CHANGED verir.
+        current = llm.GROQ_MODELS[0]
+        with patch.object(llm, 'groq_model', return_value=current):
+            router.confirm_free_account('alice', 'groq', free_plan_confirmed=True, no_paid_billing=True)
+            raw = json.loads(router.owner_path('alice').read_text(encoding='utf-8'))
+            fingerprint = router._connection_fingerprint('alice', 'groq')
+            for model in llm.GROQ_MODELS:
+                row = raw['free_tier_evidence']['groq'][model]
+                self.assertEqual(row['connection_fingerprint'], fingerprint)
+                self.assertTrue(router._evidence_gate('alice', 'groq', model)['ok'])
+            self.assertIn('groq', router.candidates('alice', 'chat'))
+            self.assertIn('groq', router.candidates('alice', 'chat', route='PUBLIC_RESEARCH'))
+            row = raw['free_tier_evidence']['groq'][current]
+            row['connection_fingerprint'] = None
+            router._save_state('alice', raw)
+            self.assertEqual(router._evidence_gate('alice', 'groq', current)['reason_code'],
+                             'PROVIDER_FREE_TIER_ACCOUNT_CHANGED')
+
     def skip(self, provider, task='chat', route=None):
         return next(row for row in router.selection('alice', task, route)['skipped'] if row['provider'] == provider)
 
