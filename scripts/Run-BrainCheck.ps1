@@ -5,6 +5,22 @@ param(
     [switch]$Full
 )
 $ErrorActionPreference = 'Stop'
+# BEGIN-CLONE-CLEANUP
+function Remove-BrainCheckClone {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    # .NET silmesi hem uzun hem 8.3 kısa yol biçiminde özyinelemeli çalışır; Remove-Item -LiteralPath kısa adı reddediyor.
+    # Başarısızlık yutulmaz, uyarı olarak görünür kalır.
+    try {
+        [IO.Directory]::Delete($Path, $true)
+        return $true
+    } catch {
+        Write-Warning "Geçici kaynak klonu silinemedi, elle temizlenebilir: $Path"
+        return $false
+    }
+}
+# END-CLONE-CLEANUP
 $Sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($Sid -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) {
     throw 'Run in the Windows account where Jarvis is configured.'
@@ -72,16 +88,7 @@ try {
         Copy-Item -LiteralPath $Report -Destination (Join-Path $ReportDir "brain-$Scope-latest.json") -Force
     }
 } finally {
-    if (Test-Path -LiteralPath $RunDir) {
-        # Bu PC'de $env:TEMP 8.3 kısa adı taşıyor ("HAMDI~1.KOS"); Remove-Item -LiteralPath özyinelemeli
-        # gezinmede o biçimi reddedip "object does not exist" veriyor, sessiz mod klonu geride bırakıyor.
-        # .NET silmesi her iki yol biçiminde çalışır; başarısızsa sızıntı uyarı olarak görünür kalır.
-        try {
-            [IO.Directory]::Delete($RunDir, $true)
-        } catch {
-            Write-Warning "Geçici kaynak klonu silinemedi, elle temizlenebilir: $RunDir"
-        }
-    }
+    Remove-BrainCheckClone -Path $RunDir | Out-Null
 }
 Write-Host "Report: $Report"
 Write-Host "Exit: $ExitCode (0=passed, 1=failed, 2=unmeasured). Quick is NOT semantic acceptance."

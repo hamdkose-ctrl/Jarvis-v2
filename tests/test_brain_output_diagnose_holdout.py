@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -221,34 +222,73 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertIn('state=passed',source)
         self.assertIn('Run-BrainCheck.ps1',source)
 
-    def test_launcher_cleanup_removes_the_clone_and_reports_a_leak(self):
-        source=(ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
-        self.assertIn('[IO.Directory]::Delete($RunDir, $true)',source)
-        self.assertNotIn('Remove-Item -LiteralPath $RunDir',source)
-        self.assertIn('Write-Warning',source)
+    def test_the_accepted_runner_never_widens_the_model_budget(self):
+        # Kabul ölçümü üretim bütçesiyle koşılır; bütçe genişletmek yalnız tanıdır ve
+        # kabul sonucu sayılmaz. Koşar bunu yaparsa aynı kanıt iki kez sayılmış olur.
+        source=(ROOT/'scripts/brain_output_diagnose_holdout.py').read_text(encoding='utf-8')
+        self.assertNotIn('_MODEL_BUDGET_SECONDS',source)
+        self.assertNotIn('transport_timeouts',source)
 
-    def test_short_temp_path_breaks_recursive_remove_item_but_not_the_dotnet_delete(self):
-        # Ölçülen kök neden: kısa ad içeren TEMP yolunda -LiteralPath özyinelemeli gezinmeyi reddediyor.
-        import shutil
-        import subprocess
-        if shutil.which('powershell') is None or '~' not in str(os.environ.get('TEMP', '')):
-            self.skipTest('Kısa TEMP adı bu koşumda yok; ölçülen kök neden burada üretilemez.')
-        target = os.path.join(os.environ['TEMP'], 'jarvis-brain-cleanup-test')
-        try:
-            def run(script):
-                return subprocess.run(['powershell', '-NoProfile', '-Command', script],
-                                      capture_output=True, text=True)
-            build = run(f'New-Item -ItemType Directory -Path (Join-Path "{target}" "alt") -Force '
-                        f'| Out-Null; "x" | Out-File -FilePath (Join-Path "{target}" "alt/dosya.txt")')
-            self.assertEqual(build.returncode, 0, msg=build.stderr)
-            short = run(f'(New-Object -ComObject Scripting.FileSystemObject).GetFolder("{target}").ShortPath').stdout.strip()
-            if '~' not in short:
-                self.skipTest('Kısa yol üretilmedi.')
-            failed = run(f'Remove-Item -LiteralPath "{short}" -Recurse -Force -ErrorAction Stop')
-            self.assertNotEqual(failed.returncode, 0, msg=failed.stdout + failed.stderr)
-            self.assertTrue(os.path.isdir(short), 'Başarısız silme klonu olduğu gibi bırakmalı.')
-            done = run(f'[IO.Directory]::Delete("{short}", $true)')
-            self.assertEqual(done.returncode, 0, msg=done.stderr)
-            self.assertFalse(os.path.exists(short))
-        finally:
-            shutil.rmtree(target, ignore_errors=True)
+    def _powershell(self, script):
+        import shutil, subprocess
+        if shutil.which('powershell') is None:
+            self.skipTest('powershell yok; kısayol temizliği bu koşumda çalıştırılamaz.')
+        return subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                              capture_output=True, text=True, encoding='utf-8', errors='replace')
+
+    def _cleanup_script(self):
+        # Test edilen kod, çalışan kısayolun kendi içindeki blok olmalı: kopya bir betik yazılmıyor.
+        source = (ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
+        block = source.split('# BEGIN-CLONE-CLEANUP')[1].split('# END-CLONE-CLEANUP')[0]
+        self.assertIn('function Remove-BrainCheckClone', block)
+        folder = tempfile.mkdtemp(prefix='jarvis-brain-cleanup-')
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, 'cleanup.ps1')
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(block)
+        return path
+
+    def _build_clone(self, name):
+        root = os.path.join(tempfile.gettempdir(), name)
+        shutil.rmtree(root, ignore_errors=True)
+        os.makedirs(os.path.join(root, 'alt'))
+        with open(os.path.join(root, 'alt', 'dosya.txt'), 'w', encoding='utf-8') as handle:
+            handle.write('x')
+        self.addCleanup(shutil.rmtree, root, True)
+        return root
+
+    def test_clone_cleanup_deletes_the_clone_on_both_path_forms(self):
+        cleanup = self._cleanup_script()
+        for name in ('jarvis-brain-cleanup-long', 'jarvis-brain-cleanup-short'):
+            root = self._build_clone(name)
+            if name.endswith('short'):
+                got = self._powershell(
+                    "(New-Object -ComObject Scripting.FileSystemObject).GetFolder('%s').ShortPath" % root)
+                root = got.stdout.strip()
+                if '~' not in root:
+                    continue  # kısa ad bu koşumda üretilemiyorsa uzun yol yine de doğrulanmış sayılır.
+            run = self._powershell(". '%s'; $w=$null; $ok=Remove-BrainCheckClone -Path '%s' "
+                                   "-WarningVariable w -WarningAction SilentlyContinue; "
+                                   "'ok=' + $ok + ' warned=' + [bool]($w)" % (cleanup, root))
+            self.assertEqual(run.returncode, 0, msg=run.stdout + run.stderr)
+            self.assertIn('ok=True warned=False', run.stdout)
+            self.assertFalse(os.path.exists(root), 'Klon silinmeden kaldı: %s' % root)
+
+    def test_clone_cleanup_warns_and_keeps_the_path_visible_when_delete_fails(self):
+        cleanup = self._cleanup_script()
+        root = self._build_clone('jarvis-brain-cleanup-locked')
+        locked = os.path.join(root, 'alt', 'dosya.txt')
+        run = self._powershell(
+            "[IO.File]::Open('%s','Open','ReadWrite','None') | Out-Null; . '%s'; $w=$null; "
+            "$ok=Remove-BrainCheckClone -Path '%s' -WarningVariable w -WarningAction SilentlyContinue; "
+            "'ok=' + $ok + ' warned=' + [bool]($w) + ' path=' + $w" % (locked, cleanup, root))
+        self.assertEqual(run.returncode, 0, msg=run.stdout + run.stderr)
+        self.assertIn('ok=False warned=True', run.stdout)
+        self.assertIn(root, run.stdout, 'Uyarı silinemeyen klasör yolını göstermeli.')
+
+    def test_launcher_wires_the_cleanup_and_never_swallows_a_leak(self):
+        source = (ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
+        finally_block = source.split('} finally {')[1].split('}')[0]
+        self.assertIn('Remove-BrainCheckClone -Path $RunDir', finally_block)
+        self.assertNotIn('Remove-Item -LiteralPath $RunDir', source)
+        self.assertIn('Write-Warning', source.split('# BEGIN-CLONE-CLEANUP')[1])

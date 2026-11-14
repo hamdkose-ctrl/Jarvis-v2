@@ -24,12 +24,13 @@ Her çalıştırma seçilen ref'in güncel commit'ini alıp geçici kaynak kopya
 izliyorsa PR numarası kendiliğinden değiştirilmez. Birleşmiş sürümü kullanmak
 için kurulum `-Ref main` ile yeniden yapılır.
 
-Geçici kaynak kopyası `finally` bloğunda `[IO.Directory]::Delete($RunDir,$true)`
-ile silinir; Windows'ta `$env:TEMP` 8.3 kısa adı taşırken
-`Remove-Item -LiteralPath … -Recurse` o yolu reddedip depo boyutunda klonu
-geride bırakıyordu ve sessiz hata seçeneği bu sızıntıyı gizliyordu. Silme yine
-de başarısız olursa yol `Write-Warning` ile görünür olur; kullanıcı kendisi
-siler.
+Geçici kaynak kopyası `finally` bloğunda `Remove-BrainCheckClone -Path $RunDir`
+çağrısıyla silinir; yardımcı `[IO.Directory]::Delete($Path,$true)` kullanır ve
+hem uzun hem 8.3 kısa `$env:TEMP` yol biçiminde özyinelemeli çalışır. Eski
+`Remove-Item -LiteralPath … -Recurse -Force -ErrorAction SilentlyContinue` kısa
+adı reddedip depo boyutunda klonu sessizce geride bırakıyordu. Silme başarısız
+olursa yardımcı `Write-Warning` ile silinemeyen klasörün yolını gösterir ve
+`$false` döner; kullanıcı o yolu kendisi silebilir.
 
 JSON raporları masaüstündeki `Jarvis-Brain-Acceptance` klasöründedir. Her koşu
 SHA ve zaman damgasıyla arşivlenir; `brain-connection-latest.json` ve
@@ -42,6 +43,15 @@ kapsamıdır; bütün Brain'in veya çoklu iş yeteneğinin kabulü değildir.
 Kurulum yalnız script ve kısayol oluşturur; Groq plan beyanını yenilemez,
 modeli değiştirmez ve test/CI/watch çağrısı başlatmaz. Kaldırmak için iki
 kısayolu ve `%LOCALAPPDATA%\Jarvis\brain-check` klasörünü silmek yeterlidir.
+
+## Koşum bütçesi ve tanı koşumunun statüsü
+
+Bulut kabulü daima **standart bütçeyle** yapılır: model bütçe süresi ve taşıma
+zaman aşımı üretim değerlerinde kalır, ölçümü çalıştıran hiçbir araç bunları
+genişletmez. Yalnız hata ayıklamak için bütçesi geçici olarak büyütülmüş tek
+örneklik koşum (84 sn süren örnek) **tanıdır, kabul sonucu değildir**; o koşum
+sözleşmenin karşılanmadığını ve normal bütçenin aşıldığını göstermek için
+yapılmıştır. Kabul kararı tam 20 örneklik koşumun kendi raporundan okunur.
 
 ## Windows CI ile bu menünün ayrımı
 
