@@ -308,7 +308,11 @@ class VoiceSession:
                     or not runtime.flags["mic"])
 
         def stopped() -> bool:
-            return done.is_set() or scope_stopped()
+            return done.is_set() or scope_stopped() or receipt_rotated()
+
+        def receipt_rotated() -> bool:
+            current=getattr(getattr(self,'voice_lane',None),'receipt_is_current',None)
+            return callable(current) and not current(done)
 
         # The wake microphone is the same capture device the recorder uses, and the
         # engine owns it under audio_lock. Opening this second stream outside that
@@ -342,6 +346,8 @@ class VoiceSession:
                 return
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS   # şimdi söyleneni ad beklemeden dinle
             runtime.log.info("Konuşmayı kesme istendi: Hey Jarvis")
+        if not done.is_set() and not scope_stopped() and receipt_rotated():
+            return True  # Queue priority changed; follow the actual output owner.
 
     def speak(self, text: str, slow: bool = False, shown: bool = False,
               identity: dict | None = None) -> None:

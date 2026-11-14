@@ -433,6 +433,11 @@ class VoiceCoordinator:
                 return items
             self._pending.task_done()
 
+    def current_request_id(self) -> str:
+        """Read the existing output owner; this snapshot grants no cut authority."""
+        with self._lock:
+            return self._current_request.request_id if self._current_request is not None else ""
+
     def interrupt_speech(self, *, expected_request_id: str = "") -> tuple[SpeechRequest, ...]:
         """Interrupt playback and acknowledge all queued audio, not Core work.
 

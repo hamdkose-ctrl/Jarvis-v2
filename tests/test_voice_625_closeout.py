@@ -15,6 +15,20 @@ def catalog():
 
 
 class VoiceCloseoutTests(unittest.TestCase):
+    def test_priority_rotation_releases_old_observation_without_waiting_for_queued_audio(self):
+        from modules import wakeword
+        runtime=SimpleNamespace(stop_event=threading.Event(),flags={'mic':True},WAKE_WORD='Jarvis',
+            audio_lock=threading.Lock(),time=SimpleNamespace(time=lambda:100.),
+            pc_profile=lambda:SimpleNamespace(slug='alice'),_record_failure=Mock())
+        session=engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime=runtime;session.voice_lane=SimpleNamespace(receipt_is_current=lambda done:False)
+        session.manual_local_stt=False;session.listening_enabled=True
+        done=Mock();done.wait.return_value=False;done.is_set.return_value=False
+        with patch.object(wakeword,'wanted',return_value=True),patch.object(wakeword,'ready',return_value=True), \
+             patch.object(wakeword,'wait') as capture,patch.object(voice_runtime,'interrupt_receipt') as cut:
+            self.assertTrue(session._barge_watch(done))
+        capture.assert_not_called();cut.assert_not_called();runtime._record_failure.assert_not_called()
+
     def test_failed_owner_snapshot_releases_observer_for_the_next_speech(self):
         session=engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
         session.runtime=SimpleNamespace(threading=threading,stop_event=threading.Event(),
@@ -214,6 +228,30 @@ class VoiceCloseoutTests(unittest.TestCase):
                 session.close()
                 if worker is not None:worker.join(10);self.assertFalse(worker.is_alive())
                 lane._coordinator._worker.join(10)
+                self.assertFalse(lane._coordinator._worker.is_alive())
+
+    def test_observer_selects_actual_foreground_ahead_of_older_queued_notice(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=bridge_fixture.runtime(directory)
+            entered,release,foreground_started,finish= [threading.Event() for _ in range(4)]
+            def play(audio,cancel,start):
+                start()
+                if audio==b'first':entered.set();self.assertTrue(release.wait(10))
+                if audio==b'foreground':foreground_started.set();self.assertTrue(finish.wait(10))
+            lane=voice_runtime.VoiceLane(runtime,catalog(),lambda spec,text,cancel:text.encode(),play)
+            try:
+                first=lane.say('alice','tr_kadin','first')
+                self.assertTrue(entered.wait(5))
+                notice=lane.say('alice','tr_kadin','notice',background=True)
+                foreground=lane.say('alice','tr_kadin','foreground')
+                release.set();self.assertTrue(foreground_started.wait(5))
+                self.assertTrue(first.is_set());self.assertFalse(notice.is_set())
+                self.assertIs(lane.outstanding_receipts('alice')[0],foreground)
+                self.assertFalse(lane.receipt_is_current(notice))
+                self.assertTrue(lane.receipt_is_current(foreground))
+            finally:
+                release.set();finish.set();lane.close();lane._coordinator._worker.join(10)
                 self.assertFalse(lane._coordinator._worker.is_alive())
 
     def test_targeted_cut_cannot_interrupt_the_next_active_receipt(self):

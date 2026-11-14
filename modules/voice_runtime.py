@@ -586,8 +586,16 @@ class VoiceLane:
 
     def outstanding_receipts(self, owner: str):
         """Read the existing bounded speech owner; no second speech queue."""
+        current=self._coordinator.current_request_id()
         with self._lock:
-            return tuple(done for current_owner,done in self._outstanding.values() if current_owner==owner)
+            rows=[(key,done) for key,(current_owner,done) in self._outstanding.items() if current_owner==owner]
+        return tuple(done for key,done in rows if key==current)+tuple(done for key,done in rows if key!=current)
+
+    def receipt_is_current(self, done) -> bool:
+        current=self._coordinator.current_request_id()
+        with self._lock:
+            entry=self._outstanding.get(current)
+            return entry is not None and entry[1] is done
 
     def interrupt_receipt(self, done):
         with self._lock:
