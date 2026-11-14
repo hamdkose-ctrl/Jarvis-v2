@@ -45,7 +45,13 @@ def wake_scheduler():
 
 
 def _wait_for_scheduler_tick(stop_event):
-    """Preserve stop responsiveness without scanning SQLite every 250 ms."""
+    """Wake on durable admission or a finished worker without polling disk.
+
+    A worker must actually EXIT before its pool slot is reusable. The former
+    five-second scan made a completed first worker and a queued second step
+    wait for another tick; probing only up to seven OS thread states is cheap
+    and never releases the in-flight claim of a still-running provider.
+    """
     deadline=time.monotonic()+_SCHEDULER_TICK_SECONDS
     while not stop_event.is_set():
         left=deadline-time.monotonic()
@@ -53,6 +59,9 @@ def _wait_for_scheduler_tick(stop_event):
             return not stop_event.is_set()
         if _SCHEDULER_WAKE.wait(timeout=min(0.25,left)):
             _SCHEDULER_WAKE.clear()
+            return not stop_event.is_set()
+        if (any(not worker.is_alive() for worker in tuple(_CANONICAL_WORKERS.values()))
+                or any(not worker.is_alive() for worker in tuple(_OWNER_TICKS.values()))):
             return not stop_event.is_set()
     return False
 
@@ -605,7 +614,14 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
         def loop():
             global _DAILY_NEXT
             while _wait_for_scheduler_tick(stop_event):
+                # Only the one scheduler mutates these registries. Do not
+                # free a slot until its OS thread is actually gone: a
+                # quarantined/hung provider still occupies capacity.
                 _quarantine_expired_workers()
+                for registry in (_CANONICAL_WORKERS, _OWNER_TICKS):
+                    for key, worker in tuple(registry.items()):
+                        if not worker.is_alive():
+                            registry.pop(key, None)
                 now=time.time()
                 if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
                     _DAILY_NEXT=now+60
