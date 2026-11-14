@@ -26,6 +26,65 @@ class GoalTests(unittest.TestCase):
     def done(self,*ids,goal=0):return {'action':'complete','goal':goal,'evidence':list(ids)}
     def finish(self):return {'action':'finish'}
 
+    def test_older_open_legacy_and_canonical_goals_survive_recent_closed_files(self):
+        # An old open goal can be hidden by many newer completed journals.
+        # Both legacy .json and canonical .execution.json must stay discoverable.
+        import os
+        import time
+        from modules import execution_record, goal_state, goal_state_store
+        root = goals._root('alice')
+        legacy_id = 'e' * 16
+        canonical_id = 'f' * 16
+        current = time.time()
+
+        def record(ident, label, state):
+            return {'id': ident, 'owner': 'alice', 'request': label,
+                    'state': state, 'steps': [], 'outputs': {}, 'goals': [],
+                    'created': current - 60, 'updated': current - 10}
+
+        legacy_path = root / (legacy_id + '.json')
+        legacy_path.write_text(json.dumps(record(
+            legacy_id, 'Eski açık hedef', 'paused',
+        )), encoding='utf-8')
+        os.utime(legacy_path, (current - 100, current - 100))
+
+        canonical = record(canonical_id, 'Canonical çalışan hedef', 'running')
+        canonical_path = execution_record.path_for(root, canonical_id)
+        canonical_path.write_bytes(execution_record.encode(canonical))
+        os.utime(canonical_path, (current - 90, current - 90))
+        goal_state_store.create(root / (canonical_id + '.goalstate.json'),
+                                goal_state.new(owner='alice', job_id=canonical_id,
+                                               goal=canonical['request'],
+                                               authority='canonical'))
+        for index in range(20):
+            ident = f'{index:016x}'
+            path = root / (ident + '.json')
+            path.write_text(json.dumps(record(
+                ident, 'Yeni bitmiş hedef', 'done',
+            )), encoding='utf-8')
+            os.utime(path, (current + index, current + index))
+
+        found = goals.open_jobs('alice')
+        self.assertEqual({job['id'] for job in found}, {legacy_id, canonical_id})
+        with patch('modules.result_presentation.inspect_job',
+                   side_effect=AssertionError('Fast status must not hash outputs')):
+            answer = goals.fast_status('alice')
+        self.assertIn(legacy_id, answer)
+        self.assertIn(canonical_id, answer)
+        self.assertIn('kanıtı bu listede doğrulanmaz', answer)
+        self.assertNotIn('Yeni bitmiş hedef', answer)
+
+    def test_fast_goal_status_does_not_present_unverified_done_as_success(self):
+        with patch.object(goals, 'open_jobs', return_value=[{
+            'id': 'a'*16, 'owner': 'alice', 'request': 'Büyük rapor',
+            'state': 'done', 'steps': [{'id': 's1', 'state': 'done'}],
+            'outputs': {'s1': {'state': 'done', 'file': '/unverified/large.bin'}},
+        }]), patch('modules.result_presentation.inspect_job',
+                  side_effect=AssertionError('No expensive proof read in quick view')):
+            message = goals.fast_status('alice')
+        self.assertIn('kanıt kontrol edilmedi', message)
+        self.assertNotIn('/unverified/large.bin', message)
+
     def test_research_failure_browser_alternative_writer_file_and_second_goal(self):
         image=self.root/'screen.png';image.write_bytes(b'real saved screenshot fixture')
         browser=task_results.seal('browser',{'state':'done','steps':[{'verified':True}],
