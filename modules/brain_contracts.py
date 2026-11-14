@@ -270,6 +270,7 @@ class UnderstandingResult(_JsonContract):
     arguments: Mapping[str, Any] = field(default_factory=dict)
     # Model batch actions stay immutable evidence until each is independently Core-planned.
     actions: tuple[Mapping[str, Any], ...] = ()
+    presentation: tuple[Mapping[str, Any], ...] = ()
     references: tuple[ContextReference, ...] = ()
     conversation_relation: ConversationRelation = ConversationRelation.NEW_REQUEST
     pending_owner: PendingOwner | None = None
@@ -320,6 +321,9 @@ class UnderstandingResult(_JsonContract):
             normalized_actions.append(_freeze_json(action))
             seen_action_ids.add(action_id)
         object.__setattr__(self, "actions", tuple(normalized_actions))
+        if not isinstance(self.presentation,(tuple,list)) or len(self.presentation)>9:
+            raise ValueError('presentation liste/tuple olmalı.')
+        object.__setattr__(self,'presentation',tuple(_freeze_json(row) for row in self.presentation))
         object.__setattr__(self, "references", _reference_tuple("references", self.references, self.owner))
         if not isinstance(self.context_actions, (tuple, list)):
             raise ValueError("context_actions liste/tuple olmalı.")

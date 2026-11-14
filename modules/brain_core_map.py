@@ -1332,11 +1332,22 @@ def _macro_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 _LEARNING_OPERATIONS = frozenset({
     "facts.list", "pending.approve", "pending.reject", "fact.add",
     "fact.edit", "fact.forget", "rules.list", "rule.add", "rule.delete", "report.read",
+    "preference.list", "preference.reset",
 })
 
 
 def _learning_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Only Core-typed learning operations; all-scope is State Gate-owned, not model-owned."""
+    if arguments.get('operation') in ('preference.list','preference.reset'):
+        from modules import persona_contract
+        if arguments['operation']=='preference.list':
+            return {'operation':'preference.list'} if set(arguments)<={'operation','original_text'} else None
+        key,scope,text=arguments.get('key'),arguments.get('scope'),arguments.get('text')
+        if (set(arguments)-{'original_text','operation','key','scope','text'}
+                or not isinstance(key,str) or key not in persona_contract.PREFERENCES
+                or scope not in ('explicit','learned','session') or _short_text(text,500) is None):
+            return None
+        return {'operation':'preference.reset','key':key,'scope':scope,'text':text}
     if set(arguments) - {"original_text", "operation", "text", "old", "index"}:
         return None
     operation = arguments.get("operation")

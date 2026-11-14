@@ -128,6 +128,10 @@ class WebMemory:
 
     def pref_set(self, key: str, value) -> bool:
         runtime = self._runtime
+        from modules import persona,persona_contract
+        if key in persona_contract.PREFERENCES:
+            persona.set_preference(runtime._p(),key,None if value in ('',None) else value)
+            return True
         if key in ('city', 'verbosity', 'voice', 'rate', 'language'):
             if value in ('', None):
                 runtime._p().data['prefs'].pop(key, None)
@@ -138,6 +142,15 @@ class WebMemory:
                 runtime.sampler.invalidate_weather()
             return True
         return False
+
+    def presentation_preferences(self) -> dict:
+        from modules import persona
+        return persona.view(self._runtime._p())
+
+    def presentation_reset(self, key: str, scope: str) -> bool:
+        from modules import persona
+        persona.reset(self._runtime._p(),key,scope)
+        return True
 
     def macro_delete(self, key: str) -> bool:
         runtime = self._runtime

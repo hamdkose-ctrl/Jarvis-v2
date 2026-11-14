@@ -1,3 +1,11 @@
+# BRAIN-09 güncel kod adayı — 14 Kasım 2026
+
+Hamdi'nin tek PR talimatıyla, main `1cc32a858b42fc90001f01d1638c5e55691572b1` üzerinde persona ve kullanıcı adaptasyonu mevcut Profile/SessionState/Core akışına bağlandı. #626 Brain/Core, #627 BRAIN-08 ve #625 VOICE birleşmiştir; aşağıdaki eski aday/bekliyor ifadeleri kendi tarihsel kaynaklarına aittir.
+
+**B09 kod koşulları:** sürümlü persona/kapalı preference sözleşmesi yazıldı; mevcut system_prompt ve UI verbosity aynı kayıt sahibine geçirildi; Brain prepare→Core→mevcut chat/image ile Hafıza kullanıcı akışı bağlı; raw chat `learning_feedback` yazarı ve sabit kısa-yanıt çelişkisi kaldırıldı. Explicit/learned/session/turn, owner/RID/provenance/confidence/expiry, learned toggle ve reset/silme ayrıdır. Model ek çağrı, izin veya effect yetkisi kazanmaz. Plan ve açık kabul: `docs/architecture/BRAIN_09_SINGLE_PR_PLAN_2026-11-14.md`. Yeni source full validation/Windows CI/PC sonucu PR'da kaydedilmeden kabul edilmiş sayılmaz; canlı persona kalite ve Brain-11 final kabulü ayrıca açıktır.
+
+---
+
 # Jarvis Yol Haritası — Hasat Listesi Yapım Sırası
 
 **VOICE #625 aynı PR son kod incelemesi (14 Kasım 2026):** Main `62988cd` (#626/#627) normal merge ile alındı; ortak Scheduler cleanup testi ve Brain/B08 sınırları korundu. İki tanı NameError'ı/ölü barge slotu, iptal sonrasında canlı orta konuşmanın gözlemden düşmesi, geç wake'in sonraki konuşmayı kesmesi, başka owner kuyruğunun etkilenmesi, shutdown ikinci-capture ve kayıt sürerken yeni output başlaması aynı mevcut ses sahibinde kapatıldı. Yeni output capture lock'ını sadece başlangıç bariyeri olarak bekler; playback sırasında tutmaz, owner/TTL/cancel sonrasında yeniden doğrulanır. 11 yeni regresyon + ilgili 192 test PASS; yeni kaynak için full validation, exact-head Windows CI ve gerçek PC watcher kabulü ayrıca alınır. Belge: `docs/architecture/VOICE_625_REVIEW_2026-11-14.md`. Bu kod kapsamı fiziksel ses/duyma/p95-p99 veya genel effectful background DAG kapanışı değildir.

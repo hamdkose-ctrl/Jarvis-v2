@@ -1,3 +1,9 @@
+# BRAIN-09 — sunum sınırı (14 Kasım 2026)
+
+Persona/key/value/scope önerisi tek Brain zarfından gelir; Core `persona.request_scope` Profile/SessionState'e bağlar. Ham chat regex feedback yazarı kaldırılmıştır; mevcut facts/rules/learning.manage korunur. Liste/reset aynı intent'in kapalı preference.list/preference.reset işlemleridir. Hedef/izin/effect/completion authority değişmez. Ayrıntı: `docs/agents/persona.md`.
+
+---
+
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
 
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
@@ -305,4 +311,3 @@ Regresyonlar: adaptera girmeden tükenen bütçenin providerı başlatmaması; g
 - `task_workers.run` içindeki gerçek Markdown rapor yazıcı, rastgele adlandırılmış hedefi aynı OS dosya claim'i altında **exclusive create** (`open('x')`) ile yazar, metni ve digest'i kilit bırakılmadan doğrular. Aynı hedefin önceden bulunması dosyayı ezmez; farklı veri dizinli ikinci Python işçisinin hedef kilidi altındayken çıktı üretimi fail-closed kalır. Bu yalnız rapor yazıcısı kapsamıdır; diğer medya/rapor adaptörleri kapsam kanıtı gerektirir.
 - **Geçiş sınırı:** eski sürüm açıkken yeni sürüm farklı kilit kökü kullanacağı için bu koruma karışık sürüm çalışmasında geçerli değildir; geçişte tüm eski Jarvis işlemleri durdurulmalıdır. Farklı Windows hesapları/oturumları, ağ paylaşımları ve kilide katılmayan file-effect adapterları bu dar düzeltmeyle güvenli sayılmaz. Hesap/provider gerçek bağlantı kimliği ve diğer native adapterlar için #584 açık kalır.
 - Bu kaynak/test taslağı kesin PASS veya merge iddiası değildir. Aynı son SHA Windows CI + gerçek PC watcher kabulü olmadan yayına alınmaz.
-

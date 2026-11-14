@@ -149,7 +149,8 @@ def _sys_prompt(runtime, command: str = "") -> str:
     base += (' Bu yanıt yalnızca sohbet metnidir; bu yolda bilgisayar işlemi, dosya değişikliği veya arka plan görevi çalıştırılmaz. '
              'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Desteklenmeyen eylemde sınırı açıkla; '
              'belirsiz hedefte tek net soru sor. Yalnızca gerçekten ürettiğin metni/kodu hazır olarak sunabilirsin.')
-    if runtime._cur_source == "ses" and runtime.profile.data["prefs"].get("verbosity", "orta") != "uzun":
+    from modules import persona
+    if runtime._cur_source == "ses" and persona.effective(runtime.profile)['verbosity']['value'] != "uzun":
         base += (" Bu soru sesle soruldu ve cevabın sesli okunacak: en fazla 2 kısa cümleyle doğrudan cevap ver. "
                  "Liste, kod ya da uzun açıklama gerekiyorsa kısaca özetle ve 'ayrıntısını ekrana yazayım mı?' diye sor.")
     return base

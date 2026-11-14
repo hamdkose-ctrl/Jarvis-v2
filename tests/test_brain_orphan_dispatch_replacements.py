@@ -47,7 +47,7 @@ CAPABILITY_OWNERS = {
     'send_phone': ('modules.filesend', 'handle'),
     'desktop_task': ('modules.desktop_agent', 'handle'),
     'code': ('modules.goal_executor', 'run'),
-    'feedback': ('modules.learning_feedback', 'capture'),
+    'feedback': ('modules.persona', 'request_scope'),
 }
 
 
@@ -301,14 +301,25 @@ class FakeFeedbackProfile:
 
 
 class FeedbackLearningOwnerTests(unittest.TestCase):
-    """The removed ``feedback`` case added nothing the canonical chat path does not already do.
+    """B09: durable style is owned by the single typed Brain/Core scope, never chat regexes."""
 
-    Its live behaviour - promoting a direct instruction about Jarvis' own response style into a
-    durable rule - is owned by ``learning_feedback.capture``, which the default arm of dispatch
-    already calls on every non-command sentence. The unreachable ``profile.feedback`` +/- counter
-    is deliberately not resurrected: no new intent, classifier or compatibility mapper is created
-    for it, and the profile schema, stored records and web presentation field stay as they are.
-    """
+    def setUp(self):
+        from modules.personalization import Profile
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        self.profile=Profile.__new__(Profile);self.profile.slug='alice';self.profile.name='Alice'
+        self.profile.path=Path(folder.name)/'alice.json'
+        self.profile.data={'name':'Alice','prefs':{},'rules':[],'facts':[],'items':[],'goals':[]}
+
+    def scope(self,runtime):
+        from dataclasses import replace
+        import test_brain_primary_understanding as primary
+        import test_brain_production_entry as fixtures
+        from modules import brain_entry,persona
+        semantic=primary.applied(BEHAVIOUR_FEEDBACK,primary.envelope(operation='chat',presentation=[{
+            'key':'criticism','value':'doğrudan','scope':'explicit','evidence_quote':BEHAVIOUR_FEEDBACK}]))[1]
+        semantic=replace(semantic,owner='alice')
+        entry=replace(fixtures.entry(brain_entry,semantic=semantic),owner='alice',request_id=semantic.request_id,text=BEHAVIOUR_FEEDBACK,source='yazı')
+        return persona.request_scope(runtime,entry,BEHAVIOUR_FEEDBACK)
 
     def test_a_feedback_sentence_is_routed_as_plain_chat(self):
         # No special intent is needed: the canonical single gate hands the sentence to chat.
@@ -317,29 +328,25 @@ class FeedbackLearningOwnerTests(unittest.TestCase):
         self.assertEqual(decision['intent'], 'chat')
         self.assertNotIn('feedback', str(decision))
 
-    def test_the_chat_default_arm_captures_the_feedback_of_its_own_turn(self):
+    def test_chat_alone_cannot_capture_unvalidated_feedback(self):
         from modules.engine_intents import dispatch
-        captured = []
-        runtime = ChatBackedRuntime(FakeFeedbackProfile())
-        with patch('modules.learning_feedback.capture',
-                   side_effect=lambda profile, text: captured.append((profile, text)) or []):
+        runtime = ChatBackedRuntime(self.profile)
+        with patch('modules.advisory_router.finalize',side_effect=lambda command,raw,settings=None:raw):
             out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
-        self.assertEqual([text for _profile, text in captured], [BEHAVIOUR_FEEDBACK])
-        self.assertEqual(captured[0][0], runtime.profile)
+        self.assertNotIn('presentation_preferences',self.profile.data)
+        self.assertEqual(self.profile.data['rules'],[])
         self.assertEqual(out, 'Anladım, öyle yaparım.')
 
     def test_the_feedback_becomes_a_durable_rule_with_no_dispatch_intent(self):
-        from modules import learning
         from modules.engine_intents import dispatch
-        runtime = ChatBackedRuntime(FakeFeedbackProfile())
+        runtime = ChatBackedRuntime(self.profile)
         with patch('modules.advisory_router.finalize',
-                   side_effect=lambda command, raw, settings=None: raw):
-            # The real capture, not a mock: this is the user-visible behaviour being kept alive.
+                   side_effect=lambda command, raw, settings=None: raw),self.scope(runtime):
             out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
-        stored = learning.rules(runtime.profile)
-        self.assertTrue(stored, 'davranış geri bildirimi kural olarak saklanmadı')
-        self.assertIn('otomatik onaylama', ' '.join(stored))
-        self.assertIn('yanlışsa açıkça söyle', ' '.join(stored))
+        stored = self.profile.data['presentation_preferences']['explicit']['criticism']
+        self.assertEqual(stored['value'],'doğrudan')
+        self.assertEqual(stored['source'],'user.explicit')
+        self.assertIn('otomatik onaylama',self.profile.system_prompt())
         self.assertEqual(out, 'Anladım, öyle yaparım.')
         self.assertEqual(runtime.answers, [BEHAVIOUR_FEEDBACK])
 
@@ -358,13 +365,13 @@ class FeedbackLearningOwnerTests(unittest.TestCase):
         from modules import personalization
         self.assertIn('def feedback(', inspect.getsource(personalization.Profile))
 
-    def test_capture_failure_is_recorded_instead_of_silently_swallowed(self):
-        from modules.engine_intents import dispatch
-        runtime = ChatBackedRuntime(FakeFeedbackProfile())
-        with patch('modules.learning_feedback.capture', side_effect=RuntimeError('boom')):
-            out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
-        self.assertIn('modules/engine_intents.py:learning_feedback', runtime.failures)
-        self.assertEqual(out, 'Anladım, öyle yaparım.')
+    def test_preference_save_failure_propagates_and_does_not_claim_persistence(self):
+        runtime = ChatBackedRuntime(self.profile)
+        with patch.object(self.profile,'save',side_effect=OSError('disk full')):
+            with self.assertRaises(OSError),self.scope(runtime):
+                self.fail('save failure cannot enter the reply')
+        self.assertNotIn('presentation_preferences',self.profile.data)
+        self.assertEqual(runtime.answers,[])
 
 
 if __name__ == '__main__':

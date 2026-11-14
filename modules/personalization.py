@@ -183,6 +183,9 @@ class Profile:
             os.replace(tmp, self.path)
 
     def set_pref(self, k, v):
+        from modules import persona,persona_contract
+        if k in persona_contract.PREFERENCES:
+            return persona.set_preference(self,k,v)
         with _LOCK:
             self.data["prefs"][k] = v
             self.save()
@@ -474,18 +477,12 @@ class Profile:
         with _LOCK: return self._due_events(*a, **k)
 
     def system_prompt(self, query: str = "") -> str:
-        p = self.data["prefs"]
-        goals, facts = self.data["goals"], self.data["facts"]
+        goals = self.data["goals"]
         parts = [
             f"Sen {_assistant_name()} adlı, Türkçe konuşan sesli bir masaüstü asistanısın. "
             f"Şu an {self.data['name']} ile konuşuyorsun. Başka kullanıcılar hakkında bilgi verme.",
-            "Yanıtların kısa olsun: en fazla "
-            + ("4-5 cümle" if goals else "2-3 cümle")
-            + ". Madde işareti, markdown ve emoji kullanma, çünkü yanıt sesli okunuyor.",
-            "Uygulama açma, ses ve parlaklık ayarı gibi işlemleri ayrı komutlar yapar, "
-            "sen yapmadığın bir işlemi yaptım deme. Özellikle not alma, hatırlatma, takvime ekleme ve mesaj gönderme "
-            "işlemlerini sen yapamazsın; böyle bir istek sana gelirse 'kaydettim/not aldım' DEME, "
-            "'Not ekle …' ya da 'yarın 10'da hatırlat …' gibi söylemesini öner.",
+            "Bilgisayar, dosya, takvim, not ve gönderim işlemlerinin yetkisi Core ve mevcut araçlardadır. "
+            "Sohbet metni bir işlemin yapıldığını kanıtlamaz; doğrulanmış Core sonucu olmadan 'yaptım' deme.",
             "Kod yazman istenirse kodu ```dil biçiminde bir kod bloğuna koy (kod sesli okunmaz, ekranda "
             "görünür) ve kod dışındaki açıklamayı kısa tut.",
             "Matematik ifadelerini LaTeX ile ($...$, \\pm, \\frac gibi) yazma; düz metin ve Unicode kullan "
@@ -509,5 +506,6 @@ class Profile:
         except Exception:                          # noqa: BLE001
             _record_failure('modules/personalization.py:system_prompt')
             pass
-        parts.append(f"Kullanıcı tercihi: yanıt uzunluğu={p.get('verbosity', 'orta')}.")
+        from modules import persona
+        parts.append(persona.prompt(self))
         return " ".join(parts)

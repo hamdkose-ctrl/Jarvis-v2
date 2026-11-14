@@ -1,3 +1,9 @@
+# BRAIN-09 Hafıza tercihleri — 14 Kasım 2026
+
+Hafıza ekranında sunumun9 kapalı tercihi mevcut Profile sahibine `pref_set` ile yazılır. Etkin değerin açık/öğrenilmiş/default kaynağı gösterilir; açık seçim kaldırılır veya learned öneri ayrı silinir. Bridge Core persona servisini çağırır; UI anlam/izin kararı üretmez. Render response owner ile snapshot owner'ı eşleştirir; select/button event'i de güncel owner'ı tekrar kontrol eder. Geç eski kullanıcı cevabı/yazımı yeni kullanıcıya uygulanmaz. Alan notu: `docs/agents/persona.md`.
+
+---
+
 # Arayüz, ana ekran ve ayarlar (AGENTS.md alan notları)
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
