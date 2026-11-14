@@ -696,7 +696,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
 
     # ------------------------------------------------------------ ayarlar
     def settings(self) -> dict:
-        from modules import local_stt, stt_fixes
+        from modules import local_stt, stt_fixes, voice
         s = config.load_settings()
         public_saved = {key: value for key, value in s.items()
                         if key not in ('youtube_key', 'youtube_key_protected')}
