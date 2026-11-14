@@ -157,3 +157,59 @@ class ResponsivenessTests(unittest.TestCase):
         self.assertEqual(runtime.events.get_nowait(),
                          ('command','hedef cevap '+'3'*16+' evet','yazı','Alice','reply-rid'))
         runtime._emit_for.assert_not_called()
+
+    def test_fast_voice_status_reopens_listening_after_inline_reply(self):
+        from modules import brain_entry
+        from modules.engine_voice import VoiceSession
+        alice=SimpleNamespace(name='Alice',slug='alice')
+        runtime=SimpleNamespace(
+            _tr_lower=str.lower,slugify=str.lower,pc_profile=lambda:alice,
+            _get_profile=lambda name:alice,requests_state=requests_state,
+            events=queue.Queue(),_emit_for=Mock(),
+            pause_listening=threading.Event(),stop_event=threading.Event(),
+            _record_failure=Mock(),
+        )
+        runtime.submit=lambda text,source:engine_queue.submit(
+            runtime,text,source,user='Alice',rid='fast-voice-status')
+        session=VoiceSession.__new__(VoiceSession)
+        session.runtime=runtime
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(requests_state,'_journal',Path(tmp)/'requests.json'), \
+             patch.object(requests_state,'_records',{}), \
+             patch.object(brain_entry,'fast_lane',
+                          return_value=SimpleNamespace(selection='status')), \
+             patch.object(goal_executor,'fast_status',
+                          return_value='Hedef çalışıyor') as view:
+            self.assertTrue(session.submit_voice('hedef durumu'))
+        self.assertFalse(runtime.pause_listening.is_set(),
+                         'inline reply left the microphone muted indefinitely')
+        view.assert_called_once_with('alice',details=False)
+        self.assertTrue(runtime.events.empty())
+
+    def test_fast_voice_exact_result_reopens_listening_without_worker_replay(self):
+        from modules import canonical_goal_flow
+        from modules.engine_voice import VoiceSession
+        alice=SimpleNamespace(name='Alice',slug='alice')
+        runtime=SimpleNamespace(
+            _tr_lower=str.lower,slugify=str.lower,pc_profile=lambda:alice,
+            _get_profile=lambda name:alice,requests_state=requests_state,
+            events=queue.Queue(),_emit_for=Mock(),
+            pause_listening=threading.Event(),stop_event=threading.Event(),
+            _record_failure=Mock(),
+        )
+        runtime.submit=lambda text,source:engine_queue.submit(
+            runtime,text,source,user='Alice',rid='fast-voice-result')
+        session=VoiceSession.__new__(VoiceSession)
+        session.runtime=runtime
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(requests_state,'_journal',Path(tmp)/'requests.json'), \
+             patch.object(requests_state,'_records',{}), \
+             patch.object(canonical_goal_flow,'read_result_command',
+                          return_value='Durum kaydı') as read, \
+             patch.object(goal_executor,'cancel_job') as cancel:
+            self.assertTrue(session.submit_voice('hedef sonucu '+'b'*16))
+        self.assertFalse(runtime.pause_listening.is_set())
+        read.assert_called_once()
+        cancel.assert_not_called()
+        self.assertTrue(runtime.events.empty())
+
