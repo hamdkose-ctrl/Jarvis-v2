@@ -32,6 +32,30 @@ _CANONICAL_WORKER_DEADLINE_SECONDS=300
 _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
+# A single admission wake belongs to the existing Scheduler; there is no
+# second poller/worker. Wake is best-effort after a durable commit and NEVER
+# bypasses per-owner Core leases, request cancellation or planner fences.
+_SCHEDULER_WAKE=threading.Event()
+_SCHEDULER_TICK_SECONDS=5.0
+
+
+def wake_scheduler():
+    """Request a prompt rescan of the one Scheduler after journal commit."""
+    _SCHEDULER_WAKE.set()
+
+
+def _wait_for_scheduler_tick(stop_event):
+    """Preserve stop responsiveness without scanning SQLite every 250 ms."""
+    deadline=time.monotonic()+_SCHEDULER_TICK_SECONDS
+    while not stop_event.is_set():
+        left=deadline-time.monotonic()
+        if left<=0:
+            return True
+        if _SCHEDULER_WAKE.wait(timeout=min(0.25,left)):
+            _SCHEDULER_WAKE.clear()
+            return not stop_event.is_set()
+    return False
+
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
 RUN_NOW_STATES=frozenset({'queued','paused'})
 # Workers that never call a model (research/writer do).
@@ -89,6 +113,7 @@ def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0, cron=''):
     with service_store.database(owner) as db:
         db.execute('INSERT INTO queue(id,tasks,instruction,due,state,job_id,created,error,repeat_seconds,cron) VALUES(?,?,?,?,?,?,?,?,?,?)',
                    (qid,service_store.encode(tasks),instruction,due,'queued',job_id,time.time(),'',repeat_seconds,cron))
+    wake_scheduler()
     return qid
 
 
@@ -134,6 +159,7 @@ def run_now(owner, qid):
             "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0,lease_token='' WHERE id=?",
             (time.time(), new_job_id, row['job_id'], qid),
         )
+    wake_scheduler()
     return qid
 
 
@@ -175,6 +201,8 @@ def configure(owner,qid,*,operation,repeat_seconds=None):
             db.execute("UPDATE queue SET state='queued',due=?,lease=0,lease_token='' WHERE id=?",(time.time(),qid))
         else:
             db.execute('UPDATE queue SET repeat_seconds=? WHERE id=?',(repeat_seconds,qid))
+    if operation == 'resume':
+        wake_scheduler()
     return True
 
 
@@ -576,7 +604,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
 
         def loop():
             global _DAILY_NEXT
-            while not stop_event.wait(5):
+            while _wait_for_scheduler_tick(stop_event):
                 _quarantine_expired_workers()
                 now=time.time()
                 if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
