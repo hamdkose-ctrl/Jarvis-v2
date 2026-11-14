@@ -376,7 +376,8 @@ def _reconcile(runtime,job,step):
         if effect_recovery_runtime.required(step['tool']):
             _enriched,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
             return effect_recovery_runtime.reconcile(
-                expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')))
+                expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')),
+                receipt_readback=step['tool']=='publish')
     recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint'))
     if isinstance(recovered,dict) and recovered.get('state')=='done':
         from modules import reconcile_worker_result

@@ -268,6 +268,55 @@ class BatchCheckpointTests(_OutboxFixture, unittest.TestCase):
 
 
 class EffectReplayTests(_OutboxFixture, unittest.TestCase):
+    def effect_with_local_receipt(self, phase):
+        from types import SimpleNamespace
+        from pathlib import Path
+        from modules import goal_state,goal_state_store,core_state_reducer,runtime_worker_result,task_results
+        root=patch.object(goals,'STORE',Path(self.c.tmp.name)/'goals');root.start();self.addCleanup(root.stop)
+        ident=uuid.uuid4().hex[:16];payload=dict(self.payload,text=phase)
+        step={'id':'send','tool':'publish','input':payload,'attempts':1,'depends':[],'state':'running'}
+        job={'id':ident,'owner':'alice','request':'send exact message','outputs':{}}
+        runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'))
+        path=goals._root('alice')/(ident+'.goalstate.json')
+        initial=goal_state.new(owner='alice',job_id=ident,goal=job['request'],execution_mode='durable')
+        goal_state_store.create(path,initial)
+        _identity,expected=runtime_worker_result.prepare(goals._identity(job,step),'publish',payload,expected_job_version=0)
+        effect_recovery_runtime.record_intent(expected)
+        oid=outbox.prepare('alice',payload,ident+':send')
+        output=task_results.seal('publish',outbox.dispatch('alice',oid,approve=True))
+        if phase!='intent_only':effect_recovery_runtime.record_receipt(expected,output)
+        # A genuine lifecycle CAS across restart must not lose the old intent.
+        running=core_state_reducer.apply(initial,{'op':'set_state','state':'running',
+            'expected_version':0,'reason_code':'USER_GOAL_RESUMED'})
+        goal_state_store.compare_and_swap(path,expected_version=0,next_state=running)
+        return runtime,job,step,path,oid
+
+    def test_actual_goal_recovery_fills_receipt_to_core_gap_without_resending(self):
+        from modules import goal_state_store
+        for phase in ('intent_only','receipt_before_core'):
+            with self.subTest(phase=phase):
+                runtime,job,step,path,_=self.effect_with_local_receipt(phase)
+                before=self.send.call_count
+                recovered=goals._reconcile(runtime,job,step)
+                self.assertEqual(recovered['state'],'done')
+                accepted=goal_state_store.load(path)
+                self.assertEqual(accepted['state'],'running')  # Receipt is not global completion.
+                self.assertEqual(len(accepted['evidence']),1)
+                self.assertEqual(accepted['evidence'][0]['command_id'],'send:1')
+                self.assertIsNone(goals._reconcile(runtime,job,step))
+                self.assertEqual(goal_state_store.load(path)['version'],accepted['version'])
+                self.assertEqual(self.send.call_count,before)
+
+    def test_conflicting_local_and_effect_receipt_cannot_be_accepted(self):
+        from modules import effect_journal,goal_state_store
+        runtime,job,step,path,oid=self.effect_with_local_receipt('receipt_before_core')
+        with service_store.database('alice') as db:
+            changed=dict(self.receipt,remote_id='different-provider-receipt')
+            db.execute('UPDATE outbox SET receipt=? WHERE id=?',(service_store.encode(changed),oid))
+        with self.assertRaises(effect_journal.ContractViolation):goals._reconcile(runtime,job,step)
+        self.assertFalse(goal_state_store.load(path)['evidence'])
+        self.send.assert_called_once()
+
     def test_new_attempt_or_core_version_cannot_bypass_existing_intent(self):
         from modules import runtime_worker_result
         identity={'owner':'alice','job_id':'0123456789abcdef','task_id':'send','attempt':1}
