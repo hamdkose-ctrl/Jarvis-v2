@@ -472,10 +472,13 @@ class LongJobStaysHeard(unittest.TestCase):
         self.queued = []
         runtime = self._runtime()
         runtime.events = SimpleNamespace(put=self.queued.append)
-        runtime.requests_state = SimpleNamespace(register=lambda owner, rid: True,
-                                                 cancel=lambda owner: None)
+        runtime.requests_state = SimpleNamespace(
+            register=lambda owner, rid, **kwargs: True,
+            cancel=lambda owner: None,
+        )
         runtime.slugify = lambda name: name
-        runtime.pc_profile = lambda: SimpleNamespace(name='Hamdi')
+        runtime.pc_profile = lambda: SimpleNamespace(name='Hamdi', slug='Hamdi')
+        runtime._emit_for = Mock()
         runtime.secrets = SimpleNamespace(token_hex=lambda n: 'rid')
         runtime._tr_lower = lambda text: text.lower()
         session = _session(runtime)
@@ -496,6 +499,9 @@ class LongJobStaysHeard(unittest.TestCase):
             self.assertEqual(self.queued[0][0], 'command')
             self.assertEqual([event[1] for event in self.queued], ['hava durumu'])
             self.assertEqual(self.queued[0][2], 'ses')
+            notice = runtime._emit_for.call_args.args
+            self.assertEqual(notice[1], 'system')
+            self.assertIn('sıraya alındı', notice[2])
         finally:
             release.set()
             thread.join(10)

@@ -388,7 +388,9 @@ class Fence:
     def __init__(self):
         self.calls: list[tuple] = []
 
-    def register(self, owner, rid, seconds=90):
+    def register(self, owner, rid, seconds=90, *, execution_seconds=None):
+        # Keep this surface test's fake request fence API aligned with the
+        # production bounded queue/active-turn admission contract.
         self.calls.append(("register", owner, rid))
         return True
 

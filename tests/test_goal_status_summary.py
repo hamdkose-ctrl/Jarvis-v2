@@ -84,7 +84,7 @@ class StatusSummaryTests(unittest.TestCase):
                     ))
                 unified.assert_called_once_with('alice',
                     details=(command=='hedef ayrıntıları'))
-                rt.requests_state.register.assert_called_once_with('alice','test-rid')
+                rt.requests_state.register.assert_called_once_with('alice','test-rid',seconds=300,execution_seconds=90)
                 rt._emit_for.assert_any_call(
                     profile,'user',command,'yazı',rid='test-rid')
                 rt._emit_for.assert_any_call(

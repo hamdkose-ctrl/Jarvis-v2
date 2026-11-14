@@ -961,3 +961,14 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Sınır / kabul:** Tam serbest doğal dilin eşzamanlı sınıflandırılması veya effectful işlerin otomatik arka plana taşınması **çözülmedi**. Telefon/sesli konuşma fiziksel cihaz kabulü, kullanıcı gözlemli 15–20 senaryo, OAuth, p95/p99, kaynak maliyeti ve sağlayıcı uzun blokları hâlâ açık. Bu bölümün kodu son SHA Windows CI ve **aynı SHA** gerçek PC watcher General+Validation PASS olmadan merge edilmez.
 
+
+### Uzun foreground sonrası normal konuşma kuyruğunun kaybolmaması — 14 Kasım 2026 (kabul bekliyor)
+
+**Kod bulgusu:** `engine_queue.submit` normal serbest metin isteğini `requests_state.register(...)` ile varsayılan **90 s** son tarihle `engine_loop` olay kuyruğuna alıyordu. Normal istek modeli/legacy yürütücü tek event-loop'ta uzun çalıştığında, sonraki istek hiç başlamadan bu süreyi tüketip kuyruktan sessizce düşebiliyordu. Telefon `PhoneServer.ask` de HTTP beklemesinin sonunda isteği **hâlâ kuyrukta olsa bile** iptal ediyordu.
+
+**Sınırlı kullanıcı deneyimi düzeltmesi:** Normal metin isteği için yalnız kuyruk bekleme penceresi 5 dakika; normal yürütme başlangıcında ayrı 90 saniyelik istek zamanı oluşturulur. Yürütme süresini zaten güvenle uzatabilen mevcut worker/legacy `allow_long_operation` korunur. İptal/son kullanma ile `activate` yarışı eski isteği diriltemez. Arka plan `register_background` ve mevcut ses/audio/phone bağları kendi davranışını korur. Telefonun 90 saniyelik HTTP beklemesi dolduğunda istek hâlâ **queued** ise iptal etmek yerine, sonucun işlenirse kendi geçmişinde görüneceğini bildirir. Beş dakika bekleme de aşılırsa event loop, hiç yürütülmeyen isteğin iptal/süre dolumunu kendi kullanıcısının geçmişine bildirir. Tek Core, tek Scheduler, tek VoiceCoordinator korunur; yeni doğal dil sınıflandırıcısı yoktur.
+
+**Kanıt planı:** `tests/test_voice_queue_wait_contract.py` gerçek requests_state journal/owner/RID, queue→running deadline geçişi, son tarihi dolmuş ya da iptal edilmiş isteğin tekrar canlandırılmaması, background deadline'ın korunması ve telefon HTTP kuyruğu/aktif iş ayrımını test eder. Son kaynak SHA Windows CI, gerçek PC watcher General+Validation PASS ve kod incelemesi olmadan birleşme yapılmaz.
+
+**Açık kalan gerçek mimari eksik:** Bu yama serbest doğal dilin başka bir modelle eşzamanlı anlaşılıp yürütülmesini sağlamaz. Eski legacy foreground'da bir tur hâlâ bekleyebilir ve sonlu kuyruk son tarihinde expire olabilir. Bu sınır, otomatik yetki/efekt ve çoklu oturum güvenliği kanıtı olmadan paralel işleme bahanesiyle atlanmaz.
+
