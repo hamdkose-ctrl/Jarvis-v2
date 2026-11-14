@@ -895,6 +895,18 @@ class PhoneServer:
                         return self._for_speech(e["text"])
                 time.sleep(.25)
             if hasattr(eng, "requests_state"):
+                # The 90-second phone HTTP wait is NOT the engine queue's
+                # admission deadline. If another foreground task still owns
+                # the engine, do not throw away an otherwise valid queued
+                # turn. Its finite queue TTL and eventual result remain
+                # visible in the owner's normal history, never as a forged
+                # final HTTP reply.
+                pending = getattr(eng.requests_state, "request_state", None)
+                if callable(pending) and pending(owner, rid) == "queued":
+                    return ("İsteğin hâlâ sırada. Bu telefon isteğinin bekleme "
+                            "süresi doldu ama Jarvis'teki görev kaydı korunuyor. "
+                            "İşlenirse sonucunu konuşma geçmişinde görebilirsin; "
+                            "kuyruk süresi aşılırsa iş başlatılmaz.")
                 eng.requests_state.cancel(owner,rid)
             return f"{_aname()} şu an yanıt veremedi, biraz sonra tekrar dener misin?"
 
