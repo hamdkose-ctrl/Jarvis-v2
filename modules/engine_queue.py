@@ -15,11 +15,39 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         runtime.voice.stop_speaking()
         return False
     if command in ("dur", "stop"):
-        # Existing explicit task-stop semantics remain available.
-        from modules import pc_guide
-        pc_guide.stop(runtime.slugify(user or runtime.pc_profile().name))
+        # Stop speech immediately, but do not mistake a bare utterance for
+        # permission to cancel every independent queued/running request.
         runtime.voice.stop_speaking()
-        runtime.requests_state.cancel(runtime.slugify(user or runtime.pc_profile().name))
+        name = user or runtime.pc_profile().name
+        owner = runtime.slugify(name)
+        outcome, _target = runtime.requests_state.cancel_unambiguous(owner)
+        if outcome == 'ambiguous':
+            runtime._emit_for(
+                runtime._get_profile(name), 'assistant',
+                'Birden fazla istek çalışıyor. Hiçbiri iptal edilmedi. '
+                'Durdurmak istediğin hedefi kimliğiyle seç veya açıkça '
+                '“tüm istekleri iptal et” de.', source, rid=rid,
+            )
+        elif outcome == 'none':
+            runtime._emit_for(
+                runtime._get_profile(name), 'assistant',
+                'Konuşma kesildi. İptal edilecek tek bir aktif istek yok; '
+                'arka plan hedefini durdurmak için hedef kimliğini seç.',
+                source, rid=rid,
+            )
+        return False
+    if command == "tüm istekleri iptal et":
+        # Explicit all-request scope. This still does not cancel GoalState
+        # jobs, which must use their owner-bound goal ID control.
+        owner = runtime.slugify(user or runtime.pc_profile().name)
+        runtime.voice.stop_speaking()
+        runtime.requests_state.cancel(owner)
+        return False
+    if command == "rehberi durdur":
+        from modules import pc_guide
+        owner = runtime.slugify(user or runtime.pc_profile().name)
+        pc_guide.stop(owner)
+        runtime.voice.stop_speaking()
         return False
     owner = runtime.slugify(user or runtime.pc_profile().name)
     rid = rid or runtime.secrets.token_hex(16)
@@ -37,10 +65,10 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         from modules import goal_executor
         profile=runtime._get_profile(user)
         with runtime.requests_state.activate(owner,rid):
-            job=goal_executor.latest(owner)
             runtime._emit_for(profile,'user',text,source,rid=rid)
-            formatter = goal_executor.render if status == 'details' else goal_executor.status_summary
-            runtime._emit_for(profile,'assistant',formatter(job) if job else 'Kayıtlı hedef yok.',source,rid=rid)
+            runtime._emit_for(profile,'assistant',
+                              goal_executor.fast_status(owner, details=status == 'details'),
+                              source,rid=rid)
         return True
     runtime.events.put(("command", text, source, user, rid))
     return True
