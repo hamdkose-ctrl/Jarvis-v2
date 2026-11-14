@@ -21,10 +21,9 @@ class QueuedTurnLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.addCleanup(patch.stopall)
-        patch.object(requests_state, '_journal',
-                     Path(self.temp.name) / 'requests.json').start()
-        patch.object(requests_state, '_records', {}).start()
+        self.enterContext(patch.object(
+            requests_state, '_journal', Path(self.temp.name) / 'requests.json'))
+        self.enterContext(patch.object(requests_state, '_records', {}))
         self.pc = SimpleNamespace(name='Alice', slug='alice')
         self.runtime = SimpleNamespace(
             _tr_lower=str.casefold, slugify=str.casefold,
