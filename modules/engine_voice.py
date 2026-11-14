@@ -201,7 +201,7 @@ class VoiceSession:
                 try:
                     self._barge_watch(target)
                 except Exception:
-                    self.runtime._record_failure('modules/engine_voice.py:barge_loop')
+                    _record_failure('modules/engine_voice.py:barge_loop')
             with self._barge_lock:
                 if target is self._barge_pending:
                     self._barge_thread = None
