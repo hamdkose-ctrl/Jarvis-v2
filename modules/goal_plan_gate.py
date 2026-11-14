@@ -17,6 +17,28 @@ class PlanFenceError(ValueError):
     """A node or plan candidate is stale, invalid, or cannot be dispatched."""
 
 
+def worker_compatible_audit(row: dict) -> bool:
+    """Only accepted sibling work or scheduling-only Core changes may overlap.
+
+    A pause REQUEST lets the already admitted step reach its checkpoint;
+    actual pause/resume, revised intent and plan changes still revoke it.
+    """
+    return (row.get('op'), row.get('reason_code')) in {
+        ('append_evidence', 'WORKER_RESULT_ACCEPTED'),
+        ('mutate_goal_intent', 'USER_GOAL_PRIORITY'),
+        ('set_blocker', 'USER_GOAL_PAUSE_REQUESTED'),
+        ('clear_blocker', 'USER_GOAL_PAUSE_WITHDRAWN'),
+    }
+
+
+def projection_compatible_audit(row: dict) -> bool:
+    return worker_compatible_audit(row) or (row.get('op'), row.get('reason_code')) in {
+        ('set_state', 'USER_GOAL_PAUSED'),
+        ('set_blocker', 'USER_GOAL_PAUSED'),
+        ('set_state', 'USER_GOAL_RESUMED'),
+    }
+
+
 @dataclass(frozen=True)
 class NodeCandidate:
     owner: str
@@ -158,7 +180,7 @@ def ready_read_only_candidates(
     plan_commits = [index for index, entry in enumerate(current['audit'])
                     if entry['op'] == 'set_goal_plan']
     if not plan_commits or any(
-        entry['op'] == 'mutate_goal_intent'
+        entry['op'] == 'mutate_goal_intent' and entry['reason_code'] != 'USER_GOAL_PRIORITY'
         for entry in current['audit'][plan_commits[-1] + 1:]
     ):
         raise PlanFenceError('Kullanıcı goal intent değişikliği için plan revalidation gerekli.')
@@ -376,7 +398,10 @@ def revision_reuse_candidates(state: dict, revised_plan: dict) -> tuple[str, ...
     Completion evidence and approval must be reverified by Core separately.
     No worker can be skipped solely on this result.
     """
-    current, previous = _current_plan(state)
+    current = goal_state.validate(state)
+    previous = current.get('goal_plan')
+    if goal_state.authority(current) != 'canonical' or not isinstance(previous, dict):
+        raise PlanFenceError('Canonical önceki plan gerekli.')
     proposed = goal_state.validate_goal_plan(revised_plan)
     if proposed['plan_version'] != previous['plan_version'] + 1:
         raise PlanFenceError('Plan revizyonu sürümü sıralı değil.')

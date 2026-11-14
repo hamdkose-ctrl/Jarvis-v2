@@ -9,10 +9,7 @@ import sys
 import time
 
 _MAIL = r"(?:g?mail|e-?posta|eposta|ileti)['’]?\w*"
-_WORK = re.compile(r"\b(?:iş|işyeri|şirket|ofis)\w*\s+(?:(?:önemli|öncelikli|acil|yeni|okunmamış)\w*\s+)?" + _MAIL + r"|outlook\w*")
 IMPORTANT_NOTE = "Outlook'ta önem derecesine bakmıyorum; okunmamış iş maillerin: "
-_RANK = re.compile(r"önemli|öncelikli|acil")
-_CHECK = re.compile(r"k\w{0,2}t\w{0,2}r\w{0,2}l|bak|oku|var\s*mı|geldi|gelmiş|neler|ne var|kaç|okunmamış|yeni|göster|söyle")   # "kotrol" gibi yazım hataları da
 
 
 def running() -> bool:
@@ -338,14 +335,3 @@ def draft_typed(ask, *, index: int | None = None, sender: str | None = None) -> 
             return f"Okunmamış {len(mails)} iş mailin var; {index}. maile ulaşamadım."
         selected = mails[index - 1]
     return _render_draft(selected, ask)
-
-def handle(cmd_lower: str) -> str | None:
-    """'iş maillerimi kontrol et', 'outlook'a bak', 'outlook'ta yeni mail var mı' gibi istekler."""
-    t = cmd_lower
-    if re.search(r"\b(?:gönder|yaz|at)\w*\b", t) and not re.search(r"kontrol|bak", t):
-        return None
-    if _WORK.search(t) and (_CHECK.search(t) or len(t.split()) <= 3):   # "iş maili", "outlook mailleri"
-        if re.fullmatch(r"\s*outlook\w*['’]?\w*\s+(?:aç|başlat|çalıştır)\w*\s*", t):
-            return None
-        return unread_mail(prefix=IMPORTANT_NOTE if _RANK.search(t) else "")
-    return None

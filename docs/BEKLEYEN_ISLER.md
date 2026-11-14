@@ -60,3 +60,6 @@ Beşinci tur — exact-head kod doğrulaması ve gerçek kullanıcı Full'ü (9 
 ### BRAIN-05 — yol gösterici kayıt (9 Kasım 2026)
 
 Bu bir aktif iş listesi maddesi değildir; yetkili kayıt [`Jarvis_Yol_Haritasi.md`](Jarvis_Yol_Haritasi.md) içindeki "BRAIN-05 durumu" paragrafı ve [`architecture/JARVIS_BRAIN_MIGRATION_MAP_V1.md`](architecture/JARVIS_BRAIN_MIGRATION_MAP_V1.md) §14.5'tir. `gpt/brain-05-goal-resolver` dalında çoklu hedef bağlamı + Goal Resolver uygulanıp odaklı testlerle ölçüldü; mock sağlayıcı bağlantı kanıtıdır, gerçek modelin hedef-ilişkisi semantiği ölçülmedi. Açık kapılar: bu head'in exact-head Windows CI'ı, aynı SHA'da gerçek PC watcher koşusu, canlı hedef-operasyonu semantik ölçümü, `BRAIN-MIG-098`'in not/takvim grameri yarısı (048/049/050 ailesi; 068 ile birlikte karar) ve yukarıdaki d4-13 pending-ilişki bulgusu. Brain CLOSED denmez; #533 ve #534 merge edilmiştir, işleri yeniden açılmaz.
+
+
+- Brain/Core 14 Kasım tek kapsam: kaynak ve kabul matrisi `docs/architecture/BRAIN_CORE_SINGLE_CLOSEOUT_2026-11-14.md`. Kod doğrulaması, canlı Full (#545), fiziksel/operator Windows ve #584'ün Account/effectful geniş sınırları ayrı izlenir. Birleşen #613/#617/#621/#622/#623/#624 işleri yeniden açılmaz; #625 ses işi çoğaltılmaz. Yeni PR kabul kanıtı kendi exact kaynağına bağlıdır.

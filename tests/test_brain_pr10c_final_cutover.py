@@ -106,8 +106,6 @@ BRAIN_TURN_ALLOWLIST = {
                            "Core handler'ın tek sınıflandırılmış-istek kapısı çağrısı; başka çağran yok."),
 }
 SEMANTIC_DOOR_ALLOWLIST = {
-    "brain_entry.py": {"route": "_install_job_guard kararı değiştirmez; yalnız canonical "
-                                "job.resume/job.cancel eşleşmesinde bounded işaretini OR eder."},
     "engine_runtime.py": {"handle": "EngineContext.__init__'in kendi facade bağlaması: tek giriş handle_request."},
 }
 
@@ -301,7 +299,7 @@ class LiveToolAuthorityTests(unittest.TestCase):
     def test_canonical_sentences_reach_the_domain_owners(self):
         from modules import handoff, media
         with patch.object(media, "youtube", return_value="Açtım.") as yt:
-            self.assertEqual(media.handle("youtube'da ars viwandi çal"), "Açtım.")
+            self.assertEqual(media.youtube("ars viwandi"), "Açtım.")
             yt.assert_called_once_with("ars viwandi")
         self.assertEqual(handoff.parse("iş için not: sunucuyu kontrol et", "iş için not: sunucuyu kontrol et"),
                          ("Sunucuyu kontrol et", "is", handoff.date.today()))

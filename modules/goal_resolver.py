@@ -246,6 +246,12 @@ def _single(call: Any, reason_code: str, ident: str | None = None) -> Resolution
 
 def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOperation,
               ident: str, text: str, snapshot: dict, *, answer: bool = False) -> str:
+    if operation is not GoalOperation.CANCEL:
+        from modules import canonical_goal_control
+        controlled = canonical_goal_control.control(
+            owner, ident, operation.name.lower(), text=text, expected_snapshot=snapshot or None, answer=answer)
+        if controlled is not None:
+            return controlled
     # `create_goal` buraya hiç ulaşmaz: yeni kaydın hedeflenecek bir kimliği yoktur ve o
     # geçiş `resolve` kendi dalından yürür. Buradaki her kol mevcut bir kayıttadır.
     if operation in {GoalOperation.CONTINUE, GoalOperation.RESUME}:

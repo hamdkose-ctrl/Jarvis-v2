@@ -113,6 +113,10 @@ def _root(owner):
 
 
 def _save(job,*,move_pointer=True):
+    from modules import brain_entry
+    entry = brain_entry.current()
+    if entry is not None and job.get('owner') == entry.owner:
+        job['brain'] = brain_entry.execution_metadata(entry.owner)
     root=_root(job['owner'])
     with goal_job_control.locked(root,job['id']):
         if '_canonical_version' in job:
@@ -187,7 +191,11 @@ def _read_locked(root,owner,identity):
     job=execution_record.load(root,owner,identity)
     state=goal_job_control.capture(root,job)
     if state and 'goal_intent' in state:
-        _project_intent(job,state['goal_intent'])
+        if 'goal_plan' in state or '_planner_rid' in job:
+            job['goal_intent']=copy.deepcopy(state['goal_intent'])
+            job['priority']=state['goal_intent']['priority']
+        else:
+            _project_intent(job,state['goal_intent'])
     return job
 
 
@@ -239,6 +247,9 @@ def _priority(job):
 
 def pause_job(owner,identity,*,expected_snapshot=None):
     """Park only a safely stopped open goal, after checking the offered snapshot."""
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'pause',expected_snapshot=expected_snapshot)
+    if controlled is not None:return controlled
     root=_owner_root(owner)
     with _LOCK, goal_job_control.locked(root,identity):
         job=read_job(owner,identity)
@@ -279,16 +290,25 @@ def _intent_mutation(owner,identity,operation,*,text=None,priority=None,expected
 
 
 def append_goal_task(owner,identity,text,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'add_task',expected_snapshot=expected_snapshot, text=text)
+    if controlled is not None:return controlled
     job=_intent_mutation(owner,identity,'add_task',text=text,expected_snapshot=expected_snapshot)
     return 'Bu hedefe yeni sonuç olarak eklendi: '+text.strip()[:300]+'\n\n'+render(job)
 
 
 def revise_job(owner,identity,text,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'revise',expected_snapshot=expected_snapshot, text=text)
+    if controlled is not None:return controlled
     job=_intent_mutation(owner,identity,'revise',text=text,expected_snapshot=expected_snapshot)
     return 'Hedef düzeltmesi kaydedildi.\n\n'+render(job)
 
 
 def prioritize_job(owner,identity,*,expected_snapshot=None):
+    from modules import canonical_goal_control
+    controlled=canonical_goal_control.control(owner,identity,'prioritize',expected_snapshot=expected_snapshot)
+    if controlled is not None:return controlled
     priority=max([_priority(current) for current in open_jobs(owner) if current['id']!=identity]+[0])+1
     job=_intent_mutation(owner,identity,'prioritize',priority=priority,expected_snapshot=expected_snapshot)
     return 'Bu hedef öncelikli olarak kaydedildi.\n\n'+render(job)
@@ -937,6 +957,10 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             # this direct legacy command nor a retry may enter its model loop.
             canonical_status = canonical_scheduler_status(owner, job['id'], job)
             if canonical_status is not None:
+                if resume and not approve:
+                    from modules import canonical_goal_control
+                    controlled=canonical_goal_control.control(owner,job['id'],'resume')
+                    if controlled is not None:return controlled
                 return (canonical_status
                         + '\n\nBu arka plan hedefini Scheduler yürütür; '
                           'ikinci bir yürütme başlatılmadı.')
@@ -1184,9 +1208,16 @@ def canonical_scheduler_owned(owner, identity, *, root=None):
     from modules import goal_state
     source = root if root is not None else _owner_root(owner)
     state = goal_job_control.canonical(source, owner, identity)
-    return bool(state is not None
-                and goal_state.authority(state) == 'canonical'
-                and isinstance(state.get('goal_plan'), dict))
+    if state is None or goal_state.authority(state) != 'canonical':
+        return False
+    if isinstance(state.get('goal_plan'), dict):
+        return True
+    try:
+        record=execution_record.load(source,owner,identity)
+    except FileNotFoundError:
+        return False
+    return (isinstance(record.get('_planner_rid'),str)
+            and record.get('request','').strip()==state['goal'])
 
 
 def canonical_scheduler_status(owner, identity, job=None):

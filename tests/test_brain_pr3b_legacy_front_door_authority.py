@@ -36,7 +36,7 @@ EFFECT_SEAMS = (
     "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
-    "modules.media.handle", "modules.filesend.handle",
+    "modules.filesend.handle",
     "modules.pc_guide.handle", "modules.developer.handle", "modules.task_agents.handle",
 )
 _EFFECT_DEFAULTS = {"verify_sync": {"sync_state": "clean"}, "status": {"error": "", "sha": "", "msg": ""},
@@ -1090,7 +1090,8 @@ class CoreRejectionFallthroughInventoryTests(_RawDoorHarness):
         # test sınıflarında kilitlidir (test_brain_photo_core_cutover, CoreRejectionFenceTests,
         # test_brain_pr3c2_core_rejection_and_explanation); burada envanter sahibi olarak adlandırılır.
         from modules import brain_entry as entry_module
-        source = inspect.getsource(entry_module.handoff)
+        from modules import core_brain_adapter
+        source = inspect.getsource(core_brain_adapter.handoff)
         self.assertIn("capability_hint == PHOTO_CAPABILITY", source)
         self.assertIn("refusal = _file_access_refusal(entry)", source)
         self.assertIn("_core_rejected_proposal(entry)", source)

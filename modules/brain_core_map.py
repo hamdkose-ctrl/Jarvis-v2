@@ -1730,18 +1730,6 @@ def _app_target_question(arguments: Mapping[str, Any]) -> str | None:
 
 
 def clarification_effect(runtime: Any, ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> None:
-    """Core-owned state change that makes the asked question answerable next turn."""
-    if LEVEL_UNSPECIFIED in ambiguities:
-        level = arguments.get("level")
-        if isinstance(level, int) and not isinstance(level, bool):
-            runtime._session().pending_level = max(0, min(100, level))
-        return
-    if APP_TARGET_MISSING in ambiguities:
-        kind = _app_target_kind(arguments)
-        question = _app_target_question(arguments)
-        if kind is None or question is None:
-            return
-        # Yalnız bounded proposal yazılır: hedefsiz fiilin cevabi mevcut app aç/kapat sahibine döner.
-        from modules import app_actions
-        app_actions.ask_clarification(runtime._session(), str(arguments.get("original_text") or ""),
-                                      question, runtime.profile, {"kind": kind})
+    """Compatibility facade; Core owns the pending-state transition."""
+    from modules import core_brain_adapter
+    return core_brain_adapter.clarification_effect(runtime, ambiguities, arguments)

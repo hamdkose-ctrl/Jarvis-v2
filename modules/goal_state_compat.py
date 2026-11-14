@@ -133,6 +133,159 @@ def commit_verified_goal_completion(path, *, owner, job_id, proof):
         )
 
 
+def commit_plan_revision(path, *, owner, job_id, plan, proof):
+    """Accept a certified read-only revision/reuse, then project the SAME journal.
+
+    Reuse is a new Core acceptance of an old verified result, never another
+    external attempt. The old receipt identity is retained explicitly.
+    """
+    import copy
+    from modules import canonical_output_projection, canonical_plan_revision, dependency_evidence, goal_plan_gate
+    import release_guard
+    if not isinstance(proof, canonical_plan_revision.RevisionProof) or (proof.owner, proof.job_id) != (owner, job_id):
+        raise ReconcilePolicyError('Core revizyon kanıtı gerekli.')
+    plan = goal_state.validate_goal_plan(plan)
+    with _execution_journal_lock(path, job_id):
+        current = goal_state_store.load(path)
+        root = Path(path).parent
+        record = execution_record.load(root, owner, job_id)
+        if ((current['owner'], current['job_id']) != (owner, job_id)
+                or goal_state.authority(current) != 'canonical' or current['state'] != 'paused'
+                or record.get('state') != 'revision_running'
+                or current['version'] != proof.goal_version
+                or goal_job_control.fingerprint(record) != proof.record_digest
+                or goal_job_control.fingerprint(plan) != proof.plan_digest):
+            raise ReconcilePolicyError('Plan revizyonu veya doğrulanan kayıt değişti.')
+        if any(node['capability_id'] not in {'task.research', 'task.account', 'task.verify'} for node in plan['nodes']):
+            raise ReconcilePolicyError('Revizyon mevcut salt-okunur Scheduler kapsamını aşamaz.')
+        canonical_plan_revision._unknown_replay(current, record, plan)
+        candidates = set(goal_plan_gate.revision_reuse_candidates(current, plan))
+        source = canonical_plan_revision.source_before_edit(current)
+        old_nodes = {node['id']: node for node in current['goal_plan']['nodes']}
+        reused = dict(proof.reused)
+        if len(reused) != len(proof.reused) or not set(reused) <= candidates:
+            raise ReconcilePolicyError('Yeniden kullanım adayları geçersiz.')
+        accepted = {}
+        for node in plan['nodes']:
+            ident = node['id']
+            if ident not in reused:
+                continue
+            if any(dep not in accepted for dep in node['depends_on']):
+                raise ReconcilePolicyError('Yeniden kullanımın önkoşul kanıtı eksik.')
+            output = record['outputs'].get(ident)
+            if dependency_evidence.output_sha256(output) != reused[ident]:
+                raise ReconcilePolicyError('Doğrulanmış eski çıktı değişti.')
+            accepted[ident] = canonical_output_projection._accepted_row(source, owner, job_id, old_nodes[ident], output)
+        updated = core_state_reducer.apply(current, dict(
+            op='set_goal_plan', expected_version=current['version'], plan=plan, reason_code='CORE_GOAL_PLAN_ACCEPTED'))
+        updated = core_state_reducer.apply(updated, dict(
+            op='set_state', state='running', expected_version=updated['version'], reason_code='CORE_GOAL_PLAN_REVISED'))
+        pause_requested = (current.get('blocker') or {}).get('code') == 'PAUSE_REQUESTED'
+        if pause_requested:
+            updated = core_state_reducer.apply(updated, dict(
+                op='set_blocker', blocker={'code': 'PAUSE_REQUESTED'}, expected_version=updated['version'],
+                reason_code='USER_GOAL_PAUSE_REQUESTED'))
+        projected = copy.deepcopy(record)
+        projected.setdefault('_plan_history', []).append({
+            'plan': copy.deepcopy(current['goal_plan']), 'steps': copy.deepcopy(record['steps']),
+            'outputs': copy.deepcopy(record['outputs']),
+        })
+        for key in ('_canonical_dialog', '_pending_goal_edit', '_pause_requested', '_resume_state', '_pending_plan_projection'):
+            projected.pop(key, None)
+        projected['state'] = 'running'
+        if pause_requested:
+            projected['_pause_requested'] = True
+        projected['goals'] = [{'text': current['goal'], 'state': 'pending', 'evidence': []}]
+        projected['goal_intent'] = copy.deepcopy(current.get('goal_intent'))
+        projected['goal_intent_history'] = goal_state.intent_history(current)
+        projected['steps'] = []
+        projected['outputs'] = {}
+        for node in plan['nodes']:
+            ident = node['id']
+            step = dict(id=ident, goal=0, tool=node['capability_id'].removeprefix('task.'),
+                        input=copy.deepcopy(node['input']), depends=list(node['depends_on']),
+                        state='queued', started=False, attempts=0)
+            if ident in accepted:
+                old = accepted[ident]
+                evidence = copy.deepcopy(old)
+                evidence.update(plan_version=plan['plan_version'], node_digest=goal_plan_gate.fingerprints(plan)[ident],
+                                command_id=f"{ident}:1:p{plan['plan_version']}", attempt=1,
+                                expected_job_version=updated['version'],
+                                reused_from={'plan_version': old['plan_version'], 'command_id': old['command_id'],
+                                             'output_sha256': reused[ident]})
+                updated = core_state_reducer.apply(updated, dict(
+                    op='append_evidence', expected_version=updated['version'], evidence=evidence,
+                    reason_code='WORKER_RESULT_ACCEPTED'))
+                step.update(state='done', started=True, attempts=1, reused_from=evidence['reused_from'])
+                projected['outputs'][ident] = copy.deepcopy(record['outputs'][ident])
+            projected['steps'].append(step)
+        # Prepare recoverable journal bytes BEFORE the new Core CAS. A crash
+        # after CAS can only replay projection, never planning/provider work.
+        record['_pending_plan_projection'] = {'plan': plan, 'record': projected}
+        encoded = execution_record.encode(record)
+        if len(encoded) > execution_record.MAX_BYTES:
+            raise ReconcilePolicyError('Revizyon günlüğü güvenli kayıt sınırını aşıyor.')
+        release_guard.atomic(execution_record.path_for(root, job_id), encoded)
+        saved = goal_state_store.compare_and_swap(path, expected_version=current['version'], next_state=updated)
+        release_guard.atomic(execution_record.path_for(root, job_id), execution_record.encode(projected))
+        return saved
+
+
+def apply_canonical_control(path, *, owner, job_id, expected_version, operation, text=None, priority=None):
+    """Core-only lifecycle/intent transition for one addressed Scheduler goal."""
+    with _execution_journal_lock(path, job_id):
+        current = goal_state_store.load(path)
+        if ((current['owner'], current['job_id']) != (owner, job_id)
+                or goal_state.authority(current) != 'canonical'
+                or current['state'] in ('done', 'cancelled', 'failed')):
+            raise ReconcilePolicyError('Canonical hedef bu kontrol için açık değil.')
+        if current['version'] != expected_version:
+            raise goal_state_store.PersistedStateConflict('Hedef kontrol sürümü değişti.')
+        if operation == 'pause_requested':
+            proposal = dict(op='set_blocker', blocker={'code': 'PAUSE_REQUESTED'},
+                            reason_code='USER_GOAL_PAUSE_REQUESTED')
+        elif operation == 'resume_revision':
+            if current['state'] != 'paused' or 'goal_plan' not in current:
+                raise ReconcilePolicyError('Revizyon kuyruğu güvenli beklemede değil.')
+            proposal = dict(op='clear_blocker', reason_code='USER_GOAL_REPLAN_RELEASED')
+        elif operation in ('pause', 'resume'):
+            target = 'paused' if operation == 'pause' else ('running' if 'goal_plan' in current else 'pending')
+            if (operation == 'resume' and current['state'] in ('pending', 'running')
+                    and (current.get('blocker') or {}).get('code') == 'PAUSE_REQUESTED'):
+                proposal = dict(op='clear_blocker', reason_code='USER_GOAL_PAUSE_WITHDRAWN')
+            elif current['state'] == target:
+                if operation == 'pause':
+                    proposal = dict(op='set_blocker', blocker={'code': 'PAUSED_BY_USER'}, reason_code='USER_GOAL_PAUSED')
+                elif (current.get('blocker') or {}).get('code') != 'PAUSE_REQUESTED':
+                    return current
+                else:
+                    proposal = dict(op='clear_blocker', reason_code='USER_GOAL_PAUSE_WITHDRAWN')
+            else:
+                proposal = dict(op='set_state', state=target,
+                                reason_code='USER_GOAL_PAUSED' if operation == 'pause' else 'USER_GOAL_RESUMED')
+        elif operation in ('revise', 'add_task', 'prioritize'):
+            proposal = dict(op='mutate_goal_intent', operation=operation, text=text, priority=priority,
+                            reason_code='USER_GOAL_PRIORITY' if operation == 'prioritize' else 'USER_GOAL_INTENT')
+        else:
+            raise ReconcilePolicyError('Bilinmeyen canonical kontrol.')
+        updated = core_state_reducer.apply(current, dict(proposal, expected_version=current['version']))
+        if operation in ('revise', 'add_task'):
+            updated = core_state_reducer.apply(updated, dict(
+                op='append_evidence', expected_version=updated['version'],
+                evidence={'kind': 'goal_intent_change', 'operation': operation,
+                          'text': text.strip(), 'intent_version': updated['version']},
+                reason_code='USER_GOAL_INTENT_RECORDED'))
+        if operation in ('revise', 'add_task') and updated['state'] != 'paused':
+            updated = core_state_reducer.apply(updated, dict(
+                op='set_state', state='paused', expected_version=updated['version'],
+                reason_code='USER_GOAL_REPLAN_REQUESTED'))
+        if operation in ('revise', 'add_task') and updated.get('blocker'):
+            updated = core_state_reducer.apply(updated, dict(
+                op='clear_blocker', expected_version=updated['version'],
+                reason_code='CORE_GOAL_REPLAN_QUEUED'))
+        return goal_state_store.compare_and_swap(path, expected_version=expected_version, next_state=updated)
+
+
 def apply_goal_intent(path, *, owner, job_id, expected_version, operation, text=None, priority=None):
     """Commit an explicitly requested intent mutation to an existing canonical job."""
     # Reuse the executor's existing short per-job, cross-process control lock.

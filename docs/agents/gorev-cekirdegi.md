@@ -2,6 +2,8 @@
 
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
 
+- **14 Kasım Brain/Core bağlantısı:** `core_brain_adapter` typed handoff/batch/session sahibidir; `brain_entry` global Core fonksiyonlarını değiştirmez. Canonical kontrol yeni node admission'ını checkpoint'te durdurur; mevcut adımın claim'i ve sonucu korunur. Revise/add_task aynı GoalState üzerinde mevcut Scheduler'da yeni plan önerisi üretir; Core sürüm/digest/domain doğrulamasından sonra eski sonuçları açık `reused_from` kanıtıyla kabul eder. Priority gerçek offer sırasını etkiler, owner fairness korunur. Queued first-plan da canonical Scheduler sahibidir; bounded legacy resume ikinci yürütme açamaz. Süresi aşan aktif worker karantinaya kaydedilir; thread/claim dönmeden slot yeniden kullanılmaz. Ayrıntı ve kabul sınırı: `docs/architecture/BRAIN_CORE_SINGLE_CLOSEOUT_2026-11-14.md`.
+
 - Son parite: `tasks.manage.clear_done` yalnız tamamlanmış görevleri mevcut `tasks.clear_done` işçisine bağlar. Önce mevcut `pending_confirm` sahibi sorar; owner, 90 sn süre ve tamamlanmış kayıtların exact snapshot digest'i onayda kilit altında kontrol edilir. Sonradan tamamlanan/değişen kayıt kapsamı onayı geçersiz kılar; yeni açık görev silinmez. Başarısız save belleği geri alır. Model zarfı/hedef reddi, rota veya taşıma yokluğundan ayrılır; `MODEL_PROPOSAL_REJECTED` de ham cepheleri açmaz.
 
 - Üretim text/live/nested girişler nötr gözlemden tek model kararı alır. Genel raw cascade, ikinci typo/sequence yorumlayıcısı ve Study callback'i emeklidir. `model_understanding=False` eski saf karakterizasyon ve talimatsız fotoğrafın “ne yapayım?” bekleme metadatası içindir; serbest kullanıcı talimatını yürütmez.

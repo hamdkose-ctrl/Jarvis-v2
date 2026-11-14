@@ -112,14 +112,13 @@ def _ask(owner: str, text: str, index: int) -> tuple[Any, str]:
     """Tek bounded model zarfı: production ile aynı giriş, etki yok."""
     from modules.brain_contracts import ActiveContext
     from modules.brain_model_understanding import propose
-    from modules.brain_understanding import _file_operation, _norm, understand
+    from modules.brain_contracts import neutral_observation
 
     request_id = f"holdout-{index:02d}"
     active = ActiveContext(owner=owner, request_id=request_id)
-    semantic = understand(owner=owner, request_id=request_id, text=text,
-                          active_context=active, candidates=(), references=())
+    semantic = neutral_observation(owner=owner, request_id=request_id, text=text)
     proposal = propose(owner=owner, text=text, current=semantic, arguments=semantic.arguments,
-                       protected_relation=False, file_operation_hint=_file_operation(_norm(text)))
+                       protected_relation=False)
     return proposal, semantic.capability_hint
 
 

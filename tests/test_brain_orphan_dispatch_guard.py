@@ -23,7 +23,7 @@ INTENTS_FILE = MODULES / "engine_intents.py"
 
 # The only production files allowed to call engine_intents.dispatch, and therefore the only
 # places a dispatch intent can be produced. Anything else is a second semantic authority.
-AUDITED_CALL_SITES = frozenset({"modules/brain_entry.py", "modules/engine_commands.py",
+AUDITED_CALL_SITES = frozenset({"modules/core_brain_adapter.py", "modules/engine_commands.py",
                                 "modules/command_manager.py"})
 DISPATCH_ARITY = 5  # dispatch(runtime, intent, a, command, cmd_lower)
 
@@ -164,7 +164,7 @@ def producer_intents(sources: dict[str, str]) -> set[str]:
     """The complete living vocabulary dispatch may receive, derived from audited call sites only."""
     core_map = sources["modules/brain_core_map.py"]
     producers = core_intent_targets(core_map) | fast_intent_targets(core_map) | state_intent_targets(core_map)
-    for file_name in sorted(AUDITED_CALL_SITES):
+    for file_name in sorted(AUDITED_CALL_SITES | {"modules/brain_entry.py"}):
         producers |= literal_intents_in(sources[file_name])
     producers.add("chat")  # engine_commands fallback when the projection carries no intent
     return producers

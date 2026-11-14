@@ -1811,30 +1811,20 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
-        def entry(protocol: str, reason: str):
-            return brain_entry.EntryResult(
-                "alice", "rel-guard", "yazı", "iptal", active,
-                GateObservation("alice", "rel-guard", "state", True, reason, protocol, "cancel"),
-            )
-
-        probe = Mock(return_value="JOB")
-        saved_route = job_front.route
-        saved_flag = getattr(job_front, "_brain_gate_guard_installed", False)
-        saved_legacy = getattr(job_front, "_brain_legacy_route", None)
-        job_front.route = probe
-        job_front._brain_gate_guard_installed = False
-        try:
-            brain_entry._install_job_guard()
-            guarded = job_front.route
-            with brain_entry.bind(entry("session.pending_confirm.confirm", "BOUNDED_FINAL_CONFIRM")):
-                self.assertIsNone(guarded("alice", lambda *a: None, "iptal", SimpleNamespace()))
-            with brain_entry.bind(entry("job.cancel", "BOUNDED_JOB_CANCEL")):
-                self.assertEqual(guarded("alice", lambda *a: None, "iptal", SimpleNamespace()), "JOB")
-            self.assertEqual(probe.call_count, 1)
-        finally:
-            job_front.route = saved_route
-            job_front._brain_gate_guard_installed = saved_flag
-            job_front._brain_legacy_route = saved_legacy
+        def entry(protocol):
+            return brain_entry.EntryResult("alice", "rel-guard", "yazı", "iptal", active,
+                GateObservation("alice", "rel-guard", "state", True, "BOUNDED", protocol, "cancel"))
+        from modules import task_agents
+        with patch.object(job_front, '_goal_open', return_value=False), \
+             patch.object(task_agents, 'recent', return_value={'id':'job', 'state':'interrupted', 'updated':time.time()}), \
+             patch.object(task_agents, 'cancel_job', return_value={'state':'cancelled'}) as cancel, \
+             patch.object(task_agents, 'render', return_value='JOB'):
+            with brain_entry.bind(entry('session.pending_confirm.confirm')):
+                self.assertIsNone(job_front.route('alice', lambda *a: None, 'iptal', SimpleNamespace()))
+            cancel.assert_not_called()
+            with brain_entry.bind(entry('job.cancel')):
+                self.assertEqual(job_front.route('alice', lambda *a: None, 'iptal', SimpleNamespace()), 'JOB')
+            cancel.assert_called_once_with('alice')
 
 
 class StateAuthorityArchitectureGuardTests(unittest.TestCase):
@@ -1907,7 +1897,7 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         return None
 
     def test_core_plan_eligibility_is_relation_driven_not_slot_inventory(self):
-        _tree, func = self._func(brain_entry, "core_plan")
+        _tree, func = self._func(__import__("modules.core_brain_adapter", fromlist=["core_plan"]), "core_plan")
         names = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
         self.assertNotIn("_has_open_pending", names,
                          "core_plan plan eligibility'yi genel pending envanterine bağlayamaz.")

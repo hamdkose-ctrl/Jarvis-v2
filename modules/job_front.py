@@ -64,6 +64,15 @@ def route(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False
     session pending varlığı işi yutamaz; domain goal/freshness/owner kontrolleri
     yine burada yeniden uygulanır.
     """
+    from modules import brain_entry
+    entry = brain_entry.current()
+    if entry is not None:
+        if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+            return None
+        if entry.state_gate.matched and not brain_entry.matched_protocol(
+                "job.resume", "job.cancel", "job.empty_cancel"):
+            return None
+        bounded = bounded or brain_entry.matched_protocol("job.resume", "job.cancel", "job.empty_cancel")
     low = cmd_lower.strip(' .!?')
     if low not in _CONTINUE and low not in _CANCEL:
         return None

@@ -586,7 +586,7 @@ class PhotoStructuralGuardTests(unittest.TestCase):
         self.assertNotIn("_photo_action", names)
 
     def test_core_plan_fences_the_photo_path_to_canonical_artifacts(self):
-        tree = ast.parse(_source("brain_entry"))
+        tree = ast.parse(_source("core_brain_adapter"))
         plan = _function(tree, "core_plan")
         names = {call.func.id for call in _calls(plan) if isinstance(call.func, ast.Name)}
         self.assertIn("_canonical_photo_path", names)

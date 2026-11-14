@@ -22,6 +22,15 @@ class ArchitectureGuardTests(unittest.TestCase):
         self.assertEqual(report['blockers'], [], report)
         self.assertEqual(report['scope'], 'stage-0-4')
 
+    def test_ui_cannot_adopt_new_goal_control_or_execution_adapter_authority(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for module in ('core_brain_adapter', 'canonical_goal_control', 'canonical_plan_revision', 'canonical_planning_queue'):
+                with self.subTest(module=module):
+                    (root / 'web_team.py').write_text(f'from modules import {module}\n', encoding='utf-8')
+                    report = self.guard.scan(root)
+                    self.assertIn('ARCH-006', {row['rule'] for row in report['blockers']})
+
     def test_direct_goalstate_cas_outside_canonical_adapters_is_blocker(self):
         report = self._scan_source(
             "from modules import goal_state_store\n"
