@@ -190,19 +190,20 @@ def activate(user, rid, *, complete=True):
         check()
         with _lock:
             record = _records.get((user, rid))
-            if record and record['state'] == 'queued':
-                # Do not revive a queued request that was cancelled or timed
-                # out after the first check() above. This transition and its
-                # fresh execution deadline are atomic under the request lock.
+            if record is not None:
+                # check() above and this lock may be separated by another
+                # thread's explicit cancellation. Never turn a cancelled or
+                # timed-out record back into running by a late activation.
                 now = time.monotonic()
-                if now >= record['deadline']:
+                if record['state'] == 'cancelled' or now >= record['deadline']:
                     record['state'] = 'cancelled'
                     _save_terminal_state()
-                    raise Cancelled('Kuyrukta bekleme süresi doldu; işlem başlatılmadı.')
-                turn = record.pop('execution_seconds', None)
-                if turn is not None:
-                    record['deadline'] = now + turn
-                record['state'] = 'running'
+                    raise Cancelled('İstek iptal edildi veya bekleme süresi doldu.')
+                if record['state'] == 'queued':
+                    turn = record.pop('execution_seconds', None)
+                    if turn is not None:
+                        record['deadline'] = now + turn
+                    record['state'] = 'running'
         yield
     finally:
         try:
