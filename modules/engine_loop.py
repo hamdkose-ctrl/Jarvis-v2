@@ -37,6 +37,26 @@ def _prepare_manual_listen(runtime, voice_session):
     return False
 
 
+def _capture_manual_voice(runtime, voice_session):
+    """Check the real speaker under the mic lock immediately before capture.
+
+    A notice may start playing after the preliminary UI handoff. Never start a
+    second physical stream over unconfirmed playback; the caller releases its
+    pause claim and preserves the written/UI error through the existing path.
+    """
+    with runtime.audio_lock:
+        if not runtime.flags.get("mic", True) or runtime.stop_event.is_set():
+            raise ValueError("Mikrofon kapalı; ses kaydı başlatılmadı.")
+        if _speech_blocks_mic(voice_session):
+            raise ValueError("Jarvis konuşurken mikrofon açılmadı; sesi tekrar durdur.")
+        runtime.emit("state", "listening")
+        return runtime.voice.capture(
+            timeout=6, verbose=True, abort=runtime.mic_cancel,
+            on_captured=(lambda: runtime.emit("state", "thinking"))
+            if voice_session.manual_local_stt else None,
+        )
+
+
 def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     """Existing owner event sink for an already-reserved canonical event.
 
@@ -323,12 +343,8 @@ def main(runtime, ui=None):
 
             if kind == "listen":
                 runtime.pause_listening.set()
-                runtime.emit("state", "listening")
                 try:
-                    with runtime.audio_lock:
-                        raw = runtime.voice.capture(timeout=6, verbose=True, abort=runtime.mic_cancel,
-                                                    on_captured=(lambda: runtime.emit("state", "thinking"))
-                                                    if voice_session.manual_local_stt else None)
+                    raw = _capture_manual_voice(runtime, voice_session)
                     # The STT wait is not a reason to keep the only capture device:
                     # the stream is closed, so the lock is released before the text.
                     heard = runtime.voice.recognize(raw or b"", announce_fail=True,
