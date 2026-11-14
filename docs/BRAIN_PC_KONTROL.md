@@ -24,6 +24,13 @@ Her çalıştırma seçilen ref'in güncel commit'ini alıp geçici kaynak kopya
 izliyorsa PR numarası kendiliğinden değiştirilmez. Birleşmiş sürümü kullanmak
 için kurulum `-Ref main` ile yeniden yapılır.
 
+Geçici kaynak kopyası `finally` bloğunda `[IO.Directory]::Delete($RunDir,$true)`
+ile silinir; Windows'ta `$env:TEMP` 8.3 kısa adı taşırken
+`Remove-Item -LiteralPath … -Recurse` o yolu reddedip depo boyutunda klonu
+geride bırakıyordu ve sessiz hata seçeneği bu sızıntıyı gizliyordu. Silme yine
+de başarısız olursa yol `Write-Warning` ile görünür olur; kullanıcı kendisi
+siler.
+
 JSON raporları masaüstündeki `Jarvis-Brain-Acceptance` klasöründedir. Her koşu
 SHA ve zaman damgasıyla arşivlenir; `brain-connection-latest.json` ve
 `brain-holdout-latest.json` son sonuçların ayrı kopyalarıdır.

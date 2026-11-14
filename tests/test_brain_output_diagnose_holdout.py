@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -219,3 +220,35 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertIn('GITHUB_STEP_SUMMARY',source)
         self.assertIn('state=passed',source)
         self.assertIn('Run-BrainCheck.ps1',source)
+
+    def test_launcher_cleanup_removes_the_clone_and_reports_a_leak(self):
+        source=(ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
+        self.assertIn('[IO.Directory]::Delete($RunDir, $true)',source)
+        self.assertNotIn('Remove-Item -LiteralPath $RunDir',source)
+        self.assertIn('Write-Warning',source)
+
+    def test_short_temp_path_breaks_recursive_remove_item_but_not_the_dotnet_delete(self):
+        # Ölçülen kök neden: kısa ad içeren TEMP yolunda -LiteralPath özyinelemeli gezinmeyi reddediyor.
+        import shutil
+        import subprocess
+        if shutil.which('powershell') is None or '~' not in str(os.environ.get('TEMP', '')):
+            self.skipTest('Kısa TEMP adı bu koşumda yok; ölçülen kök neden burada üretilemez.')
+        target = os.path.join(os.environ['TEMP'], 'jarvis-brain-cleanup-test')
+        try:
+            def run(script):
+                return subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                                      capture_output=True, text=True)
+            build = run(f'New-Item -ItemType Directory -Path (Join-Path "{target}" "alt") -Force '
+                        f'| Out-Null; "x" | Out-File -FilePath (Join-Path "{target}" "alt/dosya.txt")')
+            self.assertEqual(build.returncode, 0, msg=build.stderr)
+            short = run(f'(New-Object -ComObject Scripting.FileSystemObject).GetFolder("{target}").ShortPath').stdout.strip()
+            if '~' not in short:
+                self.skipTest('Kısa yol üretilmedi.')
+            failed = run(f'Remove-Item -LiteralPath "{short}" -Recurse -Force -ErrorAction Stop')
+            self.assertNotEqual(failed.returncode, 0, msg=failed.stdout + failed.stderr)
+            self.assertTrue(os.path.isdir(short), 'Başarısız silme klonu olduğu gibi bırakmalı.')
+            done = run(f'[IO.Directory]::Delete("{short}", $true)')
+            self.assertEqual(done.returncode, 0, msg=done.stderr)
+            self.assertFalse(os.path.exists(short))
+        finally:
+            shutil.rmtree(target, ignore_errors=True)

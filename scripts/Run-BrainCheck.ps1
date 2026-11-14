@@ -73,7 +73,14 @@ try {
     }
 } finally {
     if (Test-Path -LiteralPath $RunDir) {
-        Remove-Item -LiteralPath $RunDir -Recurse -Force -ErrorAction SilentlyContinue
+        # Bu PC'de $env:TEMP 8.3 kısa adı taşıyor ("HAMDI~1.KOS"); Remove-Item -LiteralPath özyinelemeli
+        # gezinmede o biçimi reddedip "object does not exist" veriyor, sessiz mod klonu geride bırakıyor.
+        # .NET silmesi her iki yol biçiminde çalışır; başarısızsa sızıntı uyarı olarak görünür kalır.
+        try {
+            [IO.Directory]::Delete($RunDir, $true)
+        } catch {
+            Write-Warning "Geçici kaynak klonu silinemedi, elle temizlenebilir: $RunDir"
+        }
     }
 }
 Write-Host "Report: $Report"
