@@ -1011,3 +1011,12 @@ SQLite şema yolu, veritabanı başına işlem içinde kalıcı `PRAGMA user_ver
 
 **Doğrulama:** `tests/test_core_performance_wake_schema.py` ilk sürüm migration, tekrar açılışta DDL/introspection olmaması, legacy veri korunumu, eşzamanlı ilk açılış, bilinmeyen sürüm reddi, Scheduler wake/stop ve commit-before-wake sözleşmesini; `tests/test_voice_scheduler_planning_handoff.py` ise canonical GoalState + ExecutionRecord kalıcı çiftinden sonra tek wake ve duplicate RID'nin yeniden uyandırılmamasını kontrol eder. Final SHA Windows CI + aynı SHA gerçek PC watcher General/Validation PASS olmadan merge yok.
 
+
+
+### BRAIN-07 3/3 — Scheduler kapanışında yeni hedef kabulünü durdur (15 Kasım 2026; kabul bekliyor)
+
+**Üretim hatası:** `task_queue.scheduler_active()` yalnız Scheduler OS thread'inin canlılığını kontrol ediyordu. Engine `stop_event` ayarlayıp kapanışı başlattığında thread hâlâ bitmemişse `goal_resolver`/sesli yeni hedef girişi görevi kalıcı olarak kabul edebiliyor, ama kapanan Scheduler artık işi yürütemiyordu.
+
+**Dar düzeltme:** Mevcut tek Scheduler `start` sırasında aynı stop olayını kaydeder; `scheduler_active()` hem OS thread'i canlıyken hem stop sinyali kapalıyken true döner. Durdurma başladıktan sonra yeni canonical arka plan hedefi kabul edilmez. Yeni Scheduler, worker, Core yetkisi veya ayrı kuyruğa alma yöntemi yoktur. Owner/RID, worker lease, geç sonuç CAS, iptal ve fiziksel ses korumaları aynı kalır.
+
+**Regresyon:** `tests/test_core_performance_wake_schema.py` canlı Scheduler, stop verilmiş ancak thread henüz çıkmamış Scheduler ve stop olayı olmayan eski/bilinmeyen thread durumlarını kapsar. İnsan gözlemli 17 Windows operatör senaryosu, canlı provider/hesap, gerçek ses ve p50/p95 ayrıca kabul edilmeden tamamlandı sayılmaz. Son kaynak SHA üzerinde Windows CI SUCCESS ve aynı SHA gerçek PC watcher General/Validation PASS olmadan merge edilmez.
