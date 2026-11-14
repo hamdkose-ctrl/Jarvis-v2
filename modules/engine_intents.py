@@ -350,6 +350,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import user_command_domain
             return user_command_domain.macro_manage(runtime, a)
         case "learning_manage":
+            if a.get('operation') in ('preference.list','preference.reset'):
+                from modules import persona
+                return persona.manage(runtime.profile,a,session=runtime._session())
             from modules import learning
             return learning.execute_typed(runtime.profile, a)
         case "git_publish":
@@ -733,14 +736,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 runtime._pending_photo.pop(runtime.profile.slug, None)
             return result
         case _:
-            # Direct feedback about Jarvis' own response style is durable user intent,
-            # not just another chat sentence. Capture it before building the system prompt
-            # so the newly learned rule can affect this response and future responses.
-            try:
-                from modules import learning_feedback
-                learning_feedback.capture(runtime.profile,command)
-            except Exception:
-                runtime._record_failure('modules/engine_intents.py:learning_feedback')
             if runtime.vision.mode():
                 shot = None
                 try:

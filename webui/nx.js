@@ -2141,6 +2141,24 @@ function applySettingsFilter(el){
   if(!hits)el.insertAdjacentHTML('afterbegin','<div class="empty">Bu aramayla eşleşen ayar yok.</div>');
 }
 document.addEventListener('input',e=>{if(e.target&&e.target.id==='sq'){S.sq=e.target.value;clearTimeout(S._sqt);S._sqt=setTimeout(()=>{if(settingsOpen())drawSettings()},250)}});
+function personaPreferencesBox(data){
+  if(!data)return sbox('spark','Yanıt tercihleri','Şu an okunamadı. Lütfen yeniden dene.','');
+  if(data.owner!==((S.snap||{}).user||{}).slug)return '';
+  return sbox('spark','Yanıt tercihlerin','Bu seçimler anlatım tarzını değiştirir. Açık tercihin öğrenilmiş öneriden üstündür.',
+    (data.controls||[]).map(row=>field(esc(row.label),`<select data-persona-key="${esc(row.key)}" data-owner="${esc(data.owner)}"><option value="">Açık tercih yok</option>${row.options.map(v=>`<option value="${esc(v)}" ${row.selected===v?'selected':''}>${esc(v.replaceAll('_',' '))}</option>`).join('')}</select>`,
+      esc('Etkin: '+row.effective+' · '+row.source_label)+(row.has_learned?` <button class="btn sm" data-act="personaforget" data-k="${esc(row.key)}" data-owner="${esc(data.owner)}">Öğrenilmiş öneriyi unut</button>`:''))).join(''));
+}
+function bindPersonaPreferences(el){
+  el.querySelectorAll('[data-persona-key]').forEach(control=>{control.onchange=()=>{
+    if(control.dataset.owner!==((S.snap||{}).user||{}).slug)return;
+    return sAfter(api('pref_set',control.dataset.personaKey,control.value||null).then(()=>toast('Tercihin kaydedildi.')));
+  }});
+}
+ACT.personaforget=el=>{
+  if(el.dataset.owner!==((S.snap||{}).user||{}).slug)return;
+  return sAfter(api('presentation_reset',el.dataset.k,'learned'));
+};
+// Persona controls end.
 async function drawSettings(){
   const el=$('#spane');if(!el)return;const u=S.ui||{},sn=S.snap||{},f=sn.flags||{},k=S.sset,l=sn.llm||{};let h='';
   const sec=sectionOf(k)||SECS[0],keys=S.sq?SECS.flatMap(x=>x.keys||[]):(sec.id==='ai'?[k==='baglanti'?'baglanti':'ai']:(sec.keys||[]));
@@ -2224,6 +2242,7 @@ async function drawSettings(){
       '</details>'+
       pad18(`<button class="btn pri" data-act="vsave">${ic('check')} Kaydet</button> <span class="mut">${esc(SX.v||'')}</span>`))}
   else if(k==='hafiza'){const pf=sn.pending_facts||[];
+    let pv=null;try{pv=await api('presentation_preferences')}catch(e){}h+=personaPreferencesBox(pv);
     h+=(sn.learning_status?.state==='error'?sbox('spark','Öğrenme durumu',esc(sn.learning_status.error||'Bilgi çıkarılamadı.'),''):'')+(pf.length?sbox('spark','Onay bekleyenler','Konuşmalarından öğrendim. Onaylarsan hafızaya geçer.',pf.map((x,i)=>srow('spark',esc(x),'',`<div style="display:flex;gap:6px"><button class="btn sm pri" data-act="pfok" data-i="${i}">${ic('check')}</button><button class="btn sm" data-act="pfno" data-i="${i}">${ic('x')}</button></div>`)).join('')+pad18(`<button class="btn sm pri" data-act="pfok" data-i="-1">Hepsini kaydet</button> <button class="btn sm" data-act="pfno" data-i="-1">Hiçbirini kaydetme</button>`)):'')+
       sbox('db','Bildiklerim','Jarvis’in senin hakkında bildikleri.',(sn.facts||[]).map((x,i)=>srow('check',esc(x),'',`<button class="btn sm" data-act="fdel" data-i="${i}">${ic('trash')}</button>`)).join('')+field('Yeni bilgi',inp('fact','örn. Kedimin adı Pamuk'),'Enter’a bas.'))+
       sbox('list','Öğrettiğin kurallar','Jarvis bunlara her konuşmada uyar.',(sn.rules||[]).map((x,i)=>srow('list',esc(x),'',`<button class="btn sm" data-act="rdel" data-i="${i}">${ic('trash')}</button>`)).join('')+field('Yeni kural',inp('rule','örn. Cevapların kısa olsun'),'Enter’a bas.')+
@@ -2254,6 +2273,7 @@ async function drawSettings(){
   const enter=(id,fn)=>{const i=$('#'+id);if(i)i.onkeydown=e=>{if(e.key==='Enter'&&i.value.trim())fn(i.value.trim())}};
   enter('goal',v=>sAfter(api('goal_add',v)));enter('fact',v=>sAfter(api('fact_add',v)));enter('rule',v=>sAfter(api('rule_add',v).then(toast)));
   const city=$('#city');if(city)city.onchange=()=>sAfter(api('pref_set','city',city.value.trim()).then(()=>toast('Kaydedildi.')));
+  bindPersonaPreferences(el);
   const vs=$('#vsel');if(vs)vs.onchange=()=>tryApi('voice_set',vs.value);
 }
 function connectionHelpProvider(title){

@@ -1,12 +1,14 @@
 """User-owned conversation state; request contexts never swap shared dictionaries."""
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import threading
 import time
 
 @dataclass
 class SessionState:
+    presentation_preferences: dict = field(default_factory=dict)
+    presentation_turn: object = None
     pending_weather_location: bool = False
     pending_confirm: object = None
     pending_action: object = None

@@ -491,7 +491,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             prompt=json.loads(body['messages'][-1]['content'])
             schema=prompt['response_schema']
             self.assertEqual(set(schema['required']),model.ENVELOPE_KEYS)
-            self.assertEqual(set(schema['properties']),model.ENVELOPE_KEYS)
+            self.assertEqual(set(schema['properties']),model.ENVELOPE_KEYS|model.OPTIONAL_ENVELOPE_KEYS)
             self.assertEqual(schema['properties']['schema_version'],{'const':model.SCHEMA_VERSION})
             self.assertFalse(schema['additionalProperties'])
             self.assertEqual(set(schema['properties']['actions']['items']['required']),model.ACTION_KEYS)

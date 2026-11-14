@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import modules
-from modules import goal_tools, learning, learning_feedback, outcome_contracts, research_delivery, task_results
+from modules import goal_tools, learning, outcome_contracts, research_delivery, task_results
 from modules.brain_contracts import RequestKind
 import test_brain_production_entry as fixtures
 
@@ -71,16 +71,14 @@ class OutcomeLearningContracts(unittest.TestCase):
 
     def test_direct_behaviour_feedback_becomes_persistent_rule(self):
         text='Hem bana sürekli haklısın deme, hep haklı olamam ben; varsa yanlış onu da söyle yani.'
-        rules=learning_feedback.rules_from_feedback(text)
-        self.assertTrue(any('otomatik onaylama' in r for r in rules))
         profile=FakeProfile()
-        stored=learning_feedback.capture(profile,text)
-        self.assertTrue(stored)
+        rule='Kullanıcının iddiasını otomatik onaylama; kanıtla değerlendir, yanlışsa açıkça söyle ve nedenini belirt.'
+        learning.execute_typed(profile,{'operation':'rule.add','text':rule})
         prompt=learning.rules_prompt(profile)
         self.assertIn('otomatik onaylama',prompt)
         self.assertIn('yanlışsa açıkça söyle',prompt)
         before=list(profile.data['rules'])
-        learning_feedback.capture(profile,text)
+        learning.execute_typed(profile,{'operation':'rule.add','text':rule})
         self.assertEqual(profile.data['rules'],before)
 
     def test_learned_rules_are_advisory_not_policy_authority(self):
@@ -96,8 +94,11 @@ class OutcomeLearningContracts(unittest.TestCase):
         self.assertNotIn('diğer talimatlarla çelişirse bunlar geçerli',prompt)
 
     def test_one_off_task_is_not_mislearned_as_behaviour_rule(self):
-        self.assertEqual(learning_feedback.rules_from_feedback('Ayarları aç ve Bluetooth’u kapat'),[])
-        self.assertEqual(learning_feedback.rules_from_feedback('Bugün İstanbul sel durumuna bak'),[])
+        from modules import persona_contract
+        for text in ('Ayarları aç ve Bluetooth’u kapat','Bugün İstanbul sel durumuna bak'):
+            with self.assertRaises(ValueError):
+                persona_contract.validate_changes([{'key':'verbosity','value':'kısa','scope':'explicit',
+                                                    'evidence_quote':'bundan sonra kısa cevap'}],text)
 
     def research_receipt(self):
         quote='İstanbul genelinde kuvvetli yağış nedeniyle bazı yollarda su birikintileri oluştu ve ekipler müdahale etti.'

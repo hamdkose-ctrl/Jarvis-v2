@@ -4,6 +4,8 @@ Durum: **program/handoff defteri**. Bu belge canlı PR listesi değildir; ajan d
 
 ## 1. Kullanım kuralı
 
+**14 Kasım aktif kullanıcı talimatı:** #626/#627/#625 birleşti; main1cc32a8 üzerinde sıradaki yetkilendirilmiş iş BRAIN-09 persona/adaptasyonun tek PR'da tamamlanmasıdır. Plan `BRAIN_09_SINGLE_PR_PLAN_2026-11-14.md`. Eski Faz1 sıra notu bu açık Brain talimatını değiştirmez; tamamlanmış temel veya Router yeniden kurulmaz.
+
 Her ajan yeni işe başlamadan önce şu sırayı uygular:
 
 1. `git fetch origin` çalıştırır ve güncel `origin/main` SHA’sını doğrular.

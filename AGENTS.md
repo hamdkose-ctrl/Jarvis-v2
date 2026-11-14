@@ -4,6 +4,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 ## Çalışma kuralları
 
+- `docs/agents/persona.md`: B09 (1 bölüm)
+
 - **VOICE #625:** `docs/agents/ses-video.md`; tek ses sahibi.
 
 - **Brain/Core:** anlam Brain; yürütme/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`; nonce/plan/target onayı effect öncesi tüketilir; unknown replay yok.

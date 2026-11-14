@@ -195,7 +195,7 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
                 entry, batch_child=True,
                 understanding=replace(
                     semantic, capability_hint=action["capability_id"],
-                    arguments=action["arguments"], actions=(),
+                    arguments=action["arguments"], actions=(), presentation=(),
                 ),
             )
             output, action_feedback, _ = handoff(runtime, action_entry, handler, command)
@@ -246,6 +246,12 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
 
 
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
+    from modules import persona
+    with persona.request_scope(runtime,entry,command):
+        return _handoff(runtime,entry,handler,command)
+
+
+def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     from modules.brain_entry import (
         ConversationRelation, PHOTO_CAPABILITY, RequestKind, _LAST_FEEDBACK, _batch_handoff, _core_rejected_proposal, _correlated_job_id, _drop_stale_clarify, _explicit_owner_after_model_chat, _file_access_refusal, _is_explicit_owner_protocol, _lane_plan, _open_core_pending, _photo_lifecycle, _relation_supersedes_clarify, _runtime_owner, _use_existing_handler, bind, brain_core_map, brain_precedence, clarification, core_plan, feedback

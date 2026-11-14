@@ -1,3 +1,11 @@
+# BRAIN-09 güncel kabul — 14 Kasım 2026
+
+- Tek PR kod kapsamı: sürümlü persona, kapalı sunum tercihleri, explicit/learned/session/turn ayrımı, Core owner/RID/provenance, öğrenme güveni/tazeliği ve UI liste/değiştir/sil bağlantısı. Plan: `docs/architecture/BRAIN_09_SINGLE_PR_PLAN_2026-11-14.md`.
+- Son source full validation + Windows CI ve aynı SHA gerçek PC watcher kanıtı PR metadata'sında izlenir; daha eski PASS yeni kaynağa taşınmaz. Canlı sağlayıcıda karakter tutarlılığı/gerçek kullanıcı örnekleri ve BRAIN-11 final ürün kabulü ölçülmüş sayılmaz.
+- #626/#627/#625 main'e birleşmiştir; eski aday metinleri tarihsel durumdur. BRAIN-10 sonuç/response, Router'ın mevcut açık ürün işleri ve BRAIN-11 ayrı kapsamdır; yeni B09 işi bu kapıları otomatik kapatmaz.
+
+---
+
 # Historical redirect — BEKLEYEN_ISLER
 
 - **VOICE #625:** güncel main ile aynı PR'da hizalanmış kod güvenliği incelemesi: `docs/architecture/VOICE_625_REVIEW_2026-11-14.md`. Kod CI/PC kabulü ile fiziksel duyma, ilk kelime, echo ve p95/p99 ölçümü ayrı tutulur. #626/#627 birleşmiştir; yeni ses PR'ı açılmaz.

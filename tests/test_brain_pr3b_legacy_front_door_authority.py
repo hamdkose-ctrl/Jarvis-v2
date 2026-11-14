@@ -1091,7 +1091,10 @@ class CoreRejectionFallthroughInventoryTests(_RawDoorHarness):
         # test_brain_pr3c2_core_rejection_and_explanation); burada envanter sahibi olarak adlandırılır.
         from modules import brain_entry as entry_module
         from modules import core_brain_adapter
-        source = inspect.getsource(core_brain_adapter.handoff)
+        wrapper = inspect.getsource(core_brain_adapter.handoff)
+        self.assertIn('persona.request_scope',wrapper)
+        self.assertIn('return _handoff(',wrapper)
+        source = inspect.getsource(core_brain_adapter._handoff)
         self.assertIn("capability_hint == PHOTO_CAPABILITY", source)
         self.assertIn("refusal = _file_access_refusal(entry)", source)
         self.assertIn("_core_rejected_proposal(entry)", source)
