@@ -85,13 +85,15 @@ class EngineConnectionTests(unittest.TestCase):
 
     def test_web_bridge_surfaces_rejection_and_immediate_stop(self):
         context=self.context()
-        context.requests_state=SimpleNamespace(register=Mock(return_value=False),cancel=Mock())
+        context.requests_state=SimpleNamespace(register=Mock(return_value=False),cancel=Mock(),
+                                                   cancel_unambiguous=Mock(return_value=('cancelled','rid')))
         context.voice=SimpleNamespace(stop_speaking=Mock())
         bridge=WebChat();bridge._runtime=SimpleNamespace(engine=context,_p=lambda:context.pc_profile())
         with self.assertRaises(ValueError):bridge.send('merhaba','duplicate')
         with patch('modules.pc_guide.stop'):
             self.assertFalse(bridge.send('dur'))
-        context.requests_state.cancel.assert_called_once()
+        context.requests_state.cancel_unambiguous.assert_called_once()
+        context.requests_state.cancel.assert_not_called()
         context.requests_state.register.return_value=True
         self.assertTrue(bridge.send('merhaba','new-rid'))
         self.assertEqual(context.events.get_nowait()[4],'new-rid')
@@ -99,10 +101,14 @@ class EngineConnectionTests(unittest.TestCase):
     def test_phone_stop_cancels_the_authenticated_owner_without_queueing(self):
         context=self.context();context.match_user=lambda name:'Ebru' if name=='ebru' else None
         context.voice=SimpleNamespace(stop_speaking=Mock())
-        context.requests_state=SimpleNamespace(cancel=Mock())
-        with patch('modules.pc_guide.stop'):
+        context.requests_state=SimpleNamespace(
+            cancel=Mock(), cancel_unambiguous=Mock(return_value=('cancelled','rid')),
+        )
+        with patch('modules.pc_guide.stop') as guide:
             self.assertEqual(PhoneServer(context).ask('dur','ebru'),'Tamam.')
-        context.requests_state.cancel.assert_called_once_with('ebru')
+        context.requests_state.cancel_unambiguous.assert_called_once_with('ebru')
+        context.requests_state.cancel.assert_not_called()
+        guide.assert_not_called()
         self.assertTrue(context.events.empty())
 
     def test_phone_missing_owner_never_falls_back_to_pc_user(self):
