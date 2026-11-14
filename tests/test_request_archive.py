@@ -30,6 +30,31 @@ class RequestArchiveTests(unittest.TestCase):
         self.assertTrue(state.register('bob','0'))
         self.assertTrue(state.is_cancelled('alice','0'))
 
+    def test_bare_stop_rejects_ambiguous_same_owner_requests(self):
+        state.register('alice', 'a')
+        state.register('alice', 'b')
+        state.register('bob', 'c')
+        self.assertEqual(state.cancel_unambiguous('alice'), ('ambiguous', None))
+        self.assertEqual(state._records[('alice','a')]['state'], 'queued')
+        self.assertEqual(state._records[('alice','b')]['state'], 'queued')
+        self.assertEqual(state._records[('bob','c')]['state'], 'queued')
+
+    def test_bare_stop_cancels_only_one_owner_bound_request(self):
+        state.register('alice', 'a')
+        state.register('bob', 'c')
+        self.assertEqual(state.cancel_unambiguous('alice'), ('cancelled', 'a'))
+        self.assertTrue(state.is_cancelled('alice', 'a'))
+        self.assertEqual(state._records[('bob', 'c')]['state'], 'queued')
+        self.assertEqual(state.cancel_unambiguous('alice'), ('none', None))
+        # The old explicit-all control remains available when intentionally used.
+        state.cancel('bob')
+        self.assertTrue(state.is_cancelled('bob', 'c'))
+
+    def test_bare_stop_never_revives_an_expired_request(self):
+        state.register('alice', 'expired', seconds=-1)
+        self.assertEqual(state.cancel_unambiguous('alice'), ('none', None))
+        self.assertTrue(state.is_cancelled('alice', 'expired'))
+
     def test_active_and_transcription_handoff_not_pruned(self):
         state.register('alice','live')
         with state.activate('alice','live',complete=False):
