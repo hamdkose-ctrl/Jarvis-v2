@@ -9,6 +9,11 @@ _FAST_GOAL_ID = re.compile(r'hedef (sonucu|iptal) ([a-f0-9]{16})[.!]?\Z')
 # and are planned by the existing owner-pinned Scheduler/Brain planner.
 # No inference about an ambiguous conversational follow-up is made here.
 _INDEPENDENT_GOAL = re.compile(r'yeni (?:bağımsız )?hedef\s*:\s*(.*)\Z', re.IGNORECASE | re.DOTALL)
+# STT commonly omits a colon. Require a deliberately spoken CREATE verb
+# rather than promoting conversational "yeni hedef ne ..." into an action.
+_INDEPENDENT_VOICE_GOAL = re.compile(
+    r'yeni bağımsız hedef oluştur\s*[,.:]?\s+(.+)\Z', re.IGNORECASE | re.DOTALL,
+)
 
 
 def _release_inline_voice_pause(runtime, source):
@@ -80,7 +85,9 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     # No second executor/model: the existing owner-pinned Scheduler does all
     # planning, and only allowlisted read-only DAGs may actually run there.
     # Without a live Scheduler, never silently run the goal in this thread.
-    selected_goal = _INDEPENDENT_GOAL.fullmatch(text)
+    selected_goal = (_INDEPENDENT_GOAL.fullmatch(text) or
+                     (_INDEPENDENT_VOICE_GOAL.fullmatch(text)
+                      if source == 'ses' else None))
     if selected_goal is not None:
         profile = runtime._get_profile(user)
         with runtime.requests_state.activate(owner, rid):
