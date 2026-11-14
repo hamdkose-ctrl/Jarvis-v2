@@ -13,6 +13,7 @@ The fix re-opens only the wait window.  These tests pin both halves: the microph
 comes back while the provider is answering, and the identity lock, the owner's queue,
 the "sus"/"dur" scopes, the deadline and the late-answer fence are unchanged.
 """
+from provider_fixture import routed_plan
 import contextlib
 import inspect
 import os
@@ -113,7 +114,7 @@ class ForegroundSeam(unittest.TestCase):
         with patch.object(llm, 'provider', return_value='groq'), \
                 patch.object(llm.privacy, 'mode', return_value='normal'), \
                 patch('modules.smart_router.selection', return_value={'candidates': ['groq']}), \
-                patch('modules.smart_router.run', side_effect=router):
+                routed_plan(count=1), patch('modules.llm.dispatch', side_effect=router):
             with model_wait.foreground(scope):
                 primary.propose(owner='voice-p3-tests', text='Merhaba',
                                 current=current, arguments={})

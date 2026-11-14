@@ -951,6 +951,11 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 **Açık sınır:** Bu, tüm serbest doğal dil komutlarının eşzamanlı çalıştığı veya sesin gerçek cihazdan duyulduğu anlamına gelmez. İlk planlamanın desteklenen alt kümesi mevcut canonical Scheduler'a devredilmiştir; kalan legacy effectful ön planın kimlik/oturum güvenli biçimde devri, gerçek uzun süreli full-duplex, p95/p99 gecikme, 15–20 fiziksel Windows+ses kullanıcı kabulü ayrı ölçüm ve iş olarak açıktır. **Son HEAD Windows CI ve aynı HEAD gerçek PC watcher PASS olmadan kod kabul edilmez veya merge edilmez.**
 
 
+### Router V2 —14 Kasım2026 uygulama göçü, canlı kabul açık
+
+- 🔄 Kullanıcının son yüklediği [Router V2 mimarisi](architecture/JARVIS_ROUTER_ARCHITECTURE_V2.md) mevcut sahipler üzerinde tek dikey iş olarak uygulanır. Typed kapalı profiller; owner-scoped Gemini metin/vision izni; exact model ve ortak iki fiziksel deneme; aynı SQLite üzerinde shared account/project/key kota, gerçek usage/request trace ve foreground payı; generic özel API/rol/secret göçü kullanıcı akışlarına bağlandı. `smart_router.run`, prompt task regexleri, adapter model dolaşımı, ayrı yerel repair, `_PAID`, eski vendor kartı/enum/adapter, direct `_ask_image` ve `_LAST` otoritesi kaldırıldı. Ayrıntılı dört-koşul envanteri ve kaynaklar [uygulama/emeklilik haritasında](architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md).
+- Kod regresyonu/full validation, gerçek Windows/PC ve canlı model rol/hesap ölçümü ayrı kapılardır. Brain mevcut tam holdout için ≥%95 ve sıfır kritik yanlış-action/effect ister; Quick/CI sonucu rol kabulü değildir. İlk-token/streaming/token-neuron/hesap bakiyesi bilinmiyorsa uydurulmaz. Canlı kabul alınmadan Router/Brain ürün kapanışı işaretlenmez. Önceki Router tabloları ve #540 açık-adapter notu bu göçün öncesini anlatır.
+
 ### Ses öncelikli bağımsız hedef girişi — açık kullanıcı protokolü (14 Kasım 2026; kabul bekliyor)
 
 **Doğrulanan darboğaz:** Normal serbest konuşmanın `brain_entry.prepare` aşaması `engine_loop.main` içinde tek thread ve `as_user/_execution_lock` altında ilerler. Kanonik `task_queue` ve `canonical_planning_queue.enqueue` ise owner'a sabit kimlikle arka planda ilk planı hazırlayıp desteklenen salt-okuma DAG'larını mevcut Scheduler üzerinde yürütebiliyor. Model kararını güvenli olmadan ikinci thread'e taşımak, mutable profil/session ve pending cevabı başka göreve bağlayabilir.
@@ -961,6 +966,14 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 **Sınır / kabul:** Tam serbest doğal dilin eşzamanlı sınıflandırılması veya effectful işlerin otomatik arka plana taşınması **çözülmedi**. Telefon/sesli konuşma fiziksel cihaz kabulü, kullanıcı gözlemli 15–20 senaryo, OAuth, p95/p99, kaynak maliyeti ve sağlayıcı uzun blokları hâlâ açık. Bu bölümün kodu son SHA Windows CI ve **aynı SHA** gerçek PC watcher General+Validation PASS olmadan merge edilmez.
 
+
+
+- 🔄 Router #633 Windows takibi: `ca9b02b` CI43613281563 başarısızdır (446error/11failure); SQLite handle'larının açık kalması `closing` ile giderildi.5 yaşam döngüsü regresyonu ve kurulu Ollama/test-sırası koşulu önce kırmızı, düzeltme sonrası yeşil üretildi; haber/worker politika sahipleri değiştirilmedi. Birleşen #632 mevcut ses koduyla entegre edildi. Son HEAD'in yerel full validation, Windows CI/PC ve canlı rol kabulü ayrı sonuçlardır; eski Linux PASS Windows kabulü diye sayılmaz. Ayrıntı Router V2 uygulama/emeklilik haritasındadır.
+
+
+### Router #633 — güncel PC haber kabulü düzeltmesi (14 Kasım 2026; yeni SHA kabulü bekler)
+
+`d2d6cf24ff1e` Windows CI geçti; gerçek PC validation/yerel model passed, üç haber senaryosu eski raw `hedef` girişinde failed. Kabul betiği typed Router/envelope/Brain handoff/Core zincirine taşındı; sabit anlamlandırma fixture'ı canlı Brain veya Scheduler kabulü sayılmaz. Kaynak/tarih/iki yayıncı/dosya verify eşikleri korundu. Kapalı son hedefte çıplak devam, owner/kimlik/durum yeniden denetlenerek salt-okunur durum verir; hedefi yeniden açmaz ve açık/pending işleri devralmaz. Aynı PR'da kaynak-taklitli üç senaryonun önce failed/sonra passed regresyonu ve eksik yayıncı/değişmiş hedef negatifleri vardır. Yeni source Windows/PC/canlı rol kanıtı henüz üretilmedi; Router fazı kapandı diye işaretlenmez. Ayrıntı Router V2 uygulama/emeklilik haritasındadır.
 
 ### Uzun foreground sonrası normal konuşma kuyruğunun kaybolmaması — 14 Kasım 2026 (kabul bekliyor)
 
@@ -973,6 +986,10 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 **Açık kalan gerçek mimari eksik:** Bu yama serbest doğal dilin başka bir modelle eşzamanlı anlaşılıp yürütülmesini sağlamaz. Eski legacy foreground'da bir tur hâlâ bekleyebilir ve sonlu kuyruk son tarihinde expire olabilir. Bu sınır, otomatik yetki/efekt ve çoklu oturum güvenliği kanıtı olmadan paralel işleme bahanesiyle atlanmaz.
 
 
+### Router #633 — ikinci PC haber kabulü ve #634 tabanı (14 Kasım 2026; yeni SHA kabulü bekler)
+
+`fd03dba` Windows CI ve PC validation/yerel model/desktop başarılı; haberin devam kontrolü ve dış keşfi failed. Kaydedilmiş kullanıcı pending'iyle aynı hata yeniden üretildi; kabulün owner'a ait değişebilir Profile/history/Task/desktop/filesend/request kayıtları yalıtıldı, gerçek kullanıcı kayıtları ve State önceliği korundu. Genel istekte `araştır` fiilinin sahte haber konusu olmasına neden olan stop-word normalizasyon farkı giderildi; gerçek konu/coğrafya/tarih/makale eşikleri korunur. Katalog dışı parser/pipeline ve kullanıcı dosyası değişmezliği regresyonları eklendi. #634 ses kuyruğu tabanı iki çatışmanın iki tarafı korunarak birleştirildi; Router aynı #633'tedir. Yeni source tam validation/Windows/PC ve canlı rol kabulü ayrı ölçülür; ürün fazı kapanmış sayılmaz.
+
 ### Sesli takip isteğinde mikrofonun meşgul foreground tarafından kilitlenmesi — 14 Kasım 2026 (kabul bekliyor)
 
 **Kod bulgusu:** `VoiceSession.submit_voice` her kabul edilen komuttan önce `pause_listening` set eder. `engine_queue.submit` yeni, normal doğal dil sesli komutunu başka foreground turu `as_user/_execution_lock` tutarken kuyruğa koyarsa o komuta ait bir engine tüketicisi henüz yoktur. Birinci turun model beklemesi sırasında açık olan mikrofon, ikinci komutun kaydıyla tekrar kapanıyordu ve eski turun bitişine kadar dinleyici erişilemez olabiliyordu. #634'te gelen kuyruğa alındı bildirimi tek başına ses duraklamasını kaldırmıyordu.
@@ -980,4 +997,3 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 **Dar üretim düzeltmesi:** Aynı gerçek owner'a ait sesli komut, engine kilidinin başka thread'de tutulduğu kanıtlanarak sıraya kabul edilmiş ve owner-bound `system` bekleme bildirimi verilmişse, `engine_queue` yalnız ikinci komutun açtığı `pause_listening` bayrağını hemen serbest bırakır. İstek kayıt/RID'si ve kuyruktaki asıl komut değişmez. Boş engine, yabancı owner, telefon/metin, sahte/başarısız bildirim aynı serbest bırakma yolunu almaz. `VoiceSession.speech_blocks_mic`, cihaz sesi için var olan output/capture claim ve engine'in kendi turunda dinlemeyi kapatma davranışı aynen kalır. İkinci bir Brain/VoiceCoordinator/Scheduler oluşturulmaz.
 
 **Regresyon:** `tests/test_voice_queue_wait_contract.py` gerçek `RLock` iki thread ile meşgul durumda sesli takip isteğini, RID korunmasını, dinleme bayrağının ilk görev bitmeden açılmasını, boş motorda yanlış mik açılmamasını ve farklı sahibin bu hakkı alamamasını doğrular. Gerçek mikrofon, TTS yankı kesmesi ve fiziksel konuşma geçişi yalnız taklit testleriyle kabul edilmiş sayılmaz. Son SHA Windows CI ve aynı SHA gerçek PC watcher General+Validation PASS koşulları korunur.
-

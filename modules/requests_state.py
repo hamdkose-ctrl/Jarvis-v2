@@ -116,6 +116,13 @@ def budget_remaining():
     deadline = _budget_deadline.get()
     return None if deadline is None else deadline - time.monotonic()
 
+
+def request_identity(owner):
+    key=_current.get()
+    if key is None:return None
+    if key[0]!=owner:raise PermissionError('Model isteği başka kullanıcının runtime bağlamında.')
+    return key[1]
+
 def register(user, rid, seconds=90, *, execution_seconds=None):
     """Register one request; optional queued wait is separate from its turn budget.
 
@@ -306,3 +313,18 @@ def speech_muted(user, rid):
         return False
     with _lock:
         return bool(_records.get((user, rid), {}).get('speech'))
+
+
+_model_work_class = ContextVar('jarvis_model_work_class',default=None)
+
+
+def model_work_class():
+    return _model_work_class.get()
+
+
+@contextmanager
+def model_work_scope(value):
+    if value not in ('interactive','background','explicit_custom'):raise ValueError('Model iş sınıfı geçersiz.')
+    token=_model_work_class.set(value)
+    try:yield
+    finally:_model_work_class.reset(token)

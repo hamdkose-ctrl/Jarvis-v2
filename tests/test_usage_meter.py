@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from modules import llm, usage_meter
+from modules import llm, usage_meter, smart_router
 
 
 class _Chat:
@@ -24,13 +24,18 @@ class _Chat:
 
 def ask_from_router():
     # Kaynak tespiti: çağrıyı başlatan Jarvis fonksiyonu kaydedilmeli.
-    return llm._send_provider('gemini', 'gizli soru metni', 'sistem metni', 2000, None)
+    request=smart_router.ModelRequest(owner=llm.current_user())
+    return smart_router.run_request(request,lambda spec:llm._send_provider('gemini', 'gizli soru metni', 'sistem metni', 2000, None,model=spec.model)).text
 
 
 class UsageMeterTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
         p = patch.object(usage_meter, '_dir', return_value=self.dir); p.start(); self.addCleanup(p.stop)
+        for name,value in (('_STORE',self.dir/'router'),('_HEALTH',{})):
+            p=patch.object(smart_router,name,value);p.start();self.addCleanup(p.stop)
+        plan=smart_router.RoutePlan(tuple(smart_router.ModelSpec('gemini',m) for m in ('lite','flash')),(),2)
+        p=patch.object(smart_router,'plan',return_value=plan);p.start();self.addCleanup(p.stop)
         self.user = 'alice'
         self.fail = {'lite'}
         cli = SimpleNamespace(chats=SimpleNamespace(create=lambda model, config, history: _Chat(model, self.fail)))

@@ -123,19 +123,19 @@ def measure(owner, cases, *, interval_seconds=35):
     from modules.brain_model_understanding import proposal_diagnostic
     provider = Counter()
     shape = None
-    send = llm._send_provider
+    send = llm.dispatch
     def observed_send(*args, **kwargs):
         nonlocal shape
         provider['requests'] += 1
         result = send(*args, **kwargs)
         provider['responses'] += 1
-        shape = response_shape(result)
+        shape = response_shape(result.text if hasattr(result,'text') else result)
         return result
     rows = []
     stop_reason = None
     # Observe actual sends without replacing the model, route, response or credentials.
     with ExitStack() as stack:
-        stack.enter_context(patch.object(llm, '_send_provider', side_effect=observed_send))
+        stack.enter_context(patch.object(llm, 'dispatch', side_effect=observed_send))
         for target in ('modules.engine_intents.dispatch','modules.output.save_text_result','modules.diagnose.run'):
             stack.enter_context(patch(target, side_effect=denied(target)))
         for index, case in enumerate(cases):
@@ -197,6 +197,9 @@ def measure(owner, cases, *, interval_seconds=35):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run',action='store_true')
+    parser.add_argument('--qualify-connection',help='Explicit enabled custom connection; may bill the selected account.')
+    parser.add_argument('--accept-paid',action='store_true',help='Accept the bounded custom-model qualification calls.')
+    parser.add_argument('--qualify-local',action='store_true',help='Measure the configured installed local model instead of free cloud.')
     parser.add_argument('--connection-only',action='store_true',help='One real proposal; never a semantic acceptance result.')
     parser.add_argument('--json',type=Path)
     parser.add_argument('--interval-seconds',type=float,default=35,help='Spacing outside each request budget; default35 for Free-tier token limits.')
@@ -216,11 +219,20 @@ def main(argv=None):
               'semantic_acceptance':False}
     try:
         owner, ok, reason = preflight()
+        if args.qualify_connection or args.qualify_local:
+            from modules import llm
+            owner=llm.current_user();ok=bool(owner);reason='etkin kullanıcı yok' if not ok else 'explicit role measurement'
+        if args.qualify_connection and not args.accept_paid:
+            raise ValueError('Özel bağlantı için --accept-paid ile sınırlı çağrı tercihi gerekli.')
         if not ok:
             report['reason'] = reason
             report['reason_code'] = 'route_unavailable'
         else:
-            report.update(measure(owner,cases,interval_seconds=args.interval_seconds))
+            from modules import smart_router,router_quota
+            candidate=smart_router.qualification_candidate(owner,connection_id=args.qualify_connection,local=args.qualify_local)
+            with smart_router.qualification_session(owner,candidate.provider,candidate.model,candidate.connection_id):
+                report.update(measure(owner,cases,interval_seconds=args.interval_seconds))
+            report['qualified_target']={'provider':candidate.provider,'model':candidate.model,'connection_id':candidate.connection_id}
             if args.connection_only:
                 valid = bool(report.get('provider_responses') and report.get('results')
                              and report['results'][0]['valid_proposal']
@@ -235,6 +247,9 @@ def main(argv=None):
                                     for row in report.get('results', [])]
             else:
                 report['semantic_acceptance'] = report['state'] == 'passed'
+                if report['semantic_acceptance']:
+                    router_quota.qualify_role(owner,candidate,report,fingerprint=smart_router._role_fingerprint(),
+                        directory=smart_router._STORE,corpus_sha256=report['corpus_sha256'],expected_cases=len(cases))
     except Exception as exc:
         # Do not publish traceback, SDK messages, profile or credentials in the artifact.
         report.update(state='unmeasured',reason='measurement interrupted: '+type(exc).__name__)

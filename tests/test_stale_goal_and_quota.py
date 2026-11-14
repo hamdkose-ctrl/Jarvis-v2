@@ -165,30 +165,26 @@ class WaitSecondsTests(unittest.TestCase):
     def test_auto_provider_waits_only_when_no_candidate_is_left(self):
         rows = {'candidates': [], 'skipped': [{'provider': 'gemini', 'seconds': 293, 'reason': 'x'},
                                                {'provider': 'groq', 'seconds': 40, 'reason': 'x'}]}
-        with patch.object(smart_router, 'selection', return_value=rows):
+        with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(tuple(smart_router.ModelSpec(p,'fixture') for p in rows['candidates']),tuple(rows['skipped']),2)):
             self.assertEqual(smart_router.wait_seconds('alice'), 40)
         rows['candidates'] = ['ollama']
-        with patch.object(smart_router, 'selection', return_value=rows):
+        with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(tuple(smart_router.ModelSpec(p,'fixture') for p in rows['candidates']),tuple(rows['skipped']),2)):
             self.assertEqual(smart_router.wait_seconds('alice'), 0)
 
     def test_missing_key_without_any_wait_is_not_a_quota_wait(self):
         rows = {'candidates': [], 'skipped': [{'provider': 'gemini', 'seconds': 0, 'reason': 'anahtar yok'}]}
-        with patch.object(smart_router, 'selection', return_value=rows):
+        with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(tuple(smart_router.ModelSpec(p,'fixture') for p in rows['candidates']),tuple(rows['skipped']),2)):
             self.assertEqual(smart_router.wait_seconds('alice'), 0)
 
     def test_llm_helper_uses_router_in_auto_mode(self):
         with patch.object(llm, 'provider', return_value='auto'), patch.object(smart_router, 'wait_seconds', return_value=12):
             self.assertEqual(llm.quota_wait_seconds('alice'), 12)
 
-    def test_llm_helper_reads_gemini_rate_limit_marks(self):
-        token = llm._key_context.set('alice'); self.addCleanup(llm._key_context.reset, token)
-        with patch.object(llm, 'provider', return_value='gemini'), patch.object(llm, 'user_groq_key', return_value=''), \
-                patch.object(llm, 'model_names', return_value=['m1', 'm2']), patch.dict(llm._rate_limited, clear=True):
-            self.assertEqual(llm.quota_wait_seconds('alice'), 0)
-            llm._mark_limited('gemini', 'm1', RuntimeError('429'), 60)
-            self.assertEqual(llm.quota_wait_seconds('alice'), 0)      # ikinci model hâlâ açık
-            llm._mark_limited('gemini', 'm2', RuntimeError('429'), 30)
-            self.assertTrue(0 < llm.quota_wait_seconds('alice') <= 30)
+    def test_llm_helper_uses_same_router_for_configured_provider_and_custom_roles(self):
+        for provider in ('gemini','groq','ollama','auto'):
+            with self.subTest(provider=provider),patch.object(llm,'provider',return_value=provider),patch.object(smart_router,'wait_seconds',return_value=30) as wait:
+                self.assertEqual(llm.quota_wait_seconds('alice'),30)
+                wait.assert_called_once_with('alice')
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import brain_core_map, brain_understanding, llm
+from modules import brain_core_map, brain_understanding, llm,smart_router
 from modules.brain_contracts import RequestKind
 import test_brain_production_entry as fixtures
 
@@ -84,12 +84,18 @@ class _Chat:
 
 class RateLimitMemoryTests(unittest.TestCase):
     def setUp(self):
+        import tempfile
+        from pathlib import Path
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        for name,value in (('_STORE',Path(folder.name)),('_HEALTH',{})):
+            p=patch.object(smart_router,name,value);p.start();self.addCleanup(p.stop)
+        plan=smart_router.RoutePlan(tuple(smart_router.ModelSpec('gemini',m) for m in ('lite','flash')),(),2)
+        p=patch.object(smart_router,'plan',return_value=plan);p.start();self.addCleanup(p.stop)
         self.sent, self.sleeps, self.user = [], [], 'alice'
         cli = SimpleNamespace(chats=SimpleNamespace(create=lambda model, config, history: _Chat(self.sent, model)))
         for target, name, kwargs in [
             (llm, '_cli', {'return_value': cli}), (llm, 'provider', {'return_value': 'gemini'}),
             (llm, 'model_names', {'return_value': ['lite', 'flash']}), (llm, 'user_groq_key', {'return_value': ''}),
-            (llm, '_ollama_task', {'side_effect': llm.LocalModelError('yok')}),
             (llm, 'current_user', {'side_effect': lambda: self.user}),
             (llm, '_rate_limited', {'new': {}}), (llm, '_fallback_states', {'new': {}}),
             (llm.time, 'sleep', {'side_effect': self.sleeps.append}),
@@ -100,8 +106,9 @@ class RateLimitMemoryTests(unittest.TestCase):
         llm.take_route(); self.addCleanup(llm.take_route)
 
     def ask(self):
-        with self.assertRaises(llm.errors.ClientError):
-            llm._send_provider('gemini', 'yapay zeka nedir', 'sistem', 2000, None)   # Gemini aktarımı; sağlayıcıyı Router seçer
+        with self.assertRaises(RuntimeError):
+            request=smart_router.ModelRequest(owner=self.user)
+            smart_router.run_request(request,lambda spec:llm._send_provider(spec.provider,'yapay zeka nedir','sistem',2000,None,model=spec.model))   # Gemini aktarımı; sağlayıcıyı Router seçer
 
     def test_429_model_is_not_retried_or_slept_on(self):
         self.ask()
@@ -111,7 +118,7 @@ class RateLimitMemoryTests(unittest.TestCase):
     def test_following_calls_skip_limited_models_until_wait_ends(self):
         self.ask(); self.ask(); self.ask()
         self.assertEqual(self.sent, ['lite', 'flash'])
-        with patch.object(llm.time, 'monotonic', return_value=llm.time.monotonic() + 61):
+        with patch.object(llm.time, 'monotonic', return_value=llm.time.monotonic() + 301):
             self.ask()
         self.assertEqual(self.sent, ['lite', 'flash', 'lite', 'flash'])
 
@@ -120,7 +127,7 @@ class RateLimitMemoryTests(unittest.TestCase):
                            'details': [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '300s'}]}}
         with patch.object(_Chat, 'body', retry):
             self.ask()
-        until = min(v[0] for v in llm._rate_limited.values())
+        until = min(v['until'] for v in smart_router._HEALTH.values())
         self.assertAlmostEqual(until - llm.time.monotonic(), 300, delta=3)   # eskiden hep 60 sn
 
     def test_gemini_daily_quota_ignores_short_retry_delay(self):
@@ -128,7 +135,7 @@ class RateLimitMemoryTests(unittest.TestCase):
                            'details': [{'retryDelay': '20s'}]}}
         with patch.object(_Chat, 'body', daily):
             self.ask()
-        until = min(v[0] for v in llm._rate_limited.values())
+        until = min(v['until'] for v in smart_router._HEALTH.values())
         self.assertAlmostEqual(until - llm.time.monotonic(), 3600, delta=3)
 
     def test_limit_is_per_user(self):

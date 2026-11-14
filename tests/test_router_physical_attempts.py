@@ -68,7 +68,7 @@ class RouterPhysicalAttemptTests(unittest.TestCase):
         self.assertEqual(meter.call_args.args[:5],
                          ("gemini", "router-selected", 12, 0, "429"))
 
-    def test_legacy_direct_failure_is_counted_only_by_existing_model_loop(self):
+    def test_exact_model_adapter_failure_has_no_hidden_model_loop(self):
         problem = llm.errors.ClientError(
             429, {"error": {"message": "quota limit", "status": "RESOURCE_EXHAUSTED"}})
         send = Mock(side_effect=problem)
@@ -83,7 +83,7 @@ class RouterPhysicalAttemptTests(unittest.TestCase):
              patch.object(llm.privacy, "redact", side_effect=lambda text: text), \
              patch.object(llm.usage_meter, "record") as meter:
             with self.assertRaises(llm.errors.ClientError):
-                llm._send_provider("gemini", "prompt", "system", 32, None)
+                llm._send_provider("gemini", "prompt", "system", 32, None,model="fallback-model")
         send.assert_called_once()
         meter.assert_called_once()
 

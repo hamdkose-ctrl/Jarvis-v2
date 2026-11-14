@@ -108,10 +108,10 @@ class AtomicTokenQuotaTests(unittest.TestCase):
         specs=(router.ModelSpec('groq','exact'),)
         with patch.object(router,'plan',return_value=router.RoutePlan(specs,(),2)), \
              patch.object(router,'_STORE',self.directory), \
-             patch.object(router,'_LAST',{}),patch.object(router,'_HEALTH',{}):
+             patch.object(router,'_HEALTH',{}):
             with self.assertRaises(Exception):
                 router.run_request(router.ModelRequest(owner='alice'),adapter)
-            self.assertEqual(router._LAST['alice']['skipped'][0]['reason_code'],
+            self.assertEqual(router.status('alice')['last']['skipped'][0]['reason_code'],
                              'PROVIDER_LOCAL_QUOTA_UNAVAILABLE')
         adapter.assert_not_called()
 
@@ -130,7 +130,7 @@ class AtomicTokenQuotaTests(unittest.TestCase):
             return real_reserve(*args, now=NOW, **kwargs)
         with patch.object(router,'plan',return_value=router.RoutePlan(specs,(),2)), \
              patch.object(router,'_STORE',self.directory), \
-             patch.object(router,'_LAST',{}),patch.object(router,'_HEALTH',{}), \
+             patch.object(router,'_HEALTH',{}), \
              patch.object(q,'reserve',side_effect=reserve_at_fixture_clock):
             result=router.run_request(router.ModelRequest(owner='alice',
                        max_output_tokens=25,token_budget=95),adapter)

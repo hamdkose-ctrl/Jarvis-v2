@@ -424,7 +424,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                     "key_tail": key[-4:] if len(key) > 8 else "", "provider": llm.provider(),
                     "sec": dict(getattr(llm, "LAST_SEC", {})),
                     "ollama_up": _ollama_up(), **llm.local_info(), "local_model": llm.provider_configuration()["model"],
-                    "paid": llm.paid_status(),
+                    "custom_connections": llm.connection_status(),
                     "groq": {"key": bool(llm.user_groq_key(p.slug)), "model": llm.groq_model(),
                              "tail": llm.user_groq_key(p.slug)[-4:]}},
             "google": {"cred": google_api.CRED.exists(), "token": google_api.token_path().exists()},
@@ -770,6 +770,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         if "stt_words" in data:
             ch["stt_words"] = ", ".join(w.strip() for w in str(data["stt_words"]).split(",") if w.strip())[:600] or None
         if "stt_fixes" in data:
+            from modules import stt_fixes
             ch["stt_fixes"] = stt_fixes.format_fixes(stt_fixes.parse_fixes(str(data["stt_fixes"])))
         if "wake_beep" in data:
             ch["wake_beep"] = bool(data["wake_beep"])      # kapalı da kaydedilir: varsayılan açık

@@ -86,9 +86,9 @@ class AtomicQuotaTests(unittest.TestCase):
             return False
         with patch.object(router,'plan',return_value=router.RoutePlan(specs, (), 2)), \
              patch.object(quota,'reserve',side_effect=permit), \
-             patch.object(router,'_LAST',{}), patch.object(router,'_HEALTH',{}):
+              patch.object(router,'_HEALTH',{}):
             result = router.run_request(router.ModelRequest(owner='alice'), callback)
-            self.assertEqual(router._LAST['alice']['skipped'][-1]['reason_code'],
+            self.assertEqual(router.status('alice')['last']['skipped'][-1]['reason_code'],
                              'PROVIDER_LOCAL_QUOTA_EXHAUSTED')
         callback.assert_called_once()
         self.assertEqual(result.model.provider, 'ollama')

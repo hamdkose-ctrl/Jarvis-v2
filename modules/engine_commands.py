@@ -72,6 +72,9 @@ def handle(runtime, command: str):
     # State owns bare resume/cancel; a raw "hedef" or "görev" prefix can
     # never create a GoalState or authorize a worker on a free-language turn.
     from modules import goal_executor, job_front
+    if brain_entry.matched_protocol('goal.closed_resume'):
+        return goal_executor.closed_resume_status(
+            runtime.profile.slug, brain_entry.protocol_selection('goal.closed_resume'))
     if brain_entry.matched_protocol("job.resume", "job.cancel"):
         outcome = job_front.route(
             runtime.profile.slug,

@@ -75,14 +75,15 @@ class DurableWorkTests(unittest.TestCase):
         unsupported=Mock(status_code=400)
         unsupported.json.return_value={'error':'model does not support images'}
         successful=Mock(status_code=200);successful.json.return_value={'message':{'content':'metin cevabı'}}
-        with patch.object(router,'_HEALTH',{}),patch.object(router,'_LAST',{}), \
-             patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'key':''}), \
+        from modules import model_capabilities
+        facts={("http://ollama.invalid","text-only"):{'features':frozenset({'verified_vision'}),'context_limit':None,'output_limit':None,'expires_at':__import__('time').time()+300}}
+        with patch.object(model_capabilities,'_LOCAL_FACTS',facts),patch.object(router,'_HEALTH',{}),             patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'gemini_scopes':[],'free_tier_evidence':{},'application_limits':router._APPLICATION_DEFAULTS,'account_scopes':{}}), \
              patch.object(router.privacy,'mode',return_value='normal'), \
              patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'), \
              patch.object(llm,'_cfg',return_value={'url':'http://ollama.invalid','model':'text-only'}), \
              patch.object(llm,'ollama_models',return_value=['text-only']), \
              patch.object(llm.requests,'post',side_effect=[unsupported,successful]) as post:
-            with self.assertRaises(RuntimeError):llm.ask_image(str(image),'görseli anlat')
+            with self.assertRaises(RuntimeError):llm.ask_image(str(image),'görseli anlat',strict=True)
             self.assertIn('ollama',router.candidates('alice','chat'))
             self.assertEqual(llm.ask('merhaba'),'metin cevabı')
             self.assertEqual(post.call_count,2)
@@ -90,7 +91,7 @@ class DurableWorkTests(unittest.TestCase):
     def test_image_connection_or_quota_error_still_cools_provider(self):
         for error in (llm.LocalModelError('connection failed'),llm.CloudError('quota')):
             with self.subTest(error=type(error).__name__),patch.object(llm, '_ollama_effective_model', return_value='local-test'), patch.object(router,'_HEALTH',{}), \
-                 patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'key':''}), \
+                 patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'gemini_scopes':[],'free_tier_evidence':{},'application_limits':router._APPLICATION_DEFAULTS,'account_scopes':{}}), \
                  patch.object(router.privacy,'mode',return_value='normal'):
-                with self.assertRaises(RuntimeError):router.run('alice','image',Mock(side_effect=error),image=True)
+                with self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=error):callback(spec.provider)).text
                 self.assertNotIn('ollama',router.candidates('alice','chat'))

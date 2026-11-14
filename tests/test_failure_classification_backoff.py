@@ -90,14 +90,11 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(fp.reason_code(provider_timeout), 'PROVIDER_TIMEOUT')
 
     def test_ask_image_soft_failure_does_not_leak_raw_provider_text(self):
-        with patch.object(llm, 'provider', return_value='gemini'), \
-             patch.object(llm.privacy, 'mode', return_value='normal'), \
-             patch.object(llm, '_cli', side_effect=AssertionError('görüntü buluta gitmez')), \
-             patch.object(llm, '_ollama', side_effect=Http(429, 'PerDay key=PRIVATE')), \
-             patch('builtins.open', unittest.mock.mock_open(read_data=b'img')):
-            text = llm.ask_image('missing.png', 'ne var?')
+        from provider_fixture import routed_plan
+        with routed_plan(provider='ollama',model='vision-fixture'),patch.object(llm,'current_user',return_value='alice'),patch.object(llm.privacy,'mode',return_value='normal'),patch.object(llm,'_ollama',side_effect=Http(429,'PerDay key=PRIVATE')),patch('builtins.open',unittest.mock.mock_open(read_data=b'img')):
+            text = llm.ask_image('missing.png','ne var?')
         self.assertNotIn('PRIVATE', text)
-        self.assertIn('günlük kota', text)
+        self.assertIn('kota', text)
 
 
 class BackoffTests(unittest.TestCase):
@@ -120,23 +117,11 @@ class BackoffTests(unittest.TestCase):
         for exc in (Http(429, 'x'), Http(429, 'PerDay'), Http(401, 'x'), llm.LocalModelError('Ollama yok')):
             self.assertFalse(fp.is_transient(exc))
 
-    def test_gemini_direct_compat_does_not_retry_transport(self):
-        calls, waits = [], []
-
-        def call(model):
-            calls.append(model)
-            raise llm.errors.ServerError(503, {'error': {'message': 'overloaded', 'status': 'UNAVAILABLE'}})
-
-        with patch.object(llm, 'model_names', return_value=['m1']), \
-             patch.object(llm, 'current_user', return_value='alice'), \
-             patch.object(llm, '_fallback_states', {}), patch.object(llm, '_rate_limited', {}), \
-             patch.object(llm.usage_meter, 'record'), \
-             patch.object(fp.random, 'random', return_value=1.0), \
-             patch.object(llm.time, 'sleep', side_effect=waits.append):
-            with self.assertRaises(llm.errors.ServerError):
-                llm._with_models(call)
-        self.assertEqual(calls, ["m1"])
-        self.assertEqual(waits, [])    # Retry/fallback budgeting belongs to Router, not SDK helper
+    def test_gemini_exact_model_adapter_does_not_retry_transport(self):
+        cli=Mock();cli.chats.create.return_value.send_message.side_effect=llm.errors.ServerError(503,{'error':{'message':'unavailable'}})
+        with patch.object(llm,'_cli',return_value=cli),patch.object(llm,'current_user',return_value='alice'),patch.object(llm.privacy,'mode',return_value='normal'),patch.object(llm.time,'sleep') as wait:
+            with self.assertRaises(llm.errors.ServerError):llm._send_provider('gemini','x','',32,None,model='exact')
+        cli.chats.create.return_value.send_message.assert_called_once();wait.assert_not_called()
 
 
 if __name__ == '__main__':

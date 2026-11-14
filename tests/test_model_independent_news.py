@@ -883,7 +883,9 @@ class RecoveryPipelineEvidenceTests(unittest.TestCase):
               patch.object(goals, '_ensure'),
               patch.object(goals, '_save'),
               patch.object(goal_tools, 'verify')):
-            news_recovery._chat_deliver(runtime, job, max_new_steps=10)
+            from modules import llm
+            with llm.owner_context(job['owner']):
+                news_recovery._chat_deliver(runtime, job, max_new_steps=10)
 
         reads = [step for step in job['steps'] if step['tool'] == 'research']
         self.assertEqual(sorted(step['input']['url'] for step in reads), sorted([AA + '/tr/gundem/deprem-1',

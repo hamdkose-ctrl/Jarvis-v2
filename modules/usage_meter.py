@@ -9,6 +9,8 @@ yanıt başlıklarındaki kalan istek/token sınırı `<kullanıcı>.limits.json
 yazılır. Sayaç hata verirse çağrı etkilenmez. `kota durumu` komutu modele gitmeden bugünün özetini verir.
 """
 from __future__ import annotations
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import json
 import os
@@ -20,6 +22,47 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Mapping
+
+_ATTEMPT = ContextVar('router_usage_attempt',default=None)
+
+
+@contextmanager
+def capture_attempt(owner,request_id,attempt_id):
+    capture={'owner':owner,'request_id':request_id,'attempt_id':attempt_id,'usage':{},'finish_reason':None}
+    token=_ATTEMPT.set(capture)
+    try:yield capture
+    finally:_ATTEMPT.reset(token)
+
+
+def response_usage(data):
+    """Provider-reported values only. Missing counters remain unknown, including cache/reasoning."""
+    if isinstance(data,dict):
+        result=data.get('result')
+        usage=data.get('usage') or (result.get('usage') if isinstance(result,dict) else None) or {}
+        source=usage if isinstance(usage,dict) else {}
+        total=source.get('total_tokens')
+        pair=(source.get('prompt_tokens',source.get('input_tokens',data.get('prompt_eval_count'))),
+              source.get('completion_tokens',source.get('output_tokens',data.get('eval_count'))))
+        output_details=source.get('completion_tokens_details') or source.get('output_tokens_details') or {}
+        input_details=source.get('prompt_tokens_details') or source.get('input_tokens_details') or {}
+        reasoning=output_details.get('reasoning_tokens') if isinstance(output_details,dict) else None
+        cached=input_details.get('cached_tokens') if isinstance(input_details,dict) else None
+    else:
+        meta=getattr(data,'usage_metadata',None)
+        total=getattr(meta,'total_token_count',None)
+        pair=(getattr(meta,'prompt_token_count',None),getattr(meta,'candidates_token_count',None))
+        reasoning=getattr(meta,'thoughts_token_count',None)
+        cached=getattr(meta,'cached_content_token_count',None)
+    return {key:value if type(value) is int and value>=0 else None for key,value in
+                      zip(('input_tokens','output_tokens','reasoning_tokens','cached_tokens','total_tokens'),(*pair,reasoning,cached,total))}
+
+
+def observe_response(data, *, finish_reason=None):
+    capture=_ATTEMPT.get()
+    if capture is None:return
+    capture['usage']=response_usage(data)
+    reason=getattr(finish_reason,'name',finish_reason)
+    capture['finish_reason']=reason if isinstance(reason,str) else None
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,7 +72,7 @@ _LOCK = threading.Lock()
 _TR = timezone(timedelta(hours=3))
 _MAX_BYTES = 2_000_000          # dolan günlük parçası benzersiz arşive taşınır; eski parçalar ezilmez
 _SKIP = ('modules/llm.py', 'modules/usage_meter.py', 'modules/smart_router.py', 'modules/model_wait.py',
-         'modules/paid_providers.py')
+         'modules/provider_protocols.py')
 
 
 def _dir():
@@ -121,6 +164,10 @@ def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0
         now = datetime.now(_TR)
         row = {'t': now.isoformat(timespec='seconds'), 'p': provider, 'm': str(model or '')[:60],
                's': source or caller(), 'i': int(chars_in or 0), 'o': int(chars_out or 0), 'r': str(result)[:20]}
+        capture=_ATTEMPT.get()
+        if capture is not None and capture['owner']==(owner or _owner()):
+            row.update(request_id=capture['request_id'],attempt_id=capture['attempt_id'])
+            row['usage']=dict(capture['usage'])
         if tokens and all(type(x) is int and x >= 0 for x in tokens[:2]) and len(tokens) == 2:
             row['ti'], row['to'] = tokens        # sağlayıcının bildirdiği token; tahmin yazılmaz
         path = _dir() / (_slug(owner or _owner()) + '.jsonl')
@@ -143,7 +190,7 @@ def tokens_from(data) -> tuple | None:
     try:
         usage = data.get('usage') if isinstance(data, dict) else None
         if isinstance(usage, dict):                                   # Groq / OpenAI uyumlu
-            pair = usage.get('prompt_tokens'), usage.get('completion_tokens')
+            pair = usage.get('prompt_tokens',usage.get('input_tokens')), usage.get('completion_tokens',usage.get('output_tokens'))
         elif isinstance(data, dict):                                  # Ollama /api/chat
             pair = data.get('prompt_eval_count'), data.get('eval_count')
         else:                                                         # Gemini GenerateContentResponse

@@ -1,4 +1,5 @@
 """BRAIN-03 production continuations; model/device boundaries are fake."""
+from provider_fixture import routed_response, routed_plan
 from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ class CompletionWiringTests(fixtures._CanonicalAuthorityHarness):
              patch('modules.llm.provider', return_value='groq'), \
              patch('modules.llm.privacy.mode', return_value='normal'), \
              patch('modules.smart_router.selection', return_value={'candidates': ['groq']}), \
-             patch('modules.smart_router.run', return_value=raw), \
+             routed_response(raw), \
              patch.object(self.ctx, '_add_note', side_effect=AssertionError('correction wrote note')) as note:
             _, _, _, feedback = self.turn_real('hayır, yeni metin', model_understanding=True)
         self.assertEqual(feedback.result_status, 'failed')
@@ -203,15 +204,15 @@ class ModelBindingContractTests(unittest.TestCase):
                                       references=tuple(refs), arguments={'original_text': raw_text})
         raw = envelope(actions=[{'action_id': 'a1', 'capability_id': capability,
             'arguments': arguments, 'argument_sources': sources, 'reference_slots': list(slots), 'depends_on': []}])
-        def transport(owner, payload, send, **kwargs):
+        def transport(request, spec, payload, system, **kwargs):
+            payload = payload + "\\n" + system
             self.payload = payload
-            kwargs['validator'](raw)
             return raw
         with patch('modules.llm.current_user', return_value=self.owner), \
              patch('modules.llm.provider', return_value='groq'), \
              patch('modules.llm.privacy.mode', return_value='normal'), \
              patch('modules.smart_router.selection', return_value={'candidates': ['groq']}), \
-             patch('modules.smart_router.run', side_effect=transport), \
+             routed_plan(count=1), patch('modules.llm.dispatch', side_effect=transport), \
              patch.object(brain_model_understanding, '_record_failure'):
             return brain_model_understanding.propose(owner=self.owner, text=raw_text, current=current,
                 arguments=current.arguments, turn_candidates=tuple(turns),

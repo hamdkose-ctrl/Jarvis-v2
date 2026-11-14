@@ -7,6 +7,9 @@ from modules import failure_policy, hoca, llm, smart_router
 
 
 class ProviderHocaDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        self.state=smart_router.settings('diagnostic-test')
+
     def test_status_resolution_does_not_force_retry_for_cached_missing_models(self):
         with patch.object(llm, 'ollama_models', return_value=[]) as models:
             with self.assertRaises(llm.LocalModelError):
@@ -20,7 +23,7 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         self.assertEqual(models.call_args_list, [unittest.mock.call(), unittest.mock.call(force=True)])
 
     def test_router_table_uses_installed_effective_model_not_saved_configuration(self):
-        with patch.object(smart_router, 'settings', return_value={}), \
+        with patch.object(smart_router, 'settings', return_value=self.state), \
              patch.object(llm, 'provider_configuration', return_value={'model': 'removed:7b'}), \
              patch.object(llm, '_ollama_effective_model', return_value='qwen2.5:3b') as effective:
             state = smart_router.status('diagnostic-test')
@@ -29,7 +32,7 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         self.assertEqual(local['model'], 'qwen2.5:3b')
 
     def test_router_table_does_not_present_removed_model_when_no_installed_model(self):
-        with patch.object(smart_router, 'settings', return_value={}), \
+        with patch.object(smart_router, 'settings', return_value=self.state), \
              patch.object(llm, 'provider_configuration', return_value={'model': 'removed:7b'}), \
              patch.object(llm, '_ollama_effective_model', side_effect=llm.LocalModelError('missing')):
             state = smart_router.status('diagnostic-test')
@@ -38,7 +41,7 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         self.assertIn('doğrulanamadı', local['policy'])
 
     def test_router_diagnostic_summary_precedes_table_even_without_history(self):
-        for last, expected in [({}, 'Bu süreçte bu kullanıcı için son çağrı kaydı yok'),
+        for last, expected in [({}, 'Bu kullanıcı için kayıtlı model çağrısı yok'),
                                ({'provider': None, 'attempts': [{'provider': 'ollama', 'ok': False,
                                  'error': 'ReadTimeout', 'kind': 'local'}]}, 'zaman aşımı')]:
             with self.subTest(last=last), patch.object(smart_router, 'status', return_value={
@@ -64,11 +67,10 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         wrapped.__cause__ = cause
         with patch.object(llm, '_ollama_effective_model', return_value='local-test'), \
              patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
-             patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
-             patch.object(llm, 'note_route') as note:
+             patch.object(smart_router, '_HEALTH', {}),              patch.object(llm, 'note_route') as note:
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
-                smart_router.run('diagnostic-test', 'test', lambda _: (_ for _ in ()).throw(wrapped))
-            trace = smart_router._LAST['diagnostic-test']['attempts'][0]
+                smart_router.run_request(smart_router.ModelRequest(owner='diagnostic-test',profile='conversation'),lambda spec, callback=lambda _: (_ for _ in ()).throw(wrapped):callback(spec.provider)).text
+            trace = smart_router.status('diagnostic-test')['last']['attempts'][0]
         self.assertEqual(trace['error'], 'ReadTimeout')
         self.assertNotEqual(trace.get('hint'), 'ollama_missing')
         self.assertIn('zaman aşımı', str(caught.exception))
@@ -80,11 +82,10 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         wrapped.__cause__ = requests.ConnectionError('private-secret')
         with patch.object(llm, '_ollama_effective_model', return_value='local-test'), \
              patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
-             patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
-             patch.object(llm, 'note_route'):
+             patch.object(smart_router, '_HEALTH', {}),              patch.object(llm, 'note_route'):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
-                smart_router.run('diagnostic-test', 'test', lambda _: (_ for _ in ()).throw(wrapped))
-            trace = smart_router._LAST['diagnostic-test']['attempts'][0]
+                smart_router.run_request(smart_router.ModelRequest(owner='diagnostic-test',profile='conversation'),lambda spec, callback=lambda _: (_ for _ in ()).throw(wrapped):callback(spec.provider)).text
+            trace = smart_router.status('diagnostic-test')['last']['attempts'][0]
         self.assertEqual(trace['error'], 'ConnectionError')
         self.assertEqual(trace.get('hint'), 'ollama_missing')
         self.assertNotIn('private-secret', str(caught.exception))

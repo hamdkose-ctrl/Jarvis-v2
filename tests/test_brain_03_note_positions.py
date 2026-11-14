@@ -3,6 +3,7 @@
 Only the external model transport is replaced; Profile IDs deliberately differ
 from the numbers shown by the note list.
 """
+from provider_fixture import routed_plan
 import json
 from unittest.mock import patch
 
@@ -25,18 +26,18 @@ class NotePositionProductionTests(_CanonicalAuthorityHarness):
             action(capability_id="notes.write", arguments={"operation": "delete"}, reference_slots=["note_0"]),
         ])
 
-        def transport(owner, prompt, send, **kwargs):
+        def transport(request, spec, prompt, system, **kwargs):
+            prompt = prompt + "\\n" + system
             offered.extend(json.loads(prompt.split("\\n", 1)[0])["note_candidates"])
             if unavailable:
                 raise TimeoutError("offline model")
-            kwargs["validator"](raw)
             return raw
 
         with patch("modules.llm.current_user", return_value=self.owner), \
              patch("modules.llm.provider", return_value="groq"), \
              patch("modules.llm.privacy.mode", return_value="normal"), \
              patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-             patch("modules.smart_router.run", side_effect=transport), \
+             routed_plan(count=1), patch("modules.llm.dispatch", side_effect=transport), \
              patch.object(self.ctx, "_extra_commands", create=True,
                           side_effect=AssertionError("raw note fallback")):
             entry, result, _, _ = self.turn_real(text, model_understanding=True)

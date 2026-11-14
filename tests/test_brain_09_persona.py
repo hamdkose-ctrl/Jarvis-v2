@@ -1,4 +1,5 @@
 """Native Profile/Session/Brain/Core seams; only model transport is fake."""
+from provider_fixture import routed_response
 import json
 from pathlib import Path
 import tempfile
@@ -149,7 +150,7 @@ class PersonaTests(unittest.TestCase):
         raw=primary.envelope(operation='chat',presentation=[{'key':'technical_detail','value':'teknik',
                               'scope':'explicit','evidence_quote':text}])
         p1,p2,p3,p4=primary.eligible()
-        with p1,p2,p3,p4,patch('modules.smart_router.run',return_value=raw) as semantic_call, \
+        with p1,p2,p3,p4,routed_response(raw) as semantic_call, \
                 runtime.requests_state.activate('hamdi','native-b09'):
             entry=brain_entry.prepare(runtime,owner='hamdi',request_id='native-b09',text=text,
                                       source='yazı',model_understanding=True)

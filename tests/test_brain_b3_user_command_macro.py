@@ -1,5 +1,6 @@
 """BRAIN-03 slice 7: model proposal -> Core shape -> single typed executor."""
 from __future__ import annotations
+from provider_fixture import routed_response
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -51,7 +52,7 @@ class UserAndMacroProductionTests(harness._CanonicalAuthorityHarness):
         raw = _envelope(capability, arguments, sources)
         p1, p2, p3, p4 = eligible()
         with p1, p2, p3, p4, patch("modules.llm.current_user", return_value=self.owner), \
-                patch("modules.smart_router.run", return_value=raw):
+                routed_response(raw):
             return self.turn_real(text, model_understanding=True)
 
     def test_model_macro_steps_reach_owner_store(self):

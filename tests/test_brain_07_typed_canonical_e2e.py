@@ -5,6 +5,7 @@ worker are the only mocked external boundaries; journals, Core CAS, Scheduler,
 domain evidence, and first-party completion code remain live.
 """
 from __future__ import annotations
+from provider_fixture import routed_plan
 
 import json
 import release_guard
@@ -73,9 +74,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         # Install ONE router stub per test, not a nested monkeypatch per
         # request. Two concurrent typed_turn() calls must not restore each
         # other's previous patched value into the global router module.
-        self.router_stub = self.mocks.enter_context(patch(
-            'modules.smart_router.run', return_value=self.envelope(),
-        ))
+        self.mocks.enter_context(routed_plan(count=1))
+        self.router_stub=self.mocks.enter_context(patch('modules.llm.dispatch',return_value=self.envelope()))
 
     def envelope(self):
         return json.dumps({
@@ -115,7 +115,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
     def test_parallel_typed_turns_share_one_router_stub_without_global_leak(self):
         """Regression: nested monkeypatches in parallel left a fake router
         installed for unrelated test modules after their cleanup."""
-        self.assertIs(smart_router.run, self.router_stub)
+        from modules import llm
+        self.assertIs(llm.dispatch,self.router_stub)
         reached = threading.Barrier(2, timeout=10)
 
         def semantic_reply(*args, **kwargs):
@@ -134,7 +135,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 right_result = right.result(timeout=20)
 
         self.assertEqual(self.router_stub.call_count, 2)
-        self.assertIs(smart_router.run, self.router_stub)
+        from modules import llm
+        self.assertIs(llm.dispatch,self.router_stub)
         self.assertNotEqual(left_result[3], right_result[3])
         self.assertEqual(left_result[2].reason_code,
                          'GOAL_CANONICAL_BACKGROUND_QUEUED')

@@ -156,6 +156,15 @@ def _closed_reply(job):
             'kapatmak için “hedef iptal” de ya da yeni isteğini söyle.')
 
 
+def closed_resume_status(owner, expected_id):
+    """Read-only bounded terminal status; a changed/open target NEVER resumes."""
+    job = latest(owner)
+    if (not job or job.get('owner') != owner or job.get('id') != expected_id
+            or job.get('state') not in {'done', 'cancelled'}):
+        return 'Son hedef değişti; hiçbir hedef sürdürülmedi. “Hedef durumu” ile güncel durumu görebilirsin.'
+    return _closed_reply(job)
+
+
 def latest(owner):
     root=_root(owner);pointer=root/'latest.json'
     if not pointer.exists():return None

@@ -7,6 +7,7 @@ yüzeylerinde (Live, normal döngü, iç adım) açık olduğu, (2) owner-bound 
 taklit edilir ve çitler gerçek üretim dikişinden geçer.
 """
 from __future__ import annotations
+from provider_fixture import routed_response
 
 import ast
 import inspect
@@ -87,7 +88,7 @@ def eligible_provider_patches():
 def asked(raw, text, semantic, **kwargs):
     p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
     with p_owner, p_provider, p_privacy, p_selection, \
-            patch("modules.smart_router.run", return_value=raw), \
+            routed_response(raw), \
             patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
         return model.propose(owner=OWNER, text=text, current=semantic,
                              arguments=semantic.arguments, **kwargs)
@@ -97,7 +98,7 @@ def asked_apply(raw, text, semantic):
     """Zarfı transport düzeyinde taklit eder; çitler ve benimseme gerçek dikişte çalışır."""
     p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
     with p_owner, p_provider, p_privacy, p_selection, \
-            patch("modules.smart_router.run", return_value=raw), \
+            routed_response(raw), \
             patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
         return apply_model_understanding(semantic, text)
 

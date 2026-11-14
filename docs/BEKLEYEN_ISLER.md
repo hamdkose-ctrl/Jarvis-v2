@@ -83,3 +83,14 @@ Bu bir aktif iş listesi maddesi değildir; yetkili kayıt [`Jarvis_Yol_Haritasi
 
 
 - Brain/Core 14 Kasım tek kapsam: kaynak ve kabul matrisi `docs/architecture/BRAIN_CORE_SINGLE_CLOSEOUT_2026-11-14.md`. Kod doğrulaması, canlı Full (#545), fiziksel/operator Windows ve #584'ün Account/effectful geniş sınırları ayrı izlenir. Birleşen #613/#617/#621/#622/#623/#624 işleri yeniden açılmaz; #625 ses işi çoğaltılmaz. Yeni PR kabul kanıtı kendi exact kaynağına bağlıdır.
+
+
+## Router V2 kabulü —14 Kasım2026
+
+Tek Router V2 kod göçü için uygulama/emeklilik kaydı `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`dir. Ürün kapanışı için aynı source SHA'nın Windows CI/gerçekPC sonucu, ücretsiz hesap/proje limitleri, Türkçe/vision doğruluğu, gecikme ölçümü ve exact model Brain tam-holdout rol kabulü açıktır. Kullanıcı anahtarı veya canlı rapor depoya alınmaz; otomatik ücretli çağrı/deney/CI model ölçümü yapılmaz. Bilinmeyen token/maliyet/neuron sınırı garanti gibi gösterilmez. Kod/PR birleşmesi tek başına bu kabulü kapatmaz.
+
+
+- Router #633 güncel kabul: `d2d6cf24ff1e` Windows CI/PC validation/yerel model başarılı, PC haber senaryoları eski raw girişte failed. Aynı PR'daki canonical fixture/Core giriş ve kapalı-hedef salt-okunur devam düzeltmesinin yeni SHA Windows/PC kanıtı gerekir. Fixture canlı Brain rolü, hesap limiti, vision/Türkçe doğruluk, gecikme veya Scheduler kabulü üretmez; bu ölçümler açık kalır.
+
+
+- Router #633 ikinci PC takibi: `fd03dba` Windows CI/validation/yerel model/desktop passed, haber failed. Kabulün bekleyen kullanıcı kaydından yalıtılması, genel haber fiili normalizasyonu ve #634 ses tabanıyla birleşimin yeni SHA tam validation/Windows/PC sonucu gerekir. Üretim State önceliği ile gerçek konu/tarih/makale/iki yayıncı eşikleri korunur; gerçek Windows taşıması/canlı Brain/vision/hesap ölçümü uydurulmaz.

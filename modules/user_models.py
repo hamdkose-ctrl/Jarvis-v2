@@ -4,6 +4,7 @@ Kayıt `~/.jarvis/models/<kullanıcı>.json`. Alan yoksa kurulumun genel ayarı 
 Ücretli sağlayıcı yalnız kullanıcı açıkça seçerse buraya yazılır; buradan otomatik geçiş yapılmaz.
 """
 from pathlib import Path
+from copy import deepcopy
 import re
 import threading
 import json
@@ -11,7 +12,7 @@ from config import DATA_DIR
 import release_guard
 
 _LOCK = threading.RLock()
-PROVIDERS = ('auto', 'gemini', 'groq', 'ollama', 'openai', 'anthropic')
+PROVIDERS = ('auto', 'gemini', 'groq', 'ollama')
 _GEMINI_NAME = r'[A-Za-z0-9._/-]{1,150}'
 _MODEL_NAME = r'[A-Za-z0-9._:/@-]{1,150}'      # Ollama etiketi (llama3.2:3b) ve Groq kimliği (openai/gpt-oss-120b)
 _CHOICE_KEYS = ('provider', 'groq_model', 'local_model')
@@ -62,6 +63,10 @@ def choice(owner) -> dict:
         return {}
     out = {}
     stored = value.get('provider')
+    if stored in ('openai','anthropic'):
+        from modules import router_connections
+        router_connections.migrate_legacy(owner)
+        stored='auto'
     if stored in PROVIDERS:
         out['provider'] = stored
     elif stored is not None:
@@ -79,13 +84,28 @@ def choice(owner) -> dict:
 
 
 def _write(owner, **changes):
-    with _LOCK:
-        try:
-            value = _read(owner)
-        except (OSError, ValueError):
-            value = {}     # bozuk kayıt yeni seçimle düzelir
-        value.update(changes)
-        release_guard.save(_path(owner), value)
+    def mutate(_routing,value):value.update(changes)
+    update_routing(owner,mutate)
+
+
+def routing(owner):
+    value=_read(owner).get('routing_v2',{})
+    if not isinstance(value,dict):raise ValueError('Router bağlantı kaydı bozuk.')
+    return deepcopy(value)
+
+
+def update_routing(owner,mutate):
+    """One owner settings authority; OS claim protects concurrent process updates."""
+    from modules import file_resource_guard
+    path=_path(owner);path.parent.mkdir(parents=True,exist_ok=True)
+    with _LOCK,file_resource_guard.claim_paths(path):
+        value=_read(owner)
+        routing=value.get('routing_v2',{})
+        if not isinstance(routing,dict):raise ValueError('Router bağlantı kaydı bozuk.')
+        result=mutate(routing,value)
+        value['routing_v2']=routing
+        release_guard.save(path,value)
+        return result
 
 
 def save(owner, names):

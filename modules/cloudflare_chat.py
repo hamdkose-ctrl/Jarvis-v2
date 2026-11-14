@@ -12,7 +12,7 @@ from modules import failure_policy, requests_state, usage_meter
 from modules.diagnostics import record_failure as _record_failure
 from modules.image_gen import user_cloudflare_account, user_cloudflare_token
 
-MODEL = "@cf/meta/llama-3.1-8b-instruct"
+MODEL = "@cf/google/gemma-4-26b-a4b-it"
 _TIMEOUT = (5, 30)
 
 
@@ -87,6 +87,7 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
     if not isinstance(text, str) or not text.strip():
         usage_meter.record('cloudflare', model, chars_in, 0, 'bos', owner=slug)
         raise CloudflareChatError("Cloudflare boş yanıt döndürdü.", "EMPTY_RESPONSE")
+    usage_meter.observe_response(payload,finish_reason=payload.get('result',{}).get('finish_reason'))
     usage_meter.record('cloudflare', model, chars_in, len(text), 'ok', owner=slug)
     requests_state.check()  # late replies are metered but never adopted
     return text

@@ -127,7 +127,8 @@ class HookAndGateTests(OwnerFixture):
     def test_model_hook_reports_metadata_only(self):
         seen = []
         hooks.register('model', lambda event: seen.append(event))
-        with patch.object(llm, '_send', return_value='cevap'):
+        from provider_fixture import routed_response
+        with routed_response('cevap'):
             self.assertEqual(llm.ask('gizli soru'), 'cevap')
         self.assertEqual(seen[0]['payload']['call'], 'ask')
         self.assertTrue(seen[0]['payload']['ok'])

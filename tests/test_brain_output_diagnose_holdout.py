@@ -20,6 +20,11 @@ def proposal(operation='chat', capability=None):
 
 
 class LiveHoldoutRunnerTests(unittest.TestCase):
+    def setUp(self):
+        from modules import smart_router
+        p=patch.object(smart_router,'qualification_candidate',return_value=smart_router.ModelSpec('groq','test-model'))
+        p.start();self.addCleanup(p.stop)
+
     def test_response_metadata_does_not_retain_unknown_keys_or_values(self):
         from modules.brain_model_understanding import SCHEMA_VERSION
         data=runner.response_shape(json.dumps({SCHEMA_VERSION:{'SECRET_KEY':'SECRET_TEXT'}}))
@@ -31,11 +36,11 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
     def test_a_rejected_raw_wrong_action_is_still_a_critical_proposal(self):
         from modules import llm, brain_model_understanding as model
         def rejected(*args):
-            llm._send_provider('groq','synthetic','synthetic',2048,None)
+            llm.dispatch(None,None,'synthetic','synthetic')
             model._proposal_diagnostic.set({'status':'rejected','reason_code':'CORE_ARGUMENTS_INVALID',
                 'operation':'direct_action','capabilities':['documents.export']})
             return None
-        with patch('modules.llm._send_provider',return_value='{}'),patch.object(runner,'ask',side_effect=rejected):
+        with patch('modules.llm.dispatch',return_value='{}'),patch.object(runner,'ask',side_effect=rejected):
             result=runner.measure('owner',[self.case(['chat'])])
         self.assertEqual(result['state'],'failed')
         self.assertEqual(result['incorrect_action_proposals'],1)
@@ -92,9 +97,9 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
     def test_invalid_first_real_response_stops_the_full_run_as_failed(self):
         from modules import llm
         def invalid(*args):
-            llm._send_provider('groq','synthetic','synthetic',2048,None)
+            llm.dispatch(None,None,'synthetic','synthetic')
             return None
-        with patch('modules.llm._send_provider',return_value='invalid JSON'), patch.object(runner,'ask',side_effect=invalid) as ask:
+        with patch('modules.llm.dispatch',return_value='invalid JSON'), patch.object(runner,'ask',side_effect=invalid) as ask:
             report=runner.measure('owner',[self.case(['chat'])]*20,interval_seconds=0)
         ask.assert_called_once()
         self.assertEqual(report['state'],'failed');self.assertIsNone(report['accuracy'])
@@ -175,9 +180,9 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
     def test_real_response_observation_and_token_reset_spacing(self):
         from modules import llm
         def fake_response(*args):
-            llm._send_provider('groq','synthetic','synthetic',1,None)
+            llm.dispatch(None,None,'synthetic','synthetic')
             return proposal()
-        with patch('modules.llm._send_provider',return_value='{}'), patch.object(runner,'ask',side_effect=fake_response), patch('modules.usage_meter.limits',return_value={'groq':{'test-model':{'tok_reset':'1m'}}}), patch('modules.llm.groq_model',return_value='test-model'), patch.object(runner.time,'sleep') as sleep:
+        with patch('modules.llm.dispatch',return_value='{}'), patch.object(runner,'ask',side_effect=fake_response), patch('modules.usage_meter.limits',return_value={'groq':{'test-model':{'tok_reset':'1m'}}}), patch('modules.llm.groq_model',return_value='test-model'), patch.object(runner.time,'sleep') as sleep:
             r=runner.measure('owner',[self.case(['chat']),self.case(['chat'])])
         self.assertEqual(r['state'],'passed');self.assertEqual(r['provider_responses'],2)
         sleep.assert_called_once_with(61)
@@ -186,10 +191,10 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         from modules import llm
         def response(owner,case,index):
             if index==0:
-                llm._send_provider('groq','synthetic','synthetic',1,None)
+                llm.dispatch(None,None,'synthetic','synthetic')
                 return proposal()
             return None
-        with patch('modules.llm._send_provider',return_value='{}'), patch.object(runner,'ask',side_effect=response):
+        with patch('modules.llm.dispatch',return_value='{}'), patch.object(runner,'ask',side_effect=response):
             r=runner.measure('owner',[self.case(['chat'])]*3,interval_seconds=0)
         self.assertEqual(r['state'],'unmeasured');self.assertIsNone(r['accuracy'])
         self.assertEqual(r['cases'],2);self.assertEqual(r['planned_cases'],3)

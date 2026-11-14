@@ -10,7 +10,7 @@ from modules import requests_state, smart_router as router
 class RouterAuthorityTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
-        for name, value in (('_STORE', Path(self.tmp.name)), ('_HEALTH', {}), ('_LAST', {})):
+        for name, value in (('_STORE', Path(self.tmp.name)), ('_HEALTH', {})):
             item = patch.object(router, name, value); item.start(); self.addCleanup(item.stop)
 
     def test_schema_repair_and_fallback_share_two_network_attempts(self):
@@ -40,7 +40,7 @@ class RouterAuthorityTests(unittest.TestCase):
         with patch.object(router, 'plan', return_value=planned), patch.object(router.requests_state, 'check', side_effect=check):
             with self.assertRaises(requests_state.LocalDeadline):
                 router.run_request(request, lambda _: 'late answer')
-        self.assertEqual(router._LAST, {})
+        self.assertFalse(any(t['state']=='completed' for t in router.status('alice')['traces']))
 
 
     def test_cancelled_request_rejects_adapter_invocation(self):
@@ -66,7 +66,7 @@ class RouterAuthorityTests(unittest.TestCase):
         with patch.object(router, 'plan', return_value=planned), patch.object(router, '_check_request', side_effect=check):
             with self.assertRaises(requests_state.LocalDeadline):
                 router.run_request(request, lambda spec: 'late reply')
-        self.assertEqual(router._LAST, {})
+        self.assertFalse(any(t['state']=='completed' for t in router.status('alice')['traces']))
         self.assertEqual(router._HEALTH, {})
 
     def test_cancel_or_deadline_inside_validator_stops_without_cooldown(self):

@@ -1,3 +1,4 @@
+from provider_fixture import routed_plan
 """BRAIN-05 goal holdout contracts; never call a real model or OS effect."""
 import json
 import unittest
@@ -83,9 +84,9 @@ class GoalHoldoutTests(unittest.TestCase):
              patch.object(llm, 'provider', return_value='groq'), \
              patch.object(llm.privacy, 'mode', return_value='normal'), \
              patch.object(smart_router, 'selection', return_value={'candidates':['groq']}), \
-             patch.object(smart_router, 'run', return_value='{}') as fake:
+             routed_plan(count=1),patch.object(llm,'dispatch',return_value='{}') as fake:
             self.assertIsNone(goal.ask('alice', case, 3))
-        sent = fake.call_args.args[1]
+        sent = fake.call_args.args[2]+'\n'+fake.call_args.args[3]
         self.assertIn('GOAL OUTPUT CONTRACT', sent)
         self.assertIn('infer conversation_relation', sent)
         self.assertNotIn('COPY current.conversation_relation exactly', sent)

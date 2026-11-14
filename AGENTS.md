@@ -28,7 +28,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
-- **Model rotası:** `ModelRequest` → `RoutePlan` → adapter; Router retry/fallback için en çok iki fiziksel deneme yetkisidir. Gemini SDK retry/continuation kapalı tutulur, başarısız fiziksel deneme de sayılır; Core yetkiyi korur.
+- **Router V2:** `ModelRequest` → exact adapter, repair ≤2. Owner/Core korunur; SQLite kapanır. Haber kabulü yalıtılır; devam salt okunur. Göç: `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
 
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
@@ -38,12 +38,12 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (16 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (24 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (24 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (26 bölüm)
-- `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (27 bölüm)
+- `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (11 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (11 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (10 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
