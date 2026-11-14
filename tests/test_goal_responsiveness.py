@@ -138,6 +138,27 @@ class ResponsivenessTests(unittest.TestCase):
         self.assertNotIn('secret',runtime._emit_for.call_args.args[2])
         self.assertTrue(runtime.events.empty())
 
+    def test_question_marked_goal_cancel_stays_with_semantic_core(self):
+        from modules import brain_entry
+        alice=SimpleNamespace(name='Alice',slug='alice')
+        runtime=SimpleNamespace(
+            _tr_lower=str.lower,slugify=str.lower,pc_profile=lambda:alice,
+            _get_profile=lambda name:alice,requests_state=requests_state,
+            events=queue.Queue(),_emit_for=Mock(),_record_failure=Mock(),
+        )
+        question='hedef iptal '+'e'*16+'?'
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(requests_state,'_journal',Path(tmp)/'requests.json'), \
+             patch.object(requests_state,'_records',{}), \
+             patch.object(goal_executor,'cancel_job',
+                          side_effect=AssertionError('Question may not cancel')), \
+             patch.object(brain_entry,'fast_lane',return_value=None):
+            self.assertTrue(engine_queue.submit(
+                runtime,question,user='Alice',rid='question-rid'))
+        self.assertEqual(runtime.events.get_nowait(),
+                         ('command',question,'yazı','Alice','question-rid'))
+        runtime._emit_for.assert_not_called()
+
     def test_answer_to_pending_never_bypasses_core_state_and_engine_loop(self):
         from modules import canonical_goal_flow, brain_entry
         alice=SimpleNamespace(name='Alice',slug='alice')
