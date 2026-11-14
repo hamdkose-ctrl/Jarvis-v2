@@ -324,6 +324,21 @@ def _build_context(runtime: Any, owner: str, request_id: str,
 
 def _state_refs(runtime: Any, owner: str, request_id: str, active: ActiveContext) -> tuple[ContextReference, ...]:
     rows: list[ContextReference] = []
+    # Terminal goals are not actionable model candidates. Observe only the
+    # latest owned terminal identity for a bounded, read-only resume status.
+    try:
+        from modules import goal_executor
+        terminal = (goal_executor.latest(owner)
+                    if (goal_executor.STORE / owner / 'latest.json').is_file() else None)
+    except Exception:
+        _record_failure("modules/brain_entry.py:closed_goal_observe")
+        terminal = None
+    if (isinstance(terminal, dict) and terminal.get('owner') == owner
+            and terminal.get('id') and terminal.get('state') in {'done', 'cancelled'}):
+        rows.append(ContextReference(
+            id=str(terminal['id']), kind='goal', source='goal_state', owner=owner,
+            provenance={'state': terminal['state']},
+        ))
     try:
         from modules import job_front
         job = job_front.observe(owner)

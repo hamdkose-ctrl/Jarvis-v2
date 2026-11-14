@@ -969,3 +969,8 @@ Güncel davranış/kabul sözleşmesi: `docs/architecture/BRAIN_CORE_SINGLE_CLOS
 
 
 - 🔄 Router #633 Windows takibi: `ca9b02b` CI43613281563 başarısızdır (446error/11failure); SQLite handle'larının açık kalması `closing` ile giderildi.5 yaşam döngüsü regresyonu ve kurulu Ollama/test-sırası koşulu önce kırmızı, düzeltme sonrası yeşil üretildi; haber/worker politika sahipleri değiştirilmedi. Birleşen #632 mevcut ses koduyla entegre edildi. Son HEAD'in yerel full validation, Windows CI/PC ve canlı rol kabulü ayrı sonuçlardır; eski Linux PASS Windows kabulü diye sayılmaz. Ayrıntı Router V2 uygulama/emeklilik haritasındadır.
+
+
+### Router #633 — güncel PC haber kabulü düzeltmesi (14 Kasım 2026; yeni SHA kabulü bekler)
+
+`d2d6cf24ff1e` Windows CI geçti; gerçek PC validation/yerel model passed, üç haber senaryosu eski raw `hedef` girişinde failed. Kabul betiği typed Router/envelope/Brain handoff/Core zincirine taşındı; sabit anlamlandırma fixture'ı canlı Brain veya Scheduler kabulü sayılmaz. Kaynak/tarih/iki yayıncı/dosya verify eşikleri korundu. Kapalı son hedefte çıplak devam, owner/kimlik/durum yeniden denetlenerek salt-okunur durum verir; hedefi yeniden açmaz ve açık/pending işleri devralmaz. Aynı PR'da kaynak-taklitli üç senaryonun önce failed/sonra passed regresyonu ve eksik yayıncı/değişmiş hedef negatifleri vardır. Yeni source Windows/PC/canlı rol kanıtı henüz üretilmedi; Router fazı kapandı diye işaretlenmez. Ayrıntı Router V2 uygulama/emeklilik haritasındadır.

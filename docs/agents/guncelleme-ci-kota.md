@@ -195,3 +195,6 @@ CI offline kalır. Brain rol açılması yalnız exact model/hesap/source-finger
 
 
 #633 Windows takibi: SQLite Connection context manager handle'ı kapatmaz; yalnız transaction'ı tamamlar. Router trace/qualification/reconcile bağlantıları `with closing(connect(...)) as db, db` ile commit/rollback sonrasında kesin kapanır; reserve mevcut finally-close yolundadır. GC kapatmayı garanti etmez, Windows temizlik hatası yutulmaz. Güçlü referans tutan gerçek SQLite yaşam döngüsü regresyonları ve kurulu yerel model + fake sağlık hatası → sonraki haber planlayıcısı sıralama regresyonu korunur. Hata testlerinin health/owner store/internet gözlemi kendi fixture'ında kalır; gerçek provider cooldown gevşetilmez.
+
+
+#633 haber kabulü takibi: eski raw `hedef` çağrısı yerine request-bound canonical prepare/handoff kullanılır. Anlamlandırma için yalnız sabit aday/adapter fixture'ı en fazla bir çağrı ile geçici Router store'dadır; envelope validator/Core gerçek, normal model taşıyıcısı yürütme sırasında kapalı ve sayılır. Bu fixture ücretsiz hesap, Brain rolü, Türkçe kalite veya çalışan Scheduler kabulü üretmez. Gerçek PC `d2d6cf24ff1e` raporunda validation ve yerel model passed, haber failed olarak korunur; yeni düzeltme aynı PR'dadır ve yeni SHA kanıtı bekler.

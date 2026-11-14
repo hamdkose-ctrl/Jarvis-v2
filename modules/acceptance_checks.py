@@ -120,8 +120,57 @@ def _news_failure_detail(job):
     return detail
 
 
+def _news_turn(runtime, text, *, router_store, create_goal=False):
+    """Canonical Core ingress with ONE declared semantic fixture, not live Brain acceptance.
+
+    Only this fixture's candidate plan and adapter response are synthetic. The
+    typed Router, envelope validator, Brain handoff and Core gates stay real.
+    Restore the adapter BEFORE execution; downstream model calls remain blocked.
+    The acceptance source uses the existing synchronous admission path, without
+    claiming the running engine's background Scheduler has been exercised.
+    """
+    from unittest.mock import patch
+    from uuid import uuid4
+    from modules import brain_entry, brain_model_understanding, llm, requests_state, smart_router
+    owner = runtime.profile.slug
+    rid = 'news-acceptance-' + uuid4().hex
+    spec = smart_router.ModelSpec('groq', 'acceptance-semantic-fixture')
+    raw = json.dumps({
+        'schema_version': brain_model_understanding.SCHEMA_VERSION,
+        'operation': 'create_goal', 'conversation_relation': 'NEW_REQUEST',
+        'temporal_need': 'RECENT', 'target_goal_ids': [],
+        'goal': {'kind': 'goal', 'title': text[:brain_model_understanding.GOAL_CARD_TITLE_MAX]},
+        'actions': [], 'confidence': 'HIGH',
+        'clarification': {'required': False, 'question': None, 'reason_code': None},
+    }, ensure_ascii=False)
+
+    def fixture_plan(request):
+        if not create_goal or (request.owner, request.request_id, request.profile) != (owner, rid, 'brain_understanding'):
+            raise ValueError('Haber kabul fixture kapsamı dışında model isteği.')
+        return smart_router.RoutePlan((spec,), (), 1)
+
+    def fixture_response(request, candidate, prompt, system, **kwargs):
+        fixture_plan(request)
+        if candidate != spec or json.loads(prompt)['utterance'] != text:
+            raise ValueError('Haber kabul fixture isteği eşleşmiyor.')
+        return raw
+
+    if not requests_state.register(owner, rid, seconds=180):
+        raise ValueError('Haber kabul istek kimliği kaydedilemedi.')
+    with requests_state.activate(owner, rid), llm.owner_context(owner):
+        with patch.object(smart_router, '_STORE', router_store), patch.object(smart_router, '_HEALTH', {}), \
+                patch.object(smart_router, 'plan', side_effect=fixture_plan), \
+                patch.object(llm, 'dispatch', side_effect=fixture_response) as adapter:
+            entry = brain_entry.prepare(runtime, owner=owner, request_id=rid, text=text,
+                                        source='acceptance', model_understanding=True)
+            if adapter.call_count != int(create_goal):
+                raise ValueError('Haber kabulünde beklenmeyen anlamlandırma çağrı sayısı.')
+        reply, _feedback, _job_id = brain_entry.handoff(runtime, entry, runtime.handle, text)
+        return reply
+
+
 def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
-    """Run the real fileless-news turn in an isolated goal store, then verify closed-goal resume."""
+    """Live news/Core workflow; semantic admission is a fixture, not a live model test."""
     from modules import engine_runtime,goal_executor,nxapi,llm,task_results,model_free_news
     from unittest.mock import patch
     from contextlib import ExitStack
@@ -131,11 +180,15 @@ def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
         files=Path(temp_dir)/'files'
         guards.enter_context(patch.object(nxapi,'FILES_DIR',files))
         model=guards.enter_context(patch.object(llm,'ask',side_effect=RuntimeError('Kabul sırasında model çağrısı kapalı.')))
+        transport=guards.enter_context(patch.object(llm,'dispatch',side_effect=RuntimeError('Kabul sırasında canlı model taşıyıcısı kapalı.')))
         guards.enter_context(patch.object(goal_executor,'_quota_wait',return_value=60))
         goal_executor.STORE=Path(temp_dir)/'goals'
         try:
             runtime=engine_runtime.EngineContext()
-            runtime.handle('hedef '+request)
+            if runtime.profile.slug != owner:
+                raise PermissionError('Haber kabul kullanıcısı aktif profille eşleşmiyor.')
+            router_store=Path(temp_dir)/'router-fixture'
+            _news_turn(runtime,request,router_store=router_store,create_goal=True)
             job=goal_executor.latest(owner)
             if not job:return 'failed','Haber hedefi oluşturulmadı.'
             if job.get('state')!='done':
@@ -164,7 +217,7 @@ def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
                     return 'failed','Raporun verify adımı tamamlanmadı.'
                 original_bytes=path.read_bytes()
             before=_goal_signature(job);job_id=job.get('id')
-            reply=runtime.handle('devam')
+            reply=_news_turn(runtime,'devam',router_store=router_store)
             after=goal_executor.latest(owner)
             if not after or after.get('id')!=job_id or after.get('state')!='done':
                 return 'failed','devam tamamlanmış haber hedefini değiştirdi veya yeniden açtı.'
@@ -173,9 +226,9 @@ def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
             answer=str(reply or '').casefold()
             if 'açık hedef yok' not in answer or 'tamamlandı' not in answer:
                 return 'failed','devam tamamlanmış hedef için kapalı-hedef yanıtını vermedi.'
-            if model.call_count:return 'failed','Haber kabulünde model çağrısı denendi.'
+            if model.call_count or transport.call_count:return 'failed','Haber kabulünde canlı model çağrısı denendi.'
             if file_report and path.read_bytes()!=original_bytes:return 'failed','Devam rapor dosyasını değiştirdi.'
-            return 'passed',f'{articles} tarihli makale / {len(publishers)} yayıncı doğrulandı; devam hedefi değiştirmedi.'
+            return 'passed',f'{articles} tarihli makale / {len(publishers)} yayıncı doğrulandı; devam hedefi değiştirmedi. Anlamlandırma sabit fixture; canlı Brain/Scheduler kabulü değildir.'
         finally:
             if runtime is not None:
                 pool=getattr(runtime,'_prefetch_pool',None)
@@ -230,7 +283,7 @@ def _news_chat_resume(owner):
             state,detail='failed',type(exc).__name__
         failed=failed or state!='passed'
         summaries.append(label+': '+state+'; '+detail)
-    return ('failed' if failed else 'passed'),' | '.join(summaries)
+    return ('failed' if failed else 'passed'),('Core/haber iş akışı; sabit anlam fixture, canlı Brain/Scheduler kabulü değil. | '+' | '.join(summaries))
 
 
 def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,news=False,

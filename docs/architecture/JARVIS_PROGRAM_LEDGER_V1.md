@@ -129,3 +129,6 @@ Handoff sohbet hafızasına dayanmaz. Yeni ajan bu beş satırı yalnız başlan
 ## 8. Bu ledger’ın sınırı
 
 Ledger karar ve sırayı taşır; kanıt üretmez. Bir madde ancak kaynakta merge edilmiş ve ilgili test/validation sonucu exact head SHA ile gösterilmişse “kapanmış” sayılır; belge yazılmış olmak karar verilmiş demek değildir. Ledger ile GitHub çelişirse GitHub’ın gösterdiği kaynak durumu, ledger ile bir mimari sözleşme çelişirse sözleşme kazanır ve ledger düzeltilir. Ledger’ı güncel tutmak her adımın kendi PR’sının işidir; bayat ledger, bayat daldan daha tehlikelidir çünkü sonraki ajan ona güvenerek iş seçer.
+
+
+Router #633 kabul takibi: `d2d6cf24ff1e` Windows CI başarılı; gerçek PC validation/yerel model passed, haberin üç eski raw giriş senaryosu failed. Aynı PR'da canonical request/Brain/Core kabul girişi ve salt-okunur terminal-hedef devamı düzeltilir. Anlamlandırma fixture'ı rol/hesap/Brain/Scheduler canlı kanıtı değildir; haber kaynak/dosya doğrulaması korunur. Yeni exact-head Windows/gerçek PC ve canlı rol kabulü bekler; ayrı PR veya yeni yürütme sahibi yoktur.

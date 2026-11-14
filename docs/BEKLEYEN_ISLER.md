@@ -88,3 +88,6 @@ Bu bir aktif iş listesi maddesi değildir; yetkili kayıt [`Jarvis_Yol_Haritasi
 ## Router V2 kabulü —14 Kasım2026
 
 Tek Router V2 kod göçü için uygulama/emeklilik kaydı `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`dir. Ürün kapanışı için aynı source SHA'nın Windows CI/gerçekPC sonucu, ücretsiz hesap/proje limitleri, Türkçe/vision doğruluğu, gecikme ölçümü ve exact model Brain tam-holdout rol kabulü açıktır. Kullanıcı anahtarı veya canlı rapor depoya alınmaz; otomatik ücretli çağrı/deney/CI model ölçümü yapılmaz. Bilinmeyen token/maliyet/neuron sınırı garanti gibi gösterilmez. Kod/PR birleşmesi tek başına bu kabulü kapatmaz.
+
+
+- Router #633 güncel kabul: `d2d6cf24ff1e` Windows CI/PC validation/yerel model başarılı, PC haber senaryoları eski raw girişte failed. Aynı PR'daki canonical fixture/Core giriş ve kapalı-hedef salt-okunur devam düzeltmesinin yeni SHA Windows/PC kanıtı gerekir. Fixture canlı Brain rolü, hesap limiti, vision/Türkçe doğruluk, gecikme veya Scheduler kabulü üretmez; bu ölçümler açık kalır.
