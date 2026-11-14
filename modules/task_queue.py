@@ -32,6 +32,39 @@ _CANONICAL_WORKER_DEADLINE_SECONDS=300
 _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
+# A single admission wake belongs to the existing Scheduler; there is no
+# second poller/worker. Wake is best-effort after a durable commit and NEVER
+# bypasses per-owner Core leases, request cancellation or planner fences.
+_SCHEDULER_WAKE=threading.Event()
+_SCHEDULER_TICK_SECONDS=5.0
+
+
+def wake_scheduler():
+    """Request a prompt rescan of the one Scheduler after journal commit."""
+    _SCHEDULER_WAKE.set()
+
+
+def _wait_for_scheduler_tick(stop_event):
+    """Wake on durable admission or a finished worker without polling disk.
+
+    A worker must actually EXIT before its pool slot is reusable. The former
+    five-second scan made a completed first worker and a queued second step
+    wait for another tick; probing only up to seven OS thread states is cheap
+    and never releases the in-flight claim of a still-running provider.
+    """
+    deadline=time.monotonic()+_SCHEDULER_TICK_SECONDS
+    while not stop_event.is_set():
+        left=deadline-time.monotonic()
+        if left<=0:
+            return not stop_event.is_set()
+        if _SCHEDULER_WAKE.wait(timeout=min(0.25,left)):
+            _SCHEDULER_WAKE.clear()
+            return not stop_event.is_set()
+        if (any(not worker.is_alive() for worker in tuple(_CANONICAL_WORKERS.values()))
+                or any(not worker.is_alive() for worker in tuple(_OWNER_TICKS.values()))):
+            return not stop_event.is_set()
+    return False
+
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
 RUN_NOW_STATES=frozenset({'queued','paused'})
 # Workers that never call a model (research/writer do).
@@ -89,6 +122,7 @@ def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0, cron=''):
     with service_store.database(owner) as db:
         db.execute('INSERT INTO queue(id,tasks,instruction,due,state,job_id,created,error,repeat_seconds,cron) VALUES(?,?,?,?,?,?,?,?,?,?)',
                    (qid,service_store.encode(tasks),instruction,due,'queued',job_id,time.time(),'',repeat_seconds,cron))
+    wake_scheduler()
     return qid
 
 
@@ -134,6 +168,7 @@ def run_now(owner, qid):
             "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0,lease_token='' WHERE id=?",
             (time.time(), new_job_id, row['job_id'], qid),
         )
+    wake_scheduler()
     return qid
 
 
@@ -175,6 +210,8 @@ def configure(owner,qid,*,operation,repeat_seconds=None):
             db.execute("UPDATE queue SET state='queued',due=?,lease=0,lease_token='' WHERE id=?",(time.time(),qid))
         else:
             db.execute('UPDATE queue SET repeat_seconds=? WHERE id=?',(repeat_seconds,qid))
+    if operation == 'resume':
+        wake_scheduler()
     return True
 
 
@@ -576,8 +613,15 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
 
         def loop():
             global _DAILY_NEXT
-            while not stop_event.wait(5):
+            while _wait_for_scheduler_tick(stop_event):
+                # Only the one scheduler mutates these registries. Do not
+                # free a slot until its OS thread is actually gone: a
+                # quarantined/hung provider still occupies capacity.
                 _quarantine_expired_workers()
+                for registry in (_CANONICAL_WORKERS, _OWNER_TICKS):
+                    for key, worker in tuple(registry.items()):
+                        if not worker.is_alive():
+                            registry.pop(key, None)
                 now=time.time()
                 if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
                     _DAILY_NEXT=now+60
@@ -638,4 +682,8 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     finally:llm._key_context.reset(token)
         _THREAD=threading.Thread(target=loop,name='jarvis-task-queue',daemon=True)
         _THREAD.start()
+        # The first scan need not wait for the fallback five-second timer.
+        # Especially important when the restart discovers already queued
+        # canonical records that were committed while Jarvis was offline.
+        wake_scheduler()
 

@@ -98,6 +98,25 @@ class DeferredPlannerTests(TestCase):
         self.register.assert_called_once()
         self.ask.assert_not_called()
 
+    def test_queued_planner_wakes_only_after_both_durable_records_exist(self):
+        calls = []
+
+        def confirm_published():
+            job_id, _planner_rid = canonical_planning_queue._identity(
+                self.owner, self.request_id)
+            state, record = self.persisted(self.owner, job_id)
+            self.assertEqual(state['owner'], self.owner)
+            self.assertEqual(record['request_id'], self.request_id)
+            self.assertEqual(record['state'], 'planning_queued')
+            calls.append(job_id)
+
+        with patch.object(task_queue, 'wake_scheduler',
+                          side_effect=confirm_published):
+            job_id, _message = self.claim()
+            self.assertEqual(self.claim()[0], job_id)
+        self.assertEqual(calls, [job_id],
+                         'duplicate RID must not re-admit or wake a planner')
+
     def test_owner_isolation_and_two_jobs_are_independent(self):
         a, _ = self.claim("request-a")
         b, _ = self.claim("request-b")

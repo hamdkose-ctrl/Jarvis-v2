@@ -99,6 +99,11 @@ def enqueue(owner: str, request_id: str, text: str):
         except BaseException:
             requests_state.cancel(owner, planner_rid)
             raise
+    # Wake only after both the immutable ExecutionRecord and GoalState were
+    # written. A pre-commit wake could race the first discover/claim and
+    # disappear before the job becomes visible.
+    from modules import task_queue
+    task_queue.wake_scheduler()
     return (job_id, "İsteğini planlama kuyruğuna aldım. Bu sırada yeni komut verebilirsin. "
             f'Durum için "hedef sonucu {job_id}" yazabilirsin.')
 
