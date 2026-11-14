@@ -2,6 +2,10 @@
 
 ## Sunum ve tercih sahipliği
 
+**BRAIN-10:** `result_presentation` mevcut task_results/goal_tools ve canonical accepted WorkerResult kanıtından salt-okunur sonuç görünümü üretir. Lifecycle/permission/effect yazmaz. Goal/task render, summary, progress, team snapshot ve team_verify aynı owner/kind/source/artifact kontrollerini kullanır. Geçersiz kanıt başarı sayılmaz; diğer geçerli çıktılar kısmi sunulur. Bekleme nedeni ve unknown ayrı gösterilir. Görünümün incomplete olması gerçek job'un durumunu değiştirmez; UI control kimliği ve terminal action engeli özgün kayıttan gelir.
+
+Yanıt üslubu `jarvis-response.v1` kapalı verbosity snapshot'ıdır. Kısa sunum tam dosya kimliğini, haber URL/tarihini veya onay/belirsizlik bilgisini silemez; kesilme açıklanır. Canonical sonucu mevcut ExecutionRecord içinde Core completion öncesi style+text olarak dondurulur. Sonradan okuma aynı accepted çıktılardan yeniden üretir; yeni persona tercihi veya yeni completion kararı geçmiş sonucu değiştirmez. Sahte cached metin/başka owner/değişmiş dosya fail-closed; bildirim/worker tekrar çalışmaz. Eski style'sız kayıtta önceki orta varsayılanı kullanılır. Plan: `docs/architecture/BRAIN_10_SINGLE_PR_PLAN_2026-11-14.md`.
+
 Brain anlamı önerir, Core kaydı benimser. `persona_contract` yalnız sürümlü salt-okunur sözleşme/vocabulary'dir; `persona` mevcut Profile/SessionState üzerinde Core sunum servisidir. Model/Router/provider, yeni agent/store/Scheduler değildir.
 
 Tek semantik modelin `brain-understanding.v2` zarfında opsiyonel `presentation` listesi: key/value/scope/exact evidence_quote. Eski zarf boş listeye eşdeğer. Sözleşme dışı/hassas key, serbest değer, model confidence/owner/saat veya kullanıcı cümlesinde olmayan kaynak alıntısı tüm öneriyi reddettirir. Brain'in önerisi Core request_scope'ta owner/RID/original text/MODEL_DECIDED ile tekrar doğrulanır. Core provenance, digest, tarih ve güveni kendisi üretir; ham alıntı diske gitmez.

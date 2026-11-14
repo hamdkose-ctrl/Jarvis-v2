@@ -20,15 +20,18 @@ class TeamVerifyCoreBoundaryTests(unittest.TestCase):
     def test_core_task_verification_checks_only_done_outputs(self):
         done = {'state': 'done', 'file': 'evidence.txt'}
         waiting = {'state': 'waiting'}
-        job = {'outputs': {'done-step': done, 'waiting-step': waiting}}
+        job = {'owner':'alice','state':'running','tasks':[
+            {'id':'done-step','agent':'writer','state':'done'},
+            {'id':'waiting-step','agent':'writer','state':'waiting'}],
+            'outputs': {'done-step': done, 'waiting-step': waiting}}
         with (
             patch.object(service_store, 'identity'),
             patch.object(task_agents, '_load', return_value=job),
-            patch.object(task_results, 'verify') as verifier,
+            patch.object(task_results, 'verify',return_value=True) as verifier,
         ):
             result = team_verify_service.verify('alice', 'task', 'a' * 12)
 
-        verifier.assert_called_once_with(done, owner='alice')
+        verifier.assert_called_once_with(done, owner='alice',expected_kind='writer')
         self.assertEqual(result['checked'], 1)
         self.assertEqual(result['failed'], [])
         self.assertTrue(result['ok'])

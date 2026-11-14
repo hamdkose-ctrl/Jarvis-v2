@@ -2,7 +2,10 @@
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 import unittest
+import tempfile
+from pathlib import Path
 from modules import browser, goal_executor, public_sources, research_evidence
+from modules import goal_tools,task_results
 
 
 class ResearchReadableDeliveryTests(unittest.TestCase):
@@ -47,18 +50,21 @@ class ResearchReadableDeliveryTests(unittest.TestCase):
         self.assertNotIn('HAM İNDEKS',text)
 
     def test_general_research_hides_discovery_but_keeps_findings_and_file(self):
-        job={'request':'Enerji tüketimini araştır','state':'done','steps':[
-            {'id':'d','tool':'data','input':{'operation':'headlines'}},
-            {'id':'r','tool':'research','input':{}},
-            {'id':'w','tool':'writer','input':{}}],
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        path=Path(folder.name)/'report.md';path.write_text('Rapor hazır',encoding='utf-8')
+        job={'owner':'alice','id':'d'*16,'request':'Enerji tüketimini araştır','state':'done','steps':[
+            {'id':'d','tool':'data','state':'done','goal':0,'depends':[],'input':{'operation':'headlines'}},
+            {'id':'r','tool':'research','state':'done','goal':0,'depends':[],'input':{}},
+            {'id':'w','tool':'writer','state':'done','goal':0,'depends':[],'input':{}}],
             'goals':[{'text':'Enerji tüketimini araştır','state':'done','evidence':['d','r','r','w']}],
-            'outputs':{'d':{'state':'done','text':'Favoriler ve oyunlar: KEŞİF DÖKÜMÜ'},
-                       'r':{'state':'done','source':'https://example.org/method','text':'Doğrulanmış enerji bulgusu.\nKaynak: https://example.org/method'},
-                       'w':{'state':'done','file':'report.md','text':'Rapor hazır'}}}
+            'outputs':{'d':goal_tools.local_result('alice','data','Favoriler ve oyunlar: KEŞİF DÖKÜMÜ'),
+                       'r':task_results.seal('research',{'state':'done','source':'https://example.org/method','source_chars':len(self.body),
+                             'source_quotes':[self.body],'text':'Doğrulanmış enerji bulgusu.\nKaynak: https://example.org/method'}),
+                       'w':task_results.seal('writer',{'state':'done','file':str(path),'text':'Rapor hazır','sha256':task_results.file_digest(path)})}}
         text=goal_executor.render(job)
         self.assertNotIn('KEŞİF DÖKÜMÜ',text)
         self.assertEqual(text.count('Doğrulanmış enerji bulgusu'),1)
-        self.assertIn('Dosya: report.md',text)
+        self.assertIn('Dosya: '+str(path),text)
         job['goals'][0]['evidence']=['d']
         self.assertIn('KEŞİF DÖKÜMÜ',goal_executor.render(job))
 

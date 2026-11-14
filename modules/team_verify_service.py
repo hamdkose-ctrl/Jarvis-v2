@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from modules import execution_record, goal_executor, goal_tools, service_store, task_agents, task_results
+from modules import execution_record, goal_executor, result_presentation, service_store, task_agents
 
 _ID_RE = re.compile(r'^[a-f0-9]{12,32}$')
 
@@ -16,7 +16,6 @@ def verify(owner: str, kind: str, identity: str) -> dict:
 
     if kind == 'task':
         job = task_agents._load(owner, identity)
-        verifier = lambda output: task_results.verify(output, owner=owner)
     elif kind == 'goal':
         try:
             job = execution_record.load(goal_executor._root(owner), owner, identity)
@@ -24,7 +23,6 @@ def verify(owner: str, kind: str, identity: str) -> dict:
             raise ValueError('Görev sahibi eşleşmiyor.') from None
         except (OSError, ValueError):
             raise ValueError('Görev kaydı geçersiz.') from None
-        verifier = lambda output: goal_tools.verify(output, owner)
     else:
         raise ValueError('Görev türü geçersiz.')
 
@@ -36,12 +34,8 @@ def verify(owner: str, kind: str, identity: str) -> dict:
     if not outputs:
         return {'ok': False, 'message': 'Doğrulanacak tamamlanmış çıktı yok.'}
 
-    failed = []
-    for key, value in outputs.items():
-        try:
-            verifier(value)
-        except (ValueError, PermissionError, OSError, KeyError, TypeError):
-            failed.append(key)
+    checked=result_presentation.inspect_job(job,kind)
+    failed=sorted(set(outputs)-checked['verified'])
 
     return {
         'ok': not failed,

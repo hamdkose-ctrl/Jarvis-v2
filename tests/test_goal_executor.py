@@ -284,7 +284,7 @@ class GoalTests(unittest.TestCase):
         with patch.object(task_agents,'STORE',self.root/'legacy'):
             self.responses({'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]},'Kaydedilen gerçek rapor')
             result=goals.run(self.runtime,'Test raporu hazırla')
-            self.assertIn('done',result)
+            self.assertIn('Kaydedilen gerçek rapor',result)
             legacy=task_agents.recent('alice');job=goals.latest('alice')
             self.assertEqual(job['legacy_job'],legacy['id'])
             self.assertEqual(job['state'],'done')
@@ -999,9 +999,15 @@ class GoalTests(unittest.TestCase):
         output={'state':'done','text':'x'*1300+'\n'+url,'news_report_evidence':{'sources':{'s1':{'news_article':source}}}}
         preview=research_evidence.preview(output)
         self.assertIn(url,preview);self.assertIn('1 haber, 1 farklı yayıncı',preview)
+        quote='Yeni haberde doğrulanmış kaynak bulgusu ve açıklaması yer alıyor. '
+        article={'url':url,'title':'Yeni haber','published':'2026-10-16','text':quote*3}
+        verified=task_results.seal('research',{'state':'done','text':quote,'source':url,'source_chars':len(quote*3),
+                                             'news_article':article,'source_quotes':[quote]})
         with patch.object(goals,'_check_news_completion',side_effect=ValueError('Partial')):
-            text=goals.render({'state':'question','request':'Türkiye haberleri','goals':[{'text':'Araştır','state':'done','evidence':['s1']}],
-                'outputs':{'s1':output},'question':'Eksik somut bilgi'})
+            text=goals.render({'owner':'alice','id':'a'*16,'state':'question','request':'Türkiye haberleri',
+                'goals':[{'text':'Araştır','state':'done','evidence':['s1']}],
+                'steps':[{'id':'s1','tool':'research','state':'done','goal':0,'input':{},'depends':[]}],
+                'outputs':{'s1':verified},'question':'Eksik somut bilgi'})
         self.assertNotIn('✓',text);self.assertIn('Kısmi:',text);self.assertNotIn('Eksik somut bilgi',text)
 
 if __name__=='__main__':unittest.main()

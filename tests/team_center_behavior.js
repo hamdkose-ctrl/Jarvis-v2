@@ -6,6 +6,11 @@ const context={NAV:[],PAGES:{},S:{},esc,document:{addEventListener(){}},setTimeo
 vm.createContext(context);
 vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.teamTest={controls,paintOffice,capabilityStatus,select:id=>selectedPerson=id};})();'),context);
 const {controls,paintOffice,select}=context.teamTest;
+const staleResult={id:'b'.repeat(12),kind:'task',state:'incomplete',record_state:'done'};
+const readonly=controls(staleResult,staleResult);
+assert(readonly.includes('data-team="verify"'));
+assert(!readonly.includes('data-team="continue"'),'unverified display cannot authorize a completed task replay');
+assert(!readonly.includes('data-team="stop"'),'display state cannot cancel an already terminal task');
 const job={id:'a'.repeat(16),kind:'goal',state:'approval',control:'c'.repeat(64),approval:'Send <img src=x onerror=alert(1)>',steps:[]};
 let html=controls(job,job);
 assert(html.includes('name="approve" required'),'approval is explicit');

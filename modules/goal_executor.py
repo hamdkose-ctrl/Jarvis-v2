@@ -510,7 +510,7 @@ def _record(runtime,job,step,approval=None):
     step['state']='running';step['started']=False;job['state']='running';_save(job)
     runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text']+(' · '+goal_tools.public_request(step['input']['url']) if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines' else ''))
     try:
-        for dep in step['depends']:goal_tools.verify(job['outputs'][dep],job['owner'])
+        for dep in step['depends']:_verify_result(job,dep)
         step['checkpoint']=goal_tools.checkpoint(runtime,step['tool'],step['input']);_save(job)
         step['attempts']=step.get('attempts',0)+1
         step['started']=True;_save(job)
@@ -524,7 +524,7 @@ def _record(runtime,job,step,approval=None):
                 step.pop('runtime_approved',None)
         if not isinstance(output,dict) or output.get('state') not in {'done','failed','blocked','approval','unavailable'}:
             raise ValueError('Araç durumlu bir sonuç döndürmedi.')
-        if output['state']=='done':goal_tools.verify(output,job['owner'])
+        if output['state']=='done':goal_tools.verify(output,job['owner'],kind=step['tool'],data=step['input'])
     except requests_state.Cancelled:raise
     except Exception as exc:
         _record_failure('modules/goal_executor.py:tool')
@@ -537,7 +537,7 @@ def _record(runtime,job,step,approval=None):
             _ensure(runtime,job)
             recovered=_reconcile(runtime,job,step) if step['started'] else None
             if recovered:
-                if recovered['state']=='done':goal_tools.verify(recovered,job['owner'])
+                if recovered['state']=='done':goal_tools.verify(recovered,job['owner'],kind=step['tool'],data=step['input'])
                 output=recovered
         except requests_state.Cancelled:raise
         except Exception:
@@ -610,13 +610,20 @@ def _finish_completed(job):
     if not job['goals'] or any(g['state']!='done' for g in job['goals']):return False
     for goal in job['goals']:
         if not goal.get('evidence'):return False
-        for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
+        for ident in goal['evidence']:_verify_result(job,ident)
         decision=completion_policy.evaluate_evidence(_check_news_completion,job,goal,goal['evidence'],final=True)
         if decision['decision']!=completion_policy.COMPLETE:
             goal.update(state='pending',evidence=[])
             job.setdefault('feedback',[]).append(decision['reason']);_save(job);return False
     job['state']='done';job.pop('blocker',None);_save(job)
     return True
+
+
+def _verify_result(job,ident):
+    steps=[step for step in job.get('steps',[]) if step.get('id')==ident]
+    if len(steps)!=1:raise ValueError('Tam bir sonuç adımı gerekli.')
+    step=steps[0]
+    return goal_tools.verify(job['outputs'][ident],job['owner'],kind=step['tool'],data=step.get('input',{}))
 
 
 def _resume_news_recovery(runtime,job,started_steps):
@@ -654,7 +661,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
             if step.get('started',True) and not goal_tools.replay_safe(step['tool'],step['input']):
                 recovered=_reconcile(runtime,job,step)
                 if recovered and recovered['state']=='done':
-                    goal_tools.verify(recovered,job['owner']);job['outputs'][step['id']]=recovered;step['state']='done';_save(job);continue
+                    goal_tools.verify(recovered,job['owner'],kind=step['tool'],data=step['input']);job['outputs'][step['id']]=recovered;step['state']='done';_save(job);continue
                 safe_code=False
                 if step['tool']=='coder':
                     from modules import developer
@@ -680,7 +687,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     source=step.get('input',{}).get('url','')
                     if source and source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
                     raise ValueError('Eski kaynak yanıtı soruyu yanıtlamıyor; araştırma kanıtı olarak kullanılmadı.')
-            goal_tools.verify(output,job['owner'])
+            goal_tools.verify(output,job['owner'],kind=step.get('tool'),data=step.get('input',{}))
         except (ValueError,PermissionError,OSError) as exc:
             _invalidate_outputs(job,ident,'Önceki çıktı artık doğrulanamıyor: '+privacy.redact(str(exc),force=True)[:600])
             job.setdefault('feedback',[]).append(output['text'])
@@ -747,10 +754,10 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                         'depends':task.get('depends',[]),'state':task['state'],'started':True,
                         'signature':hashlib.sha256(json.dumps([task['agent'],data],sort_keys=True,ensure_ascii=False).encode()).hexdigest()})
                 if legacy['state']=='done':
-                    for output in job['outputs'].values():goal_tools.verify(output,job['owner'])
+                    for ident in job['outputs']:_verify_result(job,ident)
                     job['goals'][0].update(state='done',evidence=list(job['outputs']))
                     job['state']='done';_save(job)
-                    return task_agents.render(legacy)
+                    return task_agents.render_summary(legacy)
                 job.setdefault('feedback',[]).append('Eski plan tamamlanmadı; gerçek sonuçlardan başka yöntemle sürdür.')
             elif action=='plan':
                 if job['goals']:
@@ -800,7 +807,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı. '+hint)
                 for goal in job['goals']:
                     try:
-                        for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
+                        for ident in goal['evidence']:_verify_result(job,ident)
                     except (ValueError,PermissionError,OSError):
                         goal['state']='pending';goal['evidence']=[]
                         raise
@@ -814,7 +821,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     for ident in evidence:
                         step=next((s for s in job['steps'] if s['id']==ident),None)
                         if not step or step['goal']!=goal or step['state']!='done':raise ValueError('Bu hedefin başarılı adımı değil.')
-                        goal_tools.verify(job['outputs'][ident],job['owner'])
+                        _verify_result(job,ident)
                     decision=completion_policy.evaluate_evidence(_check_news_completion,job,job['goals'][goal],evidence)
                     if decision['decision']!=completion_policy.COMPLETE:raise ValueError(decision['reason'])
                     job['goals'][goal].update(state='done',evidence=evidence)
@@ -1040,8 +1047,16 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             job['state']='cancelled';_save(job);raise
 
 
-def render(job):
-    lines=[]
+def render(job, *, presentation=None):
+    from modules import result_presentation
+    checked=result_presentation.inspect_job(job,'goal')
+    style=result_presentation.validate_style(presentation) if presentation is not None else result_presentation.style_snapshot(job.get('owner') or 'kullanici')
+    return _render_verified(checked['job'],style,checked['unverified'],checked['core_completed'])
+
+
+def _render_verified(job,style,unverified=(),core_completed=False):
+    from modules import result_presentation
+    lines=['Sonuç kanıtı doğrulanamadı; doğrulanmış kısımlar aşağıda korunuyor.'] if unverified else []
     if job.get('phase')=='planning' and job['state']=='running':
         elapsed=max(0,int(time.time()-job.get('phase_started',time.time())))
         lines.append(f'Model planı bekleniyor: {elapsed} saniye. Bu çağrının sınırı {PLANNER_SECONDS} saniye; henüz araç adımı başlamamış olabilir.')
@@ -1050,7 +1065,7 @@ def render(job):
         if goal['state']=='done' or chat:
             partial=goal['state']!='done'
             evidence=goal['evidence'] if goal['state']=='done' else chat
-            if completion_policy.evaluate_evidence(_check_news_completion,job,goal,evidence)['decision']!=completion_policy.COMPLETE:partial=True
+            if not core_completed and completion_policy.evaluate_evidence(_check_news_completion,job,goal,evidence)['decision']!=completion_policy.COMPLETE:partial=True
             lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
             steps={step['id']:step for step in job.get('steps',[]) if isinstance(step,dict) and step.get('id')}
             has_findings=any(steps.get(ident,{}).get('tool')=='research' and job['outputs'].get(ident,{}).get('state')=='done'
@@ -1064,7 +1079,7 @@ def render(job):
                 if has_findings and step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:
                     continue
                 from modules import research_evidence
-                lines.append(research_evidence.preview(output) if output.get('news_article') or output.get('news_report_evidence') or step.get('tool')=='research' and output.get('source') else output.get('text','')[:1200])
+                lines.append(research_evidence.preview(output) if output.get('news_article') or output.get('news_report_evidence') or step.get('tool')=='research' and output.get('source') else result_presentation.preview(output.get('text',''),style))
                 for item in output.get('files',[]):lines.append('Dosya: '+item['file'])
                 if output.get('file') and not output.get('files'):lines.append('Dosya: '+output['file'])
     if job['state']=='approval':
@@ -1082,7 +1097,7 @@ def render(job):
             lines.append('Kısmi rapor dosyası: '+partial['file'])
         for current in job['steps']:
             if current['state']=='running' and (current['tool']=='research' or current['tool']=='data' and current['input'].get('operation')=='headlines'):
-                lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
+                lines.append('Denenen kaynak: '+goal_tools.public_request(current['input'].get('url','')))
         def seen_error(text):
             normalized = ' '.join(text.casefold().split())
             return any(normalized in ' '.join(line.casefold().split()) for line in lines)
@@ -1098,7 +1113,8 @@ def render(job):
             if visible and not seen_error(visible[:500]):lines.append(visible[:500])
     if job['state']=='cancelled':lines.append('Hedef iptal edildi.')
     from modules import news_pipeline
-    for line in news_pipeline.render_lines(job):
+    pipeline_lines=news_pipeline.render_lines(job) if not unverified else ['Haber raporunun kaynak kanıtı yeniden doğrulanamadı; kayıtlı özet başarı olarak gösterilmedi.'] if job.get('news_pipeline') else []
+    for line in pipeline_lines:
         if not any(line[:120] in existing for existing in lines):
             # Haber sonucu ile model sentezinin yokluğu ayrı satırlarda: kota haberi durdurmaz.
             lines.append(line)
@@ -1264,10 +1280,14 @@ def canonical_scheduler_status(owner, identity, job=None):
 
 
 def status_summary(job):
+    from modules import result_presentation
+    original=job
+    checked=result_presentation.inspect_job(job,'goal')
+    job=checked['job']
     states = {'running': 'çalışıyor', 'done': 'bitti', 'cancelled': 'iptal edildi',
               'approval': 'onay bekliyor', 'question': 'soru bekliyor',
               'paused': 'duraklatıldı', 'interrupted': 'duraklatıldı',
-              'blocked': 'duraklatıldı', 'failed': 'başarısız'}
+              'blocked': 'duraklatıldı', 'failed': 'başarısız', 'incomplete':'kısmi','review':'sonucu belirsiz'}
     steps = job.get('steps', [])
     steps = steps if isinstance(steps, list) else []
     completed = sum(isinstance(step, dict) and step.get('state') == 'done' for step in steps)
@@ -1282,13 +1302,16 @@ def status_summary(job):
         if article and isinstance(url, str) and url.strip():
             urls.add(url.strip())
         if not report and isinstance(output.get('file'), str):
-            report = ' '.join(output['file'].split())[:260]
+            report = output['file']
     request = job.get('request', '')
     request = ' '.join(request.split())[:120] if isinstance(request, str) else ''
     summary = f"Durum: {states.get(job.get('state'), 'belirsiz')} · {completed}/{len(steps)} adım · {len(urls)} kaynak"
     if report:
         summary += ' · Rapor dosyası: ' + report
-    details = _canonical_recovery_status(job)
+    why=job.get('blocker') or (job.get('question') if job.get('state')=='question' else None)
+    if isinstance(why,str) and why.strip():summary+='\nBekleme nedeni: '+privacy.redact(why,force=True)[:600]
+    if checked['unverified']:summary += '\nSonuç kanıtı doğrulanamadı; eksik kayıtlar başarı sayılmadı.'
+    details = _canonical_recovery_status(original)
     if details:
         summary += '\n' + details
     dialog = job.get('_canonical_dialog')

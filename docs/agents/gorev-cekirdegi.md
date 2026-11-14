@@ -1,3 +1,9 @@
+# BRAIN-10 — kanıt ve teslim sınırı (14 Kasım 2026)
+
+Expected worker kind ve owner doğrulaması mevcut completion/dependency/resume kapılarına bağlıdır. Yerel PC sonucu native owner/id/target/goal/verified-history snapshot ve özetiyle gelir; yalnız done metni yeterli değildir. Snapshot geçmiş native kanıtıdır, şu anki masaüstü durumunu yeniden ölçmez. Task journal owner'ı yeni kayıtta yazılır; eski kayıt yalnız doğrulanmış owner dizininden okunurken bağlanır, eski raw-byte CAS fence korunur, read sırasında disk migration yapılmaz. Salt-okunur render veya UI incomplete görünümü lifecycle geçişi, yeni deneme veya onay sağlamaz. Canonical Core-accepted digest/plan/audit bağı ve frozen text yeniden üretimi korunur. `docs/agents/persona.md` ve BRAIN-10 tek PR planı asıldır.
+
+---
+
 # BRAIN-09 — sunum sınırı (14 Kasım 2026)
 
 Persona/key/value/scope önerisi tek Brain zarfından gelir; Core `persona.request_scope` Profile/SessionState'e bağlar. Ham chat regex feedback yazarı kaldırılmıştır; mevcut facts/rules/learning.manage korunur. Liste/reset aynı intent'in kapalı preference.list/preference.reset işlemleridir. Hedef/izin/effect/completion authority değişmez. Ayrıntı: `docs/agents/persona.md`.
