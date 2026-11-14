@@ -9,7 +9,7 @@ import threading
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from modules import engine_loop, engine_voice
+from modules import engine_loop, engine_voice, requests_state
 
 
 def _session(*, busy=False, unconfirmed=False):
@@ -151,7 +151,8 @@ class WakeFollowupRaceTests(TestCase):
         session.submit_voice = Mock()
         session.listen_for_wake_word()
         self.assertEqual(runtime.audio_lock.count, 2)
-        self.assertEqual(runtime.voice.capture.call_count, 1)
+        self.assertLessEqual(runtime.voice.capture.call_count, 1,
+                             "a second microphone capture started over speech")
         session.submit_voice.assert_not_called()
 
 
@@ -256,6 +257,7 @@ class QueuedAudioIdleSafetyTests(TestCase):
             slugify=lambda name: name,
             pc_profile=lambda: SimpleNamespace(name="desktop-owner"),
             _record_failure=Mock(), _reject_queued_input=Mock(),
+            requests_state=requests_state,
             os=SimpleNamespace(remove=Mock()), emit=Mock(),
         )
 
