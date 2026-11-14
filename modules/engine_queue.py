@@ -4,7 +4,7 @@ import contextlib
 import re
 
 # Exact owner+job-ID protocols only; natural-language intent still uses Brain.
-_FAST_GOAL_ID = re.compile(r'hedef (sonucu|iptal) ([a-f0-9]{16})[.!?]?\Z')
+_FAST_GOAL_ID = re.compile(r'hedef (sonucu|iptal) ([a-f0-9]{16})[.!]?\Z')
 
 
 def _release_inline_voice_pause(runtime, source):
