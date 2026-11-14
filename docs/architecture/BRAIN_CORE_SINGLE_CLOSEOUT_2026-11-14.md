@@ -57,7 +57,7 @@ Scheduling-only audit istisnaları kapalı bir kümedir: `USER_GOAL_PRIORITY`, p
 6. Core reuse kabulü mevcut evidence hattında, açık `reused_from` eski plan/command/output digest kaydıyla tutulur. Yeni harici worker çalıştırılmış gibi iddia edilmez; yeni planın tamamlanma kanıtı ancak bu kabulden sonra oluşur.
 7. Eski plan/step/output geçmişi ExecutionRecord'da korunur. Kayıt boyutu güvenli sınırı aşıyorsa kabul başlamadan ret verilir.
 8. Yeni projection, Core CAS'den önce mevcut journal'a hazırlanır. CAS sonrası kesintide yalnız exact kabul edilmiş projection tekrar yazılabilir; model veya provider tekrar çalıştırılmaz. Eşleşmeyen/tahrif edilmiş prepared projection fail-closed kalır.
-9. Son anlamsal tamamlanma değerlendirmesi user_goal_intent'i de görür. Yalnız ilk istek karşılandı diye yeni düzeltme/ek iş tamamlandı sayılmaz.
+9. Kullanıcı düzeltmeleri mevcut Core evidence/audit hattında sıralı `goal_intent_change` kayıtlarıdır; worker başarısı sayılmazlar. İlk planlama, revizyon ve son anlamsal tamamlanma aynı sıralı geçmişi görür. Böylece “A ekle → yalnız B olsun → C ekle” ile “yalnız B olsun → A ekle → C ekle” karışmaz. Eski kayıtlardaki aggregate intent korunur; geçmiş uydurulmaz. Yalnız ilk istek karşılandı diye yeni düzeltme/ek iş tamamlandı sayılmaz.
 
 ## Kaynak ve provider yaşam döngüsü
 

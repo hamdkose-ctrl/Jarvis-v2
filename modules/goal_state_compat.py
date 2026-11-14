@@ -197,6 +197,7 @@ def commit_plan_revision(path, *, owner, job_id, plan, proof):
             projected['_pause_requested'] = True
         projected['goals'] = [{'text': current['goal'], 'state': 'pending', 'evidence': []}]
         projected['goal_intent'] = copy.deepcopy(current.get('goal_intent'))
+        projected['goal_intent_history'] = goal_state.intent_history(current)
         projected['steps'] = []
         projected['outputs'] = {}
         for node in plan['nodes']:
@@ -268,6 +269,12 @@ def apply_canonical_control(path, *, owner, job_id, expected_version, operation,
         else:
             raise ReconcilePolicyError('Bilinmeyen canonical kontrol.')
         updated = core_state_reducer.apply(current, dict(proposal, expected_version=current['version']))
+        if operation in ('revise', 'add_task'):
+            updated = core_state_reducer.apply(updated, dict(
+                op='append_evidence', expected_version=updated['version'],
+                evidence={'kind': 'goal_intent_change', 'operation': operation,
+                          'text': text.strip(), 'intent_version': updated['version']},
+                reason_code='USER_GOAL_INTENT_RECORDED'))
         if operation in ('revise', 'add_task') and updated['state'] != 'paused':
             updated = core_state_reducer.apply(updated, dict(
                 op='set_state', state='paused', expected_version=updated['version'],

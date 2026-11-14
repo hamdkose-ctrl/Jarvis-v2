@@ -68,6 +68,7 @@ def reconcile_control_projection(root, state, record):
             and record.get('state') in ('running', 'paused')):
         record['state'] = 'revision_queued'
         record['goal_intent'] = copy.deepcopy(state['goal_intent'])
+        record['goal_intent_history'] = goal_state.intent_history(state)
         record['_plan_requested_version'] = state['version']
         record.pop('_pending_goal_edit', None)
         record.pop('_pause_requested', None)
@@ -97,6 +98,7 @@ def _queue_edit(root, state, record, operation, text):
         record['_planner_rid'] = rid
     # One canonical goal remains one semantic outcome, including additions.
     record['goal_intent'] = copy.deepcopy(state['goal_intent'])
+    record['goal_intent_history'] = goal_state.intent_history(state)
     record['state'] = 'revision_queued' if 'goal_plan' in state else 'planning_queued'
     record['_plan_requested_version'] = state['version']
     record.pop('_pending_goal_edit', None)

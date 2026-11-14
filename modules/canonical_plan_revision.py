@@ -130,8 +130,9 @@ def execute(profile, job_id, *, stop_event=None):
         record['state'] = 'revision_running'
         canonical_goal_control._write(root, record)
         prompt = json.dumps({'request': current['goal'], 'user_goal_intent': current.get('goal_intent'),
+                             'user_goal_changes': goal_state.intent_history(current),
                              'previous_plan': current['goal_plan'],
-                             'instruction': 'Keep unchanged node IDs. Apply the user revision/additions; propose the whole DAG.'},
+                             'instruction': 'Keep unchanged node IDs. Apply user_goal_changes in order (later edits may replace earlier scope); use aggregate intent for older edits without history. Propose the whole DAG.'},
                             ensure_ascii=False)
     rid = hashlib.sha256(f'{owner}\0{job_id}\0revision\0{expected}'.encode()).hexdigest()[:32]
     token = llm._key_context.set(owner)

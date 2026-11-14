@@ -14,7 +14,7 @@ from test_brain_primary_understanding import action, envelope
 from modules import (
     brain_entry, canonical_goal_control, canonical_plan_evidence, canonical_plan_revision,
     canonical_planning_queue, canonical_scheduler_dispatch, execution_record, goal_executor,
-    goal_job_control, goal_state_store, model_wait, task_agents, task_queue, task_results, untrusted_flow,
+    goal_job_control, goal_state, goal_state_store, model_wait, task_agents, task_queue, task_results, untrusted_flow,
 )
 
 
@@ -245,6 +245,48 @@ class CanonicalSteeringTests(unittest.TestCase):
         self.assertEqual(len(record['goals']), 1)
         self.assertTrue(record['goal_intent']['additions'])
 
+    def test_ordered_edits_reach_planner_and_semantic_completion(self):
+        ident = self.create('first')
+        changes = [('add_task', 'araştırmaya A kaynağını ekle'),
+                   ('revise_goal', 'yalnız B kaynağını araştır'),
+                   ('add_task', 'araştırmaya C kaynağını ekle')]
+        for operation, text in changes:
+            self.control(ident, operation, text)
+        state, record = self.c.persisted(ident)
+        history = goal_state.intent_history(state)
+        self.assertEqual([(row['operation'], row['text']) for row in history],
+                         [('add_task', changes[0][1]), ('revise', changes[1][1]), ('add_task', changes[2][1])])
+        self.assertEqual(record['goal_intent_history'], history)
+        with patch.object(model_wait, 'ask', return_value=json.dumps(fixture.research_tasks('B', 'C'))) as model:
+            self.assertEqual(canonical_planning_queue.execute(self.profile, ident), 'planned')
+        self.assertEqual(json.loads(model.call_args.args[0])['user_goal_changes'], history)
+        self.assertTrue(self.execute_one(ident))
+        self.assertTrue(self.execute_one(ident))
+        from modules import canonical_goal_flow
+        state, record = self.c.persisted(ident)
+        with patch.object(model_wait, 'ask', return_value=json.dumps(
+                {'action': 'complete', 'goal': 0, 'evidence': ['B', 'C']})) as model:
+            canonical_goal_flow._semantic_proposal(self.owner, record, ('B', 'C'))
+        self.assertEqual(json.loads(model.call_args.args[0])['user_goal_changes'], history)
+        self.assertEqual([row['kind'] for row in state['evidence']].count('worker_result'), 2)
+
+    def test_edits_before_first_plan_keep_their_order_and_require_core_evidence(self):
+        with patch.object(task_queue, 'scheduler_active', return_value=True):
+            ident = self.c.typed_turn()[3]
+        self.control(ident, 'add_task', 'araştırmaya A kaynağını ekle')
+        self.control(ident, 'revise_goal', 'yalnız B kaynağını araştır')
+        with patch.object(model_wait, 'ask', return_value=json.dumps(fixture.research_tasks('B'))) as model:
+            self.assertEqual(canonical_planning_queue.execute(self.profile, ident), 'planned')
+        state, record = self.c.persisted(ident)
+        self.assertIn('user_goal_changes', model.call_args.args[0])
+        history = goal_state.intent_history(state)
+        self.assertEqual([row['operation'] for row in history], ['add_task', 'revise'])
+        self.assertEqual(record['goal_intent_history'], history)
+        forged = copy.deepcopy(state)
+        forged['evidence'][0]['intent_version'] += 1
+        with self.assertRaises(ValueError):
+            goal_state.intent_history(forged)
+
     def test_user_can_hold_and_resume_a_queued_plan_revision(self):
         ident = self.create('first')
         self.control(ident, 'revise_goal', 'araştırmaya yeni kaynak ekle')
@@ -306,7 +348,7 @@ class CanonicalSteeringTests(unittest.TestCase):
         self.assertEqual(self.revise(ident, 'second'), 'planned')
         with self.assertRaises(ValueError):
             canonical_scheduler_dispatch.execute_offer(self.profile, old)
-        self.assertEqual(self.c.persisted(ident)[0]['evidence'], [])
+        self.assertFalse([row for row in self.c.persisted(ident)[0]['evidence'] if row.get('kind') == 'worker_result'])
 
     def test_stale_snapshot_cannot_pause_or_mutate_a_newer_goal(self):
         ident = self.create('first')
@@ -356,7 +398,7 @@ class CanonicalSteeringTests(unittest.TestCase):
                 'source': 'https://example.test/article', 'source_chars': 200})
             release_guard.atomic(execution_record.path_for(root, ident), execution_record.encode(record))
         self.assertEqual(self.revise(ident, 'renamed'), 'review')
-        self.assertFalse(self.c.persisted(ident)[0]['evidence'])
+        self.assertFalse([row for row in self.c.persisted(ident)[0]['evidence'] if row.get('kind') == 'worker_result'])
 
     def test_scheduling_audit_labels_cannot_hide_a_semantic_edit(self):
         ident = self.create('first')
@@ -410,7 +452,8 @@ class CanonicalSteeringTests(unittest.TestCase):
         state, record = self.c.persisted(ident)
         self.assertEqual(record['steps'][0]['state'], 'queued')
         self.assertFalse(record['outputs'])
-        self.assertEqual(len([row for row in state['evidence'] if row['plan_version'] == 2]), 0)
+        self.assertFalse([row for row in state['evidence'] if row.get('kind') == 'worker_result'
+                          and row['plan_version'] == 2])
 
     def test_provider_past_deadline_is_quarantined_while_claim_and_slot_stay_owned(self):
         ident = self.create('first')

@@ -197,7 +197,9 @@ def execute(profile, job_id: str, *, stop_event=None):
         release_guard.atomic(execution_record.path_for(root, job_id),
                              execution_record.encode(record))
         intent = state.get('goal_intent', {})
-        text = (json.dumps({'request': record['request'], 'user_goal_intent': intent}, ensure_ascii=False)
+        text = (json.dumps({'request': record['request'], 'user_goal_intent': intent,
+                            'user_goal_changes': goal_state.intent_history(state),
+                            'instruction': 'Apply user_goal_changes in order; later edits may replace earlier scope.'}, ensure_ascii=False)
                 if intent.get('revision') or intent.get('additions') else record['request'])
     if cancelled:
         _park(root, owner, job_id, reason="PLANNER_CANCELLED_BEFORE_START")
