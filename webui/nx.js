@@ -2142,7 +2142,8 @@ function applySettingsFilter(el){
 }
 document.addEventListener('input',e=>{if(e.target&&e.target.id==='sq'){S.sq=e.target.value;clearTimeout(S._sqt);S._sqt=setTimeout(()=>{if(settingsOpen())drawSettings()},250)}});
 function personaPreferencesBox(data){
-  if(!data||data.owner!==((S.snap||{}).user||{}).slug)return '';
+  if(!data)return sbox('spark','Yanıt tercihleri','Şu an okunamadı. Lütfen yeniden dene.','');
+  if(data.owner!==((S.snap||{}).user||{}).slug)return '';
   return sbox('spark','Yanıt tercihlerin','Bu seçimler anlatım tarzını değiştirir. Açık tercihin öğrenilmiş öneriden üstündür.',
     (data.controls||[]).map(row=>field(esc(row.label),`<select data-persona-key="${esc(row.key)}" data-owner="${esc(data.owner)}"><option value="">Açık tercih yok</option>${row.options.map(v=>`<option value="${esc(v)}" ${row.selected===v?'selected':''}>${esc(v.replaceAll('_',' '))}</option>`).join('')}</select>`,
       esc('Etkin: '+row.effective+' · '+row.source_label)+(row.has_learned?` <button class="btn sm" data-act="personaforget" data-k="${esc(row.key)}" data-owner="${esc(data.owner)}">Öğrenilmiş öneriyi unut</button>`:''))).join(''));

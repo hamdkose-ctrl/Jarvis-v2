@@ -1,5 +1,7 @@
 # Persona ve sunum tercihleri — BRAIN-09
 
+## Sunum ve tercih sahipliği
+
 Brain anlamı önerir, Core kaydı benimser. `persona_contract` yalnız sürümlü salt-okunur sözleşme/vocabulary'dir; `persona` mevcut Profile/SessionState üzerinde Core sunum servisidir. Model/Router/provider, yeni agent/store/Scheduler değildir.
 
 Tek semantik modelin `brain-understanding.v2` zarfında opsiyonel `presentation` listesi: key/value/scope/exact evidence_quote. Eski zarf boş listeye eşdeğer. Sözleşme dışı/hassas key, serbest değer, model confidence/owner/saat veya kullanıcı cümlesinde olmayan kaynak alıntısı tüm öneriyi reddettirir. Brain'in önerisi Core request_scope'ta owner/RID/original text/MODEL_DECIDED ile tekrar doğrulanır. Core provenance, digest, tarih ve güveni kendisi üretir; ham alıntı diske gitmez.

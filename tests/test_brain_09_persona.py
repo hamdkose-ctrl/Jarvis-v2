@@ -15,8 +15,8 @@ from modules import brain_entry, personalization, session_state
 class PersonaTests(unittest.TestCase):
     def setUp(self):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
-        self.addCleanup(patch.stopall)
-        patch.object(personalization,'USERS_DIR',Path(folder.name)).start()
+        patcher=patch.object(personalization,'USERS_DIR',Path(folder.name))
+        patcher.start();self.addCleanup(patcher.stop)
         self.profile=personalization.Profile('Hamdi')
         self.state=session_state.SessionState()
 
@@ -131,7 +131,7 @@ class PersonaTests(unittest.TestCase):
         self.assertNotIn('presentation_preferences',self.profile.data)
         handler.assert_not_called()
 
-    def test_model_provider_changes_share_same_versioned_persona(self):
+    def test_versioned_persona_and_other_owners_defaults_are_isolated(self):
         from modules import persona_contract
         prompt=self.profile.system_prompt()
         self.assertIn(persona_contract.VERSION,prompt)

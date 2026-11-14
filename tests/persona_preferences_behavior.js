@@ -7,6 +7,7 @@ const c={S:{snap:{user:{slug:'alice'}}},ACT:{},esc:s=>String(s).replaceAll('<','
 vm.createContext(c);vm.runInContext(src.slice(src.indexOf('function personaPreferencesBox('),src.indexOf('// Persona controls end.')),c);
 const data={owner:'alice',controls:[{key:'verbosity',label:'Yanıt uzunluğu',options:['kısa','orta','uzun'],selected:'uzun',effective:'uzun',source_label:'Açık tercihin',has_learned:true}]};
 const html=c.personaPreferencesBox(data);
+assert(c.personaPreferencesBox(null).includes('yeniden dene'),'read failure is visible');
 assert(html.includes('value="uzun" selected'));assert(html.includes('Açık tercihin'));assert(html.includes('Öğrenilmiş öneriyi unut'));
 assert.equal(c.personaPreferencesBox({...data,owner:'bob'}),'','late response cannot expose another owner');
 assert(c.personaPreferencesBox({...data,controls:[{...data.controls[0],label:'<script>'}]}).includes('&lt;script>'));
