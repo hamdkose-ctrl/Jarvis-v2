@@ -1097,7 +1097,7 @@ def _render_verified(job,style,unverified=(),core_completed=False):
             lines.append('Kısmi rapor dosyası: '+partial['file'])
         for current in job['steps']:
             if current['state']=='running' and (current['tool']=='research' or current['tool']=='data' and current['input'].get('operation')=='headlines'):
-                lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
+                lines.append('Denenen kaynak: '+goal_tools.public_request(current['input'].get('url','')))
         def seen_error(text):
             normalized = ' '.join(text.casefold().split())
             return any(normalized in ' '.join(line.casefold().split()) for line in lines)

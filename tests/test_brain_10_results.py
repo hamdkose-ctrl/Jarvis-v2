@@ -82,6 +82,43 @@ class ResultDeliveryTests(unittest.TestCase):
         reply=goal_executor.render(job)
         self.assertNotIn('Kısmi rapor dosyası: '+output['file'],reply)
 
+    def test_malformed_legacy_steps_are_unavailable_without_a_render_crash(self):
+        from modules import result_presentation
+        job=self.goal_job(self.writer())
+        job['steps']=[{'state':'done'},None,{'id':'missing-state'}]
+        before=deepcopy(job)
+        checked=result_presentation.inspect_job(job,'goal')
+        self.assertEqual(checked['verified'],frozenset())
+        self.assertEqual(checked['job']['state'],'incomplete')
+        self.assertIn('doğrulanamadı',goal_executor.render(job))
+        self.assertEqual(job,before)
+
+    def test_orphan_output_cannot_leak_an_artifact_or_a_source_into_progress(self):
+        from modules import result_presentation
+        job=self.goal_job(self.writer())
+        job['outputs']['orphan']={'state':'done','file':'SECRET-report.md',
+            'news_article':{'url':'https://secret.example/hidden'},'text':'UNPROVED BODY'}
+        checked=result_presentation.inspect_job(job,'goal')
+        self.assertIn('orphan',checked['unverified'])
+        self.assertEqual(checked['job']['outputs']['orphan'],
+                         {'state':'unavailable','text':result_presentation.UNVERIFIED})
+        reply=goal_executor.status_summary(job)+goal_executor.render(job)
+        for secret in ('SECRET-report.md','secret.example','UNPROVED BODY'):
+            self.assertNotIn(secret,reply)
+
+    def test_completed_goal_keeps_verified_replacement_after_a_failed_attempt(self):
+        from modules import result_presentation
+        job=self.goal_job(self.writer())
+        job['steps'].insert(0,{'id':'old','tool':'research','state':'failed',
+                              'input':{},'goal':0,'depends':[]})
+        job['outputs']['old']={'state':'failed','text':'İlk kaynak yanıt vermedi.'}
+        before=deepcopy(job)
+        checked=result_presentation.inspect_job(job,'goal')
+        self.assertEqual(checked['job']['state'],'done')
+        self.assertEqual(checked['verified'],frozenset({'s1'}))
+        self.assertIn('1/2',goal_executor.status_summary(job))
+        self.assertEqual(job,before)
+
     def test_short_presentation_keeps_complete_file_identity_and_discloses_truncation(self):
         from modules import result_presentation
         output=self.writer('Kaynak metni. '*350);job=self.task_job(output)
@@ -158,6 +195,18 @@ class ResultDeliveryTests(unittest.TestCase):
             job['outputs']['s1']=output
             self.assertIn('doğrulanamadı',task_agents.render_summary(job))
         self.assertEqual(send.call_count,1)
+
+    def test_reversed_verifier_chain_cannot_hide_a_missing_source_artifact(self):
+        from modules import result_presentation
+        output=self.writer();job=self.task_job(output)
+        for ident,dep in (('check2','check1'),('check1','s1')):
+            job['tasks'].append({'id':ident,'agent':'verify','state':'done','depends':[dep],'input':{}})
+            job['outputs'][ident]=task_results.seal('verify',{'state':'done','checks':{dep:True}})
+        Path(output['file']).unlink()
+        checked=result_presentation.inspect_job(job,'task')
+        self.assertEqual(checked['verified'],frozenset())
+        self.assertEqual(checked['unverified'],frozenset({'s1','check1','check2'}))
+        self.assertEqual(checked['job']['state'],'incomplete')
 
 
     def test_ui_projection_downgrades_missing_evidence_without_changing_control_identity(self):

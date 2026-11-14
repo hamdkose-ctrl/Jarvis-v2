@@ -63,6 +63,16 @@ def inspect_job(job,family):
     steps=view.get(key,[]);outputs=view.get('outputs',{})
     if not isinstance(steps,list) or not isinstance(outputs,dict):raise ValueError('Sonuç kaydı geçersiz.')
     valid=set();invalid=set();state=None;core_error=False
+    normalized=[]
+    for index,step in enumerate(steps):
+        if not isinstance(step,dict):step={}
+        if not isinstance(step.get('id'),str) or not step['id']:
+            step={'id':'unverified-'+str(index),'tool':'araç','agent':'unknown','state':'unavailable','input':{},'depends':[]}
+            invalid.add(step['id'])
+        step.setdefault('state','unavailable');step.setdefault('input',{});step.setdefault('depends',[])
+        step.setdefault('tool','araç' if family=='goal' else step.get('agent','unknown'))
+        normalized.append(step)
+    steps=normalized;view[key]=steps
     if family=='goal' and isinstance(owner,str) and owner:
         try:state=_canonical_state(job)
         except (ValueError,OSError,KeyError):core_error=True
@@ -93,10 +103,24 @@ def inspect_job(job,family):
         except (ValueError,PermissionError,OSError,KeyError,TypeError):
             invalid.add(ident);step['state']='unavailable'
             outputs[ident]={'state':'unavailable','text':UNVERIFIED}
+    # Orphaned fields cannot leak an artifact/body through status counters or UI.
+    for ident,output in list(outputs.items()):
+        if ident in valid:continue
+        if (not isinstance(output,dict) or output.get('state')=='done'
+                or ident not in counts or output.get('owner') not in (None,owner)):
+            outputs[ident]={'state':'unavailable','text':UNVERIFIED};invalid.add(ident)
+        elif any(output.get(field) for field in ('file','files','snapshot','news_article')):
+            outputs[ident]={'state':output.get('state','unavailable'),'text':output.get('text') or UNVERIFIED}
+            invalid.add(ident)
     # A historical boolean verifier receipt cannot conceal a changed dependency.
-    for step in steps:
-        kind=step.get('tool') if family=='goal' else step.get('agent')
-        if kind=='verify' and step.get('id') in valid and any(dep not in valid for dep in step.get('depends',[])):
+    while True:
+        rejected=[]
+        for step in steps:
+            kind=step.get('tool') if family=='goal' else step.get('agent')
+            if kind=='verify' and step['id'] in valid and any(dep not in valid for dep in step.get('depends',[])):
+                rejected.append(step)
+        if not rejected:break
+        for step in rejected:
             ident=step['id'];valid.remove(ident);invalid.add(ident);step['state']='unavailable'
             outputs[ident]={'state':'unavailable','text':UNVERIFIED}
     if family=='goal':
@@ -108,8 +132,9 @@ def inspect_job(job,family):
                 goal['chat_evidence']=[step['id'] for step in steps if step.get('id') in valid and step.get('goal')==index]
             elif goal.get('chat_evidence'):
                 goal['chat_evidence']=[ident for ident in goal['chat_evidence'] if ident in valid]
-    if view.get('state')=='done' and (not steps or invalid or any(step.get('state')!='done' for step in steps)
-            or (family=='goal' and any(goal.get('state')!='done' for goal in view.get('goals',[])))):
+    incomplete=(not steps or (family=='task' and (invalid or any(step.get('state')!='done' for step in steps)))
+                or (family=='goal' and (not view.get('goals') or any(goal.get('state')!='done' for goal in view['goals']))))
+    if view.get('state')=='done' and incomplete:
         view['state']='incomplete'
     return {'job':view,'verified':frozenset(valid),'unverified':frozenset(invalid),
             'core_completed':bool(state is not None and state.get('state')=='done'

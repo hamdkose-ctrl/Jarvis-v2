@@ -1,19 +1,32 @@
 from types import SimpleNamespace
+from pathlib import Path
+from datetime import date
+import tempfile
 import unittest
 from unittest.mock import patch
 from modules import goal_executor as goals
+from modules import task_results
 
 
 class StatusSummaryTests(unittest.TestCase):
     def setUp(self):
         self.runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice'))
-        self.body = 'MAKALE_GOVDESI_GIZLI_' * 170
-        self.job = {'state': 'done', 'request': 'Son haftanın haberleri ' * 20,
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        self.path=Path(folder.name)/'rapor.md'
+        self.body = 'MAKALE_GOVDESI_GIZLI_' * 25
+        self.path.write_text(self.body,encoding='utf-8')
+        articles={}
+        for ident in ('a','b'):
+            source={'url':'https://example.com/'+ident,'title':'Kaynak '+ident,'published':date.today().isoformat(),'text':self.body}
+            articles[ident]=task_results.seal('research',{'state':'done','text':self.body,'source':source['url'],
+                'source_chars':len(self.body),'source_quotes':[self.body],'news_article':source})
+        articles['report']=task_results.seal('writer',{'state':'done','text':self.body,'file':str(self.path),
+                                                      'sha256':task_results.file_digest(self.path)})
+        self.job = {'owner':'alice','id':'c'*16,'state': 'done', 'request': 'Son haftanın haberleri ' * 20,
                     'goals': [{'state': 'done', 'text': 'Haber araştır', 'evidence': ['a','b']}],
-                    'steps': [{'state': state} for state in ('done','done','done','failed')],
-                    'outputs': {'a': {'news_article': {'url': 'https://example.com/a'}, 'text': self.body},
-                                'b': {'news_article': {'url': 'https://example.com/b'}, 'text': self.body},
-                                'report': {'file': 'C:\\fake\\rapor.md', 'text': self.body}}}
+                    'steps': [{'id':ident,'tool':kind,'state':state,'input':{},'depends':[],'goal':0} for ident,kind,state in
+                              (('a','research','done'),('b','research','done'),('report','writer','done'),('old','research','failed'))],
+                    'outputs': articles}
 
     def handle(self, command):
         with patch.object(goals, 'latest', return_value=self.job), patch.object(goals, 'run', side_effect=AssertionError('Hedef yürütülmemeli')):
@@ -24,7 +37,7 @@ class StatusSummaryTests(unittest.TestCase):
         self.assertLess(len(response), 600)
         self.assertIn('3/4 adım', response)
         self.assertIn('2 kaynak', response)
-        self.assertIn('Rapor dosyası: C:\\fake\\rapor.md', response)
+        self.assertIn('Rapor dosyası: '+str(self.path), response)
         self.assertNotIn(self.body[:40], response)
         self.assertLessEqual(len(response.splitlines()), 2)
 
