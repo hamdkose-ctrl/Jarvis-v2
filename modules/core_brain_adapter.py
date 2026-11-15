@@ -625,6 +625,13 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
         runtime, owner=owner, request_id=request_id, text=step, source=source,
         model_understanding=True,
     )
-    return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
+    from modules import brain_core_wire
+    response = brain_core_wire.decode_result(
+        handoff_json(
+            runtime, entry.to_handoff_json(), getattr(runtime, "handle", None), step,
+        ),
+        owner=owner, request_id=request_id,
+    )
+    return response["output"], response["feedback"]
 
 
