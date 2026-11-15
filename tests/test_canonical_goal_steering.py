@@ -459,6 +459,7 @@ class CanonicalSteeringTests(unittest.TestCase):
         ident = self.create('first')
         entered, release = threading.Event(), threading.Event()
         stop = fixture.RapidStop()
+        import sys
         import traceback
         scheduler_errors = []
         def track_scheduler_failure(label):
@@ -486,6 +487,9 @@ class CanonicalSteeringTests(unittest.TestCase):
                 self.assertTrue(entered.wait(30),repr({
                     'persisted':self.c.persisted(ident),
                     'scheduler_alive':task_queue._THREAD.is_alive(),
+                    'scheduler_stack': ''.join(traceback.format_stack(
+                        sys._current_frames()[task_queue._THREAD.ident]
+                    )) if task_queue._THREAD.ident in sys._current_frames() else 'unavailable',
                     'scheduler_errors': scheduler_errors,
                     'ready_offers': repr(canonical_scheduler_dispatch.discover(self.owner)),
                     'workers':[(str(key),thread.is_alive()) for key,thread in task_queue._CANONICAL_WORKERS.items()],
