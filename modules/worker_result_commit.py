@@ -210,7 +210,8 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         )
         node = goal_plan_gate.revalidate(current, selection)
         if ((node['depends_on'] and node['capability_id']
-             not in ('task.research', 'task.account', 'task.verify'))
+             not in ('task.research', 'task.account', 'task.verify',
+                     'task.writer', 'task.publish'))
                 or node['capability_id'] != accepted['capability_id']
                 or selection.plan_version != accepted['plan_version']
                 or selection.node_digest != accepted['node_digest']
@@ -295,12 +296,28 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
                 dependency_evidence.require_persisted_verify_dependencies(pinned, node)
                 from modules import scheduler_resource_gate
                 scheduler_resource_gate.require_dependent_verify_result_lease(accepted)
+            elif node['capability_id'] in ('task.writer', 'task.publish'):
+                goal_plan_gate.validate_dependent_effect_attempt(
+                    current, selection, attempt=accepted['attempt'],
+                )
+                dependency_evidence.require_persisted_effect_dependencies(pinned, node)
             else:
                 raise goal_plan_gate.PlanFenceError('Dependent tool unsupported.')
         else:
             goal_plan_gate.validate_root_attempt(
                 current, selection, attempt=accepted['attempt'],
             )
+        if accepted['capability_id'] in ('task.writer', 'task.coder', 'task.publish'):
+            from modules import scheduler_resource_gate, effect_recovery_runtime
+            scheduler_resource_gate.require_effect_result_lease(accepted)
+            if accepted['capability_id'] in ('task.coder', 'task.publish'):
+                expected = {key: accepted[key] for key in (
+                    'owner','job_id','step_id','command_id','attempt',
+                    'expected_job_version','capability_id','capability_version',
+                    'input_digest','plan_version','node_digest')}
+                if effect_recovery_runtime.status(expected) != 'succeeded':
+                    raise goal_state_store.PersistedStateConflict(
+                        'Planned effect has no verified durable receipt.')
         if accepted['capability_id'] == 'task.account':
             # The lease remains held across worker verification and Core CAS.
             # A direct model/worker/recovery caller cannot mint an unleased
