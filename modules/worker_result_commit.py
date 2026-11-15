@@ -310,14 +310,18 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         if accepted['capability_id'] in ('task.writer', 'task.coder', 'task.publish'):
             from modules import scheduler_resource_gate, effect_recovery_runtime
             scheduler_resource_gate.require_effect_result_lease(accepted)
-            if accepted['capability_id'] in ('task.coder', 'task.publish'):
-                expected = {key: accepted[key] for key in (
-                    'owner','job_id','step_id','command_id','attempt',
-                    'expected_job_version','capability_id','capability_version',
-                    'input_digest','plan_version','node_digest')}
-                if effect_recovery_runtime.status(expected) != 'succeeded':
-                    raise goal_state_store.PersistedStateConflict(
-                        'Planned effect has no verified durable receipt.')
+            expected = {key: accepted[key] for key in (
+                'owner','job_id','step_id','command_id','attempt',
+                'expected_job_version','capability_id','capability_version',
+                'input_digest','plan_version','node_digest')}
+            journal_status = effect_recovery_runtime.status(expected)
+            if journal_status == 'not_started':
+                raise goal_state_store.PersistedStateConflict(
+                    'Planned effect has no durable write-ahead intent.')
+            if (accepted['capability_id'] in ('task.coder', 'task.publish')
+                    and journal_status != 'succeeded'):
+                raise goal_state_store.PersistedStateConflict(
+                    'Planned effect has no verified durable receipt.')
         if accepted['capability_id'] == 'task.account':
             # The lease remains held across worker verification and Core CAS.
             # A direct model/worker/recovery caller cannot mint an unleased
