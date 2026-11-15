@@ -2699,3 +2699,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                          'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
         self.run_goal.assert_called_once()
 
+
+class EffectfulCanonicalStagingFenceTests(unittest.TestCase):
+    """Staged intent/receipt compatibility is not Scheduler effect authority."""
+
+    def test_writer_coder_publish_remain_unoffered_until_full_effect_gates(self):
+        from modules import canonical_goal_flow, canonical_scheduler_lane
+        for kind in ("writer", "coder", "publish"):
+            with self.subTest(kind=kind):
+                # An effect proposal is NOT yet a live canonical dispatch.
+                # This remains mandatory until owner, lease, approval, output
+                # and crash-recovery parity have integrated production tests.
+                with self.assertRaises(ValueError):
+                    canonical_goal_flow._canonical_plan([
+                        {"id": "e1", "agent": kind, "depends": [], "input": {}},
+                    ])
+                self.assertNotIn("task." + kind, canonical_scheduler_lane._SUPPORTED)
