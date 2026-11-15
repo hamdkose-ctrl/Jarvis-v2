@@ -123,8 +123,7 @@ class BareLevelTests(unittest.TestCase):
         """engine_loop'un yazı yolu: activate -> prepare -> handoff(runtime.handle)."""
         owner = context.profile.slug
         rid = "closeout-a-" + uuid.uuid4().hex[:8]
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        with guard, patch.object(context, "route", side_effect=AssertionError("model/router çağrılmamalı"), create=True):
+        with patch.object(context, "route", side_effect=AssertionError("model/router çağrılmamalı"), create=True):
             requests_state.register(owner, rid)
             with requests_state.activate(owner, rid):
                 entry = brain_entry.prepare(context, owner=owner, request_id=rid, text=text, source="yazı")
@@ -294,7 +293,7 @@ class RealFeedbackTests(unittest.TestCase):
 
     def handoff(self, handler, runtime=None):
         rt = runtime or self.runtime()[0]
-        with patch.object(brain_entry, "_install_core_guards"), patch.object(core_brain_adapter, "_correlated_job_id", return_value=None):
+        with patch.object(core_brain_adapter, "_correlated_job_id", return_value=None):
             return core_brain_adapter.handoff(rt, self.entry, handler, "işlem")
 
     def test_handled(self):

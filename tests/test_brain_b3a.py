@@ -48,10 +48,6 @@ class _Pipeline(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        # Core guards wrap process-global modules; keep them out of the shared test process.
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def through_brain(self, text):
         """Exactly engine_loop's text path: activate -> prepare -> handoff(runtime.handle)."""

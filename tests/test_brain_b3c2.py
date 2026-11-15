@@ -57,9 +57,6 @@ class Pipeline(unittest.TestCase):
         self.ctx.profile.data["events"] = []
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def through_brain(self, text):
         rid = "b3c2-" + uuid.uuid4().hex[:8]

@@ -21,8 +21,7 @@ def say(rt, text):
     owner = rt.profile.slug
     rid = "note-search-" + uuid.uuid4().hex[:8]
     requests_state.register(owner, rid)
-    with patch.object(brain_entry, "_install_core_guards", lambda runtime: None), \
-            requests_state.activate(owner, rid):
+    with requests_state.activate(owner, rid):
         entry = brain_entry.prepare(rt, owner=owner, request_id=rid, text=text, source="yazı")
         out, _feedback, _job = core_brain_adapter.handoff(rt, entry, rt.handle, text)
     return out

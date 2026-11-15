@@ -68,9 +68,6 @@ class EndToEndTests(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.file = Path(self.temp.name) / "rapor.txt"
         self.file.write_text("içerik")
         original = brain_entry.build_candidates

@@ -342,9 +342,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         # Legacy front-gate precedence (macro/user/planner/...) is pinned by tests/test_brain_b3a.py;
         # the harness measures the Brain decision on an isolated stub runtime.
         stack.enter_context(patch("modules.brain_precedence.claim", lambda *_a, **_k: None))
-        # Core guard'ları global modülleri sarmalar; ölçüm sırasında kurulmaz.
-        stack.enter_context(patch.object(brain_entry, "_install_core_guards", lambda _runtime: None))
-        stack.enter_context(patch.object(brain_entry, "_correlated_job_id", lambda _entry: None))
+        stack.enter_context(patch.object(core_brain_adapter, "_correlated_job_id", lambda _entry: None))
         entry = brain_entry.prepare(
             runtime, owner=owner, request_id=request_id, text=text, source=source,
             model_understanding=False,
