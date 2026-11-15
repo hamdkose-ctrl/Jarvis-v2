@@ -109,20 +109,23 @@ class PrinterTests(unittest.TestCase):
             self.assertEqual(tool_printer.run('alice', 'cancel', approve=True)['state'], 'blocked')
         self.assertEqual(self.calls, [])
 
-    def test_stop_bridge_invokes_tools_before_request_cancel(self):
+    def test_generic_stop_bridge_never_sweeps_running_tool_contracts(self):
         import ast
         import types
         tree = ast.parse(Path('web.py').read_text(encoding='utf-8'))
         bridge = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Bridge')
         method = next(n for n in bridge.body if isinstance(n, ast.FunctionDef) and n.name == 'stop_task')
-        events = []
+        calls = []
         namespace = {'_p': lambda: types.SimpleNamespace(slug='alice'),
-                     'engine': types.SimpleNamespace(requests_state=types.SimpleNamespace(cancel=lambda owner: events.append(('request', owner)))),
+                     'engine': types.SimpleNamespace(requests_state=types.SimpleNamespace(
+                         cancel_foreground=lambda owner: (calls.append(owner), ('cancelled', 'voice-rid'))[1])),
                      'hub': types.SimpleNamespace(publish=lambda *args: None)}
         exec(compile(ast.Module(body=[method], type_ignores=[]), 'web.py', 'exec'), namespace)
-        with patch.object(tool_printer, 'cancel_running', side_effect=lambda owner: events.append(('tools', owner))):
-            namespace['stop_task'](None)
-        self.assertEqual(events, [('tools', 'alice'), ('request', 'alice')])
+        with patch.object(tool_printer, 'cancel_running') as sweeping:
+            result = namespace['stop_task'](None)
+        sweeping.assert_not_called()
+        self.assertEqual(calls, ['alice'])
+        self.assertTrue(result['stopped'])
 
     def test_no_false_cancel_success_or_redirect_following(self):
         self.configure()

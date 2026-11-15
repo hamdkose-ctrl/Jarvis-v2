@@ -180,6 +180,27 @@ class IndependentGoalAdmissionTests(unittest.TestCase):
         self.assertEqual(self.journal("alice"), [])
         self.assertEqual(self.runtime.events.qsize(), 1)
 
+    def test_bare_dur_and_sus_keep_real_canonical_planner_queued(self):
+        """Voice controls may not consume an unrelated durable background goal."""
+        self.runtime.voice = SimpleNamespace(stop_speaking=Mock())
+        self.assertTrue(self.admit(
+            "Yeni hedef: İki açık kaynağı karşılaştır.", rid="planner-one"))
+        self.assertEqual(len(self.journal("alice")), 1)
+        job_id = self.journal("alice")[0].name.removesuffix(".execution.json")
+        record = execution_record.load(
+            self.journal("alice")[0].parent, "alice", job_id)
+        planner_rid = record["_planner_rid"]
+        self.assertEqual(requests_state.request_state("alice", planner_rid), "queued")
+
+        self.assertFalse(self.admit("dur", rid="bare-stop"))
+        self.assertFalse(self.admit("sus", rid="bare-silence"))
+        self.assertEqual(self.runtime.voice.stop_speaking.call_count, 2)
+        self.assertFalse(requests_state.is_cancelled("alice", planner_rid))
+        self.assertEqual(canonical_planning_queue.discover("alice"), (job_id,))
+        self.assertEqual(execution_record.load(
+            self.journal("alice")[0].parent, "alice", job_id)["state"],
+            "planning_queued")
+
     def test_duplicate_background_goal_claim_is_still_idempotent(self):
         # Two independent request IDs are two jobs; reusing one ID does not
         # re-run the provider or publish a second GoalState record.

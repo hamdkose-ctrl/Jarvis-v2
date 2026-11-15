@@ -152,7 +152,7 @@ class CanonicalRequestTests(unittest.TestCase):
         runtime.pc_profile = lambda: SimpleNamespace(name="Hamdi", slug=OWNER)
         runtime.secrets = SimpleNamespace(token_hex=lambda n: RID)
         runtime.requests_state = SimpleNamespace(
-            register=Mock(return_value=True), activate=lambda *a: nullcontext(), check=lambda: None,
+            register=Mock(return_value=True), activate=lambda *a, **kw: nullcontext(), check=lambda: None,
             cancel=lambda *a: None, Cancelled=RuntimeError)
         runtime.log = Mock()
         runtime.emit = Mock()

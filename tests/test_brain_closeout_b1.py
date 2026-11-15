@@ -186,7 +186,7 @@ class FastLaneTests(unittest.TestCase):
         profile = SimpleNamespace(name="Alice", slug="alice")
         rt = SimpleNamespace(_tr_lower=str.casefold, slugify=lambda value: "alice", pc_profile=lambda: profile,
                              _get_profile=Mock(return_value=profile), _emit_for=Mock(), events=queue.Queue(),
-                             requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a: nullcontext()),
+                             requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a, **kw: nullcontext()),
                              voice=Mock(), secrets=SimpleNamespace(token_hex=lambda n: "rid"))
         with patch("modules.goal_executor.latest", return_value=None):
             self.assertTrue(engine_queue.submit(rt, "hedef durumu", user="Alice", rid="r1"))
@@ -199,7 +199,7 @@ class FastLaneTests(unittest.TestCase):
         profile = SimpleNamespace(name="Alice", slug="alice")
         rt = SimpleNamespace(_tr_lower=str.casefold, slugify=lambda value: "alice", pc_profile=lambda: profile,
                              _get_profile=Mock(return_value=profile), _emit_for=Mock(), events=queue.Queue(),
-                             requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a: nullcontext()),
+                             requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a, **kw: nullcontext()),
                              voice=Mock(), secrets=SimpleNamespace(token_hex=lambda n: "rid"), _record_failure=Mock())
         with patch.object(brain_entry, "fast_lane", side_effect=RuntimeError("bozuk")):
             self.assertTrue(engine_queue.submit(rt, "hedef durumu", user="Alice", rid="r9"))

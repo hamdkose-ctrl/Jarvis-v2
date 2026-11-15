@@ -104,7 +104,7 @@ class WebChat:
         text = str(text).strip()
         accepted = runtime.engine.submit(text, 'yazı', runtime._p().name, rid=rid or None)
         if accepted is False:
-            if text.replace('I', 'ı').replace('İ', 'i').lower().strip(' .!') in ('dur', 'sus', 'yeter', 'stop'):
+            if text.replace('I', 'ı').replace('İ', 'i').lower().strip(' .!') in ('dur', 'sus', 'yeter', 'stop', 'tüm istekleri iptal et'):
                 return False  # Immediate control: no assistant response will follow.
             raise ValueError('İstek kuyruğa alınmadı; boş veya daha önce gönderilmiş olabilir.')
         return True
@@ -138,7 +138,7 @@ class WebChat:
         from modules import conversation_reset
         owner = runtime._p().slug
         with runtime.engine._event_lock:
-            runtime.engine.requests_state.cancel(owner)
+            runtime.engine.requests_state.cancel_foreground(owner)
             conversation_reset.mark(owner)
             runtime.llm.reset_history(owner)
             runtime.engine._sessions.reset(owner)

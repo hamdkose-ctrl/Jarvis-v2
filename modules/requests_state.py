@@ -162,36 +162,47 @@ def register_background(user, rid, seconds=90):
         return register(user, rid, seconds)
 
 
-def cancel(user, rid=None):
+def cancel(user, rid):
+    """Cancel only the explicitly identified owner-bound request.
+
+    Omitting the request ID must never turn into a user-wide sweep.
+    Canonical goals use their separate owner-bound job-ID control.
+    """
+    if not isinstance(rid, str) or not rid:
+        raise ValueError('İptal için açık istek kimliği gerekli.')
     with _lock:
-        for key, record in _records.items():
-            if key[0] == user and (rid is None or key[1] == rid) and record['state'] in ('queued','running'):
-                record['state'] = 'cancelled'
-        _save_terminal_state()
+        record = _records.get((user, rid))
+        if record is not None and record['state'] in ('queued', 'running'):
+            record['state'] = 'cancelled'
+            _save_terminal_state()
 
-def cancel_unambiguous(user):
-    """Cancel one owner-bound live request, but never choose among multiple.
 
-    A bare spoken "dur" must not sweep unrelated queued/running turns.
-    This is an atomic in-process request decision, NOT a GoalState cancel:
-    canonical background goals must be cancelled through their job identity.
-    Returns ("cancelled", rid), ("ambiguous", None) or ("none", None).
+def cancel_foreground(user):
+    """Cancel one actively executing foreground turn, never queued/background work.
+
+    Only interactive engine activations set the transient foreground marker.
+    Background Scheduler workers never set it. Ambiguity fails closed.
+    Returns ("cancelled", rid), ("ambiguous", None), or ("none", None).
     """
     with _lock:
         now = time.monotonic()
         active = [key for key, record in _records.items()
-                  if key[0] == user and record['state'] in ('queued', 'running')
+                  if key[0] == user and record['state'] == 'running'
+                  and record.get('foreground') is True
                   and record['deadline'] > now]
         if len(active) != 1:
             return ('ambiguous' if active else 'none'), None
         key = active[0]
+        # A late model/engine reply must not restart the speech just interrupted.
+        # Mark only this turn; never mute a background goal's later notice.
+        _records[key]['speech'] = True
         _records[key]['state'] = 'cancelled'
         _save_terminal_state()
         return 'cancelled', key[1]
 
 
 @contextmanager
-def activate(user, rid, *, complete=True):
+def activate(user, rid, *, complete=True, foreground=False):
     token = _current.set((user,rid))
     try:
         check()
@@ -211,6 +222,8 @@ def activate(user, rid, *, complete=True):
                     if turn is not None:
                         record['deadline'] = now + turn
                     record['state'] = 'running'
+                if foreground and record['state'] == 'running':
+                    record['foreground'] = True
         yield
     finally:
         try:
@@ -220,6 +233,8 @@ def activate(user, rid, *, complete=True):
                     # Transcription hands this same request back to the queue.
                     record['state'] = 'done' if complete else 'queued'
                     _save_terminal_state()
+                if foreground and record is not None:
+                    record.pop('foreground', None)
         finally:
             _current.reset(token)
 
@@ -275,36 +290,20 @@ def is_cancelled(user,rid):
         return bool(record and (record['state']=='cancelled' or time.monotonic()>=record['deadline'])) or (record is None and _archived((user,rid)))
 
 
-def mute_speech(user, rid=None):
-    """Speech-only mute for one request, or for all a user has in flight; returns their ids.
+def mute_speech(user, rid):
+    """Silence one identified turn, never every owner request.
 
-    This is deliberately NOT `cancel`: the command keeps running, Core keeps the
-    written result and the GoalState, and only the audible presentation of those
-    answers is dropped. Callers bound the scope with `rid` — "sus" mutes only the
-    turn whose audio it stopped, so an unrelated background job keeps its future
-    spoken result. Nothing is journaled — a mute belongs to the turn that asked for
-    quiet, never to a restart.
-
-    A named turn is muted even when its request already finished: the answer is
-    marked `done` when the handler returns, while its audio can still be on the
-    speaker for seconds after that. Tying the mute to the request lifecycle would
-    let the next utterance of that very turn start speaking again after the user
-    asked for quiet. The unscoped form keeps its original in-flight-only scope, so
-    no finished request is ever marked by a sweep.
+    Speech muting preserves Core work. It also works for a named completed
+    or cancelled turn so late TTS stays stopped; sibling goals are unchanged.
     """
+    if not isinstance(rid, str) or not rid:
+        raise ValueError('Ses kesme için açık istek kimliği gerekli.')
     with _lock:
-        muted = []
-        for key, record in _records.items():
-            if key[0] != user or record['state'] == 'cancelled':
-                continue
-            if rid is None:
-                if record['state'] not in ('queued', 'running'):
-                    continue
-            elif key[1] != rid:
-                continue
-            record['speech'] = True
-            muted.append(key[1])
-        return tuple(muted)
+        record = _records.get((user, rid))
+        if record is None:
+            return ()
+        record['speech'] = True
+        return (rid,)
 
 
 def speech_muted(user, rid):

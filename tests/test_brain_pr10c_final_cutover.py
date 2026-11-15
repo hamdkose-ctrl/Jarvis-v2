@@ -398,7 +398,7 @@ class Fence:
         return True
 
     @contextlib.contextmanager
-    def activate(self, owner, rid, *, complete=True):
+    def activate(self, owner, rid, *, complete=True, foreground=False):
         self.calls.append(("activate", owner, rid))
         yield None
 
@@ -509,7 +509,7 @@ class SurfaceParityTests(unittest.TestCase):
     def test_photo_turn_is_registered_and_prepared_canonically(self):
         text = source("engine_loop")
         photo_branch = text[text.index('if kind == "photo":'):text.index('_, cmd, source, user,')]
-        self.assertIn("runtime.requests_state.activate(owner, rid)", photo_branch)
+        self.assertIn("runtime.requests_state.activate(owner, rid, foreground=True)", photo_branch)
         self.assertIn("brain_entry.prepare", photo_branch)
         self.assertIn("brain_entry.photo_artifact", photo_branch)
         self.assertIn("brain_entry.clarification", photo_branch)
