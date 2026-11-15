@@ -79,34 +79,33 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         # Voice-only interruption must not cancel Core work or an active request.
         runtime.voice.stop_speaking()
         return False
+    if command == "tüm istekleri iptal et":
+        # Bulk cancellation is not a supported action. Do not reinterpret
+        # it as an implicit target or hide partial cancellation.
+        name = user or runtime.pc_profile().name
+        runtime._emit_for(
+            runtime._get_profile(name), 'assistant',
+            'Toplu iptal kapalı; hiçbir görev iptal edilmedi. '
+            'Tek hedef için “hedef iptal <kimlik>” de.',
+            source, rid=rid,
+        )
+        return False
     if command in ("dur", "stop"):
-        # Stop speech immediately, but do not mistake a bare utterance for
-        # permission to cancel every independent queued/running request.
+        # Foreground-only interruption: never select queued/background work.
         runtime.voice.stop_speaking()
         name = user or runtime.pc_profile().name
         owner = runtime.slugify(name)
-        outcome, _target = runtime.requests_state.cancel_unambiguous(owner)
+        outcome, _target = runtime.requests_state.cancel_foreground(owner)
         if outcome == 'ambiguous':
-            runtime._emit_for(
-                runtime._get_profile(name), 'assistant',
-                'Birden fazla istek çalışıyor. Hiçbiri iptal edilmedi. '
-                'Durdurmak istediğin hedefi kimliğiyle seç veya açıkça '
-                '“tüm istekleri iptal et” de.', source, rid=rid,
-            )
+            reply = ('Birden fazla foreground isteği çalışıyor. Hiçbiri iptal edilmedi. '
+                     'İptal edeceğin hedefi kimliğiyle belirt.')
         elif outcome == 'none':
-            runtime._emit_for(
-                runtime._get_profile(name), 'assistant',
-                'Konuşma kesildi. İptal edilecek tek bir aktif istek yok; '
-                'arka plan hedefini durdurmak için hedef kimliğini seç.',
-                source, rid=rid,
-            )
-        return False
-    if command == "tüm istekleri iptal et":
-        # Explicit all-request scope. This still does not cancel GoalState
-        # jobs, which must use their owner-bound goal ID control.
-        owner = runtime.slugify(user or runtime.pc_profile().name)
-        runtime.voice.stop_speaking()
-        runtime.requests_state.cancel(owner)
+            reply = ('Konuşma kesildi. İptal edilecek aktif foreground isteği yok. '
+                     'Arka plan hedefleri çalışmaya devam ediyor.')
+        else:
+            reply = None
+        if reply is not None:
+            runtime._emit_for(runtime._get_profile(name), 'assistant', reply, source, rid=rid)
         return False
     if command == "rehberi durdur":
         from modules import pc_guide
@@ -134,7 +133,7 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
                       if source == 'ses' else None))
     if selected_goal is not None:
         profile = runtime._get_profile(user)
-        with runtime.requests_state.activate(owner, rid):
+        with runtime.requests_state.activate(owner, rid, foreground=True):
             runtime._emit_for(profile, 'user', text, source, rid=rid)
             from modules import llm, task_queue
             token = llm._key_context.set(owner)
@@ -178,7 +177,7 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     exact = _FAST_GOAL_ID.fullmatch(command)
     if exact is not None:
         profile = runtime._get_profile(user)
-        with runtime.requests_state.activate(owner, rid):
+        with runtime.requests_state.activate(owner, rid, foreground=True):
             # Core's service_store.identity requires the caller's ContextVar
             # to match this authenticated request owner. The main event-loop
             # normally installs it through as_user; this out-of-queue path
@@ -216,7 +215,7 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     if status is not None:
         from modules import goal_executor
         profile=runtime._get_profile(user)
-        with runtime.requests_state.activate(owner,rid):
+        with runtime.requests_state.activate(owner,rid,foreground=True):
             runtime._emit_for(profile,'user',text,source,rid=rid)
             runtime._emit_for(profile,'assistant',
                               goal_executor.fast_status(owner, details=status == 'details'),

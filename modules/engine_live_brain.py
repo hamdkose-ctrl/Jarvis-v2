@@ -16,7 +16,7 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
     try:
         if _pre_registered_rid is None and not runtime.requests_state.register(owner, rid):
             return "İstek kabul edilmedi; yeniden söyle."
-        with runtime.requests_state.activate(owner, rid):
+        with runtime.requests_state.activate(owner, rid, foreground=True):
             from modules import brain_entry, core_brain_adapter
 
             runtime.log.info("İşlem kaydı: %s", "main.py:_live_command")

@@ -184,7 +184,7 @@ class EngineClarifyTests(unittest.TestCase):
         canonical_owner = context.profile.slug
         context.list_users = lambda: [owner]
         context.route = Mock(side_effect=AssertionError('model çağrılmamalı'))
-        context.requests_state = SimpleNamespace(is_cancelled=lambda *a: False, activate=lambda *a: contextlib.nullcontext())
+        context.requests_state = SimpleNamespace(is_cancelled=lambda *a: False, activate=lambda *a, **kw: contextlib.nullcontext())
 
         for text, source, rid in (('Kapat.', 'ses', 'voice-probe'), ('kapat', 'yazı', 'typed-probe')):
             gate = deterministic_fast_gate(

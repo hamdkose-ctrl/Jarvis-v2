@@ -71,7 +71,7 @@ class StatusSummaryTests(unittest.TestCase):
                     _emit_for=Mock(), events=Mock(),
                     requests_state=SimpleNamespace(
                         register=Mock(return_value=True),
-                        activate=lambda *a:nullcontext(),
+                        activate=lambda *a, **kw:nullcontext(),
                     ))
                 expected='Birleşik owner-kapsamlı hedef görünümü'
                 with patch.object(goals,'fast_status',return_value=expected) as unified, \

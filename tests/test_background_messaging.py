@@ -29,14 +29,14 @@ class BackgroundRequestTests(unittest.TestCase):
         with state.activate('hamdi', 'parent'):
             self.assertTrue(state.register_background('hamdi', 'child'))
         self.assertEqual(state._records[('hamdi', 'parent')]['state'], 'done')
-        state.cancel('hamdi')
+        state.cancel('hamdi', 'child')
         with self.assertRaises(state.Cancelled), state.activate('hamdi', 'child'):
             self.fail('Cancelled task started')
 
     def test_cancelled_parent_cannot_register_new_background_work(self):
         state.register('hamdi', 'parent')
         with state.activate('hamdi', 'parent'):
-            state.cancel('hamdi')
+            state.cancel('hamdi', 'parent')
             with self.assertRaises(state.Cancelled):
                 state.register_background('hamdi', 'child')
         self.assertNotIn(('hamdi', 'child'), state._records)
@@ -71,7 +71,7 @@ class BackgroundRequestTests(unittest.TestCase):
         state.register('hamdi', 'parent')
         with state.activate('hamdi', 'parent'):
             ns['_message_step']('evet', 'evet')
-        state.cancel('hamdi')
+        state.cancel('hamdi', 'child')
         ns['threading'].Thread.call_args.kwargs['target']()
         adapter.send_whatsapp.assert_not_called()
         ns['_emit_for'].assert_called_once_with(owner, 'assistant', 'WhatsApp gönderim işlemi iptal edildi.')
@@ -79,7 +79,7 @@ class BackgroundRequestTests(unittest.TestCase):
     def test_background_exception_is_reported_to_captured_owner(self):
         _, ns = self.message()
         # Helper captured a mock request module for this independent error-path test.
-        ns['requests_state'] = SimpleNamespace(activate=lambda *args: __import__('contextlib').nullcontext(), check=Mock(), Cancelled=state.Cancelled)
+        ns['requests_state'] = SimpleNamespace(activate=lambda *args, **kwargs: __import__('contextlib').nullcontext(), check=Mock(), Cancelled=state.Cancelled)
         ns['_record_failure'] = Mock()
         ns['messaging'].send_whatsapp.side_effect = OSError('send failed')
         ns['threading'].Thread.call_args.kwargs['target']()
@@ -97,7 +97,7 @@ class BackgroundRequestTests(unittest.TestCase):
         with messaging._SEND_LOCK, patch.object(messaging, '_send_whatsapp') as adapter, concurrent.futures.ThreadPoolExecutor(1) as pool:
             future = pool.submit(send)
             self.assertTrue(entered.wait(1))
-            state.cancel('hamdi')
+            state.cancel('hamdi', 'child')
             with self.assertRaises(state.Cancelled):
                 future.result(timeout=2)
             adapter.assert_not_called()
