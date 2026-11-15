@@ -459,12 +459,23 @@ class CanonicalSteeringTests(unittest.TestCase):
         ident = self.create('first')
         entered, release = threading.Event(), threading.Event()
         stop = fixture.RapidStop()
+        import sys
+        import traceback
+        scheduler_errors = []
+        def track_scheduler_failure(label):
+            scheduler_errors.append((label, traceback.format_exc()))
         def worker(owner, task, deps):
             entered.set()
             self.assertTrue(release.wait(45))
             return task_results.seal('research', {'state': 'done', 'text': 'Late source',
                 'source': 'https://example.test/article', 'source_chars': 200})
-        with patch.object(task_queue, '_THREAD', None), \
+        # Keep observed Scheduler exceptions available on a failed admission.
+        # Do not suppress, mock away, or increase the worker-ready assertion.
+        # Canonical Scheduler should not scan unrelated durable service DBs
+        # from the Windows runner while this bounded worker lifecycle is tested.
+        with patch.object(task_queue, '_record_failure', side_effect=track_scheduler_failure), \
+             patch.object(task_queue.service_store, 'ROOT', goal_executor.STORE.parent / 'service_work'), \
+             patch.object(task_queue, '_THREAD', None), \
              patch.object(task_queue, '_CANONICAL_WORKERS', {}), \
              patch.object(task_queue, '_OWNER_TICKS', {}), \
              patch.object(task_queue, 'tick', return_value=None), \
@@ -476,6 +487,11 @@ class CanonicalSteeringTests(unittest.TestCase):
                 self.assertTrue(entered.wait(30),repr({
                     'persisted':self.c.persisted(ident),
                     'scheduler_alive':task_queue._THREAD.is_alive(),
+                    'scheduler_stack': ''.join(traceback.format_stack(
+                        sys._current_frames()[task_queue._THREAD.ident]
+                    )) if task_queue._THREAD.ident in sys._current_frames() else 'unavailable',
+                    'scheduler_errors': scheduler_errors,
+                    'ready_offers': repr(canonical_scheduler_dispatch.discover(self.owner)),
                     'workers':[(str(key),thread.is_alive()) for key,thread in task_queue._CANONICAL_WORKERS.items()],
                 }))
                 workers = tuple(task_queue._CANONICAL_WORKERS.values())
