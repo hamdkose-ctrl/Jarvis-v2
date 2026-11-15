@@ -80,7 +80,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 ## BRAIN-04 action_batch
 
-- `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Salt-okunur, tipli Core raporları açık `.ok` olmadan başarılı okunabilir; yazma/fiziksel etkilerde kanıt şartı değişmez. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
+- `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
 - **BRAIN-03 (#613):** Serbest dil nötr gözlem → tek model → Core → worker yolundadır. CHAT veya model hatası raw fallback açmaz. Exact State/Fast/UI/makro/PC/admin korunur; eski `understand` karakterizasyon ve talimatsız fotoğraf metadatasıdır. Ayrıntı görev çekirdeği alan notlarında.
 - **BRAIN-03 geliştirme alanı:** `development.manage` şifreli UI sahibine typed request/control verir; request hiçbir zaman apply/undo komutu olarak yorumlanmaz. Kontrolün özgün metni Core entry'den gelir, ek yolları owner file slotlarından bağlanır. Görev silme mevcut State onayını, tema mevcut UI ayar sahibini kullanır.
