@@ -6,6 +6,7 @@ bayrağı geçiyor mu), (2) gerçek `EngineContext` + canonical photo artifact �
 düzeyinde taklit edilir; anlamlandırma, çitler, `core_plan` ve photo executor gerçektir.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_response, routed_plan
 
 import ast
@@ -126,8 +127,8 @@ class ProductionPrepareSiteTests(unittest.TestCase):
 
     def test_live_and_nested_step_sites_stay_wired(self):
         live = _prepare_calls(ast.parse(inspect.getsource(engine_live_brain._live_command)))
-        step = _prepare_calls(ast.parse(inspect.getsource(brain_entry.run_step)),
-                              bare_names_in="brain_entry.py")
+        step = _prepare_calls(ast.parse(inspect.getsource(core_brain_adapter.run_step)),
+                              bare_names_in="core_brain_adapter.py")
         self.assertTrue(live and all(_enabled(call) for call in live))
         self.assertTrue(step and all(_enabled(call) for call in step))
 

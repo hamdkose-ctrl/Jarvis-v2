@@ -7,6 +7,7 @@ yüzeylerinde (Live, normal döngü, iç adım) açık olduğu, (2) owner-bound 
 taklit edilir ve çitler gerçek üretim dikişinden geçer.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_response
 
 import ast
@@ -187,7 +188,7 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
     def test_nested_step_enables_model_understanding_for_its_own_utterance(self):
         from modules import brain_entry
 
-        source = inspect.getsource(brain_entry.run_step)
+        source = inspect.getsource(core_brain_adapter.run_step)
         tree = ast.parse(source)
         enabled = [
             keyword.value.value

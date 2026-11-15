@@ -4,6 +4,7 @@ Nested (çok adımlı / kısayol) adımlar ikinci bir Understanding, router veya
 çalışamaz; eski çeviri kaynak-seçimi (`chat_translation`) ve dosya hedef-seçimi
 (`doc_* / _resolve_doc`) yolları Production'da çağıranı olmayan ikinci yetkidir.
 """
+from modules import core_brain_adapter
 import ast
 import importlib.util
 import inspect
@@ -99,7 +100,7 @@ class NestedStepBoundaryTests(EngineFixture):
 
     def setUp(self):
         super().setUp()
-        brain_entry._install_core_guards(self.ctx)
+        self.assertFalse(hasattr(brain_entry, "_install_core_guards"))
         self.entry = self.prepare(self.SEQUENCE)
         self.parent = brain_entry._legacy_route_projection(self.entry)
 
@@ -167,7 +168,7 @@ class CanonicalFileTargetTests(EngineFixture):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             with patch("modules.brain_precedence.claim", return_value=None):
-                out, _feedback, _job = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
+                out, _feedback, _job = core_brain_adapter.handoff(self.ctx, entry, self.ctx.handle, text)
         return entry, out
 
     def test_canonical_summary_uses_the_resolved_reference_and_no_legacy_resolver(self):
@@ -249,7 +250,7 @@ class NestedExecutionTests(unittest.TestCase):
         def fake_run_step(runtime, text):
             calls.append(text)
             return replies[text]
-        with patch.object(brain_entry, "run_step", side_effect=fake_run_step):
+        with patch.object(core_brain_adapter, "run_step", side_effect=fake_run_step):
             out = engine_sequence._run_steps(self.runtime, steps)
         return calls, out
 
@@ -268,7 +269,7 @@ class NestedExecutionTests(unittest.TestCase):
         self.runtime.privacy.audit.assert_called_once_with("çok adımlı komut", "2 adım")
 
     def test_run_steps_never_touches_the_legacy_semantic_chain(self):
-        with patch.object(brain_entry, "run_step", return_value=("tamam", _Feedback("handled"))) as step, \
+        with patch.object(core_brain_adapter, "run_step", return_value=("tamam", _Feedback("handled"))) as step, \
              patch("modules.engine_intents.dispatch", side_effect=AssertionError("adım envelope dışından dispatch edilemez")):
             engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "notları aç"])
         self.assertEqual([c.args[1] for c in step.call_args_list], ["sesi 30 yap", "notları aç"])
@@ -306,7 +307,7 @@ class NestedExecutionTests(unittest.TestCase):
         def switch_owner(runtime, text):
             self.runtime.profile.slug = "ebru"
             return ("ilk", _Feedback("handled"))
-        with patch.object(brain_entry, "run_step", side_effect=switch_owner):
+        with patch.object(core_brain_adapter, "run_step", side_effect=switch_owner):
             out = engine_sequence._run_steps(self.runtime, ["ilk", "ikinci"])
         self.assertIn("Kullanıcı değişti", out)
         self.assertNotIn("ikinci", out)
@@ -323,7 +324,7 @@ class NestedExecutionTests(unittest.TestCase):
         def step(runtime, text):
             self.session.speech_override = "yalnız bu adımın sesi"
             return ("cevap", _Feedback("handled"))
-        with patch.object(brain_entry, "run_step", side_effect=step):
+        with patch.object(core_brain_adapter, "run_step", side_effect=step):
             engine_sequence._run_steps(self.runtime, ["bir", "iki"])
         self.assertIs(self.session._in_multi, False)
         self.assertIsNone(self.session.speech_override)
@@ -336,7 +337,7 @@ class NestedExecutionTests(unittest.TestCase):
 
     def test_run_steps_invalid_container_raises_without_running_a_step(self):
         for steps in (None, 123, True):
-            with self.subTest(steps=steps), patch.object(brain_entry, "run_step",
+            with self.subTest(steps=steps), patch.object(core_brain_adapter, "run_step",
                                                          side_effect=AssertionError("adım çalışmamalı")):
                 with self.assertRaises(TypeError):
                     engine_sequence._run_steps(self.runtime, steps)
@@ -358,7 +359,7 @@ class NestedExecutionTests(unittest.TestCase):
         def fake_run_step(rt, text):
             seen.append(text)
             return (f"{text} tamam", _Feedback("handled"))
-        with patch.object(brain_entry, "run_step", side_effect=fake_run_step), \
+        with patch.object(core_brain_adapter, "run_step", side_effect=fake_run_step), \
              patch("modules.engine_intents.dispatch", side_effect=AssertionError("kısayol adımı envelope dışından dispatch edilemez")):
             out = main_planner._macro_run(runtime, "kısayol")
         self.assertEqual(seen, ["chrome aç", "sesi kıs"])
@@ -369,14 +370,14 @@ class NestedExecutionTests(unittest.TestCase):
 
     def test_macro_waits_only_between_its_actions(self):
         runtime = self._macro_runtime(["bir", "iki"])
-        with patch.object(brain_entry, "run_step", return_value=("tamam", _Feedback("handled"))):
+        with patch.object(core_brain_adapter, "run_step", return_value=("tamam", _Feedback("handled"))):
             main_planner._macro_run(runtime, "kısayol")
         runtime.time.sleep.assert_called_once_with(0.4)
 
     def test_macro_keeps_every_effect_guard(self):
         runtime = self._macro_runtime(["chrome aç", "spotify aç"])
         self.session.pending_confirm = {"soru": "onay?"}
-        with patch.object(brain_entry, "run_step", return_value=("açıldı", _Feedback("handled"))) as step:
+        with patch.object(core_brain_adapter, "run_step", return_value=("açıldı", _Feedback("handled"))) as step:
             out = main_planner._macro_run(runtime, "kısayol")
         step.assert_called_once_with(runtime, "chrome aç")
         self.assertIn("yanıt veya onay bekliyor", out)
@@ -384,7 +385,7 @@ class NestedExecutionTests(unittest.TestCase):
 
     def test_macro_stops_when_a_step_is_not_completed(self):
         runtime = self._macro_runtime(["chrome aç", "spotify aç"])
-        with patch.object(brain_entry, "run_step", side_effect=[("soru", _Feedback("needs_input")),
+        with patch.object(core_brain_adapter, "run_step", side_effect=[("soru", _Feedback("needs_input")),
                                                                 ("çalışmamalı", _Feedback("handled"))]) as step:
             out = main_planner._macro_run(runtime, "kısayol")
         step.assert_called_once()
@@ -463,9 +464,9 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
              patch.object(self.ctx, "handle", side_effect=handle or handler):
             if bind_outer:
                 with brain_entry.bind(self.outer):
-                    out, feedback = brain_entry.run_step(self.ctx, text)
+                    out, feedback = core_brain_adapter.run_step(self.ctx, text)
             else:
-                out, feedback = brain_entry.run_step(self.ctx, text)
+                out, feedback = core_brain_adapter.run_step(self.ctx, text)
         return seen, out, feedback
 
     def test_the_step_is_decided_for_itself(self):
@@ -498,7 +499,7 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
 
     def test_a_step_without_a_bound_canonical_entry_is_refused(self):
         with self.assertRaisesRegex(ValueError, "bağlı"):
-            brain_entry.run_step(self.ctx, self.STEP)
+            core_brain_adapter.run_step(self.ctx, self.STEP)
 
     def test_the_outer_sentence_cannot_be_re_run_as_its_own_step(self):
         with self.assertRaisesRegex(ValueError, "Outer cümlenin"):
@@ -517,7 +518,7 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
              patch("modules.brain_precedence.claim", side_effect=AssertionError("foreign owner adımı çalışamaz")):
             with brain_entry.bind(other):
                 with self.assertRaisesRegex(ValueError, "owner"):
-                    brain_entry.run_step(self.ctx, self.STEP)
+                    core_brain_adapter.run_step(self.ctx, self.STEP)
         handler.assert_not_called()
 
     def test_a_step_without_an_active_request_identity_is_refused(self):
@@ -528,7 +529,7 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
         self.addCleanup(requests_state._current.reset, token)
         with brain_entry.bind(self.outer):
             with self.assertRaisesRegex(ValueError, "etkin istek kimliği"):
-                brain_entry.run_step(self.ctx, self.STEP)
+                core_brain_adapter.run_step(self.ctx, self.STEP)
 
     def test_real_multi_step_runner_gives_every_step_its_own_entry(self):
         seen = []
@@ -558,15 +559,15 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
 class AuthorityInvariantsTests(EngineFixture):
     """F + PR10a: korunan sınırlar ve PR10a sabitleri yerinde duruyor."""
 
-    def test_core_guards_are_installed_once(self):
-        brain_entry._install_core_guards(self.ctx)
+    def test_old_runtime_guards_are_removed(self):
+        self.assertFalse(hasattr(brain_entry, "_install_core_guards"))
         control = command_manager.engine_control
-        brain_entry._install_core_guards(self.ctx)
+        self.assertFalse(hasattr(brain_entry, "_install_core_guards"))
         self.assertIs(command_manager.engine_control, control)
         self.assertFalse(getattr(command_manager, "_brain_engine_control_guard_installed", False))
 
     def test_engine_control_still_requires_an_exact_canonical_fast_match(self):
-        brain_entry._install_core_guards(self.ctx)
+        self.assertFalse(hasattr(brain_entry, "_install_core_guards"))
         entry = _entry("jarvis kapat", owner=self.owner)
         with brain_entry.bind(entry):
             self.assertIs(brain_entry.allow_legacy_engine_control(), False)
