@@ -141,6 +141,18 @@ class BrainCoreJsonWireTests(unittest.TestCase):
                                                 Mock(), original.text)
             core.assert_called_once()
 
+    def test_feedback_context_only_stores_json_and_returns_detached_copy(self):
+        record = BrainFeedback(owner=OWNER, request_id=RID,
+                               result_status="failed", reason_code="CORE_FAILED")
+        token = brain_entry._LAST_FEEDBACK.set(record)
+        try:
+            raw = brain_entry._LAST_FEEDBACK._value.get()
+            self.assertIsInstance(raw, str)
+            self.assertIsNot(brain_entry.last_feedback(), record)
+            self.assertEqual(brain_entry.last_feedback(), record)
+        finally:
+            brain_entry._LAST_FEEDBACK.reset(token)
+
     def test_response_rejects_foreign_identity_or_duplicate_authority_field(self):
         feedback = BrainFeedback(owner=OWNER, request_id=RID, result_status="handled")
         text = brain_core_wire.encode_result("ok", feedback, None, owner=OWNER, request_id=RID)
