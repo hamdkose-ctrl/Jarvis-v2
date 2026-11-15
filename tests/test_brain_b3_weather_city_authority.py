@@ -620,5 +620,7 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
         advertised = set(payload["allowed"]["capability_id"])
         self.assertEqual(advertised & set(model._MODEL_DENIED_CAPABILITIES), set())
         self.assertIn("weather.read", advertised)
-        self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES))
+        self.assertFalse(payload["current"]["current_output"]["available"])
+        self.assertNotIn("documents.export", advertised)
+        self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES) - {"documents.export"})
         self.assertEqual(set(payload["allowed"]["argument_schema"]), advertised)
