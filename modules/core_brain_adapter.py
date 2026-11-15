@@ -604,11 +604,13 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
     borrows the outer utterance's UnderstandingResult — `prepare` + `handoff` decide it once, and
     the raw step text never re-enters the legacy interpretation chain.
 
-    Returns (raw Core/legacy output, BrainFeedback)."""
-    from modules.brain_entry import current, _runtime_owner, prepare
-    outer = current()
-    if outer is None:
+    Returns only UI text and a plain decoded JSON feedback map."""
+    from modules import brain_core_wire
+    from modules.brain_entry import current_json, _runtime_owner, prepare_json
+    outer_payload = current_json()
+    if outer_payload is None:
         raise ValueError("Adım yalnız bağlı bir canonical isteğin içinde çalıştırılabilir.")
+    outer = brain_core_wire.decode_entry(outer_payload, _core_internal=True)
     owner = _runtime_owner(runtime)
     if owner != outer.owner:
         raise ValueError("Adım owner'ı bağlı istekle eşleşmiyor.")
@@ -621,14 +623,13 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
     if step == outer.text.strip():
         raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
     source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
-    entry = prepare(
+    payload = prepare_json(
         runtime, owner=owner, request_id=request_id, text=step, source=source,
         model_understanding=True,
     )
-    from modules import brain_core_wire
     response = brain_core_wire.decode_result(
         handoff_json(
-            runtime, entry.to_handoff_json(), getattr(runtime, "handle", None), step,
+            runtime, payload, getattr(runtime, "handle", None), step,
         ),
         owner=owner, request_id=request_id,
     )
