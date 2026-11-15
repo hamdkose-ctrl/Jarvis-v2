@@ -261,6 +261,27 @@ def execute_offer(profile, offer, *, stop_event=None):
                      'task_id':selected.node_id},
                     step['tool'], step['input'],
                 )
+                if step['tool']=='publish':
+                    from modules import outbox, publish_services, task_workers
+                    # Resolve already accepted writer bytes BEFORE showing
+                    # the user a consent prompt. Approval binds this exact
+                    # payload digest; a changed draft must never be sent.
+                    payload = task_workers.resolve_publish_payload(
+                        selected.owner,step['input'],
+                        {k:job['outputs'][k] for k in step['depends']},
+                    )
+                    payload = publish_services.validate(payload)
+                    digest = outbox._digest(payload)
+                    step['_canonical_payload_digest'] = digest
+                    proposal['text'] = (
+                        'Dış gönderim onayı; kesin servis/hedef: '
+                        +payload['service']+' / '+payload['destination']
+                        +'\nBaşlık: '+str(payload.get('subject',''))[:200]
+                        +'\nİçerik önizleme: '+str(payload.get('text',''))[:500]
+                        +'\nİçerik SHA-256: '+digest
+                    )
+                else:
+                    proposal['text'] += '\nİstek: '+str(step['input']['request'])[:400]
                 step['_canonical_approval_proposal'] = proposal
                 step['approval'] = goal_approval.prepare(job, step, proposal)
                 step['state'] = 'approval'
