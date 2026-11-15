@@ -159,11 +159,9 @@ def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
 # that a physical/external write succeeded. Keep this closed to existing typed
 # read-only Core operations; side effects still need an explicit domain receipt.
 _BATCH_READ_ONLY_RESULTS = frozenset({
-    "system.diagnose", "screen.text", "brief.read", "study.read",
-    "calendar.read", "kb.query", "worktrack.read", "mail.read",
-    "conversation.table", "browser.page.read", "media.search",
+    "system.diagnose", "brief.read", "study.read", "calendar.read",
+    "kb.query", "worktrack.read", "mail.read", "conversation.table",
     "weather.read", "weather.read.current", "notes.read",
-    "files.read", "text.translate",
 })
 
 
