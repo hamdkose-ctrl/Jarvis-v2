@@ -1053,6 +1053,11 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             # this direct legacy command nor a retry may enter its model loop.
             canonical_status = canonical_scheduler_status(owner, job['id'], job)
             if canonical_status is not None:
+                if approve and isinstance(expected_control,str):
+                    from modules import canonical_goal_control
+                    return canonical_goal_control.approve_effect(
+                        owner, job['id'], expected_control=expected_control,
+                    )
                 if resume and not approve:
                     from modules import canonical_goal_control
                     controlled=canonical_goal_control.control(owner,job['id'],'resume')
@@ -1381,6 +1386,17 @@ def status_summary(job):
     details = _canonical_recovery_status(original)
     if details:
         summary += '\n' + details
+    pending_id = original.get('waiting')
+    pending_step = next((s for s in original.get('steps', ())
+                         if isinstance(s,dict) and s.get('id')==pending_id
+                         and s.get('state')=='approval'
+                         and s.get('tool') in ('coder','publish')),None)
+    if pending_step is not None:
+        target = pending_step.get('input',{}).get('destination')
+        summary += ('\nCanonical effect onayı bekleniyor: '+pending_step['tool']
+                    + (' / '+str(target)[:160] if target else '')
+                    + '\nOnay: hedef onayla ' + str(original['id']) + ' '
+                    + control_key(original))
     dialog = job.get('_canonical_dialog')
     if isinstance(dialog, dict) and dialog.get('state') == 'waiting':
         question = dialog.get('question')
@@ -1407,6 +1423,12 @@ def handle(runtime,command):
                     +', '.join(item['id'] for item in choices))
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
     if bound:
+        if (bound[1].casefold()=='onayla'
+                and canonical_scheduler_owned(runtime.profile.slug,bound[2])):
+            from modules import canonical_goal_control
+            return canonical_goal_control.approve_effect(
+                runtime.profile.slug,bound[2],expected_control=bound[3],
+            )
         if bound[1].casefold()=='yanıtla' and not (bound[4] or '').strip():raise ValueError('Yanıt boş olamaz.')
         return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',
                    expected_job_id=bound[2],expected_control=bound[3],job_id=bound[2])
