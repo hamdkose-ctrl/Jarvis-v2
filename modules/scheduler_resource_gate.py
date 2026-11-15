@@ -692,7 +692,13 @@ def effect_worker(leases: resource_leases.LeaseTable, identity: dict,
     thread = threading.Thread(target=pulse, name='canonical-effect-lease', daemon=True)
     started = False
     try:
-        with resource_leases.process_resource_claim(_account_claim_root(), keys[0]):
+        # Outbox already owns the provider-wide OS claim during its atomic
+        # send-once transition. Do not recursively claim that same Windows
+        # byte-range lock; the Scheduler's LeaseTable still owns this worker.
+        from contextlib import nullcontext
+        claim = (nullcontext() if node['capability_id'] == 'task.publish'
+                 else resource_leases.process_resource_claim(_account_claim_root(), keys[0]))
+        with claim:
             current = runtime_worker_result.canonical_snapshot(identity)
             goal_plan_gate.revalidate(current, selected)
             if node['depends_on']:
@@ -728,10 +734,11 @@ def require_effect_result_lease(expected: dict) -> None:
                 selected.owner, selected.job_id, selected.node_id,
                 selected.plan_version, ticket.command_id):
             raise ReadOnlyAdmissionError('Effect result does not match Scheduler command.')
+        from modules import runtime_worker_result
         if (expected.get('node_digest') != selected.node_digest
                 or expected.get('capability_id') != selected.capability_id
                 or ticket.keys != _effect_keys(
                     goal_plan_gate.revalidate(
-                        __import__('modules.runtime_worker_result', fromlist=['canonical_snapshot']).canonical_snapshot(expected),
+                        runtime_worker_result.canonical_snapshot(expected),
                         selected), selected.owner)):
             raise ReadOnlyAdmissionError('Effect result resource or plan changed.')
