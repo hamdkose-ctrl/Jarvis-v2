@@ -98,6 +98,45 @@ def consume(job, step, proposal, *, now=None, profile=None):
         return row['approval_id']
 
 
+def verify_canonical(job, step, *, pending=False, now=None) -> dict:
+    """Verify one immutable Core approval without consuming/replaying an effect.
+
+    The existing goal_approval certificate is reused. A canonical worker may
+    run only after an exact owner/job/input/plan-bound user approval has been
+    durably consumed. The approval is short-lived and single use.
+    """
+    from modules import runtime_prepare_approval
+    now = time.time() if now is None else now
+    proposal = step.get('_canonical_approval_proposal')
+    row = step.get('approval')
+    if (not isinstance(proposal, dict) or not isinstance(row, dict)
+            or set(row) != {'schema','approval_id','binding','created_at','expires_at','consumed_at'}
+            or row.get('schema') != SCHEMA
+            or not isinstance(row.get('approval_id'), str)
+            or len(row['approval_id']) != 32
+            or any(c not in '0123456789abcdef' for c in row['approval_id'])
+            or any(type(row[k]) not in (int,float) or not math.isfinite(row[k])
+                   for k in ('created_at','expires_at'))
+            or not row['created_at'] <= now
+            or row['expires_at'] > row['created_at'] + TTL_SECONDS
+            or row.get('binding') != binding(job,step,proposal)):
+        raise PermissionError('Canonical approval owner, input or plan changed.')
+    runtime_prepare_approval.accept(
+        proposal,
+        {'owner':job['owner'],'job_id':job['id'],'task_id':step['id']},
+        step['tool'],step['input'],
+    )
+    consumed = row.get('consumed_at')
+    if pending:
+        if consumed is not None or not now < row['expires_at']:
+            raise PermissionError('Canonical approval expired or already consumed.')
+    elif (type(consumed) not in (int,float) or not math.isfinite(consumed)
+          or not row['created_at'] <= consumed < row['expires_at']
+          or now > consumed + TTL_SECONDS):
+        raise PermissionError('Canonical approval is not a live consumed authorization.')
+    return copy.deepcopy(row)
+
+
 def pending(owner):
     """All owner's pending goal approvals, independent of the latest pointer."""
     from modules import goal_executor
