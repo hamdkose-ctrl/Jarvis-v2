@@ -31,17 +31,19 @@ def expected(identity: dict, kind: str, data: dict) -> dict:
 
 
 def prepare(identity: dict, kind: str, data: dict) -> dict:
-    if kind not in {'coder','desktop'}:raise ValueError('Sentetik prepare approval bu capability için desteklenmez.')
+    if kind not in {'coder','desktop','publish'}:raise ValueError('Sentetik prepare approval bu capability için desteklenmez.')
     bound=expected(identity,kind,data)
     text = ('Kod geliştirme adımı gerçek taslak üretmeden önce açık onay bekliyor.'
             if kind == 'coder' else
+            'Dış gönderim başlamadan önce kesin hedef ve içerik için onay bekliyor.'
+            if kind == 'publish' else
             'PC görevi gerçek masaüstü işlemi başlatmadan önce açık onay bekliyor.')
     return {'state':'approval','text':text,
             'id':bound['step_id'],'approval_schema':SCHEMA,**bound}
 
 
 def accept(approval: dict, identity: dict, kind: str, data: dict) -> bool:
-    if kind not in {'coder','desktop'} or not isinstance(approval,dict) or set(approval)!=_FIELDS:
+    if kind not in {'coder','desktop','publish'} or not isinstance(approval,dict) or set(approval)!=_FIELDS:
         raise PermissionError('Prepare approval kaydı geçersiz.')
     if approval.get('state')!='approval' or approval.get('approval_schema')!=SCHEMA or approval.get('id')!=approval.get('step_id'):
         raise PermissionError('Prepare approval kaydı geçersiz.')
