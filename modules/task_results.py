@@ -176,7 +176,7 @@ def check(kind, output):
             raise ValueError('Dosya okuma kimlik/içerik kanıtı eksik.')
         source = Path(evidence['path'])
         if (source.is_symlink() or not source.is_file()
-                or source.suffix.lower() not in file_worker._STRUCTURED_EXT
+                or source.suffix.lower() not in file_worker.docs.SUPPORTED
                 or not file_worker._is_within_allowed(source)
                 or str(source.resolve()) != evidence['identity']
                 or file_worker.content_digest(source) != evidence['digest']):
