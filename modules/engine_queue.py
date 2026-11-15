@@ -79,18 +79,24 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         # Voice-only interruption must not cancel Core work or an active request.
         runtime.voice.stop_speaking()
         return False
-    if command in ("dur", "stop", "tüm istekleri iptal et"):
-        # Never select the only live request: it may be a background planner.
-        # A bare stop can interrupt only an actively executing foreground turn.
+    if command == "tüm istekleri iptal et":
+        # Bulk cancellation is not a supported action. Do not reinterpret
+        # it as an implicit target or hide partial cancellation.
+        name = user or runtime.pc_profile().name
+        runtime._emit_for(
+            runtime._get_profile(name), 'assistant',
+            'Toplu iptal kapalı; hiçbir görev iptal edilmedi. '
+            'Tek hedef için “hedef iptal <kimlik>” de.',
+            source, rid=rid,
+        )
+        return False
+    if command in ("dur", "stop"):
+        # Foreground-only interruption: never select queued/background work.
         runtime.voice.stop_speaking()
         name = user or runtime.pc_profile().name
         owner = runtime.slugify(name)
         outcome, _target = runtime.requests_state.cancel_foreground(owner)
-        if command == "tüm istekleri iptal et":
-            reply = ('Toplu iptal devre dışı. Yalnız aktif foreground işlemine '
-                     'durdurma istendi; arka plan hedefleri korunuyor. '
-                     'Tek hedefi iptal etmek için “hedef iptal <kimlik>” de.')
-        elif outcome == 'ambiguous':
+        if outcome == 'ambiguous':
             reply = ('Birden fazla foreground isteği çalışıyor. Hiçbiri iptal edilmedi. '
                      'İptal edeceğin hedefi kimliğiyle belirt.')
         elif outcome == 'none':

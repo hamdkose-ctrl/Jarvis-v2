@@ -226,6 +226,21 @@ class ModularEngineTests(unittest.TestCase):
         self.assertEqual(context._emit_for.call_args.kwargs['rid'], 'stop-rid')
         self.assertTrue(context.events.empty())
 
+    def test_explicit_bulk_cancel_is_rejected_without_any_request_mutation(self):
+        context = self.context()
+        context._emit_for = Mock()
+        context._get_profile = Mock(return_value=context.profile)
+        context.voice = SimpleNamespace(stop_speaking=Mock())
+        context.requests_state = SimpleNamespace(
+            cancel=Mock(), cancel_foreground=Mock(), register=Mock(),
+        )
+        self.assertFalse(context.submit('tüm istekleri iptal et', 'yazı'))
+        context.requests_state.cancel.assert_not_called()
+        context.requests_state.cancel_foreground.assert_not_called()
+        context.voice.stop_speaking.assert_not_called()
+        self.assertIn('hiçbir görev iptal edilmedi', context._emit_for.call_args.args[2])
+        self.assertTrue(context.events.empty())
+
     def test_prequeue_status_uses_unified_goal_reader_not_legacy_latest(self):
         from modules import brain_entry, goal_executor
         context=self.context()

@@ -40,6 +40,9 @@ class RequestArchiveTests(unittest.TestCase):
         self.assertEqual(state.request_state('bob', 'other'), 'queued')
         with self.assertRaises(ValueError):
             state.cancel('alice', None)
+        with self.assertRaises(ValueError):
+            state.mute_speech('alice', None)
+        self.assertFalse(state.speech_muted('alice', 'planner'))
         self.assertEqual(state.request_state('alice', 'planner'), 'queued')
         with state.activate('alice', 'planner'):
             self.assertEqual(state.cancel_foreground('alice'), ('none', None))
