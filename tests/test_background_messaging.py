@@ -79,7 +79,7 @@ class BackgroundRequestTests(unittest.TestCase):
     def test_background_exception_is_reported_to_captured_owner(self):
         _, ns = self.message()
         # Helper captured a mock request module for this independent error-path test.
-        ns['requests_state'] = SimpleNamespace(activate=lambda *args: __import__('contextlib').nullcontext(), check=Mock(), Cancelled=state.Cancelled)
+        ns['requests_state'] = SimpleNamespace(activate=lambda *args, **kwargs: __import__('contextlib').nullcontext(), check=Mock(), Cancelled=state.Cancelled)
         ns['_record_failure'] = Mock()
         ns['messaging'].send_whatsapp.side_effect = OSError('send failed')
         ns['threading'].Thread.call_args.kwargs['target']()

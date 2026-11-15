@@ -95,7 +95,7 @@ class ModularEngineTests(unittest.TestCase):
         context=self.context()
         owner=context.profile.name
         context.list_users=lambda:[owner]
-        context.requests_state=SimpleNamespace(is_cancelled=lambda *a:False,activate=lambda *a:contextlib.nullcontext())
+        context.requests_state=SimpleNamespace(is_cancelled=lambda *a:False,activate=lambda *a, **kw:contextlib.nullcontext())
         def handle_once(command):
             context.stop_event.set()
             return 'Merhaba'
@@ -247,7 +247,7 @@ class ModularEngineTests(unittest.TestCase):
         context._emit_for=Mock()
         context._get_profile=Mock(return_value=context.profile)
         context.requests_state=SimpleNamespace(
-            register=Mock(return_value=True), activate=lambda *args: contextlib.nullcontext(),
+            register=Mock(return_value=True), activate=lambda *args, **kwargs: contextlib.nullcontext(),
         )
         with patch.object(brain_entry, 'fast_lane',
                           return_value=SimpleNamespace(selection='status')), \
