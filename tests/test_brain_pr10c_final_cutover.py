@@ -895,9 +895,24 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                                                   active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
                                                   candidates=(ref,), references=(ref,))
         self.assertTrue(semantic.references, "bağlanan referans Understanding'e taşınmadı")
-        row = dataclasses.replace(fixtures.entry(brain_entry, semantic=semantic), text="onu aç")
+        # The shared fixture normally uses its own unrelated default RID.
+        # Keep ALL nested observations on this request identity; never weaken
+        # the JSON wire owner/RID cross-check to make an invalid fixture pass.
+        from modules.brain_gates import GateObservation
+        row = dataclasses.replace(
+            fixtures.entry(brain_entry, semantic=semantic),
+            owner=self.OWNER, request_id=self.RID, text="onu aç",
+            active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
+            state_gate=GateObservation(
+                self.OWNER, self.RID, "state", False, "NO_BOUNDED_STATE_MATCH",
+            ),
+            fast_gate=GateObservation(
+                self.OWNER, self.RID, "fast", False, "NO_EXACT_FAST_MATCH",
+            ),
+        )
         runtime = SimpleNamespace()
         with brain_entry.bind(row):
+            self.assertEqual(brain_entry.current().understanding, semantic)
             decision = brain_entry.route_command(runtime, "onu aç")
         self.assertEqual(decision, {"intent": "task", "args": {"request": "onu aç"}})
 
