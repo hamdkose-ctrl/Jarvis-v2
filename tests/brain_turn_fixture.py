@@ -3,6 +3,7 @@
 Callers supply the decision and arguments. No keyword router or live model is
 hidden here; prepare, State/Fast, Core validators and production workers run.
 """
+from modules import core_brain_adapter
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -27,7 +28,7 @@ def turn(runtime, text, capability=None, arguments=None, *, references=(), relat
         with requests_state.activate(owner, rid):
             entry = brain_entry.prepare(runtime, owner=owner, request_id=rid, text=text,
                                         source='yazı', model_understanding=True)
-            result, feedback, _ = brain_entry.handoff(runtime, entry, runtime.handle, text)
+            result, feedback, _ = core_brain_adapter.handoff(runtime, entry, runtime.handle, text)
     return result
 
 

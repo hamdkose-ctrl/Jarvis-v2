@@ -4,7 +4,7 @@ PR7 Closeout-B (tek-beyin göçü) için kabul kapısı. Davranış DEĞİŞTİR
 
 Her senaryo yalıtılmış sahte bir runtime ile canonical Brain girişinden geçirilir:
 ``brain_entry.prepare`` (ActiveContext → State Gate → Fast Gate → Candidates →
-Resolver → Understanding) ve ardından ``brain_entry.handoff``. Core handler ve chat
+Resolver → Understanding) ve ardından ``core_brain_adapter.handoff``. Core handler ve chat
 dispatch gerçek iş yapmaz, yalnız çağrıldıkları kaydedilir. Diskteki kullanıcı
 geçmişi, GoalState, görev, masaüstü onayı ve dosya envanteri okunmaz; hepsi
 senaryonun ``setup`` alanından gelir. Model, ağ veya worker çağrılmaz.
@@ -66,6 +66,8 @@ from typing import Any, Callable, Iterable, Mapping
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from modules import core_brain_adapter
 DATA = ROOT / "tests" / "data"
 CURATED_POOL = DATA / "brain_acceptance_senaryolari.json"
 ROUTING_CORPUS = DATA / "yonlendirme_cumleleri.json"
@@ -340,9 +342,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         # Legacy front-gate precedence (macro/user/planner/...) is pinned by tests/test_brain_b3a.py;
         # the harness measures the Brain decision on an isolated stub runtime.
         stack.enter_context(patch("modules.brain_precedence.claim", lambda *_a, **_k: None))
-        # Core guard'ları global modülleri sarmalar; ölçüm sırasında kurulmaz.
-        stack.enter_context(patch.object(brain_entry, "_install_core_guards", lambda _runtime: None))
-        stack.enter_context(patch.object(brain_entry, "_correlated_job_id", lambda _entry: None))
+        stack.enter_context(patch.object(core_brain_adapter, "_correlated_job_id", lambda _entry: None))
         entry = brain_entry.prepare(
             runtime, owner=owner, request_id=request_id, text=text, source=source,
             model_understanding=False,
@@ -350,7 +350,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         proposal = brain_entry.core_proposal(entry)
         projection_fn = getattr(brain_entry, "_legacy_route_projection", None)
         projection = projection_fn(entry) if callable(projection_fn) else None
-        output, brain_feedback, _job_id = brain_entry.handoff(runtime, entry, handler, text)
+        output, brain_feedback, _job_id = core_brain_adapter.handoff(runtime, entry, handler, text)
 
     semantic = entry.understanding
     question = brain_entry.clarification(entry)

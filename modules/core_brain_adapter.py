@@ -201,7 +201,7 @@ def _batch_domain_outcome(capability_id: str, output: Any) -> str:
 def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Run each adopted action through the existing Core intent path, never raw text."""
     from modules.brain_entry import (
-        _LAST_FEEDBACK, _correlated_job_id, _record_failure, feedback, handoff, replace
+        _LAST_FEEDBACK, _record_failure, feedback, replace
     )
     from modules.command_manager import awaiting_input
     if awaiting_input(runtime._session()):
@@ -296,7 +296,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
 def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     from modules.brain_entry import (
-        ConversationRelation, PHOTO_CAPABILITY, RequestKind, _LAST_FEEDBACK, _batch_handoff, _core_rejected_proposal, _correlated_job_id, _drop_stale_clarify, _explicit_owner_after_model_chat, _file_access_refusal, _is_explicit_owner_protocol, _lane_plan, _open_core_pending, _photo_lifecycle, _relation_supersedes_clarify, _runtime_owner, _use_existing_handler, bind, brain_core_map, brain_precedence, clarification, core_plan, feedback
+        ConversationRelation, PHOTO_CAPABILITY, RequestKind, _LAST_FEEDBACK, _core_rejected_proposal, _explicit_owner_after_model_chat, _file_access_refusal, _is_explicit_owner_protocol, _lane_plan, _relation_supersedes_clarify, _runtime_owner, _use_existing_handler, bind, brain_core_map, brain_precedence, clarification, core_plan, feedback
     )
     if _runtime_owner(runtime) != entry.owner:
         raise ValueError("Core handoff owner eşleşmiyor.")
@@ -504,3 +504,92 @@ def clarification_effect(runtime: Any, ambiguities: tuple[str, ...], arguments: 
         from modules import app_actions
         app_actions.ask_clarification(runtime._session(), str(arguments.get("original_text") or ""),
                                       question, runtime.profile, {"kind": kind})
+
+
+def _open_core_pending(runtime: Any) -> frozenset[str]:
+    from modules import brain_context
+    from modules.brain_entry import _record_failure
+    try:
+        state = runtime._session()
+    except Exception:
+        _record_failure("modules/brain_entry.py:core_pending_snapshot")
+        return frozenset()
+    result = {
+        field for field in brain_context._PENDING_FIELDS
+        if getattr(state, field, None) not in (None, False, "", (), [], {})
+    }
+    # A Taildrop clarification is a real Core pending slot, not a prose
+    # success. Macro/batch execution must stop at this boundary.
+    from modules import filesend
+    if filesend.pending_choices(runtime.profile.slug) is not None:
+        result.add("pending_filesend")
+    return frozenset(result)
+
+
+def _correlated_job_id(entry: EntryResult) -> str | None:
+    from modules.brain_entry import _record_failure
+    try:
+        from modules import goal_executor
+        # BRAIN-05: bir hedef işlemi çıplak kontrollerin duran hedefi `latest.json`ı
+        # taşımayabilir; hedef kendi kimliğiyle anılır. Tek hedefli turlarda o kimlik
+        # okunur, çok hedefli turlarda tek bir kayıt korrelate edilemez.
+        selected = tuple(getattr(entry.understanding, "goal_target_ids", ()) or ()) \
+            if entry.understanding is not None else ()
+        if len(selected) == 1:
+            row = goal_executor.read_job(entry.owner, selected[0])
+        else:
+            row = goal_executor.latest(entry.owner)
+    except Exception:
+        _record_failure("modules/brain_entry.py:goal_correlation")
+        return None
+    if not isinstance(row, dict):
+        return None
+    meta = row.get("brain")
+    if not isinstance(meta, dict) or meta.get("request_id") != entry.request_id:
+        return None
+    ident = row.get("id")
+    return str(ident) if ident else None
+
+
+def _active_request_id(runtime: Any, owner: str) -> str:
+    rid = str(getattr(runtime, "_cur_rid", "") or "")
+    if rid:
+        return rid
+    state = getattr(runtime, "requests_state", None)
+    token = getattr(state, "_current", None)
+    active = token.get() if hasattr(token, "get") else None
+    return str(active[1]) if active and str(active[0]) == owner else ""
+
+
+def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
+    """Run ONE step of an already-canonical turn with its OWN semantic decision.
+
+    Only a nested step (multi-step sentence, macro action) uses this: the caller must already be
+    inside a bound canonical entry. The step shares the turn's owner/request identity but never
+    borrows the outer utterance's UnderstandingResult — `prepare` + `handoff` decide it once, and
+    the raw step text never re-enters the legacy interpretation chain.
+
+    Returns (raw Core/legacy output, BrainFeedback)."""
+    from modules.brain_entry import current, _runtime_owner, prepare
+    outer = current()
+    if outer is None:
+        raise ValueError("Adım yalnız bağlı bir canonical isteğin içinde çalıştırılabilir.")
+    owner = _runtime_owner(runtime)
+    if owner != outer.owner:
+        raise ValueError("Adım owner'ı bağlı istekle eşleşmiyor.")
+    request_id = _active_request_id(runtime, owner)
+    if not request_id:
+        raise ValueError("Adım için etkin istek kimliği yok.")
+    step = str(text).strip()
+    if not step:
+        raise ValueError("Adım metni boş olamaz.")
+    if step == outer.text.strip():
+        raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
+    source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
+    entry = prepare(
+        runtime, owner=owner, request_id=request_id, text=step, source=source,
+        model_understanding=True,
+    )
+    return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
+
+

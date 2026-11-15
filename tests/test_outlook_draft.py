@@ -4,6 +4,7 @@ Model language recognition is NOT claimed by this offline suite. Only the
 semantic proposal boundary is stubbed; actual Core validation, unread selection,
 data sanitization and text-only generation worker execute without Outlook/SMTP.
 """
+from modules import core_brain_adapter
 import unittest
 import uuid
 from dataclasses import replace
@@ -52,7 +53,7 @@ def typed_draft(runtime, utterance, *, index=None, sender=None):
          patch.object(brain_entry, "apply_model_understanding", side_effect=proposed):
         entry = brain_entry.prepare(runtime, owner=owner, request_id=rid,
                                     text=utterance, source="yazı", model_understanding=True)
-        reply, feedback, _ = brain_entry.handoff(runtime, entry, forbidden, utterance)
+        reply, feedback, _ = core_brain_adapter.handoff(runtime, entry, forbidden, utterance)
     assert feedback.result_status == "handled", (feedback, reply)
     forbidden.assert_not_called()
     return str(reply)

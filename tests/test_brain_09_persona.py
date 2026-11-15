@@ -1,4 +1,5 @@
 """Native Profile/Session/Brain/Core seams; only model transport is fake."""
+from modules import core_brain_adapter
 from provider_fixture import routed_response
 import json
 from pathlib import Path
@@ -55,7 +56,7 @@ class PersonaTests(unittest.TestCase):
         runtime.chat=Mock(side_effect=lambda command,prompt,user=None:prompt)
         with patch('modules.brain_precedence.claim',return_value=None):
             with patch('modules.advisory_router.finalize',side_effect=lambda command,raw,settings=None:raw):
-                return brain_entry.handoff(runtime,entry,handler or answer,text)[0]
+                return core_brain_adapter.handoff(runtime,entry,handler or answer,text)[0]
 
     def test_model_core_profile_to_reply_and_restart_readback(self):
         text='Bundan sonra kısa cevap ver.'
@@ -154,7 +155,7 @@ class PersonaTests(unittest.TestCase):
                 runtime.requests_state.activate('hamdi','native-b09'):
             entry=brain_entry.prepare(runtime,owner='hamdi',request_id='native-b09',text=text,
                                       source='yazı',model_understanding=True)
-            out,feedback,_=brain_entry.handoff(runtime,entry,runtime.handle,text)
+            out,feedback,_=core_brain_adapter.handoff(runtime,entry,runtime.handle,text)
         self.assertEqual(semantic_call.call_count,1)
         self.assertIn('technical_detail=teknik',out)
         self.assertEqual(feedback.result_status,'handled')

@@ -4,11 +4,11 @@ from __future__ import annotations
 def _run_steps(runtime, steps: list[str]) -> str:
     """Her adım KENDİ canonical kararıyla sırayla çalışır; ham adım eski zincire dönmez.
 
-    `brain_entry.run_step` adım için prepare -> handoff kurar: owner/istek kimliği turn'ün,
+    `core_brain_adapter.run_step` adım için prepare -> handoff kurar: owner/istek kimliği turn'ün,
     semantic karar adımın (outer cümlenin Understanding'i ödünç verilmez; outer entry bağlıyken
     `runtime.handle(step)` ile ikinci bir yorumlama yoktur). Adım doğrulanamazsa, needs-input/onay
     beklerse, kullanıcı değişirse veya Jarvis kapanırsa sonraki adım çalışmaz."""
-    from modules.brain_entry import run_step
+    from modules.core_brain_adapter import run_step
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_multi = True

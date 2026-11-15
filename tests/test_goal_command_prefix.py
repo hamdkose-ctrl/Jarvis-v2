@@ -1,4 +1,5 @@
 """Explicit command prefixes are syntax, not news topics; no real model/account."""
+from modules import core_brain_adapter
 from datetime import datetime
 from unittest.mock import patch
 from test_mail_calendar_fixes import ProfileCase, _runtime
@@ -25,7 +26,7 @@ class GoalCommandPrefixTests(ProfileCase):
                  patch.object(goals, 'run', return_value='Görev başlangıcı') as run:
                 entry = brain_entry.prepare(rt, owner=rt.profile.slug, request_id=rid, text=command,
                                             source='yazı', model_understanding=True)
-                output, _, _ = brain_entry.handoff(rt, entry, rt.handle, command)
+                output, _, _ = core_brain_adapter.handoff(rt, entry, rt.handle, command)
             self.assertEqual(output, 'Görev başlangıcı')
             # Only the existing goal worker may normalize its own explicit prefix.
             # Core delivers the user's original text once, never a model rewrite.

@@ -5,6 +5,7 @@ worker are the only mocked external boundaries; journals, Core CAS, Scheduler,
 domain evidence, and first-party completion code remain live.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_plan
 
 import json
@@ -96,7 +97,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.ctx, owner=self.owner, request_id=rid,
                 text=request, source=source, model_understanding=True,
             )
-            result, feedback, job_id = brain_entry.handoff(
+            result, feedback, job_id = core_brain_adapter.handoff(
                 self.ctx, entry, Mock(return_value='LEGACY_HANDLER'), request,
             )
         return rid, result, feedback, job_id

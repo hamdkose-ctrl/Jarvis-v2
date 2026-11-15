@@ -10,6 +10,7 @@ yanlış/uydurma/belirsiz bir önerinin zincirin hiçbir halkasında başka bir 
 üretmemesidir.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_response
 
 import dataclasses
@@ -588,7 +589,7 @@ class GoalProductionSeamTests(fixtures._CanonicalAuthorityHarness):
             with routed_response(raw):
                 entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text,
                                             source="yazı", model_understanding=True)
-                out, feedback, job_id = brain_entry.handoff(self.ctx, entry, handler, text)
+                out, feedback, job_id = core_brain_adapter.handoff(self.ctx, entry, handler, text)
         return entry, out, handler, feedback, job_id
 
     def test_a_goal_operation_reaches_the_store_through_the_real_seam(self):

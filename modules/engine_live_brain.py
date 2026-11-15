@@ -17,7 +17,7 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
         if _pre_registered_rid is None and not runtime.requests_state.register(owner, rid):
             return "İstek kabul edilmedi; yeniden söyle."
         with runtime.requests_state.activate(owner, rid):
-            from modules import brain_entry
+            from modules import brain_entry, core_brain_adapter
 
             runtime.log.info("İşlem kaydı: %s", "main.py:_live_command")
             runtime.emit("activity", "Komut motoru isteği işliyor", f"working|Komut motoru|{text[:220]}")
@@ -30,7 +30,7 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
             brain_echo.present(runtime, entry)
             try:
                 runtime.requests_state.check()
-                out, brain_feedback, brain_job_id = brain_entry.handoff(runtime, entry, runtime.handle, text)
+                out, brain_feedback, brain_job_id = core_brain_adapter.handoff(runtime, entry, runtime.handle, text)
                 runtime.log.info(
                     "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
                     rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
