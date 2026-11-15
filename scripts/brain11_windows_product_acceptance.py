@@ -9,7 +9,8 @@ Final CI and PC watcher evidence must still be verified independently on GitHub.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -120,6 +121,15 @@ SCENARIOS = [
   ]
 ]
 SCHEMA = "brain11-windows-product-v1"
+# Match the canonical, source-controlled corpus used by the live Full runner.
+HOLDOUT_CORPUS = Path(__file__).resolve().parents[1] / "tests/data/brain_output_diagnose_holdout.json"
+
+
+def _holdout_corpus_digest():
+    try:
+        return hashlib.sha256(HOLDOUT_CORPUS.read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def verify_holdout(report, expected_sha):
@@ -129,7 +139,18 @@ def verify_holdout(report, expected_sha):
     cases = report.get("cases")
     responses = report.get("model_responses")
     accuracy = report.get("accuracy")
+    try:
+        generated = datetime.fromisoformat(report["generated_at"].replace("Z", "+00:00"))
+        if generated.tzinfo is None:
+            return False
+        age = datetime.now(timezone.utc) - generated.astimezone(timezone.utc)
+        if not (-timedelta(minutes=5) <= age <= timedelta(days=7)):
+            return False
+    except (KeyError, AttributeError, TypeError, ValueError):
+        return False
+    known_corpus = _holdout_corpus_digest()
     return (
+        known_corpus is not None
         report.get("state") == "passed"
         and report.get("scope") == "holdout"
         and report.get("head") == expected_sha
@@ -141,8 +162,7 @@ def verify_holdout(report, expected_sha):
         and report["incorrect_action_proposals"] == 0
         and type(report.get("attempted_effects")) is int
         and report["attempted_effects"] == 0
-        and isinstance(report.get("corpus_sha256"), str)
-        and bool(re.fullmatch(r"[0-9a-f]{64}", report["corpus_sha256"]))
+        and report.get("corpus_sha256") == known_corpus
     )
 
 
