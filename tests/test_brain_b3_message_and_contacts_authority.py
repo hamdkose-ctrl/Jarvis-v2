@@ -299,7 +299,9 @@ class MessageModelAuthorityTests(_ZarfHarness):
         self.assertIn(_MESSAGE, advertised)
         self.assertIn(_CONTACTS, advertised)
         self.assertEqual(advertised & set(model._MODEL_DENIED_CAPABILITIES), set())
-        self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES))
+        self.assertFalse(payload["current"]["current_output"]["available"])
+        self.assertNotIn("documents.export", advertised)
+        self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES) - {"documents.export"})
 
     def test_no_deterministic_veto_keeps_the_models_message_decision(self):
         # §1/§3B: cümlede hiçbir deterministik yetenek seçimi kalmamalı ve modelin kararı

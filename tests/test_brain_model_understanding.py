@@ -187,7 +187,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertNotIn("Rapor içeriği", payload)
 
     def test_prompt_advertises_capability_purposes_without_an_answer_table(self):
-        schema = self.payload()["allowed"]["argument_schema"]
+        schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
         for capability in ("documents.export", "notes.write", "files.mutate", "system.diagnose"):
             self.assertIn("purpose", schema[capability])
             self.assertIn("precondition", schema[capability])
@@ -196,6 +196,97 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         serialized = json.dumps(self.payload(), ensure_ascii=False).casefold()
         for case in corpus["cases"]:
             self.assertNotIn(case["text"].casefold(), serialized)
+
+    def test_missing_output_disables_only_export_capability(self):
+        # Capability availability comes from the observed current session, not
+        # words in the user's utterance or a competing legacy intent parser.
+        absent = self.payload(text="Son sonucu bilgisayarıma kaydet.", session_artifacts=())
+        self.assertFalse(absent["current"]["current_output"]["available"])
+        self.assertNotIn("documents.export", absent["allowed"]["capability_id"])
+        self.assertNotIn("documents.export", absent["allowed"]["argument_schema"])
+        self.assertIn("files.read", absent["allowed"]["capability_id"])
+        self.assertIn("files.mutate", absent["allowed"]["capability_id"])
+        self.assertIn("system.diagnose", absent["allowed"]["capability_id"])
+        present = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))
+        self.assertIn("documents.export", present["allowed"]["capability_id"])
+
+    def test_unoffered_export_response_is_rejected_without_output(self):
+        # Even if a provider ignores its offered enum, it cannot smuggle
+        # unavailable export into the typed Brain decision.
+        result = self.ask(direct("documents.export", {}),
+                          text="Son hazırladığın sonucu bilgisayarıma kaydet.",
+                          session_artifacts=())
+        self.assertIsNone(result)
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "CAPABILITY_NOT_OFFERED")
+
+    def test_missing_confidence_is_still_rejected_not_fabricated(self):
+        malformed = json.loads(answer(operation="chat"))
+        del malformed["confidence"]
+        self.assertIsNone(self.ask(json.dumps(malformed), text="Şimdi kontrol istemiyorum."))
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "ENVELOPE_FIELDS_INVALID")
+
+    def test_speech_act_has_priority_over_capability_word_matching(self):
+        # Fake transport verifies the TRUE production model prompt, not live
+        # model accuracy. The four real Full misses must still be remeasured.
+        data = self.payload(text="Bu işlemin ne işe yaradığını açıklar mısın?",
+                            session_artifacts=())
+        system = self.model_input.split("You are the primary semantic decider", 1)[1]
+        self.assertLess(system.index("SPEECH ACT FIRST"),
+                        system.index("GOAL NEGATION SAFETY"))
+        self.assertIn("prohibition, refusal or withdrawal", system)
+        self.assertIn("inquiry ABOUT the meaning, scope or steps", system)
+        self.assertIn("polite question explicitly", system)
+        self.assertIn("there is no result to export", system)
+        self.assertIn("separate affirmative request", system)
+        self.assertEqual(data["current"]["request_kind"], "UNDECIDED")
+        self.assertIsNone(data["current"]["capability_hint"])
+
+    def test_action_preconditions_require_affirmative_intent_not_tool_mentions(self):
+        schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
+        export = schema["documents.export"]
+        diagnosis = schema["system.diagnose"]
+        self.assertIn("affirmatively", export["purpose"])
+        self.assertIn("current.current_output.available true", export["precondition"])
+        self.assertIn("refusal", export["precondition"])
+        self.assertIn("asks Jarvis to perform a check now", diagnosis["purpose"])
+        self.assertIn("questions ABOUT", diagnosis["precondition"])
+        self.assertIn("affirmative request", diagnosis["precondition"])
+
+    def test_read_only_diagnosis_with_explicit_no_repair_is_still_an_action(self):
+        # Provider-fake contract: real LLM semantic performance needs a Full holdout.
+        result = self.ask(direct("system.diagnose", {}),
+                          text="Bağlantı sorununu araştır ama hiçbir ayarı değiştirme.",
+                          active=current())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.operation, "direct_action")
+        self.assertEqual(result.actions[0].capability_id, "system.diagnose")
+        self.payload(text="Bağlantı sorununu araştır ama hiçbir ayarı değiştirme.")
+        self.assertIn("constraint applies to repair, not to read-only inspection", self.model_input)
+
+    def test_sarcastic_comment_never_adopts_unproven_style_preference(self):
+        # Style evidence is a separate, optional contract; invalid evidence
+        # remains fail-closed rather than becoming a learned persona preference.
+        text = "Harika, yine bir hata daha; şahane çalışıyorsun!"
+        wrong = json.loads(answer(operation="chat", confidence="HIGH"))
+        wrong["presentation"] = [{
+            "key": "verbosity", "value": "kısa", "scope": "learned",
+            "evidence_quote": "Bundan sonra kısa yanıt ver"
+        }]
+        self.assertIsNone(self.ask(json.dumps(wrong), text=text))
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "PRESENTATION_INVALID")
+        self.payload(text=text)
+        self.assertIn("sarcasm, complaints, rhetorical praise", self.model_input)
+        self.assertIn("omit presentation entirely", self.model_input)
+
+    def test_unchanged_positive_diagnostic_request_still_admits_one_action(self):
+        # This checks the real typed validation path using a mocked provider
+        # output; it does not purport to prove a live model will choose it.
+        result = self.ask(direct("system.diagnose", {}),
+                          text="Şimdi sorun olup olmadığını kontrol eder misin?",
+                          active=current())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.operation, "direct_action")
+        self.assertEqual(result.actions[0].capability_id, "system.diagnose")
 
     def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
         result = self.ask(answer())
