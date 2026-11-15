@@ -195,7 +195,7 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
             for call in ast.walk(tree)
             if isinstance(call, ast.Call)
             and isinstance(call.func, ast.Name)
-            and call.func.id == "prepare"
+            and call.func.id in {"prepare", "prepare_json"}
             for keyword in call.keywords
             if keyword.arg == "model_understanding"
             and isinstance(keyword.value, ast.Constant)
