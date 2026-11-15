@@ -71,7 +71,12 @@ def _journal(expected: dict, *, existing=False):
     path = goal_executor._root(expected['owner']) / (expected['job_id'] + '.effects.json')
     journal=effect_journal.PersistentJournal(path)
     effect_id=_effect_id(expected)
-    if existing and journal.status(effect_id)=='not_started':
+    if (existing and 'plan_version' not in expected
+            and journal.status(effect_id)=='not_started'):
+        # A planned effect NEVER adopts a journal receipt via a partial
+        # legacy-field match: its plan version, input and node digest are one
+        # indivisible command fence. Legacy v1 recovery retains its prior
+        # lifecycle-version compatibility.
         # Lifecycle CAS may advance across restart. The immutable operation
         # identity/attempt/input must still match exactly; never adopt a result
         # from a renamed task, new input, new attempt or ambiguous old entries.
