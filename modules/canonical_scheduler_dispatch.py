@@ -309,7 +309,15 @@ def execute_offer(profile, offer, *, stop_event=None):
         # attempt. A malformed identity must not escape the failure fence
         # and strand an unaccepted 'running' journal forever.
         # The identity is built by the current goal executor, not a model.
-        runtime = SimpleNamespace(profile=SimpleNamespace(slug=selected.owner))
+        # Only the registered, owner-pinned profile may supply saved
+        # contact identities for the existing publish destination permission
+        # gate. Never substitute the model's plan or a foreground runtime.
+        contacts = getattr(profile, 'data', {})
+        if not isinstance(contacts, dict):
+            contacts = {}
+        runtime = SimpleNamespace(profile=SimpleNamespace(
+            slug=selected.owner, data=contacts,
+        ))
         identity = goal_executor._identity(job, step)
         identity["_canonical_scheduler_offer"] = {
             "owner": selected.owner, "job_id": selected.job_id,
