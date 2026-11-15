@@ -137,8 +137,10 @@ def verify_holdout(report, expected_sha):
         and type(cases) is int and cases >= 20
         and type(responses) is int and responses == cases
         and type(accuracy) in (int, float) and 0.95 <= accuracy <= 1
-        and report.get("incorrect_action_proposals") == 0
-        and report.get("attempted_effects") == 0
+        and type(report.get("incorrect_action_proposals")) is int
+        and report["incorrect_action_proposals"] == 0
+        and type(report.get("attempted_effects")) is int
+        and report["attempted_effects"] == 0
         and isinstance(report.get("corpus_sha256"), str)
         and bool(re.fullmatch(r"[0-9a-f]{64}", report["corpus_sha256"]))
     )
@@ -158,6 +160,8 @@ def assess(records, holdout_ok):
         observed.add(row["id"])
         if row.get("critical_wrong_effect") is True:
             return "failed"
+        if row.get("critical_wrong_effect") is not False:
+            return "unmeasured"
         if (row.get("status") != "passed"
                 or row.get("operator_observed") is not True
                 or row.get("real_jarvis") is not True):
