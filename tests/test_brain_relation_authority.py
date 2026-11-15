@@ -3,6 +3,7 @@
 Açık bir clarification (stage=clarify) yeni bir capability isteğini bloke edemez; Core plan
 çalışır, sohbet yedeğine düşmez. Gerçek clarification yanıtı multi-step'i erken sürdürmez.
 """
+from modules import core_brain_adapter
 import ast
 import tempfile
 import time
@@ -80,7 +81,7 @@ class RelationAuthorityTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = handler or Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, feedback
 
     def ask(self, text="aç"):
@@ -534,7 +535,7 @@ class StatePrecedenceTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             with patch.object(brain_precedence, "claim", return_value=None):
-                out, feedback, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
+                out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, self.ctx.handle, text)
         return entry, out, feedback
 
     def ask(self, text="aç"):
@@ -843,7 +844,7 @@ class _CanonicalTurnHarness(unittest.TestCase):
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı", model_understanding=model_understanding)
-            out, _, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
+            out, _, _ = core_brain_adapter.handoff(self.ctx, entry, self.ctx.handle, text)
         return entry, out
 
 

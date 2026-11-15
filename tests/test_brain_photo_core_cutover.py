@@ -4,6 +4,7 @@ No surface selects a photo operation from raw text; Core validates the operation
 against this request's canonical photo artifact before the domain executor applies it.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import ast
 import contextlib
@@ -129,7 +130,7 @@ class _PhotoHarness(unittest.TestCase):
     def run_core(self, entry):
         with patch.object(brain_precedence, "claim", return_value=None), \
              requests_state.activate(entry.owner, entry.request_id):
-            return brain_entry.handoff(self.ctx, entry, self.ctx.handle, entry.text)
+            return core_brain_adapter.handoff(self.ctx, entry, self.ctx.handle, entry.text)
 
     def handle_legacy(self, entry, text: str):
         stack = contextlib.ExitStack()
@@ -348,7 +349,7 @@ class PhotoFenceAndPrivacyTests(_PhotoHarness):
 
         with patch.object(brain_precedence, "claim", return_value=None), \
              requests_state.activate(forged.owner, forged.request_id):
-            out, feedback, _ = brain_entry.handoff(self.ctx, forged, self.ctx.handle, forged.text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, forged, self.ctx.handle, forged.text)
 
         self.assertIn("doğrulayamadım", out)
         self.executor.assert_not_called()
