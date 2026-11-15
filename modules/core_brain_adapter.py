@@ -287,7 +287,42 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
     return "\n".join(lines), row, _correlated_job_id(entry)
 
 
+def handoff_json(runtime: Any, payload: str, handler: Any, command: str) -> str:
+    """The ONLY public Brain -> Core production boundary: JSON text both ways.
+
+    Decode constructs an independent Core-local snapshot. Never use a Brain
+    EntryResult object, shared Brain current(), or a model-permission flag as
+    transport. Existing Core/domain decisions remain the effect authority.
+    """
+    from modules import brain_core_wire, requests_state
+    entry = brain_core_wire.decode_entry(payload)
+    if command != entry.text:
+        raise ValueError("Brain/Core JSON komut metni uyuşmuyor.")
+    if _runtime_profile_owner(runtime) != entry.owner:
+        raise ValueError("Brain/Core JSON owner eşleşmiyor.")
+    rid = getattr(runtime, "_cur_rid", None)
+    if rid and rid != entry.request_id:
+        raise ValueError("Brain/Core JSON etkin RID uyuşmuyor.")
+    active = requests_state._current.get()
+    if active is not None and active != (entry.owner, entry.request_id):
+        raise ValueError("Brain/Core JSON etkin istek bağlamı uyuşmuyor.")
+    output, feedback_row, job_id = handoff(runtime, entry, handler, command)
+    return brain_core_wire.encode_result(
+        output, feedback_row, job_id,
+        owner=entry.owner, request_id=entry.request_id,
+    )
+
+
+def _runtime_profile_owner(runtime: Any) -> str:
+    return str(getattr(getattr(runtime, "profile", None), "slug", "") or "").strip()
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
+    """Core-local execution helper for an ALREADY decoded entry and old fixtures.
+
+    Production callers must use handoff_json. This helper owns all legacy
+    handler compatibility and cannot be used as a Brain wire contract.
+    """
     from modules import persona
     with persona.request_scope(runtime,entry,command):
         return _handoff(runtime,entry,handler,command)
