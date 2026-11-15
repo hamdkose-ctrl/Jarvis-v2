@@ -7,6 +7,7 @@ instead of leaving a flat "CORE_HANDLER_FAILED" bucket, and (b) the
 presentation layer built on top of it never claims an automatic retry.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import unittest
 from types import SimpleNamespace
@@ -48,7 +49,7 @@ class HandoffStructuredFailureTests(unittest.TestCase):
         exc = Http(429, "Quota exceeded GenerateRequestsPerDayPerProjectPerModel-FreeTier")
         handler = Mock(side_effect=exc)
         with self.assertRaises(Http):
-            brain_entry.handoff(_runtime(), _entry(), handler, "haber özetle")
+            core_brain_adapter.handoff(_runtime(), _entry(), handler, "haber özetle")
         row = brain_entry.last_feedback()
         self.assertEqual(row.result_status, "failed")
         self.assertEqual(row.reason_code, "PROVIDER_QUOTA_EXHAUSTED")
@@ -57,7 +58,7 @@ class HandoffStructuredFailureTests(unittest.TestCase):
     def test_unclassified_core_exception_keeps_flat_bucket_without_recovery_class(self):
         handler = Mock(side_effect=ValueError("beklenmeyen"))
         with self.assertRaises(ValueError):
-            brain_entry.handoff(_runtime(), _entry(), handler, "bir şey yap")
+            core_brain_adapter.handoff(_runtime(), _entry(), handler, "bir şey yap")
         row = brain_entry.last_feedback()
         self.assertEqual(row.result_status, "failed")
         self.assertEqual(row.reason_code, "CORE_HANDLER_FAILED")

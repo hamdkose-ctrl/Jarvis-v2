@@ -1,4 +1,5 @@
 """Owner-run acceptance checks. Live accounts/desktop require explicit flags."""
+from modules import core_brain_adapter
 import argparse
 import json
 from pathlib import Path
@@ -165,7 +166,7 @@ def _news_turn(runtime, text, *, router_store, create_goal=False):
                                         source='acceptance', model_understanding=True)
             if adapter.call_count != int(create_goal):
                 raise ValueError('Haber kabulünde beklenmeyen anlamlandırma çağrı sayısı.')
-        reply, _feedback, _job_id = brain_entry.handoff(runtime, entry, runtime.handle, text)
+        reply, _feedback, _job_id = core_brain_adapter.handoff(runtime, entry, runtime.handle, text)
         return reply
 
 

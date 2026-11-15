@@ -1,4 +1,5 @@
 """PR7 Closeout-B3c-1: files.read -> Core doc_summary from a Brain-resolved file, end to end."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -88,7 +89,7 @@ class EndToEndTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = handler or Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle
 
     def test_summarize_resolved_file_runs_doc_summary_with_that_exact_path(self):
@@ -158,7 +159,7 @@ class EndToEndTests(unittest.TestCase):
                 with requests_state.activate(self.owner, rid):
                     entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="gizli.txt dosyasını özetle", source="yazı")
                     handle = Mock()
-                    out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, "gizli.txt dosyasını özetle")
+                    out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, "gizli.txt dosyasını özetle")
         self.assertIn("erişemiyorum", out)
         self.assertEqual((feedback.result_status, feedback.reason_code), ("failed", "FILE_TARGET_NOT_ACCESSIBLE"))
         handle.assert_not_called()
@@ -179,7 +180,7 @@ class EndToEndTests(unittest.TestCase):
                 with requests_state.activate(self.owner, rid):
                     entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="kisayol.txt dosyasını özetle", source="yazı")
                     handle = Mock()
-                    out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, "kisayol.txt dosyasını özetle")
+                    out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, "kisayol.txt dosyasını özetle")
         self.assertIn("erişemiyorum", out)
         self.assertEqual(feedback.result_status, "failed")
         handle.assert_not_called()

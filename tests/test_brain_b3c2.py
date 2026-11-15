@@ -1,4 +1,5 @@
 """PR7 Closeout-B3c-2: reminder creation as a Core intent running at the planner's precedence slot."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -66,7 +67,7 @@ class Pipeline(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
 
 

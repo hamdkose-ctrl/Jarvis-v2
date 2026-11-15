@@ -4,7 +4,7 @@ PR7 Closeout-B (tek-beyin göçü) için kabul kapısı. Davranış DEĞİŞTİR
 
 Her senaryo yalıtılmış sahte bir runtime ile canonical Brain girişinden geçirilir:
 ``brain_entry.prepare`` (ActiveContext → State Gate → Fast Gate → Candidates →
-Resolver → Understanding) ve ardından ``brain_entry.handoff``. Core handler ve chat
+Resolver → Understanding) ve ardından ``core_brain_adapter.handoff``. Core handler ve chat
 dispatch gerçek iş yapmaz, yalnız çağrıldıkları kaydedilir. Diskteki kullanıcı
 geçmişi, GoalState, görev, masaüstü onayı ve dosya envanteri okunmaz; hepsi
 senaryonun ``setup`` alanından gelir. Model, ağ veya worker çağrılmaz.
@@ -49,6 +49,7 @@ matrisi önce ``import`` ile (satır: id, girdi, kategori, beklenen, yasak, setu
 havuz şemasına çevrilir; ardından ``--pool`` ile baseline'a katılır.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import argparse
 import hashlib
@@ -350,7 +351,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         proposal = brain_entry.core_proposal(entry)
         projection_fn = getattr(brain_entry, "_legacy_route_projection", None)
         projection = projection_fn(entry) if callable(projection_fn) else None
-        output, brain_feedback, _job_id = brain_entry.handoff(runtime, entry, handler, text)
+        output, brain_feedback, _job_id = core_brain_adapter.handoff(runtime, entry, handler, text)
 
     semantic = entry.understanding
     question = brain_entry.clarification(entry)
