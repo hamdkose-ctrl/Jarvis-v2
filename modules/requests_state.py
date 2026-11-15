@@ -193,6 +193,9 @@ def cancel_foreground(user):
         if len(active) != 1:
             return ('ambiguous' if active else 'none'), None
         key = active[0]
+        # A late model/engine reply must not restart the speech just interrupted.
+        # Mark only this turn; never mute a background goal's later notice.
+        _records[key]['speech'] = True
         _records[key]['state'] = 'cancelled'
         _save_terminal_state()
         return 'cancelled', key[1]

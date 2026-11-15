@@ -125,7 +125,7 @@ class ConversationRequestSafetyTests(unittest.TestCase):
 
     def test_bare_stop_does_not_cancel_queued_voice_turn_waiting_for_lock(self):
         effect = Mock()
-        self.runtime.handle = lambda text: effect() or 'executed'
+        self.runtime.handle = lambda text: (effect(), 'executed')[1]
         self.runtime._execution_lock.acquire()
         released = False
         rid = None

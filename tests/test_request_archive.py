@@ -54,6 +54,8 @@ class RequestArchiveTests(unittest.TestCase):
             with self.assertRaises(state.Cancelled):
                 state.check()
         self.assertTrue(state.is_cancelled('alice', 'voice'))
+        self.assertTrue(state.speech_muted('alice', 'voice'))
+        self.assertFalse(state.speech_muted('alice', 'planner'))
         self.assertFalse(state.is_cancelled('alice', 'planner'))
         self.assertFalse(state.is_cancelled('bob', 'other'))
         self.assertEqual(state.cancel_foreground('alice'), ('none', None))
