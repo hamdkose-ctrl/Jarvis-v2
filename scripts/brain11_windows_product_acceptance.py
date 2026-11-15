@@ -151,7 +151,7 @@ def verify_holdout(report, expected_sha):
     known_corpus = _holdout_corpus_digest()
     return (
         known_corpus is not None
-        report.get("state") == "passed"
+        and report.get("state") == "passed"
         and report.get("scope") == "holdout"
         and report.get("head") == expected_sha
         and report.get("semantic_acceptance") is True
