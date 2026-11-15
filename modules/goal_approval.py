@@ -134,10 +134,15 @@ def verify_canonical(job, step, *, pending=False, now=None) -> dict:
     if step['tool']=='publish':
         import re
         digest = step.get('_canonical_payload_digest')
+        connection = step.get('_canonical_connection_digest')
         if (not isinstance(digest,str)
                 or re.fullmatch(r'[0-9a-f]{64}',digest) is None
-                or 'İçerik SHA-256: '+digest not in proposal.get('text','')):
-            raise PermissionError('Publish approval has no exact displayed payload digest.')
+                or 'İçerik SHA-256: '+digest not in proposal.get('text','')
+                or not isinstance(connection,str)
+                or re.fullmatch(r'[0-9a-f]{64}',connection) is None
+                or 'Hesap bağlantı sürümü SHA-256: '+connection
+                   not in proposal.get('text','')):
+            raise PermissionError('Publish approval has no exact payload and connection digests.')
     consumed = row.get('consumed_at')
     if pending:
         if consumed is not None or not now < row['expires_at']:

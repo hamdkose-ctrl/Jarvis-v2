@@ -306,6 +306,10 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             if (not isinstance(step.get('_canonical_payload_digest'),str)
                     or outbox._digest(payload)!=step['_canonical_payload_digest']):
                 raise PermissionError('Approved publish payload changed; nothing sent.')
+            if (not isinstance(step.get('_canonical_connection_digest'),str)
+                    or publish_services.connection_digest(job['owner'],payload)
+                       != step['_canonical_connection_digest']):
+                raise PermissionError('Approved publish account connection changed; nothing sent.')
             outbox_id=outbox.prepare(
                 job['owner'],payload,job['id']+':'+step['id'],
             )

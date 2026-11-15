@@ -272,13 +272,21 @@ def execute_offer(profile, offer, *, stop_event=None):
                     )
                     payload = publish_services.validate(payload)
                     digest = outbox._digest(payload)
+                    # The same approved bytes must not be sent from a swapped
+                    # OAuth/provider connection. Connection generation is a
+                    # credential/config digest, not a user-approved provider ID.
+                    connection = publish_services.connection_digest(
+                        selected.owner, payload,
+                    )
                     step['_canonical_payload_digest'] = digest
+                    step['_canonical_connection_digest'] = connection
                     proposal['text'] = (
                         'Dış gönderim onayı; kesin servis/hedef: '
                         +payload['service']+' / '+payload['destination']
                         +'\nBaşlık: '+str(payload.get('subject',''))[:200]
                         +'\nİçerik önizleme: '+str(payload.get('text',''))[:500]
                         +'\nİçerik SHA-256: '+digest
+                        +'\nHesap bağlantı sürümü SHA-256: '+connection
                     )
                 else:
                     proposal['text'] += '\nİstek: '+str(step['input']['request'])[:400]

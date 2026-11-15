@@ -276,3 +276,29 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
                           side_effect=AssertionError('Never send changed source')) as sender:
             sender.assert_not_called()
             self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
+
+
+    def test_publish_connection_swap_after_approval_is_not_sent(self):
+        """Outbox provider identity must not change after user consent."""
+        address = 'person@example.com'
+        ident = self.create({
+            'id':'send', 'agent':'publish', 'depends':[],
+            'input':{'service':'gmail','destination':address,
+                     'subject':'Immutable','text':'Hello'},
+        }, 'person@example.com adresine Hello mesajını gönder.')
+        connection = ['a' * 64]
+        with patch.object(publish_services,'connection_digest',
+                          side_effect=lambda *_args: connection[0]), \
+             patch.object(publish_services,'send',
+                          side_effect=AssertionError('Swapped account must never send')) as sent:
+            self.assertFalse(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner),self.offer(ident),
+            ))
+            self.approve(ident)
+            connection[0] = 'b' * 64
+            with self.assertRaises(PermissionError):
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=self.owner),self.offer(ident),
+                )
+            sent.assert_not_called()
+            self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
