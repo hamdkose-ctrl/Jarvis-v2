@@ -643,11 +643,29 @@ def photo_feedback(entry: EntryResult, *, awaiting_question: bool = False,
     return row
 
 
-_LAST_FEEDBACK: ContextVar["BrainFeedback | None"] = ContextVar("jarvis_brain_feedback", default=None)
+class _JsonFeedbackScope:
+    """Legacy error-side visibility stores JSON text, never a BrainFeedback DTO."""
+
+    def __init__(self):
+        self._value = ContextVar("jarvis_brain_feedback_json", default=None)
+
+    def set(self, row: BrainFeedback | None):
+        from modules.brain_core_wire import encode_feedback
+        return self._value.set(encode_feedback(row))
+
+    def get(self) -> BrainFeedback | None:
+        from modules.brain_core_wire import decode_feedback
+        return decode_feedback(self._value.get())
+
+    def reset(self, token):
+        self._value.reset(token)
+
+
+_LAST_FEEDBACK = _JsonFeedbackScope()
 
 
 def last_feedback() -> BrainFeedback | None:
-    """BrainFeedback of the most recent handoff in this request context (also set when Core raised)."""
+    """Return a detached feedback projection from the legacy JSON snapshot."""
     return _LAST_FEEDBACK.get()
 
 
