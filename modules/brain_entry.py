@@ -39,7 +39,9 @@ from modules.brain_reference import resolve_references
 from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
 
-_CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
+# Legacy handler visibility retains only an immutable JSON snapshot, never a
+# live EntryResult/ActiveContext Python object in cross-module request state.
+_CURRENT: ContextVar["str | None"] = ContextVar("jarvis_brain_entry_json", default=None)
 _RESERVED = frozenset({
     "allowed", "permission", "permission_granted", "approved", "authorized",
     "completed", "done", "effect_allowed", "execute",
@@ -651,9 +653,16 @@ def last_feedback() -> BrainFeedback | None:
 
 @contextmanager
 def bind(entry: EntryResult):
+    """Legacy Core handler scope stores only JSON, not Brain DTO references.
+
+    It is not an input to handoff_json: Core decodes the explicit JSON payload
+    first, and only then offers a detached snapshot to internal legacy gates.
+    Nested Core batch children are allowed only in this private request scope.
+    """
     if not isinstance(entry, EntryResult):
         raise ValueError("entry EntryResult olmalı.")
-    token = _CURRENT.set(entry)
+    from modules.brain_core_wire import encode_entry
+    token = _CURRENT.set(encode_entry(entry, _core_internal=True))
     try:
         yield entry
     finally:
@@ -661,7 +670,11 @@ def bind(entry: EntryResult):
 
 
 def current() -> EntryResult | None:
-    return _CURRENT.get()
+    message = _CURRENT.get()
+    if message is None:
+        return None
+    from modules.brain_core_wire import decode_entry
+    return decode_entry(message, _core_internal=True)
 
 
 def execution_metadata(owner: str) -> dict[str, object] | None:
