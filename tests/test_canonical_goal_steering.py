@@ -464,7 +464,10 @@ class CanonicalSteeringTests(unittest.TestCase):
             self.assertTrue(release.wait(45))
             return task_results.seal('research', {'state': 'done', 'text': 'Late source',
                 'source': 'https://example.test/article', 'source_chars': 200})
-        with patch.object(task_queue, '_THREAD', None), \
+        # Canonical Scheduler should not scan unrelated durable service DBs
+        # from the Windows runner while this bounded worker lifecycle is tested.
+        with patch.object(task_queue.service_store, 'ROOT', goal_executor.STORE.parent / 'service_work'), \
+             patch.object(task_queue, '_THREAD', None), \
              patch.object(task_queue, '_CANONICAL_WORKERS', {}), \
              patch.object(task_queue, '_OWNER_TICKS', {}), \
              patch.object(task_queue, 'tick', return_value=None), \
