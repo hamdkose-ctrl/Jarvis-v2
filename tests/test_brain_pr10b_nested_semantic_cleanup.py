@@ -400,7 +400,8 @@ class NestedExecutionTests(unittest.TestCase):
         before = entry.references
         with brain_entry.bind(entry):
             step = brain_entry.current()
-        self.assertIs(step, entry)
+        self.assertEqual(step, entry)
+        self.assertIsNot(step, entry)  # request-local bridge returns decoded JSON snapshot
         self.assertEqual(entry.references, before)
         self.assertEqual(entry.text, "rapor.txt dosyasını özetle ardından sesi kıs")
 
