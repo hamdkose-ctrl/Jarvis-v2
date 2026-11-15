@@ -19,7 +19,7 @@ from unittest.mock import Mock, patch
 from modules import (
     canonical_goal_control, canonical_goal_flow, canonical_restart_audit,
     canonical_scheduler_dispatch, goal_executor, goal_state_store,
-    model_wait, nxapi, outbox, publish_services, resource_leases,
+    llm, model_wait, nxapi, outbox, publish_services, resource_leases,
     scheduler_resource_gate, service_store, task_agents, task_results,
     untrusted_flow,
 )
@@ -32,6 +32,11 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.owner = 'alice'
+        # The real task_queue Scheduler pins the owner in its worker thread
+        # before any provider/account/outbox preflight. Recreate that genuine
+        # owner scope here; never bypass service_store.identity in production.
+        token = llm._key_context.set(self.owner)
+        self.stack.callback(llm._key_context.reset, token)
         self.root = Path(self.temp.name)
         for target, attribute, value in (
             (goal_executor, 'STORE', self.root / 'goals'),
