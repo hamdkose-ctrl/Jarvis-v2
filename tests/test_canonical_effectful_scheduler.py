@@ -44,8 +44,11 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
             self.stack.enter_context(patch.object(target, attribute, value))
 
     def create(self, task, request):
+        return self.create_plan([task], request)
+
+    def create_plan(self, tasks, request):
         rid = 'effect-' + uuid.uuid4().hex[:20]
-        with patch.object(model_wait, 'ask', return_value=json.dumps({'tasks':[task]})):
+        with patch.object(model_wait, 'ask', return_value=json.dumps({'tasks':tasks})):
             ident, _reply = canonical_goal_flow.try_create(self.owner, rid, request)
         self.assertIsInstance(ident, str)
         self.assertEqual(len(ident), 16)
@@ -174,3 +177,81 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
             self.assertEqual(outbox.dispatch(self.owner,output['id'],approve=True)['state'],'done')
             self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
             sender.assert_called_once()
+
+
+    def test_publish_never_resends_after_core_acceptance_and_projection_crash(self):
+        """Accepted provider result without ExecutionRecord projection is NOT retryable."""
+        destination='person@example.com'
+        ident=self.create({
+            'id':'send','agent':'publish','depends':[],
+            'input':{'service':'gmail','destination':destination,
+                     'subject':'One', 'text':'one message'},
+        },'person@example.com adresine bir mesaj gönder.')
+        receipt={'scope':'provider_accepted','service':'gmail',
+                 'destination':destination,'remote_id':'one-remote-id'}
+        with patch.object(outbox,'_permission_decision',return_value=('ask','consent')),\
+             patch.object(publish_services,'send',return_value=receipt) as sender:
+            self.assertFalse(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner),self.offer(ident),
+            ))
+            self.approve(ident)
+            with patch('modules.canonical_output_projection.project_accepted',
+                       side_effect=OSError('simulated crash after Core CAS')):
+                with self.assertRaises(OSError):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner),self.offer(ident),
+                    )
+            state, journal=self.snapshots(ident)
+            self.assertEqual(len(state['evidence']),1)
+            self.assertEqual(state['evidence'][0]['status'],'succeeded')
+            self.assertNotIn('send',journal['outputs'])
+            self.assertEqual(
+                canonical_restart_audit.inspect(self.owner,ident).nodes[0].status,
+                'accepted_unprojected',
+            )
+            self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
+            # Provider accepted message, persisted Outbox state remains
+            # immutable. New approval/worker attempts cannot send again.
+            sender.assert_called_once()
+            from modules import effect_recovery_runtime
+            self.assertIsNone(effect_recovery_runtime.reconcile(
+                {
+                    'owner':self.owner,'job_id':ident,'step_id':'send',
+                    'command_id':'send:1:p1','attempt':1,
+                    'expected_job_version':state['evidence'][0]['expected_job_version'],
+                    'capability_id':'task.publish','capability_version':'1',
+                    'input_digest':state['evidence'][0]['input_digest'],
+                    'plan_version':1,'node_digest':state['evidence'][0]['node_digest'],
+                },
+                lambda: (_ for _ in ()).throw(AssertionError('No second send')),
+                receipt_readback=True,
+            ))
+            sender.assert_called_once()
+
+    def test_publish_writer_dependency_approved_source_tamper_blocks_send(self):
+        """A previously approved draft must not authorize different file bytes."""
+        destination='person@example.com'
+        ident=self.create_plan([
+            {'id':'draft','agent':'writer','depends':[],
+             'input':{'instruction':'Write draft','filename':'draft.md'}},
+            {'id':'send','agent':'publish','depends':['draft'],
+             'input':{'service':'gmail','destination':destination,
+                      'subject':'Draft','text_from_task':'draft'}},
+        ], 'Raporu dosyaya kaydet, sonra person@example.com adresine gönder.')
+        with patch.object(model_wait,'ask',return_value='**Immutable draft**'):
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner),self.offer(ident),
+            ))
+        state, journal=self.snapshots(ident)
+        self.assertTrue(task_results.verify(journal['outputs']['draft'],owner=self.owner))
+        self.assertFalse(canonical_scheduler_dispatch.execute_offer(
+            SimpleNamespace(slug=self.owner),self.offer(ident),
+        ))
+        self.approve(ident)
+        path=Path(journal['outputs']['draft']['file'])
+        path.write_text('changed after approval',encoding='utf-8')
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
+        with patch.object(publish_services,'send',
+                          side_effect=AssertionError('Never send changed source')) as sender:
+            sender.assert_not_called()
+            self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
