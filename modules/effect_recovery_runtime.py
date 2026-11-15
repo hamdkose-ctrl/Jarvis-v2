@@ -142,6 +142,14 @@ def record_receipt(expected: dict, output: dict) -> None:
 def reconcile(expected: dict, read_only_reconcile, *, receipt_readback=False):
     """Read-only recovery: no intent means no reconcile; no effect is retried."""
     expected = _checked(expected)
+    if 'plan_version' in expected:
+        # A canonical planned effect must NOT use the legacy v1 recovery
+        # bridge: it has no revalidated Scheduler offer, owner resource lease
+        # or current-plan approval/permission fence. Recording its write-ahead
+        # intent/receipt is supported, but effect reconciliation and Core CAS
+        # remain blocked until the canonical recovery path proves those gates.
+        # The callback must not be invoked or a provider side effect repeated.
+        return None
     journal, effect_id = _journal(expected,existing=True)
     decision = crash_recovery.decide(journal, effect_id)
     if decision['state'] == 'not_started':
