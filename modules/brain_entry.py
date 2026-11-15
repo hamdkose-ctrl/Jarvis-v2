@@ -548,13 +548,19 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic, state_references=state_refs)
 
 
-def prepare_json(*args, **kwargs) -> str:
-    """Brain's serialized entrypoint for nested Core actions.
+def prepare_json(runtime: Any, *, owner: str, request_id: str, text: str,
+                 source: str, model_understanding: bool = True) -> str:
+    """Only JSON leaves this nested Brain entry; never skip its primary model.
 
-    A caller of this function receives only JSON, never the EntryResult
-    produced inside the Brain layer.
+    The caller cannot silently disable the semantic decision. The fixed True
+    here is also audited by the production prepare-site AST regression.
     """
-    return prepare(*args, **kwargs).to_handoff_json()
+    if model_understanding is not True:
+        raise ValueError("Nested canonical Brain understanding zorunlu.")
+    return prepare(
+        runtime, owner=owner, request_id=request_id, text=text, source=source,
+        model_understanding=True,
+    ).to_handoff_json()
 
 
 def core_proposal(entry: EntryResult) -> dict[str, object]:
