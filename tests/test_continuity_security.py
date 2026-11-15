@@ -1,6 +1,6 @@
+"""Behavior regressions for the general review; no provider or device calls."""
 from modules import core_brain_adapter
 import engine_source
-"""Behavior regressions for the general review; no provider or device calls."""
 import ast
 import concurrent.futures
 import contextlib

@@ -49,7 +49,6 @@ matrisi önce ``import`` ile (satır: id, girdi, kategori, beklenen, yasak, setu
 havuz şemasına çevrilir; ardından ``--pool`` ile baseline'a katılır.
 """
 from __future__ import annotations
-from modules import core_brain_adapter
 
 import argparse
 import hashlib
@@ -67,6 +66,8 @@ from typing import Any, Callable, Iterable, Mapping
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from modules import core_brain_adapter
 DATA = ROOT / "tests" / "data"
 CURATED_POOL = DATA / "brain_acceptance_senaryolari.json"
 ROUTING_CORPUS = DATA / "yonlendirme_cumleleri.json"

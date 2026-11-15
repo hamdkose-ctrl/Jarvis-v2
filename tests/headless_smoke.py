@@ -2,7 +2,6 @@
 
 Hardware/provider boundaries are fake; this smoke does not measure language quality.
 """
-from modules import core_brain_adapter
 import sys
 import types
 from contextlib import contextmanager
@@ -10,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from modules import core_brain_adapter
 import test_privacy_voice_and_pending
 if 'pyautogui' not in sys.modules:
     stub = types.ModuleType('pyautogui'); stub.__getattr__ = lambda attr: MagicMock(); sys.modules['pyautogui'] = stub
