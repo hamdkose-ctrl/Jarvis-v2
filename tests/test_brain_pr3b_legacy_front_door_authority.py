@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_pr3_raw_text_authority as pr3a
-from modules import brain_entry, engine_commands, finance, git_publish, learning, typo, watcher
+from modules import brain_entry, core_brain_adapter, engine_commands, finance, git_publish, learning, typo, watcher
 from modules.brain_contracts import RequestKind
 
 ROOT = Path(__file__).resolve().parents[1]

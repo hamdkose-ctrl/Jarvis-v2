@@ -490,7 +490,7 @@ class SurfaceParityTests(unittest.TestCase):
         self.assertTrue(all(owner == "ayşe kaya" for owner, _ in queued))
 
     def test_live_turn_uses_prepare_then_the_core_door(self):
-        from modules import brain_echo, brain_entry, engine_live_brain
+        from modules import brain_echo, brain_entry, core_brain_adapter, engine_live_brain
         runtime = fake_runtime()
         entry = SimpleNamespace(stage="understanding", text="saat kaç")
         feedback = SimpleNamespace(result_status="ok")
