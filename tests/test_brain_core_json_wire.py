@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import ast
+from pathlib import Path
 import json
 import unittest
 from types import SimpleNamespace
@@ -54,6 +56,44 @@ class BrainCoreJsonWireTests(unittest.TestCase):
         self.assertEqual(cloned.state_references[0].provenance["path"], "a.txt")
         self.assertIn('"schema":"jarvis.brain-core.handoff"', payload)
         self.assertNotIn("memory_address", payload)
+
+    def test_core_owns_the_legacy_json_scope(self):
+        # Router has no independent request-state or feedback ContextVar.
+        self.assertIs(brain_entry._CURRENT, core_brain_adapter._CURRENT)
+        self.assertIs(brain_entry._LAST_FEEDBACK, core_brain_adapter._LAST_FEEDBACK)
+        self.assertIsNone(brain_entry.current_json())
+        first = entry(with_reference=True)
+        second = entry(rid="another-rid", text="Another command")
+        with brain_entry.bind(first):
+            first_wire = brain_entry.current_json()
+            self.assertIsInstance(first_wire, str)
+            with brain_entry.bind(second):
+                self.assertEqual(brain_entry.current().request_id, "another-rid")
+                self.assertNotEqual(brain_entry.current_json(), first_wire)
+            self.assertEqual(brain_entry.current_json(), first_wire)
+        self.assertIsNone(brain_entry.current_json())
+
+    def test_all_production_core_handoffs_are_json_only(self):
+        root = Path(__file__).resolve().parents[1]
+        files = (
+            "modules/engine_loop.py",
+            "modules/engine_live_brain.py",
+            "modules/acceptance_checks.py",
+            "scripts/brain_acceptance.py",
+        )
+        for relative in files:
+            tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+            calls = [
+                node.func.attr for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "core_brain_adapter"
+                and node.func.attr in {"handoff", "handoff_json"}
+            ]
+            with self.subTest(file=relative):
+                self.assertTrue(calls, "production Core handoff was lost")
+                self.assertEqual(set(calls), {"handoff_json"})
 
     def test_legacy_binding_only_carries_json_and_is_cleared(self):
         original = entry(with_reference=True)

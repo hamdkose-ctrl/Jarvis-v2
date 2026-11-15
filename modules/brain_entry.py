@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 import time
 from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
@@ -38,10 +37,11 @@ from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_
 from modules.brain_reference import resolve_references
 from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
+from modules import core_brain_adapter as _core_scope
 
-# Legacy handler visibility retains only an immutable JSON snapshot, never a
-# live EntryResult/ActiveContext Python object in cross-module request state.
-_CURRENT: ContextVar["str | None"] = ContextVar("jarvis_brain_entry_json", default=None)
+# Brain owns no request-state storage; legacy readers see Core-owned JSON.
+_CURRENT = _core_scope._CURRENT
+_LAST_FEEDBACK = _core_scope._LAST_FEEDBACK
 _RESERVED = frozenset({
     "allowed", "permission", "permission_granted", "approved", "authorized",
     "completed", "done", "effect_allowed", "execute",
@@ -656,27 +656,6 @@ def photo_feedback(entry: EntryResult, *, awaiting_question: bool = False,
         row = feedback(entry, result_status="handled", reason_code="PHOTO_CORE_HANDOFF_RETURNED")
     _LAST_FEEDBACK.set(row)
     return row
-
-
-class _JsonFeedbackScope:
-    """Legacy error-side visibility stores JSON text, never a BrainFeedback DTO."""
-
-    def __init__(self):
-        self._value = ContextVar("jarvis_brain_feedback_json", default=None)
-
-    def set(self, row: BrainFeedback | None):
-        from modules.brain_core_wire import encode_feedback
-        return self._value.set(encode_feedback(row))
-
-    def get(self) -> BrainFeedback | None:
-        from modules.brain_core_wire import decode_feedback
-        return decode_feedback(self._value.get())
-
-    def reset(self, token):
-        self._value.reset(token)
-
-
-_LAST_FEEDBACK = _JsonFeedbackScope()
 
 
 def last_feedback() -> BrainFeedback | None:

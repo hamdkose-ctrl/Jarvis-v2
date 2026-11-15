@@ -4,7 +4,33 @@ Brain entry observes and proposes. This adapter applies existing Core/domain
 protocols; it never reclassifies free text or introduces another state store.
 """
 from __future__ import annotations
+from contextvars import ContextVar
 from typing import Any, Mapping, TYPE_CHECKING
+
+from modules.brain_contracts import BrainFeedback
+
+# Core owns request-local legacy compatibility. The scopes only contain
+# detached JSON text, never live Brain EntryResult or feedback objects.
+_CURRENT: ContextVar[str | None] = ContextVar("jarvis_core_entry_json", default=None)
+
+
+class _CoreJsonFeedbackScope:
+    def __init__(self):
+        self._value: ContextVar[str | None] = ContextVar("jarvis_core_feedback_json", default=None)
+
+    def set(self, row: BrainFeedback | None):
+        from modules.brain_core_wire import encode_feedback
+        return self._value.set(encode_feedback(row))
+
+    def get(self) -> BrainFeedback | None:
+        from modules.brain_core_wire import decode_feedback
+        return decode_feedback(self._value.get())
+
+    def reset(self, token):
+        self._value.reset(token)
+
+
+_LAST_FEEDBACK = _CoreJsonFeedbackScope()
 
 if TYPE_CHECKING:
     from modules.brain_entry import EntryResult
