@@ -110,7 +110,10 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
     for candidate in available:
         if candidate.capability_id not in _SUPPORTED or running_effect:
             continue
-        if candidate.capability_id in _EFFECTS and running_other:
+        if candidate.capability_id in _EFFECTS and (running_other or offers):
+            # Do not return an effect in the same discovery batch as an
+            # independent read-only root. Effect CAS cannot safely adopt a
+            # concurrent sibling version after a real external write.
             continue
         node = goal_plan_gate.revalidate(state, candidate)
         # At most one published step may represent this canonical node.
