@@ -363,6 +363,29 @@ class EffectReplayTests(_OutboxFixture, unittest.TestCase):
             )
         self.send.assert_not_called()
 
+    def test_all_three_effectful_adapter_journals_are_one_shot(self):
+        """Journal contracts stage the three existing adapters, not dispatch them."""
+        from pathlib import Path
+        with patch.object(goals, 'STORE', Path(self.c.tmp.name) / 'effectful_catalog'):
+            for index, kind in enumerate(('writer', 'coder', 'publish'), start=1):
+                with self.subTest(kind=kind):
+                    expected = {
+                        'owner': 'alice', 'job_id': f'0123456789abc{index:03x}',
+                        'step_id': 'work', 'command_id': 'work:1:p1', 'attempt': 1,
+                        'expected_job_version': 1,
+                        'capability_id': 'task.' + kind, 'capability_version': '1',
+                        'input_digest': 'a' * 64, 'plan_version': 1,
+                        'node_digest': 'b' * 64,
+                    }
+                    effect_recovery_runtime.record_intent(expected)
+                    self.assertEqual(effect_recovery_runtime.status(expected), 'unknown')
+                    with self.assertRaises(effect_recovery_runtime.EffectReplayBlocked):
+                        effect_recovery_runtime.record_intent(expected)
+                    self.assertEqual(
+                        effect_recovery_runtime.status(dict(expected, node_digest='c' * 64)),
+                        'not_started',
+                    )
+
     def test_malformed_planned_effect_fence_is_rejected(self):
         valid = {
             'owner': 'alice', 'job_id': '0123456789abcdef', 'step_id': 'send',
