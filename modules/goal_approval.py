@@ -131,6 +131,13 @@ def verify_canonical(job, step, *, pending=False, now=None) -> dict:
             or proposal.get('id') != step['id']
             or any(proposal.get(key) != value for key,value in bound.items())):
         raise PermissionError('Canonical prepare approval has changed.')
+    if step['tool']=='publish':
+        import re
+        digest = step.get('_canonical_payload_digest')
+        if (not isinstance(digest,str)
+                or re.fullmatch(r'[0-9a-f]{64}',digest) is None
+                or 'İçerik SHA-256: '+digest not in proposal.get('text','')):
+            raise PermissionError('Publish approval has no exact displayed payload digest.')
     consumed = row.get('consumed_at')
     if pending:
         if consumed is not None or not now < row['expires_at']:
