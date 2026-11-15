@@ -1307,6 +1307,9 @@ def _canonical_recovery_status(job):
     if blocked:
         lines.append('Başarısız ilk deneme: ' + str(blocked)
                      + ' adım; otomatik tekrar yapılmaz.')
+    if counts['approval_pending']:
+        lines.append('Tam olarak sınırlandırılmış kullanıcı onayı bekliyor: '
+                     + str(counts['approval_pending']) + ' adım; dış etki başlatılmadı.')
     if counts['queued_unstarted']:
         lines.append('Henüz başlamamış: ' + str(counts['queued_unstarted']) + ' adım.')
     return '\n'.join(lines)
