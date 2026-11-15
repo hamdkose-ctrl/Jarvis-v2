@@ -71,19 +71,22 @@ def photo_action(arguments: dict, *, action_id="a1") -> dict:
 
 
 def _prepare_calls(tree: ast.AST, *, bare_names_in: str | None = None) -> list[ast.Call]:
-    """Yalnız canonical Brain girişinin çağrıları: `brain_entry.prepare(...)` ve `brain_entry.py`
-    içindeki kendi çıplak `prepare(...)` çağrıları. Başka modüllerin aynı adlı fonksiyonları değil."""
+    """All canonical Brain entry sites: prepare or JSON-only prepare_json.
+
+    The JSON boundary must not silently bypass semantic admission by merely
+    renaming the original preparation call.
+    """
     rows = []
     for call in ast.walk(tree):
         if not isinstance(call, ast.Call):
             continue
         func = call.func
-        if isinstance(func, ast.Attribute) and func.attr == "prepare":
+        if isinstance(func, ast.Attribute) and func.attr in {"prepare", "prepare_json"}:
             holder = func.value
             name = holder.id if isinstance(holder, ast.Name) else getattr(holder, "attr", "")
             if name == "brain_entry":
                 rows.append(call)
-        elif bare_names_in and isinstance(func, ast.Name) and func.id == "prepare":
+        elif bare_names_in and isinstance(func, ast.Name) and func.id in {"prepare", "prepare_json"}:
             rows.append(call)
     return rows
 
