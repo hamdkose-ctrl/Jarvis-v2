@@ -145,6 +145,27 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
         self.assertEqual(record['steps'][0]['attempts'],1)
         self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
 
+    def test_coder_receipt_must_match_verified_test_log(self):
+        """A forged local receipt cannot authorize a planned effect CAS."""
+        source = self.root / 'receipt-source.py'
+        log = self.root / 'receipt-tests.log'
+        source.write_text('print("draft")', encoding='utf-8')
+        log.write_text('PASS', encoding='utf-8')
+        digest = task_results.file_digest(log)
+        result = {
+            'state': 'done', 'text': 'Verified draft', 'draft': True,
+            'test_ok': True, 'owner': self.owner, 'file': str(source),
+            'files': [{'file': str(source), 'sha256': task_results.file_digest(source)}],
+            'test_log': str(log), 'test_log_sha256': digest,
+            'receipt': {'service': 'coder_draft', 'remote_id': 'forged'},
+        }
+        with self.assertRaisesRegex(ValueError, 'receipt'):
+            task_results.seal('coder', result)
+        result['receipt']['remote_id'] = digest
+        self.assertTrue(task_results.verify(
+            task_results.seal('coder', result), owner=self.owner,
+        ))
+
     def test_publish_requires_approval_and_outbox_sends_once(self):
         address='person@example.com'
         ident=self.create({
