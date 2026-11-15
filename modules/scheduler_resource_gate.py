@@ -620,3 +620,118 @@ def require_dependent_research_result_lease(accepted: dict) -> None:
                 accepted['plan_version'], accepted['command_id'])
             or not leases.validate(ticket)):
         raise ReadOnlyAdmissionError('Dependent research exact command lease invalid.')
+
+
+# The same Scheduler owns the three effect adapters. A live OS claim is not
+# approval and an approved action is not an accepted WorkerResult.
+_EFFECT_RESULT_LEASE = ContextVar('jarvis_effect_result_lease', default=None)
+
+
+def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
+    """Derive physical conflict identities from validated plan and manifest."""
+    from modules import capability_manifest, goal_executor, task_tools
+    kind = node['capability_id'].removeprefix('task.')
+    if kind not in ('writer', 'coder', 'publish'):
+        raise ReadOnlyAdmissionError('Unknown effect Scheduler capability.')
+    spec = capability_manifest.from_task_tool(kind)
+    if spec['id'] != node['capability_id'] or spec['effect_policy'] == 'read_only':
+        raise ReadOnlyAdmissionError('Effect manifest mismatch.')
+    data = task_tools.validate_input(kind, node['input'])
+    if kind == 'publish':
+        return (provider_resource_key(data['service']),)
+    # A writer chooses a random filename, so serialize its owner output root,
+    # not a guessed final path; the native file guard still claims that path.
+    # Developer workspace state is likewise owner-scoped.
+    target = str(goal_executor._owner_root(owner)) if kind == 'writer' else owner
+    value = hashlib.sha256((kind + '\0' + target).encode('utf-8')).hexdigest()
+    return (resource_leases.resource_key('file' if kind == 'writer' else 'command', value),)
+
+
+@contextmanager
+def effect_worker(leases: resource_leases.LeaseTable, identity: dict,
+                  selected: goal_plan_gate.NodeCandidate, *, ttl: float = 60.0):
+    """Hold a single pre-effect, owner/job/plan lease through verified Core CAS."""
+    from modules import goal_executor, runtime_worker_result, dependency_evidence
+    if not isinstance(leases, resource_leases.LeaseTable) or not isinstance(
+            selected, goal_plan_gate.NodeCandidate):
+        raise ReadOnlyAdmissionError('Effect worker needs the real Scheduler lease table.')
+    if (identity.get('owner'), identity.get('job_id'), identity.get('task_id'),
+            identity.get('attempt')) != (
+            selected.owner, selected.job_id, selected.node_id, 1):
+        raise ReadOnlyAdmissionError('Effect worker identity mismatch.')
+    state = runtime_worker_result.canonical_snapshot(identity)
+    node = goal_plan_gate.revalidate(state, selected)
+    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish'):
+        raise ReadOnlyAdmissionError('Not an approved effect capability.')
+    if node['depends_on']:
+        goal_plan_gate.validate_dependent_effect_attempt(state, selected, attempt=1)
+        dependency_evidence.require_persisted_effect_dependencies(identity, node)
+    else:
+        goal_plan_gate.validate_root_attempt(state, selected, attempt=1)
+    keys = _effect_keys(node, selected.owner)
+    ticket = leases.acquire(
+        owner=selected.owner, job_id=selected.job_id, step_id=selected.node_id,
+        plan_version=selected.plan_version,
+        command_id=f'{selected.node_id}:1:p{selected.plan_version}',
+        keys=keys, ttl=ttl,
+    )
+    stop = threading.Event()
+    lock = threading.RLock()
+    holder = [ticket]
+    lost = threading.Event()
+
+    def pulse():
+        while not stop.wait(ttl/3):
+            with lock:
+                try:
+                    holder[0] = leases.heartbeat(holder[0], ttl=ttl)
+                except resource_leases.LeaseFenceError:
+                    lost.set()
+                    return
+
+    thread = threading.Thread(target=pulse, name='canonical-effect-lease', daemon=True)
+    started = False
+    try:
+        with resource_leases.process_resource_claim(_account_claim_root(), keys[0]):
+            current = runtime_worker_result.canonical_snapshot(identity)
+            goal_plan_gate.revalidate(current, selected)
+            if node['depends_on']:
+                dependency_evidence.require_persisted_effect_dependencies(identity, node)
+            else:
+                goal_plan_gate.validate_root_attempt(current, selected, attempt=1)
+            token = _EFFECT_RESULT_LEASE.set((leases, holder, lock, lost, selected))
+            try:
+                thread.start()
+                started = True
+                yield
+            finally:
+                _EFFECT_RESULT_LEASE.reset(token)
+    finally:
+        _stop_renewal_without_voice_block(
+            stop, thread, started, lock, holder, leases,
+        )
+
+
+def require_effect_result_lease(expected: dict) -> None:
+    """Reject effect WorkerResult and effect preparation outside live Scheduler."""
+    binding = _EFFECT_RESULT_LEASE.get()
+    if not isinstance(binding, tuple) or len(binding) != 5:
+        raise ReadOnlyAdmissionError('Planned effect requires a live Scheduler lease.')
+    leases, holder, lock, lost, selected = binding
+    with lock:
+        if lost.is_set() or not leases.validate(holder[0]):
+            raise ReadOnlyAdmissionError('Planned effect lease expired or changed.')
+        ticket = holder[0]
+        if (expected.get('owner'), expected.get('job_id'),
+                expected.get('step_id'), expected.get('plan_version'),
+                expected.get('command_id')) != (
+                selected.owner, selected.job_id, selected.node_id,
+                selected.plan_version, ticket.command_id):
+            raise ReadOnlyAdmissionError('Effect result does not match Scheduler command.')
+        if (expected.get('node_digest') != selected.node_digest
+                or expected.get('capability_id') != selected.capability_id
+                or ticket.keys != _effect_keys(
+                    goal_plan_gate.revalidate(
+                        __import__('modules.runtime_worker_result', fromlist=['canonical_snapshot']).canonical_snapshot(expected),
+                        selected), selected.owner)):
+            raise ReadOnlyAdmissionError('Effect result resource or plan changed.')
