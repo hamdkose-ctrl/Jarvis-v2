@@ -76,7 +76,15 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
 
     def approve(self, ident):
         shown = goal_executor.read_job(self.owner, ident)
-        self.assertEqual(shown['steps'][0]['state'], 'approval')
+        # A writer → publish DAG approves the WAITING publish child, not
+        # the already completed first writer step in the execution record.
+        waiting = [
+            step for step in shown['steps']
+            if step.get('id') == shown.get('waiting')
+            and step.get('state') == 'approval'
+        ]
+        self.assertEqual(len(waiting), 1, shown)
+        self.assertIn(waiting[0]['tool'], ('coder', 'publish'))
         key = goal_executor.control_key(shown)
         result = canonical_goal_control.approve_effect(
             self.owner, ident, expected_control=key,
