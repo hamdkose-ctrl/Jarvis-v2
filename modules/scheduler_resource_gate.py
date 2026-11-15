@@ -251,7 +251,7 @@ def account_read_worker(leases: resource_leases.LeaseTable,
     this context exits; it is joined before releasing any resources.
     """
     if (not isinstance(identity, dict) or not isinstance(expected, dict)
-            or expected.get('capability_id') != 'task.account'
+            or expected.get('capability_id') not in ('task.account', 'task.file')
             or type(expected.get('plan_version')) is not int
             or expected.get('owner') != identity.get('owner')
             or expected.get('job_id') != identity.get('job_id')
@@ -331,6 +331,11 @@ def account_read_worker(leases: resource_leases.LeaseTable,
         _stop_renewal_without_voice_block(
             stop, thread, started, lock, holder, leases,
         )
+
+
+# Both read-only capabilities reuse the one proven account-read OS/lease/CAS fence.
+# The file key is derived from its resolved canonical path by _typed_resource_keys.
+read_only_worker = account_read_worker
 
 
 def require_account_result_lease(accepted: dict) -> None:
@@ -631,7 +636,7 @@ def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive physical conflict identities from validated plan and manifest."""
     from modules import capability_manifest, goal_executor, task_tools
     kind = node['capability_id'].removeprefix('task.')
-    if kind not in ('writer', 'coder', 'publish'):
+    if kind not in ('writer', 'coder', 'publish', 'media'):
         raise ReadOnlyAdmissionError('Unknown effect Scheduler capability.')
     spec = capability_manifest.from_task_tool(kind)
     if spec['id'] != node['capability_id'] or spec['effect_policy'] == 'read_only':
@@ -639,6 +644,13 @@ def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
     data = task_tools.validate_input(kind, node['input'])
     if kind == 'publish':
         return (provider_resource_key(data['service']),)
+    if kind == 'media':
+        from modules import nxapi
+        # One physical output directory per owner; the native worker separately
+        # locks its source files and target during the actual FFmpeg render.
+        target = str((Path(nxapi.FILES_DIR) / 'Jarvis Görevler' / owner).resolve())
+        digest = hashlib.sha256(('media\0' + target).encode('utf-8')).hexdigest()
+        return (resource_leases.resource_key('file', digest),)
     # A writer chooses a random filename, so serialize its owner output root,
     # not a guessed final path; the native file guard still claims that path.
     # Developer workspace state is likewise owner-scoped.
@@ -661,7 +673,7 @@ def effect_worker(leases: resource_leases.LeaseTable, identity: dict,
         raise ReadOnlyAdmissionError('Effect worker identity mismatch.')
     state = runtime_worker_result.canonical_snapshot(identity)
     node = goal_plan_gate.revalidate(state, selected)
-    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish'):
+    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish', 'task.media'):
         raise ReadOnlyAdmissionError('Not an approved effect capability.')
     if node['depends_on']:
         goal_plan_gate.validate_dependent_effect_attempt(state, selected, attempt=1)

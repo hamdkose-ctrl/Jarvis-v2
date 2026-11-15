@@ -250,7 +250,7 @@ def execute_offer(profile, offer, *, stop_event=None):
         if (step["tool"] != selected.capability_id.removeprefix("task.")
                 or step["input"] != node["input"] or step["depends"] != node["depends_on"]):
             raise canonical_scheduler_lane.DispatchFenceError("Published step changed.")
-        effect_kind = step['tool'] in ('writer', 'coder', 'publish')
+        effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media')
         if step['tool'] in ('coder', 'publish'):
             from modules import goal_approval, runtime_prepare_approval
             if 'approval' not in step:
