@@ -88,6 +88,15 @@ class EntryResult:
             raise ValueError("Brain entry authority alanı taşıyamaz.")
         return result
 
+    def to_handoff_json(self) -> str:
+        """Serialize the complete observation before the Brain/Core boundary.
+
+        Unlike to_dict (a small display projection), this is the only
+        complete, versioned input for the Core wire adapter.
+        """
+        from modules.brain_core_wire import encode_entry
+        return encode_entry(self)
+
 
 def _required(name: str, value: str) -> str:
     if not isinstance(value, str) or not value.strip():
