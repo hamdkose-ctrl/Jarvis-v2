@@ -16,7 +16,7 @@ from modules import (
     canonical_goal_control, canonical_goal_flow, canonical_output_projection,
     dependency_evidence, execution_record, goal_job_control, goal_plan_gate,
     goal_state, goal_state_compat, goal_tools, llm, model_wait,
-    requests_state, task_agents,
+    requests_state, task_plan_contracts,
 )
 
 
@@ -144,10 +144,10 @@ def execute(profile, job_id, *, stop_event=None):
                 if stop_event is not None and stop_event.is_set():
                     raise requests_state.Cancelled('Plan revizyonu durduruldu.')
             with requests_state.worker_probe(check_stop):
-                raw = model_wait.ask(prompt, system=task_agents._SYSTEM,
+                raw = model_wait.ask(prompt, system=task_plan_contracts._SYSTEM,
                                      max_tokens=2200, seconds=60)
                 requests_state.check()
-                tasks = task_agents.validate(task_agents._json(raw)['tasks'])
+                tasks = task_plan_contracts.validate(task_plan_contracts._json(raw)['tasks'])
                 proposed = canonical_goal_flow._canonical_plan(tasks, allow_effects=True)
                 proposed['plan_version'] = current['goal_plan']['plan_version'] + 1
                 proof = certify(owner, job_id, proposed)

@@ -22,14 +22,14 @@ from modules import (
     canonical_output_projection, canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
-    goal_state_store, llm, model_wait, requests_state, task_agents, task_tools,
+    goal_state_store, llm, model_wait, requests_state, task_plan_contracts, task_tools,
 )
 
 _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
-_READ_ONLY = frozenset({'research', 'account', 'verify'})
-_EFFECTS = frozenset({'writer', 'coder', 'publish'})
+_READ_ONLY = frozenset({'research', 'account', 'verify', 'file'})
+_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
@@ -44,6 +44,8 @@ def _canonical_plan(tasks, *, allow_effects=False):
         deps = task.get('depends', [])
         if kind not in _READ_ONLY and not (allow_effects and kind in _EFFECTS):
             raise ValueError('Unsupported canonical task capability.')
+        if kind == 'media' and deps:
+            raise ValueError('Canonical media must be an independent first attempt.')
         if kind == 'coder' and deps:
             raise ValueError('Coder requires a standalone approved workspace task.')
         if kind == 'writer' and (not deps or any(
@@ -272,9 +274,9 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     # Same planner used by task_agents for its multi-node task format. No
     # duplicate free-text classifier, model/router, or autonomous capability.
     system = (
-        task_agents._SYSTEM +
-        '\nBu tur canonical arka plan araştırma önerisidir. Yalnız research '
-        've salt-okunur account görevleri öner; doğrulanmış research/account '
+        task_plan_contracts._SYSTEM +
+        '\nBu tur canonical arka plan hedefidir. Research, salt-okunur file '
+        've account görevleri öner; media yalnız açık video isteği ve gerçek kaynak hash kanıtıyla üretilir; doğrulanmış research/account '
         'bağımlı verify ile writer raporunu oluşturabilirsin. Coder yalnız '
         'kilitli geliştirici alanında onayla, publish yalnız kullanıcının açık '
         'gönderim isteği ve kesin hedefi için Core ve Outbox onayıyla çalışır. '
@@ -287,8 +289,8 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     finally:
         llm._key_context.reset(token)
     try:
-        proposed = task_agents._json(raw)
-        tasks = task_agents.validate(proposed['tasks'])
+        proposed = task_plan_contracts._json(raw)
+        tasks = task_plan_contracts.validate(proposed['tasks'])
         plan = _canonical_plan(tasks, allow_effects=True)
     except (KeyError, TypeError, ValueError):
         # Unsupported/invalid FIRST planner decision is still a decision
