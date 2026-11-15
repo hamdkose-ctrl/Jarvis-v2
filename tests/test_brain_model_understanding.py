@@ -187,7 +187,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertNotIn("Rapor içeriği", payload)
 
     def test_prompt_advertises_capability_purposes_without_an_answer_table(self):
-        schema = self.payload()["allowed"]["argument_schema"]
+        schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
         for capability in ("documents.export", "notes.write", "files.mutate", "system.diagnose"):
             self.assertIn("purpose", schema[capability])
             self.assertIn("precondition", schema[capability])
@@ -196,6 +196,34 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         serialized = json.dumps(self.payload(), ensure_ascii=False).casefold()
         for case in corpus["cases"]:
             self.assertNotIn(case["text"].casefold(), serialized)
+
+    def test_missing_output_disables_only_export_capability(self):
+        # Capability availability comes from the observed current session, not
+        # words in the user's utterance or a competing legacy intent parser.
+        absent = self.payload(text="Son sonucu bilgisayarıma kaydet.", session_artifacts=())
+        self.assertFalse(absent["current"]["current_output"]["available"])
+        self.assertNotIn("documents.export", absent["allowed"]["capability_id"])
+        self.assertNotIn("documents.export", absent["allowed"]["argument_schema"])
+        self.assertIn("files.read", absent["allowed"]["capability_id"])
+        self.assertIn("files.mutate", absent["allowed"]["capability_id"])
+        self.assertIn("system.diagnose", absent["allowed"]["capability_id"])
+        present = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))
+        self.assertIn("documents.export", present["allowed"]["capability_id"])
+
+    def test_unoffered_export_response_is_rejected_without_output(self):
+        # Even if a provider ignores its offered enum, it cannot smuggle
+        # unavailable export into the typed Brain decision.
+        result = self.ask(direct("documents.export", {}),
+                          text="Son hazırladığın sonucu bilgisayarıma kaydet.",
+                          session_artifacts=())
+        self.assertIsNone(result)
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "CAPABILITY_NOT_OFFERED")
+
+    def test_missing_confidence_is_still_rejected_not_fabricated(self):
+        malformed = json.loads(answer(operation="chat"))
+        del malformed["confidence"]
+        self.assertIsNone(self.ask(json.dumps(malformed), text="Şimdi kontrol istemiyorum."))
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "ENVELOPE_FIELDS_INVALID")
 
     def test_speech_act_has_priority_over_capability_word_matching(self):
         # Fake transport verifies the TRUE production model prompt, not live
@@ -214,7 +242,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(data["current"]["capability_hint"])
 
     def test_action_preconditions_require_affirmative_intent_not_tool_mentions(self):
-        schema = self.payload()["allowed"]["argument_schema"]
+        schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
         export = schema["documents.export"]
         diagnosis = schema["system.diagnose"]
         self.assertIn("affirmatively", export["purpose"])
