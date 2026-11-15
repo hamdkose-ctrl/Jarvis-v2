@@ -548,6 +548,15 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic, state_references=state_refs)
 
 
+def prepare_json(*args, **kwargs) -> str:
+    """Brain's serialized entrypoint for nested Core actions.
+
+    A caller of this function receives only JSON, never the EntryResult
+    produced inside the Brain layer.
+    """
+    return prepare(*args, **kwargs).to_handoff_json()
+
+
 def core_proposal(entry: EntryResult) -> dict[str, object]:
     """Return metadata for Core validation; never return an execution decision."""
     if not isinstance(entry, EntryResult):
@@ -687,8 +696,13 @@ def bind(entry: EntryResult):
         _CURRENT.reset(token)
 
 
+def current_json() -> str | None:
+    """Only an inert JSON snapshot may be read from the legacy Core scope."""
+    return _CURRENT.get()
+
+
 def current() -> EntryResult | None:
-    message = _CURRENT.get()
+    message = current_json()
     if message is None:
         return None
     from modules.brain_core_wire import decode_entry
