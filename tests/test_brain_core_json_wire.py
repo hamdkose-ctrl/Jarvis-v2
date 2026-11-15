@@ -55,6 +55,17 @@ class BrainCoreJsonWireTests(unittest.TestCase):
         self.assertIn('"schema":"jarvis.brain-core.handoff"', payload)
         self.assertNotIn("memory_address", payload)
 
+    def test_legacy_binding_only_carries_json_and_is_cleared(self):
+        original = entry(with_reference=True)
+        self.assertIsNone(brain_entry.current())
+        with brain_entry.bind(original):
+            self.assertIsInstance(brain_entry._CURRENT.get(), str)
+            observed = brain_entry.current()
+            self.assertEqual(observed, original)
+            self.assertIsNot(observed, original)
+            self.assertIsNot(observed.understanding, original.understanding)
+        self.assertIsNone(brain_entry.current())
+
     def test_binary_object_python_map_and_unknown_version_rejected(self):
         original = entry()
         for bad in (original, {"owner": OWNER}, b"{}", "[]", "not-json", '{"a":1,"a":2}'):
