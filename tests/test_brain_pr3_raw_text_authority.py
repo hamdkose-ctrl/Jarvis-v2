@@ -278,6 +278,10 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
         self.assertEqual(verdict("brief.read", {"state": "done", "text": ""}), "unknown")
         self.assertEqual(verdict("pc.media.action", {"status": "ok", "text": "Rapor hazır"}), "unknown")
         self.assertEqual(verdict("pc.media.action", "Bitti"), "unknown")
+        # These broad hint families include UI/file or browser side effects.
+        for capability in ("files.read", "media.search", "browser.page.read",
+                           "screen.text", "text.translate"):
+            self.assertEqual(verdict(capability, "Tamamlandı"), "unknown", capability)
 
     def test_unknown_domain_result_cannot_unlock_dependency(self):
         actions = (self._action("a1", "pc.media.action", {"media": {"action": "next"}}),
