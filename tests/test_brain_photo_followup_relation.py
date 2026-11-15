@@ -334,8 +334,7 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         # PR3A: fast cevabını legacy handler'ın ham `saat` dalı değil, Fast Gate'in tek Core
         # planı (`fast_time`) üretir; legacy handler bu turda hiç çağrılmamalı.
         handler = Mock(side_effect=AssertionError("fast turu legacy handler'a düşmez"))
-        with patch.object(brain_entry, "_install_core_guards", lambda _runtime: None), \
-             requests_state.activate(entry.owner, entry.request_id):
+        with requests_state.activate(entry.owner, entry.request_id):
             result, _feedback, _job = core_brain_adapter.handoff(runtime, entry, handler, "saat kaç")
 
         self.assertTrue(str(result).startswith("Saat "), result)

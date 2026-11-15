@@ -135,7 +135,6 @@ class CanonicalRequestTests(unittest.TestCase):
                                     lambda **kwargs: self.context(**kwargs)),
                        patch("modules.job_front.observe", lambda owner: None),
                        patch("modules.desktop_agent._load", lambda owner: None),
-                       patch.object(brain_entry, "_install_core_guards"),
                        patch.object(core_brain_adapter, "_correlated_job_id", return_value=None)):
             stack.enter_context(target)
 

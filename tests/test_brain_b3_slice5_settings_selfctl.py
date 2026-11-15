@@ -77,8 +77,6 @@ class Slice5ProductionSeamTests(unittest.TestCase):
         self.owner = self.ctx.profile.slug
         self.ctx.emit = Mock()
         self.ctx.system_control = Mock()
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start(); self.addCleanup(guard.stop)
 
     def _proposal(self, capability, arguments):
         return UnderstandingProposal(

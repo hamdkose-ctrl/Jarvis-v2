@@ -79,8 +79,7 @@ class _PhotoHarness(unittest.TestCase):
         self.owner = self.ctx.profile.slug
         for target, attr, value in ((brain_context, "_default_goal_reader", None),
                                     (job_front, "observe", None),
-                                    (desktop_agent, "_load", None),
-                                    (brain_entry, "_install_core_guards", lambda runtime: None)):
+                                    (desktop_agent, "_load", None)):
             state_patch = patch.object(target, attr, value)
             state_patch.start()
             self.addCleanup(state_patch.stop)

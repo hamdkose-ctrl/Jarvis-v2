@@ -264,7 +264,7 @@ class BrainProductionEntryTests(unittest.TestCase):
             kind=RequestKind.CLARIFY, needs_input=True, ambiguities=("multiple target references",)
         ))
         handler = Mock(side_effect=AssertionError("effect/worker çalışmamalı"))
-        output, brain_feedback, job_id = module.handoff(self.runtime(), result, handler, "onu aç")
+        output, brain_feedback, job_id = core_brain_adapter.handoff(self.runtime(), result, handler, "onu aç")
         handler.assert_not_called()
         self.assertIn("netleştir", output.casefold())
         self.assertEqual(brain_feedback.request_id, RID)
@@ -296,8 +296,8 @@ class BrainProductionEntryTests(unittest.TestCase):
         module = self.module()
         result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY))
         handler = Mock(return_value="Core sonucu")
-        with patch.object(module, "_install_core_guards"), patch.object(module, "_correlated_job_id", return_value=None):
-            output, brain_feedback, job_id = module.handoff(self.runtime(), result, handler, "işlem")
+        with patch.object(core_brain_adapter, "_correlated_job_id", return_value=None):
+            output, brain_feedback, job_id = core_brain_adapter.handoff(self.runtime(), result, handler, "işlem")
         handler.assert_called_once_with("işlem")
         self.assertEqual(output, "Core sonucu")
         self.assertEqual(brain_feedback.owner, OWNER)

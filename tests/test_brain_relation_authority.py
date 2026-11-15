@@ -71,9 +71,6 @@ class RelationAuthorityTests(unittest.TestCase):
             state_patch = patch.object(target, attr, return_value=None)
             state_patch.start()
             self.addCleanup(state_patch.stop)
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def turn(self, text, handler=None):
         rid = "rel-" + uuid.uuid4().hex[:8]
@@ -511,9 +508,6 @@ class StatePrecedenceTests(unittest.TestCase):
             state_patch = patch.object(target, attr, return_value=None)
             state_patch.start()
             self.addCleanup(state_patch.stop)
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.run_goal = Mock(return_value="GOAL_RUN")
         run_patch = patch.object(goal_executor, "run", self.run_goal)
         run_patch.start()
@@ -821,9 +815,6 @@ class _CanonicalTurnHarness(unittest.TestCase):
             state_patch = patch.object(target, attr, return_value=None)
             state_patch.start()
             self.addCleanup(state_patch.stop)
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.run_goal = Mock(return_value="GOAL_RUN")
         run_patch = patch.object(goal_executor, "run", self.run_goal)
         run_patch.start()

@@ -63,8 +63,7 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         runtime = SimpleNamespace(profile=SimpleNamespace(slug=OWNER))
         handler = Mock(return_value="Merhaba")
         row = _entry()
-        with patch.object(brain_entry, "_install_core_guards"), \
-             patch.object(core_brain_adapter, "_correlated_job_id", return_value=None), \
+        with patch.object(core_brain_adapter, "_correlated_job_id", return_value=None), \
              patch("modules.engine_intents.dispatch", side_effect=AssertionError("normal CHAT existing handler'ı bypass etmemeli")):
             output, feedback, job_id = core_brain_adapter.handoff(runtime, row, handler, "selam")
         handler.assert_called_once_with("selam")
