@@ -254,7 +254,7 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
         self.ctx.system_control.set_mute.assert_not_called()
 
     def test_successful_read_only_plain_report_unblocks_dependent_action(self):
-        actions = (self._action("a1", "weather.read", {"location": "Ankara"}),
+        actions = (self._action("a1", "weather.read", {"location": "ankara"}),
                    self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
         _, _out, _, result = self._turn_actions(actions)
         self.ctx.system_control.set_mute.assert_called_once_with(True)
@@ -262,7 +262,7 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
 
     def test_empty_read_only_response_does_not_unlock_dependency(self):
         self.ctx._weather.return_value = "  "
-        actions = (self._action("a1", "weather.read", {"location": "Ankara"}),
+        actions = (self._action("a1", "weather.read", {"location": "ankara"}),
                    self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
         _, _out, _, result = self._turn_actions(actions)
         self.ctx.system_control.set_mute.assert_not_called()
