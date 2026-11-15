@@ -182,6 +182,8 @@ def _batch_domain_outcome(capability_id: str, output: Any) -> str:
         return "failed"
     if isinstance(output, Mapping):
         state = output.get("state", output.get("status"))
+        if not isinstance(state, str):
+            return "unknown"
         if state in {"failed", "error", "blocked", "cancelled", "unavailable", "rejected"}:
             return "failed"
         if capability_id in _BATCH_READ_ONLY_RESULTS:
