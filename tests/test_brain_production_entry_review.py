@@ -1,4 +1,5 @@
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import contextlib
 import time
@@ -63,9 +64,9 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         handler = Mock(return_value="Merhaba")
         row = _entry()
         with patch.object(brain_entry, "_install_core_guards"), \
-             patch.object(brain_entry, "_correlated_job_id", return_value=None), \
+             patch.object(core_brain_adapter, "_correlated_job_id", return_value=None), \
              patch("modules.engine_intents.dispatch", side_effect=AssertionError("normal CHAT existing handler'ı bypass etmemeli")):
-            output, feedback, job_id = brain_entry.handoff(runtime, row, handler, "selam")
+            output, feedback, job_id = core_brain_adapter.handoff(runtime, row, handler, "selam")
         handler.assert_called_once_with("selam")
         self.assertEqual(output, "Merhaba")
         self.assertEqual(feedback.request_id, RID)
@@ -100,7 +101,7 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         from modules import command_manager
         close = Mock(return_value='legacy effect')
         original = command_manager.engine_control
-        brain_entry._install_engine_control_guard()
+        self.assertFalse(hasattr(brain_entry, "_install_engine_control_guard"))
         self.assertIs(command_manager.engine_control, original)
         with brain_entry.bind(_entry(text="Jarvis'i kapatma")):
             self.assertIsNone(original("jarvis'i kapatma", source='yazı', sleeping=False,
@@ -161,7 +162,7 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
              patch("modules.webhook_server.start"), \
              patch("release_guard.ready"), \
              patch.object(brain_entry, "prepare", return_value=_entry(text=command)), \
-             patch.object(brain_entry, "handoff", handoff):
+             patch.object(core_brain_adapter, "handoff", handoff):
             with self.assertRaises(_StopAfterCanonicalHandoff):
                 engine_loop.main(runtime, ui=Mock())
         handoff.assert_called_once()

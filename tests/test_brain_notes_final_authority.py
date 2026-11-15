@@ -1,4 +1,5 @@
 """PR7 final notes authority: canonical Brain owns note read synonyms and named target selection."""
+from modules import core_brain_adapter
 import dataclasses
 import tempfile
 import unittest
@@ -37,7 +38,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
             self.assertFalse(hasattr(main_planner, "_note_lookup"))
         with requests_state.activate(self.owner, rid), nullcontext():
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handler, text)
         return entry, out, feedback, handler
 
     def test_read_synonyms_reach_core_without_legacy_planner(self):
@@ -140,7 +141,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
                 source="yazı", model_understanding=True,
             )
             self.assertEqual(brain_entry.core_plan(entry), ("notes_read", {"which": "all"}))
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, command)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handler, command)
         self.assertIn("ekranı paylaş", out)
         self.assertEqual(feedback.result_status, "handled")
         self.assertFalse(handler.called)

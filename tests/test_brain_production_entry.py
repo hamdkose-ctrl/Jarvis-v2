@@ -1,4 +1,5 @@
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import importlib
 import inspect
@@ -110,7 +111,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         command = source.index("_, cmd, source")
         activate = source.index("requests_state.activate", command)
         brain = source.index("brain_entry.prepare", activate)
-        handoff = source.index("brain_entry.handoff", brain)
+        handoff = source.index("core_brain_adapter.handoff", brain)
         self.assertLess(command, activate)
         self.assertLess(activate, brain)
         self.assertLess(brain, handoff)
@@ -319,7 +320,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         module = self.module()
         result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY))
         original = goal_executor._save
-        module._install_goal_save_guard()
+        self.assertFalse(hasattr(module, "_install_goal_save_guard"))
         self.assertIs(goal_executor._save, original)
         job = {"id": "0" * 16, "owner": OWNER, "request": "x", "state": "running",
                "goals": [], "steps": [], "outputs": {}}

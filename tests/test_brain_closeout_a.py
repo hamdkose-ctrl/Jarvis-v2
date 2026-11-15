@@ -1,4 +1,5 @@
 """PR7 Closeout-A: history cap, last_property continuity, structured clarification, single-pass typo, real feedback."""
+from modules import core_brain_adapter
 import tempfile
 from contextlib import nullcontext
 import unittest
@@ -127,7 +128,7 @@ class BareLevelTests(unittest.TestCase):
             requests_state.register(owner, rid)
             with requests_state.activate(owner, rid):
                 entry = brain_entry.prepare(context, owner=owner, request_id=rid, text=text, source="yazı")
-                out, _feedback, _ = brain_entry.handoff(context, entry, context.handle, text)
+                out, _feedback, _ = core_brain_adapter.handoff(context, entry, context.handle, text)
         return out
 
     def run_pipeline(self, text, state_setup=None):
@@ -293,8 +294,8 @@ class RealFeedbackTests(unittest.TestCase):
 
     def handoff(self, handler, runtime=None):
         rt = runtime or self.runtime()[0]
-        with patch.object(brain_entry, "_install_core_guards"), patch.object(brain_entry, "_correlated_job_id", return_value=None):
-            return brain_entry.handoff(rt, self.entry, handler, "işlem")
+        with patch.object(brain_entry, "_install_core_guards"), patch.object(core_brain_adapter, "_correlated_job_id", return_value=None):
+            return core_brain_adapter.handoff(rt, self.entry, handler, "işlem")
 
     def test_handled(self):
         _, fb, _ = self.handoff(Mock(return_value="tamam"))

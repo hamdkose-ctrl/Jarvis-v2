@@ -1,4 +1,5 @@
 """PR7 Closeout: remaining natural-language file operations use one Brain target and Core action."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -147,7 +148,7 @@ class EndToEndTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = handler or Mock(return_value="LEGACY")
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
 
     def test_canonical_analyze_dispatches_exact_target_without_legacy_resolve_doc(self):

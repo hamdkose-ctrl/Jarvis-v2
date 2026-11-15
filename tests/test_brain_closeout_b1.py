@@ -1,4 +1,5 @@
 """PR7 Closeout-B1: Core-validated capability hint, level request understanding, pre-queue fast lane."""
+from modules import core_brain_adapter
 import ast
 import queue
 import sys
@@ -102,8 +103,8 @@ class HandoffTests(unittest.TestCase):
 
     def handoff(self, entry, runtime, handler=None):
         handler = handler or Mock(side_effect=AssertionError("ham metin eski handler'a gitmemeli"))
-        with patch.object(brain_entry, "_install_core_guards"), patch.object(brain_entry, "_correlated_job_id", return_value=None):
-            return brain_entry.handoff(runtime, entry, handler, "komut")
+        with patch.object(brain_entry, "_install_core_guards"), patch.object(core_brain_adapter, "_correlated_job_id", return_value=None):
+            return core_brain_adapter.handoff(runtime, entry, handler, "komut")
 
     def test_mapped_hint_dispatches_validated_core_intent_not_raw_text(self):
         runtime, _ = self.runtime()
