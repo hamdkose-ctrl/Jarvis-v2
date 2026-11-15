@@ -197,6 +197,43 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         for case in corpus["cases"]:
             self.assertNotIn(case["text"].casefold(), serialized)
 
+    def test_speech_act_has_priority_over_capability_word_matching(self):
+        # Fake transport verifies the TRUE production model prompt, not live
+        # model accuracy. The four real Full misses must still be remeasured.
+        data = self.payload(text="Bu işlemin ne işe yaradığını açıklar mısın?",
+                            session_artifacts=())
+        system = self.model_input.split("You are the primary semantic decider", 1)[1]
+        self.assertLess(system.index("SPEECH ACT FIRST"),
+                        system.index("GOAL NEGATION SAFETY"))
+        self.assertIn("prohibition, refusal or withdrawal", system)
+        self.assertIn("inquiry ABOUT the meaning, scope or steps", system)
+        self.assertIn("polite question explicitly", system)
+        self.assertIn("there is no result to export", system)
+        self.assertIn("separate affirmative request", system)
+        self.assertEqual(data["current"]["request_kind"], "UNDECIDED")
+        self.assertIsNone(data["current"]["capability_hint"])
+
+    def test_action_preconditions_require_affirmative_intent_not_tool_mentions(self):
+        schema = self.payload()["allowed"]["argument_schema"]
+        export = schema["documents.export"]
+        diagnosis = schema["system.diagnose"]
+        self.assertIn("affirmatively", export["purpose"])
+        self.assertIn("current.current_output.available true", export["precondition"])
+        self.assertIn("refusal", export["precondition"])
+        self.assertIn("asks Jarvis to perform a check now", diagnosis["purpose"])
+        self.assertIn("questions ABOUT", diagnosis["precondition"])
+        self.assertIn("affirmative request", diagnosis["precondition"])
+
+    def test_unchanged_positive_diagnostic_request_still_admits_one_action(self):
+        # This checks the real typed validation path using a mocked provider
+        # output; it does not purport to prove a live model will choose it.
+        result = self.ask(direct("system.diagnose", {}),
+                          text="Şimdi sorun olup olmadığını kontrol eder misin?",
+                          active=current())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.operation, "direct_action")
+        self.assertEqual(result.actions[0].capability_id, "system.diagnose")
+
     def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
         result = self.ask(answer())
         self.assertIsNotNone(result)
