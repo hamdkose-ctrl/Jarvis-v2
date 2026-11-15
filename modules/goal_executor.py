@@ -1396,8 +1396,12 @@ def status_summary(job):
                          and s.get('tool') in ('coder','publish')),None)
     if pending_step is not None:
         target = pending_step.get('input',{}).get('destination')
+        proposal = pending_step.get('_canonical_approval_proposal')
+        preview = proposal.get('text') if isinstance(proposal,dict) else None
         summary += ('\nCanonical effect onayı bekleniyor: '+pending_step['tool']
                     + (' / '+str(target)[:160] if target else '')
+                    + ('\nOnay önizlemesi: '+privacy.redact(preview,force=True)[:1000]
+                       if isinstance(preview,str) else '')
                     + '\nOnay: hedef onayla ' + str(original['id']) + ' '
                     + control_key(original))
     dialog = job.get('_canonical_dialog')
