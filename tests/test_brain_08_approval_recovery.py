@@ -343,6 +343,11 @@ class EffectReplayTests(_OutboxFixture, unittest.TestCase):
         with patch.object(goals, 'STORE', Path(self.c.tmp.name) / 'planned_goals'):
             effect_recovery_runtime.record_intent(expected)
             self.assertEqual(effect_recovery_runtime.status(expected), 'unknown')
+            never_recover = Mock(side_effect=AssertionError('planned effect cannot reuse v1 recovery'))
+            self.assertIsNone(effect_recovery_runtime.reconcile(
+                expected, never_recover, receipt_readback=True,
+            ))
+            never_recover.assert_not_called()
             with self.assertRaises(effect_recovery_runtime.EffectReplayBlocked):
                 effect_recovery_runtime.record_intent(expected)
             # A newer Core version or changed canonical digest must not
