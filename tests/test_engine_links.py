@@ -40,10 +40,20 @@ class EngineLinkTests(unittest.TestCase):
         # Canonical semantic decisions are not the subject of this PC-owner
         # wrapper test. Model-free fixtures must not silently wait on a
         # provider or assume a legacy raw handler fallback.
-        def handoff(_runtime, _entry, handler, command):
-            return handler(command), SimpleNamespace(result_status='handled'), None
-        with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.core_brain_adapter.handoff', side_effect=handoff), \
+        import json
+        def handoff_json(_runtime, wire, handler, command):
+            json.loads(wire)
+            return json.dumps({"output": handler(command)})
+        def decode_result(wire, *, owner, request_id):
+            return {"output": json.loads(wire)["output"],
+                    "feedback": {"result_status": "handled"}, "job_id": None}
+        observed_entry = SimpleNamespace(
+            stage='semantic',
+            to_handoff_json=lambda: json.dumps({"fixture": "json-only"}),
+        )
+        with patch('modules.brain_entry.prepare', return_value=observed_entry), \
+             patch('modules.core_brain_adapter.handoff_json', side_effect=handoff_json), \
+             patch('modules.brain_core_wire.decode_result', side_effect=decode_result), \
              patch('modules.brain_echo.present'):
             self.assertEqual(context._live_command('merhaba'), 'Tamam.')
         context.handle.assert_called_once_with('merhaba')
@@ -119,10 +129,20 @@ class EngineLinkTests(unittest.TestCase):
             context._session().speech_override='Sesli kısa sonuç'
             return 'Tam sonuç'
         context.handle=handle
-        def handoff(_runtime, _entry, handler, command):
-            return handler(command), SimpleNamespace(result_status='handled'), None
-        with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.core_brain_adapter.handoff', side_effect=handoff), \
+        import json
+        def handoff_json(_runtime, wire, handler, command):
+            json.loads(wire)
+            return json.dumps({"output": handler(command)})
+        def decode_result(wire, *, owner, request_id):
+            return {"output": json.loads(wire)["output"],
+                    "feedback": {"result_status": "handled"}, "job_id": None}
+        observed_entry = SimpleNamespace(
+            stage='semantic',
+            to_handoff_json=lambda: json.dumps({"fixture": "json-only"}),
+        )
+        with patch('modules.brain_entry.prepare', return_value=observed_entry), \
+             patch('modules.core_brain_adapter.handoff_json', side_effect=handoff_json), \
+             patch('modules.brain_core_wire.decode_result', side_effect=decode_result), \
              patch('modules.brain_echo.present'):
             self.assertEqual(context._live_command('istek'),'Sesli kısa sonuç')
         self.assertEqual(len(observed),1)
