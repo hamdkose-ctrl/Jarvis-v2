@@ -148,7 +148,7 @@ def execute(profile, job_id, *, stop_event=None):
                                      max_tokens=2200, seconds=60)
                 requests_state.check()
                 tasks = task_agents.validate(task_agents._json(raw)['tasks'])
-                proposed = canonical_goal_flow._canonical_plan(tasks)
+                proposed = canonical_goal_flow._canonical_plan(tasks, allow_effects=True)
                 proposed['plan_version'] = current['goal_plan']['plan_version'] + 1
                 proof = certify(owner, job_id, proposed)
                 requests_state.check()
