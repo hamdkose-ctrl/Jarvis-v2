@@ -252,6 +252,32 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIn("questions ABOUT", diagnosis["precondition"])
         self.assertIn("affirmative request", diagnosis["precondition"])
 
+    def test_read_only_diagnosis_with_explicit_no_repair_is_still_an_action(self):
+        # Provider-fake contract: real LLM semantic performance needs a Full holdout.
+        result = self.ask(direct("system.diagnose", {}),
+                          text="Bağlantı sorununu araştır ama hiçbir ayarı değiştirme.",
+                          active=current())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.operation, "direct_action")
+        self.assertEqual(result.actions[0].capability_id, "system.diagnose")
+        self.payload(text="Bağlantı sorununu araştır ama hiçbir ayarı değiştirme.")
+        self.assertIn("constraint applies to repair, not to read-only inspection", self.model_input)
+
+    def test_sarcastic_comment_never_adopts_unproven_style_preference(self):
+        # Style evidence is a separate, optional contract; invalid evidence
+        # remains fail-closed rather than becoming a learned persona preference.
+        text = "Harika, yine bir hata daha; şahane çalışıyorsun!"
+        wrong = json.loads(answer(operation="chat", confidence="HIGH"))
+        wrong["presentation"] = [{
+            "key": "verbosity", "value": "kısa", "scope": "learned",
+            "evidence_quote": "Bundan sonra kısa yanıt ver"
+        }]
+        self.assertIsNone(self.ask(json.dumps(wrong), text=text))
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "PRESENTATION_INVALID")
+        self.payload(text=text)
+        self.assertIn("sarcasm, complaints, rhetorical praise", self.model_input)
+        self.assertIn("omit presentation entirely", self.model_input)
+
     def test_unchanged_positive_diagnostic_request_still_admits_one_action(self):
         # This checks the real typed validation path using a mocked provider
         # output; it does not purport to prove a live model will choose it.
