@@ -39,10 +39,23 @@ def required(kind: str) -> bool:
 
 
 def _checked(expected: dict) -> dict:
-    if not isinstance(expected, dict) or set(expected) != set(_FENCE):
-        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
-    probe = {'schema':'worker_result.v1', 'status':'succeeded', 'evidence':[], **expected}
+    """Validate legacy and plan-fenced effects without downgrading schemas.
+
+    Canonical Scheduler effects bind their intent/receipt to the immutable
+    plan version and node digest. Legacy effects retain their original v1
+    shape; the two identities cannot be confused or silently truncated.
+    """
     from modules import worker_result
+    if not isinstance(expected, dict):
+        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
+    fields = set(expected)
+    if fields == set(_FENCE):
+        schema = worker_result.SCHEMA
+    elif fields == set(_FENCE).union(worker_result.PLAN_FENCE):
+        schema = worker_result.PLAN_SCHEMA
+    else:
+        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
+    probe = {'schema':schema, 'status':'succeeded', 'evidence':[], **expected}
     worker_result.validate(probe)
     return copy.deepcopy(expected)
 
