@@ -166,6 +166,9 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     if durable_system:
         gated.add('system')
     prepare_bound={'coder','desktop','system'}
+    if (step['tool']=='publish' and isinstance(identity,dict)
+            and identity.get('_canonical_scheduler_offer') is not None):
+        prepare_bound.add('publish')
     plan=None;expected=None
     worker_approval=approval
     if step['tool'] in gated:
@@ -202,7 +205,11 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             if runtime_worker_result.durable_identity(identity):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
                 from modules import effect_recovery_runtime
-                if effect_recovery_runtime.required(step['tool']):
+                if (effect_recovery_runtime.required(step['tool'])
+                        or (step['tool']=='writer' and 'plan_version' in expected)):
+                    # Planned writer reports also need write-ahead identity:
+                    # a crash after atomic file creation cannot authorize
+                    # another automatically generated report.
                     effect_recovery_runtime.record_intent(expected)
 
     if step['tool']=='research':
@@ -288,6 +295,17 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
 
     if expected is not None:
         from modules import runtime_worker_result,worker_result_hook
+        if (step['tool']=='publish' and 'plan_version' in expected
+                and step.get('runtime_approved') is True):
+            # The Core approval is for the exact node/input. The Outbox
+            # separately owns the immutable resolved payload and its
+            # cross-process atomic send-once state. Do not skip either gate.
+            from modules import outbox, task_workers
+            payload=task_workers.resolve_publish_payload(job['owner'],step['input'],deps)
+            outbox_id=outbox.prepare(
+                job['owner'],payload,job['id']+':'+step['id'],
+            )
+            worker_approval={'id':outbox_id}
         output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=worker_approval)
     else:
         output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
