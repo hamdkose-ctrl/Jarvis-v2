@@ -896,7 +896,7 @@ def _macro_key(runtime, text: str) -> str:
 def _macro_run(runtime, cmd_lower: str) -> str | None:
     """Kısayolun her adımı KENDİ canonical kararıyla çalışır; ham adım eski zincire dönmez.
 
-    `brain_entry.run_step` her adımda owner/istek kimliğini turn'den alır, Understanding'i outer
+    `core_brain_adapter.run_step` her adımda owner/istek kimliğini turn'den alır, Understanding'i outer
     cümleden ALMAZ: adım kendi prepare -> handoff kararını bir kez alır ve onu tek başına söyleyen
     kullanıcının geçtiği canonical kapıdan geçer (outer entry bağlıyken `runtime.handle(step)` yok).
     Guard'lar (iptal, kapanma, owner değişimi, onay/yanıt bekleme) sırayı korur."""
@@ -909,7 +909,7 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     hit = macros.get(key) or next((macros[c] for c in sorted(cands) if c in macros), None)
     if not hit:
         return None
-    from modules.brain_entry import run_step
+    from modules.core_brain_adapter import run_step
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_macro = True
