@@ -103,7 +103,8 @@ class BrainCoreJsonWireTests(unittest.TestCase):
             owner=OWNER, request_id=RID, result_status="handled",
             reason_code="CORE_HANDOFF_RETURNED",
         )
-        with patch.object(requests_state._current, "get", return_value=(OWNER, RID)), \
+        with patch.object(requests_state, "_current",
+                          SimpleNamespace(get=lambda: (OWNER, RID))), \
              patch.object(core_brain_adapter, "handoff",
                           return_value=("done", response, None)) as core:
             encoded = core_brain_adapter.handoff_json(
