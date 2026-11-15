@@ -664,7 +664,11 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
 
     def test_reminder_postpone_requires_exact_confirmation_and_valid_delay(self):
         from modules import main_planner
-        event = {"id": 12, "title": "Rapor", "when": "2026-11-15T09:00"}
+        # The former fixed Nov 15 time became past during Windows CI;
+        # production correctly postponed from NOW. Use a future occurrence.
+        from datetime import datetime, timedelta
+        original = datetime.now().replace(second=0, microsecond=0) + timedelta(days=1)
+        event = {"id": 12, "title": "Rapor", "when": original.strftime("%Y-%m-%dT%H:%M")}
         self.ctx.profile.data["events"] = [event]
         with patch.object(self.ctx.profile, "reschedule_event",
                           side_effect=AssertionError("mutated before approval")) as worker:
@@ -680,7 +684,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         with patch.object(self.ctx.profile, "reschedule_event") as commit:
             response = main_planner.modify_reminder_confirmed(self.ctx, pending)
         self.assertIn("erteledim", response)
-        commit.assert_called_once_with(12, "2026-11-15T09:10")
+        commit.assert_called_once_with(12, (original + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M"))
 
     def test_reminder_postpone_rejects_stale_or_foreign_snapshot(self):
         from modules import main_planner
