@@ -335,3 +335,9 @@ Canonical kabul girişinin mimari envanteri de aynı değişiklikte göçer: do�
 
 
 15 Kasım Router kapasite reddi: Brain `PROVIDER_REQUEST_TOO_LARGE` kodunu normal model yok/yanıt yok tanısından ayırır. Core bunu yalnız MODEL_UNAVAILABLE yolu içinde kapasite açıklaması ve failed/request_change_required feedback'i olarak sunar; capability/worker/ham dil fallback yetkisi doğmaz. Mevcut exact protokoller normal önceliğinde kalır. Manuel Full koşumu bu durumda `state=unmeasured`, `stop_reason=provider_request_too_large`, gerçek istek/yanıt sayısıyla durur; 20 örnek ölçülmüş veya model kalite kabulü geçmiş sayılmaz. 30sn bütçe, 2048 çıktı sınırı ve tam korpus/eşik/etki kapıları değişmez.
+
+## CORE typed batch read-only outcome boundary — 15 Kasım 2026
+
+`core_brain_adapter._batch_handoff` bağımlı adımı, Core'un `handled` yanıtına tek başına dayanarak açmaz. Domain `.ok is True` kanıtı eskisi gibi geçerlidir; açık `.ok is False` başarısızdır. Yalnız geliştiricinin mevcut kapalı Core haritasında tanımlı, **salt-okunur** yeteneklerin gerçekten döndürdüğü boş olmayan düz metin/rapor veya `done/succeeded/ok` durumlu rapor çıktısı `succeeded` adım gözlemi olabilir. Boş çıktı, bilinmeyen nesne ve fiziksel/dış etkili işlemin sırf `status=ok` ya da dolu metin taşıması `unknown` kalır. `needs_input`, iptal, owner/request checkpoint ve yeniden oynatma çitleri değişmez. Bu batch uyumluluğu global GoalState tamamlandı hükmü değildir.
+
+**Kapsam dışı, açık geçiş borcu:** `task_agents.execute`, `goal_executor` legacy planı ve `task_queue.tick` içindeki eski kuyruk yürütmesi halen üretim yoludur. Mevcut canonical read-only Scheduler `research/account/verify` ile sınırlıdır. `writer/coder/publish` ve diğer efektli adapter'lar tek yaşam döngüsüne, gerçek permission/effect journal/receipt, owner fence ve eski kayıt kurtarma paritesi sağlanmadan fiziksel olarak kaldırılmaz. Bu PR yalnız batch outcome sözleşmesini düzeltir; tek Scheduler göçünü tamamlandı ilan etmez.
