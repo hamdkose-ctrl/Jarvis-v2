@@ -168,7 +168,15 @@ def verify_holdout(report, expected_sha):
 
 def assess(records, holdout_ok):
     """Fail closed on missing, duplicate, simulated or unobserved scenarios."""
-    if not isinstance(records, list) or len(records) != len(SCENARIOS):
+    if not isinstance(records, list):
+        return "unmeasured"
+    # An explicit failed scenario or critical unintended effect must not be
+    # hidden by an earlier skipped/unmeasured observation.
+    if any(isinstance(row, dict) and (
+            row.get("critical_wrong_effect") is True
+            or row.get("status") == "failed") for row in records):
+        return "failed"
+    if len(records) != len(SCENARIOS):
         return "unmeasured"
     expected = {row[0] for row in SCENARIOS}
     observed = set()
