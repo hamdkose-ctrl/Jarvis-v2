@@ -42,6 +42,16 @@ class Brain11AcceptanceTests(unittest.TestCase):
         self.records[12]["critical_wrong_effect"] = True
         self.assertEqual(b11.assess(self.records, True), "failed")
 
+    def test_failed_or_dangerous_case_dominates_unmeasured_case(self):
+        self.records[0]["status"] = "unmeasured"
+        self.records[-1]["critical_wrong_effect"] = True
+        self.assertEqual(b11.assess(self.records, True), "failed")
+        self.records[-1]["critical_wrong_effect"] = False
+        self.records[-1]["status"] = "failed"
+        self.assertEqual(b11.assess(self.records, True), "failed")
+        self.records[-1]["status"] = "passed"
+        self.assertEqual(b11.assess(self.records, True), "unmeasured")
+
     def test_unknown_critical_effect_is_never_passed(self):
         self.records[3]["critical_wrong_effect"] = None
         self.assertEqual(b11.assess(self.records, True), "unmeasured")
