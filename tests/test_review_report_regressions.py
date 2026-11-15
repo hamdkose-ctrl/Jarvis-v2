@@ -112,7 +112,7 @@ class DirectToolTests(unittest.TestCase):
         from modules import media
         with tempfile.TemporaryDirectory() as td, patch.object(requests, '_records', {}), patch.object(requests, '_journal', Path(td)/'requests.json'):
             requests.register('a','music')
-            def search(*a,**k): requests.cancel('a'); return SimpleNamespace(text='"videoId":"12345678901"')
+            def search(*a,**k): requests.cancel('a', 'music'); return SimpleNamespace(text='"videoId":"12345678901"')
             with requests.activate('a','music'), patch.object(media.requests,'get',side_effect=search), patch.object(media.webbrowser,'open') as browser:
                 with self.assertRaises(requests.Cancelled): media.youtube('test')
                 browser.assert_not_called()
@@ -122,7 +122,7 @@ class DirectToolTests(unittest.TestCase):
         svc=Mock()
         with tempfile.TemporaryDirectory() as td, patch.object(requests, '_records', {}), patch.object(requests, '_journal', Path(td)/'requests.json'):
             requests.register('a','task')
-            def lid(s): requests.cancel('a'); return 'list'
+            def lid(s): requests.cancel('a', 'task'); return 'list'
             with requests.activate('a','task'), patch.object(handoff,'_svc',return_value=svc), patch.object(handoff,'_lid',side_effect=lid), patch.object(handoff,'place',return_value='ev'):
                 with self.assertRaises(requests.Cancelled): handoff.add('test','ev')
                 svc.tasks.assert_not_called()

@@ -143,7 +143,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         )
         engine_loop._queued_audio(runtime, ("audio", "clip.wav", "telefon", "Hamdi", RID))
         self.assertEqual(events.get_nowait(), ("command", "notlarımı göster", "telefon", "Hamdi", RID))
-        activation.assert_called_once_with("hamdi", RID, complete=False)
+        activation.assert_called_once_with("hamdi", RID, complete=False, foreground=True)
         check.assert_called()
         cancel.assert_not_called()
 
