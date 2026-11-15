@@ -300,8 +300,12 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             # The Core approval is for the exact node/input. The Outbox
             # separately owns the immutable resolved payload and its
             # cross-process atomic send-once state. Do not skip either gate.
-            from modules import outbox, task_workers
+            from modules import outbox, publish_services, task_workers
             payload=task_workers.resolve_publish_payload(job['owner'],step['input'],deps)
+            payload=publish_services.validate(payload)
+            if (not isinstance(step.get('_canonical_payload_digest'),str)
+                    or outbox._digest(payload)!=step['_canonical_payload_digest']):
+                raise PermissionError('Approved publish payload changed; nothing sent.')
             outbox_id=outbox.prepare(
                 job['owner'],payload,job['id']+':'+step['id'],
             )
