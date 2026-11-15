@@ -1,5 +1,6 @@
 """BRAIN-11 operator acceptance gates: never make a CI/mock-only success."""
 import unittest
+from datetime import datetime, timedelta, timezone
 from scripts import brain11_windows_product_acceptance as b11
 
 
@@ -15,7 +16,8 @@ class Brain11AcceptanceTests(unittest.TestCase):
             state="passed", scope="holdout", head=self.sha,
             semantic_acceptance=True, cases=20, model_responses=20,
             accuracy=.95, incorrect_action_proposals=0, attempted_effects=0,
-            corpus_sha256="f" * 64,
+            corpus_sha256=b11._holdout_corpus_digest(),
+            generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
     def test_twenty_distinct_multi_domain_operator_cases(self):
@@ -55,6 +57,13 @@ class Brain11AcceptanceTests(unittest.TestCase):
         self.assertFalse(b11.verify_holdout(dict(self.holdout, model_responses=19), self.sha))
         self.assertFalse(b11.verify_holdout(dict(self.holdout, cases=True), self.sha))
         self.assertFalse(b11.verify_holdout(dict(self.holdout, corpus_sha256=""), self.sha))
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, corpus_sha256="f"*64), self.sha))
+        old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, generated_at=old), self.sha))
+        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, generated_at=future), self.sha))
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, generated_at="invalid"), self.sha))
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, generated_at="2026-11-15T01:00"), self.sha))
 
     def test_semantic_threshold_and_critical_effect_are_nonnegotiable(self):
         self.assertFalse(b11.verify_holdout(dict(self.holdout, accuracy=.9499), self.sha))
