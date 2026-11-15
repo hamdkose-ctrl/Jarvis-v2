@@ -187,7 +187,7 @@ class ModularEngineTests(unittest.TestCase):
         context=self.context();context.emit=Mock()
         context.voice=SimpleNamespace(stop_speaking=Mock())
         context.requests_state=SimpleNamespace(
-            cancel=Mock(), cancel_unambiguous=Mock(return_value=('cancelled', 'one')),
+            cancel=Mock(), cancel_foreground=Mock(return_value=('cancelled', 'one')),
             register=Mock(return_value=False),
         )
         with patch('modules.pc_guide.stop') as guide:
@@ -195,7 +195,7 @@ class ModularEngineTests(unittest.TestCase):
             self.assertFalse(session.submit_voice('dur'))
         self.assertFalse(context.pause_listening.is_set())
         self.assertTrue(context.events.empty())
-        context.requests_state.cancel_unambiguous.assert_called_once()
+        context.requests_state.cancel_foreground.assert_called_once()
         context.requests_state.cancel.assert_not_called()
         guide.assert_not_called()
         self.assertFalse(session.submit_voice('reddedilen komut'))
@@ -211,12 +211,12 @@ class ModularEngineTests(unittest.TestCase):
         context._emit_for=Mock()
         context._get_profile=Mock(return_value=context.profile)
         context.requests_state=SimpleNamespace(
-            cancel=Mock(), cancel_unambiguous=Mock(return_value=('ambiguous', None)),
+            cancel=Mock(), cancel_foreground=Mock(return_value=('ambiguous', None)),
             register=Mock(),
         )
         with patch('modules.pc_guide.stop') as guide:
             self.assertFalse(context.submit('dur', 'telefon', context.profile.name, 'stop-rid'))
-        context.requests_state.cancel_unambiguous.assert_called_once_with(
+        context.requests_state.cancel_foreground.assert_called_once_with(
             context.slugify(context.profile.name))
         context.requests_state.cancel.assert_not_called()
         guide.assert_not_called()

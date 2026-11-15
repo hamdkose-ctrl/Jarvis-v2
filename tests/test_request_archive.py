@@ -30,29 +30,54 @@ class RequestArchiveTests(unittest.TestCase):
         self.assertTrue(state.register('bob','0'))
         self.assertTrue(state.is_cancelled('alice','0'))
 
-    def test_bare_stop_rejects_ambiguous_same_owner_requests(self):
-        state.register('alice', 'a')
-        state.register('alice', 'b')
-        state.register('bob', 'c')
-        self.assertEqual(state.cancel_unambiguous('alice'), ('ambiguous', None))
-        self.assertEqual(state._records[('alice','a')]['state'], 'queued')
-        self.assertEqual(state._records[('alice','b')]['state'], 'queued')
-        self.assertEqual(state._records[('bob','c')]['state'], 'queued')
+    def test_bare_stop_never_selects_queued_or_background_work(self):
+        state.register('alice', 'planner')
+        state.register('alice', 'queued-voice')
+        state.register('bob', 'other')
+        self.assertEqual(state.cancel_foreground('alice'), ('none', None))
+        self.assertEqual(state.request_state('alice', 'planner'), 'queued')
+        self.assertEqual(state.request_state('alice', 'queued-voice'), 'queued')
+        self.assertEqual(state.request_state('bob', 'other'), 'queued')
+        with self.assertRaises(ValueError):
+            state.cancel('alice', None)
+        self.assertEqual(state.request_state('alice', 'planner'), 'queued')
+        with state.activate('alice', 'planner'):
+            self.assertEqual(state.cancel_foreground('alice'), ('none', None))
+            state.check()
 
-    def test_bare_stop_cancels_only_one_owner_bound_request(self):
-        state.register('alice', 'a')
-        state.register('bob', 'c')
-        self.assertEqual(state.cancel_unambiguous('alice'), ('cancelled', 'a'))
+    def test_bare_stop_cancels_only_running_foreground(self):
+        state.register('alice', 'voice')
+        state.register('alice', 'planner')
+        state.register('bob', 'other')
+        with state.activate('alice', 'voice', foreground=True):
+            self.assertEqual(state.cancel_foreground('alice'), ('cancelled', 'voice'))
+            with self.assertRaises(state.Cancelled):
+                state.check()
+        self.assertTrue(state.is_cancelled('alice', 'voice'))
+        self.assertFalse(state.is_cancelled('alice', 'planner'))
+        self.assertFalse(state.is_cancelled('bob', 'other'))
+        self.assertEqual(state.cancel_foreground('alice'), ('none', None))
+
+    def test_bare_stop_rejects_ambiguous_foreground(self):
+        state.register('alice', 'voice-1')
+        state.register('alice', 'voice-2')
+        with state.activate('alice', 'voice-1', foreground=True):
+            with state.activate('alice', 'voice-2', foreground=True):
+                self.assertEqual(state.cancel_foreground('alice'), ('ambiguous', None))
+                self.assertFalse(state.is_cancelled('alice', 'voice-1'))
+                self.assertFalse(state.is_cancelled('alice', 'voice-2'))
+
+    def test_targeted_cancel_does_not_touch_sibling_or_other_owner(self):
+        for owner, rid in [('alice', 'a'), ('alice', 'b'), ('bob', 'a')]:
+            self.assertTrue(state.register(owner, rid))
+        state.cancel('alice', 'a')
         self.assertTrue(state.is_cancelled('alice', 'a'))
-        self.assertEqual(state._records[('bob', 'c')]['state'], 'queued')
-        self.assertEqual(state.cancel_unambiguous('alice'), ('none', None))
-        # The old explicit-all control remains available when intentionally used.
-        state.cancel('bob')
-        self.assertTrue(state.is_cancelled('bob', 'c'))
+        self.assertFalse(state.is_cancelled('alice', 'b'))
+        self.assertFalse(state.is_cancelled('bob', 'a'))
 
     def test_bare_stop_never_revives_an_expired_request(self):
         state.register('alice', 'expired', seconds=-1)
-        self.assertEqual(state.cancel_unambiguous('alice'), ('none', None))
+        self.assertEqual(state.cancel_foreground('alice'), ('none', None))
         self.assertTrue(state.is_cancelled('alice', 'expired'))
 
     def test_active_and_transcription_handoff_not_pruned(self):

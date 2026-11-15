@@ -46,7 +46,7 @@ with patch.object(pc_guide, 'handle', return_value='Önce şu klasörü aç.') a
     coach.assert_called_once()
 with patch.object(pc_guide, 'stop') as stop, \
      patch.object(main.voice, 'stop_speaking') as voice_stop, \
-     patch.object(main.requests_state, 'cancel_unambiguous',
+     patch.object(main.requests_state, 'cancel_foreground',
                   return_value=('none', None)) as scoped, \
      patch.object(main.requests_state, 'cancel') as cancel_all:
     main.submit('dur', 'yazı', main.pc_profile().name)

@@ -81,7 +81,7 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         self.assertEqual(other.pending_confirm, 'shutdown')
         self.assertEqual(self.runtime.profile.data, before)
         self.assertNotIn(self.owner, self.runtime._pending_photo)
-        self.assertTrue(state.is_cancelled(self.owner, 'old-command'))
+        self.assertFalse(state.is_cancelled(self.owner, 'old-command'))
         self.assertFalse(state.is_cancelled('other','other-command'))
 
     def test_live_stop_blocks_side_effect_and_restores_context(self):
@@ -123,27 +123,31 @@ class ConversationRequestSafetyTests(unittest.TestCase):
             self.assertIn('iptal',future.result(timeout=3))
         effect.assert_not_called()
 
-    def test_live_stop_while_waiting_for_profile_lock_never_runs_command(self):
+    def test_bare_stop_does_not_cancel_queued_voice_turn_waiting_for_lock(self):
         effect = Mock()
-        self.runtime.handle = lambda text: effect()
+        self.runtime.handle = lambda text: effect() or 'executed'
         self.runtime._execution_lock.acquire()
+        released = False
         rid = None
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(self.runtime._live_command, 'kilitli işlem')
                 for _ in range(100):
-                    if state._records: break
+                    if state._records:
+                        break
                     time.sleep(0.01)
                 rid = next(iter(state._records))[1]
-                self.assertEqual(state._records[(self.owner, rid)]['state'], 'queued')
+                self.assertEqual(state.request_state(self.owner, rid), 'queued')
                 self.stop()
+                self.assertEqual(state.request_state(self.owner, rid), 'queued')
                 self.runtime._execution_lock.release()
-                self.assertIn('iptal', future.result(timeout=3))
+                released = True
+                self.assertNotIn('iptal', future.result(timeout=3).casefold())
         finally:
-            if rid and state._records.get((self.owner, rid), {}).get('state') == 'queued':
+            if not released:
                 self.runtime._execution_lock.release()
-        effect.assert_not_called()
-        self.assertTrue(state.is_cancelled(self.owner, rid))
+        effect.assert_called_once()
+        self.assertFalse(state.is_cancelled(self.owner, rid))
 
     def test_audio_stop_during_transcription_never_creates_replacement_request(self):
         path, event = self.audio()
@@ -168,12 +172,15 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         self.assertEqual(state._records[seen[0]]['state'], 'done')
         self.assertFalse(path.exists()); self.assertEqual(len(state._records),1)
 
-    def test_audio_cancelled_before_translation_is_deleted_without_provider_call(self):
-        path, event = self.audio(); self.stop()
-        self.runtime.llm_transcribe = Mock()
+    def test_bare_stop_does_not_cancel_queued_audio_transcription(self):
+        path, event = self.audio()
+        self.stop()
+        self.runtime.llm_transcribe = Mock(return_value='merhaba')
         engine_loop._queued_audio(self.runtime, event)
-        self.runtime.llm_transcribe.assert_not_called()
-        self.assertFalse(path.exists()); self.assertTrue(self.runtime.events.empty())
+        self.runtime.llm_transcribe.assert_called_once()
+        self.assertFalse(path.exists())
+        self.assertEqual(self.runtime.events.get_nowait()[4], event[4])
+        self.assertFalse(state.is_cancelled(self.owner, event[4]))
 
     def test_audio_deadline_after_translation_prevents_handoff(self):
         path, event = self.audio()
