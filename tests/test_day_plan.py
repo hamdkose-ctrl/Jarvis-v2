@@ -3,6 +3,7 @@
 Takvim (Jarvis + Google), sıradaki iş, gecikmiş/bugünkü görevler ve okunmamış mail sayısı tek cevapta toplanır.
 Gerçek profil JSON'u ve gerçek EngineContext.handle; Google taklit, model çağrılırsa test düşer.
 """
+from modules import core_brain_adapter
 import unittest
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ def typed_calendar(rt, text, *, view="day_plan", period="today"):
         entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
                                     text=text, source="yazı", model_understanding=True)
         forbidden = Mock(side_effect=AssertionError("calendar model action reached old raw handler"))
-        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+        reply, feedback, _ = core_brain_adapter.handoff(rt, entry, forbidden, text)
     assert feedback.result_status == "handled", (text, feedback)
     forbidden.assert_not_called()
     return str(reply)
@@ -178,7 +179,7 @@ class DayPlanTests(ProfileCase):
                      patch.object(rt, "chat", return_value="CHAT"):
                     entry = brain_entry.prepare(rt, owner=owner, request_id=rid, text=text,
                                                 source="yazı", model_understanding=True)
-                    output, feedback, _ = brain_entry.handoff(
+                    output, feedback, _ = core_brain_adapter.handoff(
                         rt, entry, Mock(side_effect=AssertionError("CHAT reached raw handler")), text)
                 self.assertEqual(feedback.result_status, "handled")
                 self.assertEqual(str(output), "CHAT")

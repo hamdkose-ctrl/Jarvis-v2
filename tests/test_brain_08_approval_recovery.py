@@ -1,4 +1,5 @@
 """BRAIN-08 real Core/SQLite/EffectJournal; only provider/native effects fake."""
+from modules import core_brain_adapter
 import copy
 import json
 import threading
@@ -254,7 +255,7 @@ class BatchCheckpointTests(_OutboxFixture, unittest.TestCase):
         self.assertEqual(feedback.result_status,'handled')
         before=copy.deepcopy(c.ctx.profile.data['items'])
         raw_handler=Mock(side_effect=AssertionError('raw parser fallback'))
-        output,replayed,_=brain_entry.handoff(c.ctx,entry,raw_handler,command)
+        output,replayed,_=core_brain_adapter.handoff(c.ctx,entry,raw_handler,command)
         self.assertEqual(replayed.reason_code,'CORE_BATCH_CHECKPOINT_REPLAY_BLOCKED')
         self.assertEqual(c.ctx.profile.data['items'],before)
         self.assertIn('tekrar yürütülmedi',output)

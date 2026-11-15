@@ -87,7 +87,7 @@ def _log_core_feedback(runtime, entry):
     """
     if entry is None:
         return None
-    from modules import brain_entry
+    from modules import brain_entry, core_brain_adapter
     row = brain_entry.last_feedback()
     if row is not None and row.request_id == entry.request_id:
         runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s",
@@ -382,7 +382,7 @@ def main(runtime, ui=None):
                     continue
                 try:
                     with runtime.as_user(user), runtime.requests_state.activate(owner, rid):
-                        from modules import brain_entry
+                        from modules import brain_entry, core_brain_adapter
                         runtime.emit("user", "📷 Fotoğraf" + (f": {question}" if question else ""), source)
                         entry = None
                         awaiting_question = False
@@ -415,7 +415,7 @@ def main(runtime, ui=None):
                                                "ya da fotoğrafla ilgili sorunu yaz.")
                                     else:
                                         runtime.emit("state", "thinking")
-                                        out, feedback, _job = brain_entry.handoff(
+                                        out, feedback, _job = core_brain_adapter.handoff(
                                             runtime, entry, runtime.handle, question,
                                         )
                             fb = feedback or brain_entry.photo_feedback(entry, awaiting_question=awaiting_question)
@@ -471,7 +471,7 @@ def main(runtime, ui=None):
                 continue
             try:
                 with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid):
-                    from modules import brain_entry
+                    from modules import brain_entry, core_brain_adapter
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
@@ -531,7 +531,7 @@ def main(runtime, ui=None):
                             else:
                                 out, brain_feedback, brain_job_id = _turn_with_listening_foreground(
                                     voice_session,
-                                    lambda: brain_entry.handoff(runtime, entry, runtime.handle, cmd),
+                                    lambda: core_brain_adapter.handoff(runtime, entry, runtime.handle, cmd),
                                 )
                                 runtime.log.info(
                                     "Brain handoff: rid=%s stage=%s job=%s feedback=%s",

@@ -87,7 +87,7 @@ def production_trees():
 
 # Core handler'ın istek kararı bu anahtar çiftiyle taşınır; ikisini birlikte üreten her modül
 # fiilen ikinci sınıflandırıcıdır. Rastgele "intent" kelimesi değil, sözlük literali taranır.
-BRAIN_TURN_DOORS = frozenset({"prepare", "handoff", "bind", "route_command", "run_step"})
+BRAIN_TURN_DOORS = frozenset({"prepare", "bind", "route_command"})
 # Semantic kapı isimleri: buradan yapılan her yazım bir authority kurulumudur.
 SEMANTIC_DOORS = frozenset({"route", "classify", "handle", "intent_router", "_resolve_doc",
                             "_live_command", "_context_prompt", "ask", "chat"})
@@ -97,13 +97,13 @@ ROUTE_DICT_ALLOWLIST = {
                       "izdüşüren tek yer (_legacy_route_projection/route_command).",
 }
 BRAIN_TURN_ALLOWLIST = {
-    "acceptance_checks.py": ({"prepare", "handoff"},
+    "acceptance_checks.py": ({"prepare"},
                              "Açık --news kabulünde sabit semantic adapter fixture'ı ile gerçek Core/haber iş akışı; "
                              "source=acceptance senkron girişidir, üretim classifier veya canlı Brain/Scheduler kabulü değildir."),
     # Yüzey girdisi -> {çağrılan kapılar, neden}. Text/Web/kuyruk-audio/telefon/fotoğraf tek turda hazırlanır.
-    "engine_loop.py": ({"prepare", "handoff", "bind"},
+    "engine_loop.py": ({"prepare", "bind"},
                        "Tek yüzey girdisi: motor olay döngüsü Brain turünü burada hazırlar ve Core'a devreder."),
-    "engine_live_brain.py": ({"prepare", "handoff"},
+    "engine_live_brain.py": ({"prepare"},
                              "Live'ın canonical turu: _live_command aynı prepare→handoff kapısından geçer."),
     "engine_commands.py": ({"route_command"},
                            "Core handler'ın tek sınıflandırılmış-istek kapısı çağrısı; başka çağran yok."),
@@ -490,12 +490,12 @@ class SurfaceParityTests(unittest.TestCase):
         self.assertTrue(all(owner == "ayşe kaya" for owner, _ in queued))
 
     def test_live_turn_uses_prepare_then_the_core_door(self):
-        from modules import brain_echo, brain_entry, engine_live_brain
+        from modules import brain_echo, brain_entry, core_brain_adapter, engine_live_brain
         runtime = fake_runtime()
         entry = SimpleNamespace(stage="understanding", text="saat kaç")
         feedback = SimpleNamespace(result_status="ok")
         with patch.object(brain_entry, "prepare", return_value=entry) as prepare, \
-                patch.object(brain_entry, "handoff", return_value=("Saat 15:00.", feedback, None)) as handoff, \
+                patch.object(core_brain_adapter, "handoff", return_value=("Saat 15:00.", feedback, None)) as handoff, \
                 patch.object(brain_echo, "present"):
             out = engine_live_brain._live_command(runtime, "saat kaç")
         self.assertEqual(out, "Saat 15:00.")

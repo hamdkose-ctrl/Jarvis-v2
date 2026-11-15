@@ -14,7 +14,7 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         return fixtures.ModularEngineTests.context(self)
 
     def test_live_command_enters_brain_before_core_handoff(self):
-        from modules import brain_entry
+        from modules import brain_entry, core_brain_adapter
 
         runtime = self.context()
         runtime.emit = Mock()
@@ -24,7 +24,7 @@ class BrainPR9LiveParityTests(unittest.TestCase):
                                           result_status="handled")
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry) as prepare, \
-             patch.object(brain_entry, "handoff", return_value=("Tamam.", sentinel_feedback, None)) as handoff:
+             patch.object(core_brain_adapter, "handoff", return_value=("Tamam.", sentinel_feedback, None)) as handoff:
             result = runtime._live_command("hava nasıl")
 
         self.assertEqual(result, "Tamam.")
@@ -38,7 +38,7 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         runtime.handle.assert_not_called()
 
     def test_live_command_handoff_exception_uses_existing_diagnose_fallback(self):
-        from modules import brain_entry, diagnose
+        from modules import brain_entry, core_brain_adapter, diagnose
 
         runtime = self.context()
         runtime.emit = Mock()
@@ -46,7 +46,7 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         sentinel_entry = object()
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry), \
-             patch.object(brain_entry, "handoff", side_effect=RuntimeError("boom")), \
+             patch.object(core_brain_adapter, "handoff", side_effect=RuntimeError("boom")), \
              patch.object(diagnose, "explain", return_value="Tanı mesajı") as explain:
             result = runtime._live_command("hava nasıl")
 

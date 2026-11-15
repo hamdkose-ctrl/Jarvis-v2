@@ -1,4 +1,5 @@
 """PR7 Closeout-B2: weather via Core, open pending_level superseded by an explicit level request, end-to-end."""
+from modules import core_brain_adapter
 import sys
 import unittest
 from types import ModuleType, SimpleNamespace
@@ -106,11 +107,10 @@ class EndToEndTests(unittest.TestCase):
         with patch.object(brain_entry.brain_context, "build_active_context", context), \
              patch("modules.job_front.observe", lambda owner: None), \
              patch("modules.desktop_agent._load", lambda owner: None), \
-             patch.object(brain_entry, "_install_core_guards"), \
-             patch.object(brain_entry, "_correlated_job_id", return_value=None), \
+             patch.object(core_brain_adapter, "_correlated_job_id", return_value=None), \
              patch("modules.engine_intents.dispatch", return_value="<<dispatch>>") as dispatch:
             entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı", model_understanding=model_understanding)
-            output, feedback, _ = brain_entry.handoff(self.runtime, entry, handler, text)
+            output, feedback, _ = core_brain_adapter.handoff(self.runtime, entry, handler, text)
         return entry, output, feedback, handler, dispatch
 
     def test_open_pending_level_is_superseded_by_an_explicit_level_request(self):

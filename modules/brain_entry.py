@@ -640,24 +640,6 @@ def last_feedback() -> BrainFeedback | None:
     return _LAST_FEEDBACK.get()
 
 
-def _open_core_pending(runtime: Any) -> frozenset[str]:
-    try:
-        state = runtime._session()
-    except Exception:
-        _record_failure("modules/brain_entry.py:core_pending_snapshot")
-        return frozenset()
-    result = {
-        field for field in brain_context._PENDING_FIELDS
-        if getattr(state, field, None) not in (None, False, "", (), [], {})
-    }
-    # A Taildrop clarification is a real Core pending slot, not a prose
-    # success. Macro/batch execution must stop at this boundary.
-    from modules import filesend
-    if filesend.pending_choices(runtime.profile.slug) is not None:
-        result.add("pending_filesend")
-    return frozenset(result)
-
-
 @contextmanager
 def bind(entry: EntryResult):
     if not isinstance(entry, EntryResult):
@@ -687,30 +669,6 @@ def execution_metadata(owner: str) -> dict[str, object] | None:
         "capability_hint": proposal.get("capability_hint"),
         "manifest_capability_id": proposal.get("manifest_capability_id"),
     }
-
-
-def _correlated_job_id(entry: EntryResult) -> str | None:
-    try:
-        from modules import goal_executor
-        # BRAIN-05: bir hedef işlemi çıplak kontrollerin duran hedefi `latest.json`ı
-        # taşımayabilir; hedef kendi kimliğiyle anılır. Tek hedefli turlarda o kimlik
-        # okunur, çok hedefli turlarda tek bir kayıt korrelate edilemez.
-        selected = tuple(getattr(entry.understanding, "goal_target_ids", ()) or ()) \
-            if entry.understanding is not None else ()
-        if len(selected) == 1:
-            row = goal_executor.read_job(entry.owner, selected[0])
-        else:
-            row = goal_executor.latest(entry.owner)
-    except Exception:
-        _record_failure("modules/brain_entry.py:goal_correlation")
-        return None
-    if not isinstance(row, dict):
-        return None
-    meta = row.get("brain")
-    if not isinstance(meta, dict) or meta.get("request_id") != entry.request_id:
-        return None
-    ident = row.get("id")
-    return str(ident) if ident else None
 
 
 _TYPO_UNVERIFIED_QUESTION = ("Cümlenin Türkçe karakterleri tamamlanmış hâli doğrulanmış bir yetenekte karşılık "
@@ -794,16 +752,6 @@ def route_command(runtime: Any, command: str) -> dict[str, object]:
     return _legacy_route_projection(entry)
 
 
-def _install_job_guard() -> None:
-    """Compatibility hook: guards are explicit at their Core call sites now."""
-    return None
-
-
-def _install_goal_save_guard() -> None:
-    """Compatibility hook: guards are explicit at their Core call sites now."""
-    return None
-
-
 def allow_legacy_engine_control(entry: EntryResult | None = None) -> bool:
     """Allow legacy close/sleep/wake effects only after an exact canonical Fast match.
 
@@ -820,16 +768,6 @@ def allow_legacy_engine_control(entry: EntryResult | None = None) -> bool:
         and row.fast_gate.matched
         and row.fast_gate.protocol in _FAST_ENGINE_PROTOCOLS
     )
-
-
-def _install_engine_control_guard() -> None:
-    """Compatibility hook: guards are explicit at their Core call sites now."""
-    return None
-
-
-def _install_core_guards(runtime: Any) -> None:
-    """Compatibility hook: guards are explicit at their Core call sites now."""
-    return None
 
 
 def _has_pending(entry: EntryResult, field: str) -> bool:
@@ -887,12 +825,6 @@ def photo_followup_owned(entry: EntryResult | None) -> bool:
     return (semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
             and PHOTO_FOLLOWUP_CODE in semantic.reason_codes
             and _pending_photo_state(entry.active_context) is not None)
-
-
-def _photo_lifecycle(runtime: Any, entry: EntryResult) -> None:
-    """Compatibility entry; Core owns validation, session changes and execution."""
-    from modules import core_brain_adapter
-    return core_brain_adapter._photo_lifecycle(runtime, entry)
 
 
 def _pending_owns_turn(entry: EntryResult) -> bool:
@@ -1036,12 +968,6 @@ def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: 
     return _is_explicit_owner_protocol(runtime, command)
 
 
-def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
-    """Compatibility entry; Core owns validation, session changes and execution."""
-    from modules import core_brain_adapter
-    return core_brain_adapter._drop_stale_clarify(runtime, entry)
-
-
 def _file_access_refusal(entry: EntryResult) -> str | None:
     """A resolved file proposal rejected by Core/fence fails closed instead of legacy target guessing."""
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
@@ -1130,59 +1056,6 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
         return brain_core_map.fast_plan(fast.protocol, fast.selection)
     return None
 
-
-
-def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
-    """Compatibility entry; Core owns validation, session changes and execution."""
-    from modules import core_brain_adapter
-    return core_brain_adapter._batch_handoff(runtime, entry, handler, command)
-
-
-def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
-    """Compatibility entry; Core owns validation, session changes and execution."""
-    from modules import core_brain_adapter
-    return core_brain_adapter.handoff(runtime, entry, handler, command)
-
-
-def _active_request_id(runtime: Any, owner: str) -> str:
-    rid = str(getattr(runtime, "_cur_rid", "") or "")
-    if rid:
-        return rid
-    state = getattr(runtime, "requests_state", None)
-    token = getattr(state, "_current", None)
-    active = token.get() if hasattr(token, "get") else None
-    return str(active[1]) if active and str(active[0]) == owner else ""
-
-
-def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
-    """Run ONE step of an already-canonical turn with its OWN semantic decision.
-
-    Only a nested step (multi-step sentence, macro action) uses this: the caller must already be
-    inside a bound canonical entry. The step shares the turn's owner/request identity but never
-    borrows the outer utterance's UnderstandingResult — `prepare` + `handoff` decide it once, and
-    the raw step text never re-enters the legacy interpretation chain.
-
-    Returns (raw Core/legacy output, BrainFeedback)."""
-    outer = current()
-    if outer is None:
-        raise ValueError("Adım yalnız bağlı bir canonical isteğin içinde çalıştırılabilir.")
-    owner = _runtime_owner(runtime)
-    if owner != outer.owner:
-        raise ValueError("Adım owner'ı bağlı istekle eşleşmiyor.")
-    request_id = _active_request_id(runtime, owner)
-    if not request_id:
-        raise ValueError("Adım için etkin istek kimliği yok.")
-    step = str(text).strip()
-    if not step:
-        raise ValueError("Adım metni boş olamaz.")
-    if step == outer.text.strip():
-        raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
-    source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
-    entry = prepare(
-        runtime, owner=owner, request_id=request_id, text=step, source=source,
-        model_understanding=True,
-    )
-    return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
 
 
 def goal_question_superseded(runtime: Any = None) -> bool | None:

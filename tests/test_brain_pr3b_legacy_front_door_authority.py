@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_pr3_raw_text_authority as pr3a
-from modules import brain_entry, engine_commands, finance, git_publish, learning, typo, watcher
+from modules import brain_entry, core_brain_adapter, engine_commands, finance, git_publish, learning, typo, watcher
 from modules.brain_contracts import RequestKind
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,7 +114,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
                 self.ctx, owner=self.owner, request_id=rid, text=text,
                 source=source, model_understanding=model_understanding)
             handle = handler if handler is not None else self.ctx.handle
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         self.turn_texts = [call.args[1] for call in self.door.call_args_list]
         return entry, out, handle, feedback
 

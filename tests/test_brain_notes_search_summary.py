@@ -7,6 +7,7 @@ RED phase contract:
 - an unresolved/ambiguous target, empty query and malformed Core payload must fail closed;
 - other domains (web/file/mail/page) keep their own target ownership.
 """
+from modules import core_brain_adapter
 import ast
 import copy
 from dataclasses import replace
@@ -208,9 +209,6 @@ class _BrainCase(unittest.TestCase):
         self.addCleanup(_release_logs, self.temp.name)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.ctx.profile.data["items"] = []
         for text in self.now_texts:
             self.ctx.profile.add_note_item(text)
@@ -294,7 +292,7 @@ class _BrainCase(unittest.TestCase):
             stack.enter_context(requests_state.activate(owner, rid))
             entry = brain_entry.prepare(self.ctx, owner=owner, request_id=rid, text=text,
                                         source="yazı", model_understanding=forbid_legacy_search)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handler, text)
         return entry, out, feedback, handler
 
 

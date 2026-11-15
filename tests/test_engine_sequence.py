@@ -3,6 +3,7 @@
 Adım bölme grameri artık burada değildir: tipli adım planının tek sahibi Understanding'dir
 (`brain_understanding.sequence_steps`, sözleşmesi `tests/test_brain_understanding.py`
 SequenceGrammarTests içinde). Buradaki yüzey yalnız typed adım çalıştırma adaptörüdür."""
+from modules import core_brain_adapter
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -35,7 +36,7 @@ class EngineSequenceTests(unittest.TestCase):
             calls.append(text)
             reply = replies.get(text, (f'{text} bitti', SimpleNamespace(result_status='handled')))
             return reply
-        with patch.object(brain_entry, 'run_step', side_effect=fake_run_step):
+        with patch.object(core_brain_adapter, "run_step", side_effect=fake_run_step):
             return calls, sequence._run_steps(self.runtime, steps)
 
     def test_run_steps_never_reinterprets_a_step_through_the_engine(self):
@@ -53,7 +54,7 @@ class EngineSequenceTests(unittest.TestCase):
         self.runtime.emit.assert_not_called()
 
     def test_run_steps_uses_the_canonical_step_envelope_for_every_step(self):
-        with patch('modules.brain_entry.run_step', return_value=('tamam', SimpleNamespace(result_status='handled'))) as step:
+        with patch('modules.core_brain_adapter.run_step', return_value=('tamam', SimpleNamespace(result_status='handled'))) as step:
             sequence._run_steps(self.runtime, ['oku', 'yaz'])
         self.assertEqual([row.args[1] for row in step.call_args_list], ['oku', 'yaz'])
         self.assertEqual([row.args[0] for row in step.call_args_list], [self.runtime, self.runtime])
@@ -81,14 +82,14 @@ class EngineSequenceTests(unittest.TestCase):
         def step(runtime, text):
             self.session.speech_override = 'yalnız bu adım'
             return ('cevap', SimpleNamespace(result_status='handled'))
-        with patch.object(brain_entry, 'run_step', side_effect=step):
+        with patch.object(core_brain_adapter, "run_step", side_effect=step):
             sequence._run_steps(self.runtime, ['oku', 'yaz'])
         self.assertIs(self.session._in_multi, False)
         self.assertIsNone(self.session.speech_override)
 
     def test_run_steps_invalid_container_raises_without_auditing(self):
         for steps in (None, 123, True):
-            with self.subTest(steps=steps), patch('modules.brain_entry.run_step',
+            with self.subTest(steps=steps), patch('modules.core_brain_adapter.run_step',
                                                   side_effect=AssertionError('adım çalışmamalı')):
                 with self.assertRaises(TypeError):
                     sequence._run_steps(self.runtime, steps)
@@ -107,7 +108,7 @@ class EngineSequenceTests(unittest.TestCase):
         def switch(runtime, text):
             self.runtime.profile.slug = 'bob'
             return ('ilk bitti', SimpleNamespace(result_status='handled'))
-        with patch.object(brain_entry, 'run_step', side_effect=switch):
+        with patch.object(core_brain_adapter, "run_step", side_effect=switch):
             out = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
         self.assertIn('Kullanıcı değişti', out)
         self.assertNotIn('ikinci', out)

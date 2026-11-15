@@ -1,4 +1,5 @@
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import json
 import unittest
@@ -62,7 +63,7 @@ class BrainFeedbackContractTests(unittest.TestCase):
     def test_text_semantic_clarification_sets_needs_input_and_safe_ambiguities(self):
         row = _entry(semantic=_semantic(clarify=True))
         handler = Mock(side_effect=AssertionError("clarification effect/worker başlatmamalı"))
-        output, feedback, job_id = brain_entry.handoff(_runtime(), row, handler, "onu aç")
+        output, feedback, job_id = core_brain_adapter.handoff(_runtime(), row, handler, "onu aç")
         handler.assert_not_called()
         self.assertIn("netleştir", output.casefold())
         self.assertEqual((feedback.owner, feedback.request_id), (OWNER, RID))
@@ -81,7 +82,7 @@ class BrainFeedbackContractTests(unittest.TestCase):
         )
         row = _entry(state=conflict)
         handler = Mock(side_effect=AssertionError("multiple state effect/worker başlatmamalı"))
-        output, feedback, job_id = brain_entry.handoff(_runtime(), row, handler, "evet")
+        output, feedback, job_id = core_brain_adapter.handoff(_runtime(), row, handler, "evet")
         handler.assert_not_called()
         self.assertIn("birden fazla", output.casefold())
         self.assertEqual(feedback.result_status, "needs_input")
