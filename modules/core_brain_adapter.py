@@ -155,6 +155,49 @@ def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
             _record_failure("modules/brain_entry.py:drop_stale_clarify")
 
 
+# A plain report can prove that a read-only Core handler completed, but not
+# that a physical/external write succeeded. Keep this closed to existing typed
+# read-only Core operations; side effects still need an explicit domain receipt.
+_BATCH_READ_ONLY_RESULTS = frozenset({
+    "system.diagnose", "brief.read", "study.read", "calendar.read",
+    "kb.query", "worktrack.read", "mail.read", "conversation.table",
+    "weather.read", "weather.read.current", "notes.read",
+})
+
+
+def _batch_domain_outcome(capability_id: str, output: Any) -> str:
+    """Classify a completed Core action, never a routing acknowledgement alone.
+
+    A verified ActionOutcome.ok remains authoritative. A nonempty plain report
+    counts only for a developer-integrated read-only operation that Core already
+    handled without error/pending state. Never infer an effectful success from
+    arbitrary prose or a worker's unaccepted status field.
+    """
+    explicit = getattr(output, "ok", None)
+    if explicit is True:
+        return "succeeded"
+    if explicit is False:
+        return "failed"
+    if isinstance(output, Mapping):
+        state = output.get("state", output.get("status"))
+        if not isinstance(state, str):
+            return "unknown"
+        if state in {"failed", "error", "blocked", "cancelled", "unavailable", "rejected"}:
+            return "failed"
+        if capability_id in _BATCH_READ_ONLY_RESULTS:
+            if output.get("ok") is False:
+                return "failed"
+            if (state in {"done", "succeeded", "ok"}
+                    and isinstance(output.get("text"), str)
+                    and output["text"].strip()):
+                return "succeeded"
+        return "unknown"
+    if (capability_id in _BATCH_READ_ONLY_RESULTS
+            and isinstance(output, str) and output.strip()):
+        return "succeeded"
+    return "unknown"
+
+
 def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Run each adopted action through the existing Core intent path, never raw text."""
     from modules.brain_entry import (
@@ -201,10 +244,9 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
             output, action_feedback, _ = handoff(runtime, action_entry, handler, command)
             lines.append(f"{action_id}: {output}")
             if action_feedback.result_status == "handled":
-                # Routing acknowledgement is not domain success. Only explicit domain evidence
-                # can unlock a dependent action; uninstrumented results remain unknown.
-                ok = getattr(output, "ok", None)
-                outcomes[action_id] = "succeeded" if ok is True else "failed" if ok is False else "unknown"
+                # Core has handled this exact typed action. Only a domain
+                # receipt, or a completed read-only Core report, unlocks a dependency.
+                outcomes[action_id] = _batch_domain_outcome(action["capability_id"], output)
                 checkpoint.record(entry.owner,entry.request_id,action_id,outcomes[action_id],lines[-1])
                 continue
             outcomes[action_id] = action_feedback.result_status

@@ -46,6 +46,19 @@ class GoalCommandPrefixTests(ProfileCase):
             self.assertEqual(goals.handle(rt, 'hedef iptal'), 'Kayıtlı hedef yok.')
         run.assert_not_called()
 
+    def test_exact_canonical_effect_approval_reaches_core_without_model_reclassification(self):
+        from modules import engine_commands
+        rt = _runtime(self, self.profile, datetime(2026, 10, 20, 12))
+        command = 'hedef onayla ' + '1' * 16 + ' ' + 'a' * 64
+        with patch('modules.command_manager.engine_control',return_value=None), \
+             patch.object(brain_entry,'matched_protocol',return_value=False), \
+             patch.object(goals,'canonical_scheduler_owned',return_value=True) as owns, \
+             patch.object(goals,'handle',return_value='Onay kaydedildi; Scheduler yürütür') as handler:
+            result = engine_commands.handle(rt, command)
+        self.assertIn('Scheduler', result)
+        owns.assert_called_once_with(rt.profile.slug, '1' * 16)
+        handler.assert_called_once_with(rt, command)
+
     def test_reserved_controls_keep_their_existing_meaning(self):
         rt = _runtime(self, self.profile, datetime(2026, 10, 20, 12))
         with patch.object(goals, 'latest', return_value=None), patch.object(goals, 'run') as run:

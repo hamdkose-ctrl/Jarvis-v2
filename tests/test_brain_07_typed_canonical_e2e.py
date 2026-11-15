@@ -464,8 +464,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         calls = []
         original_try = canonical_goal_flow.try_create
         effectful = {'tasks': [{
-            'id': 'write', 'agent': 'writer', 'depends': [],
-            'input': {'instruction': 'Save report', 'filename': 'report.md'},
+            'id': 'write', 'agent': 'finance', 'depends': [],
+            'input': {'operation': 'calculate', 'payload': '1+1'},
         }]}
 
         def planned(*args, **kwargs):
@@ -514,8 +514,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
     def test_legacy_receipt_survives_a_separate_process_restart(self):
         effectful = {'tasks': [{
-            'id': 'write', 'agent': 'writer', 'depends': [],
-            'input': {'instruction': 'Write report', 'filename': 'report.md'},
+            'id': 'write', 'agent': 'finance', 'depends': [],
+            'input': {'operation': 'calculate', 'payload': '1+1'},
         }]}
         rid, text = 'cross-process-legacy-receipt', 'Write report'
         with patch.object(model_wait, 'ask', return_value=json.dumps(effectful)):
@@ -544,8 +544,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
     def test_legacy_handoff_receipt_rejects_new_text_and_corruption(self):
         invalid = {'tasks': [{
-            'id': 'write', 'agent': 'writer', 'depends': [],
-            'input': {'instruction': 'Write report', 'filename': 'report.md'},
+            'id': 'write', 'agent': 'finance', 'depends': [],
+            'input': {'operation': 'calculate', 'payload': '1+1'},
         }]}
         rid = 'legacy-one-shot-collision'
         with patch.object(model_wait, 'ask', return_value=json.dumps(invalid)):
@@ -742,8 +742,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
     def test_failed_legacy_receipt_write_prevents_any_legacy_effect(self):
         legacy = {'tasks': [{
-            'id': 'write', 'agent': 'writer', 'depends': [],
-            'input': {'instruction': 'Write file', 'filename': 'unsafe.md'},
+            'id': 'write', 'agent': 'finance', 'depends': [],
+            'input': {'operation': 'calculate', 'payload': '1+1'},
         }]}
         actual_atomic = canonical_goal_flow.release_guard.atomic
 
@@ -1050,18 +1050,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertIn('henüz', message)
         self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
 
-    def test_effectful_plan_keeps_existing_legacy_permission_path(self):
+    def test_writer_plan_enters_canonical_scheduler_without_legacy_execution(self):
         writer = {'tasks': [{
             'id': 'write', 'agent': 'writer', 'depends': [],
             'input': {'instruction': 'Save report', 'filename': 'report.md'},
         }]}
         with patch.object(model_wait, 'ask', return_value=json.dumps(writer)):
             _, _, fb, job_id = self.typed_turn('Bir raporu dosyaya kaydet.')
-        self.assertEqual(fb.reason_code, 'GOAL_CREATE')
-        self.assertIsNone(job_id)
-        self.run_goal.assert_called_once()
-        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob('*.execution.json')), ())
-        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob('*.goalstate.json')), ())
+        self.assertEqual(fb.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertIsInstance(job_id,str)
+        self.run_goal.assert_not_called()
+        state,record=self.persisted(job_id)
+        self.assertEqual(state['goal_plan']['nodes'][0]['capability_id'],'task.writer')
+        self.assertEqual(record['steps'][0]['state'],'queued')
 
     def test_crashed_partial_publication_is_not_admitted_or_retried(self):
         actual_atomic = canonical_goal_flow.release_guard.atomic
@@ -2674,8 +2675,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         job exists, and a repeated request ID never runs that worker again.
         """
         proposal = {'tasks': [{
-            'id': 'report', 'agent': 'writer', 'depends': [],
-            'input': {'instruction': 'Produce summary', 'filename': 'report.md'},
+            'id': 'report', 'agent': 'finance', 'depends': [],
+            'input': {'operation': 'calculate', 'payload': '1+1'},
         }]}
         rid = 'safe-first-legacy-handoff'
         with patch.object(model_wait, 'ask', return_value=json.dumps(proposal)) as model:
@@ -2700,3 +2701,23 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                          'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
         self.run_goal.assert_called_once()
 
+
+class EffectfulCanonicalStagingFenceTests(unittest.TestCase):
+    """The explicit production lane is permissioned, not a blanket manifest grant."""
+
+    def test_writer_coder_publish_registered_but_default_pure_plan_stays_read_only(self):
+        from modules import canonical_goal_flow, canonical_scheduler_lane
+        inputs={
+            'writer': {'instruction': 'Write report', 'filename': 'report.md'},
+            'coder': {'request': 'Draft isolated code and tests'},
+            'publish': {'service':'gmail','destination':'person@example.com',
+                        'subject':'Hello','text':'Hello'},
+        }
+        for kind, data in inputs.items():
+            with self.subTest(kind=kind):
+                proposal=[{"id":"e1","agent":kind,"depends":[],"input":data}]
+                with self.assertRaises(ValueError):
+                    canonical_goal_flow._canonical_plan(proposal)
+                plan=canonical_goal_flow._canonical_plan(proposal,allow_effects=True)
+                self.assertEqual(plan['nodes'][0]['capability_id'],'task.'+kind)
+                self.assertIn('task.'+kind,canonical_scheduler_lane._SUPPORTED)

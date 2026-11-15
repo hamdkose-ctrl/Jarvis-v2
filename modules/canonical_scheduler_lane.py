@@ -27,7 +27,9 @@ class ReadyOffer:
     attempt: int = 1
 
 
-_SUPPORTED = frozenset({'task.research', 'task.account', 'task.verify'})
+_SUPPORTED = frozenset({'task.research', 'task.account', 'task.verify',
+                        'task.writer', 'task.coder', 'task.publish'})
+_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish'})
 _MAX_CANDIDATES = 8
 
 
@@ -95,11 +97,23 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
         state, owner=owner, job_id=job_id,
     )
     published = record['steps']
+    # An effect and a sibling worker must never race the same GoalState CAS.
+    # This serializes ONLY this goal, not unrelated owners or other jobs.
+    running_effect = any(isinstance(step, dict) and step.get('state') == 'running'
+                         and step.get('tool') in ('writer','coder','publish')
+                         for step in published)
+    running_other = any(isinstance(step, dict) and step.get('state') == 'running'
+                        for step in published)
     digest = goal_job_control.fingerprint(record)
     offers = []
 
     for candidate in available:
-        if candidate.capability_id not in _SUPPORTED:
+        if candidate.capability_id not in _SUPPORTED or running_effect:
+            continue
+        if candidate.capability_id in _EFFECTS and (running_other or offers):
+            # Do not return an effect in the same discovery batch as an
+            # independent read-only root. Effect CAS cannot safely adopt a
+            # concurrent sibling version after a real external write.
             continue
         node = goal_plan_gate.revalidate(state, candidate)
         # At most one published step may represent this canonical node.
@@ -122,7 +136,8 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
             # Never revive a previous attempt or an already projected output.
             continue
         if node['depends_on']:
-            if candidate.capability_id not in ('task.research', 'task.account', 'task.verify'):
+            if candidate.capability_id not in ('task.research', 'task.account', 'task.verify',
+                                                 'task.writer', 'task.publish'):
                 continue
             identity = {
                 'version': 1, 'owner': owner, 'job_id': job_id,
@@ -143,6 +158,10 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
         else:
             goal_plan_gate.validate_root_attempt(state, candidate, attempt=1)
         offers.append(ReadyOffer(candidate, digest))
+        # A pending effect must start alone; non-effect siblings will be
+        # reconsidered after its safe checkpoint, never in the same batch.
+        if candidate.capability_id in _EFFECTS:
+            break
         if len(offers) >= limit:
             break
     return tuple(offers)

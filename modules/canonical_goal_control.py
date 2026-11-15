@@ -133,6 +133,56 @@ def settle_pause(owner, job_id):
         return True
 
 
+def approve_effect(owner: str, job_id: str, *, expected_control: str) -> str:
+    """Consume a displayed, exact effect approval; NEVER execute its worker.
+
+    Only the existing canonical Scheduler discovers the requeued first
+    attempt. A crash after consuming approval but before dispatch is safe:
+    the job still contains a queued, uniquely approved command. A crash
+    after dispatch leaves a started command and never requeues it.
+    """
+    from modules import goal_approval, goal_executor, goal_plan_gate
+    root=goal_executor._owner_root(owner)
+    with goal_job_control.locked(root, job_id):
+        observed=goal_executor.read_job(owner, job_id)
+        if (observed is None or not isinstance(expected_control, str)
+                or goal_executor.control_key(observed) != expected_control):
+            raise PermissionError('Hedef onay kartı eskidi; hedefi tekrar görüntüle.')
+        root, state, record = _pair(owner, job_id)
+        if (not owned(state, record)
+                or state['state'] not in ('pending', 'running')
+                or record.get('state') != 'running'):
+            raise PermissionError('Yalnız aktif canonical hedefin onayı kabul edilir.')
+        pending=record.get('waiting')
+        steps=[step for step in record.get('steps', ())
+               if isinstance(step,dict) and step.get('id')==pending]
+        if len(steps)!=1 or steps[0].get('state')!='approval':
+            raise PermissionError('Bu hedefin bekleyen tekil efekt onayı yok.')
+        step=steps[0]
+        if (step.get('tool') not in ('coder','publish')
+                or step.get('started') is not False
+                or step.get('attempts')!=0
+                or step['id'] in record.get('outputs', {})):
+            raise PermissionError('Başlamış effect adımı tekrar onaylanamaz.')
+        selection=goal_plan_gate.candidate(
+            state, owner=owner,job_id=job_id,node_id=step['id'],
+        )
+        node=goal_plan_gate.revalidate(state,selection)
+        if (node['capability_id']!='task.'+step['tool']
+                or node['input'] != step['input']
+                or node['depends_on']!=step['depends']):
+            raise PermissionError('Hedef planı onaydan önce değişti.')
+        goal_approval.verify_canonical(record,step,pending=True)
+        step['approval']['consumed_at']=time.time()
+        step['state']='queued'
+        record.pop('waiting',None)
+        record.pop('approval_at',None)
+        record.pop('blocker',None)
+        _write(root,record)
+    return ('Onay yalnız bu hedefin değişmeyen '+step['tool']+
+            ' adımı için tüketildi; ilk çalıştırmayı canonical Scheduler yapacak.')
+
+
 def control(owner, job_id, operation, *, text='', expected_snapshot=None, answer=False):
     """Apply one already model-selected goal operation; None means legacy owner."""
     from modules import goal_executor

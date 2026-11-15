@@ -89,6 +89,20 @@ def handle(runtime, command: str):
         outcome = goal_executor.handle(runtime, command)
         if outcome is not None:
             return outcome
+    # Exact Core-issued, owner/job-bound effect consent protocol. This is NOT
+    # another natural-language classifier or a model-issued permission: the
+    # displayed 64-hex control key is rechecked against current durable state
+    # by canonical_goal_control; the foreground sends nothing.
+    import re
+    exact_effect_consent = re.fullmatch(
+        r'hedef\s+onayla\s+([a-f0-9]{16})\s+([a-f0-9]{64})',
+        command, re.IGNORECASE,
+    )
+    if (exact_effect_consent is not None
+            and goal_executor.canonical_scheduler_owned(
+                runtime.profile.slug, exact_effect_consent.group(1).lower(),
+            )):
+        return goal_executor.handle(runtime, command)
 
     # Kanonical açıklama turu (Understanding'ın tek EXPLANATION hükmü): cümle bilgi ister, yürütülecek
     # iş değildir. Buradan sonrası ham cümleyi yeniden sınıflandıran cephelerdir — erken dispatch

@@ -39,10 +39,23 @@ def required(kind: str) -> bool:
 
 
 def _checked(expected: dict) -> dict:
-    if not isinstance(expected, dict) or set(expected) != set(_FENCE):
-        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
-    probe = {'schema':'worker_result.v1', 'status':'succeeded', 'evidence':[], **expected}
+    """Validate legacy and plan-fenced effects without downgrading schemas.
+
+    Canonical Scheduler effects bind their intent/receipt to the immutable
+    plan version and node digest. Legacy effects retain their original v1
+    shape; the two identities cannot be confused or silently truncated.
+    """
     from modules import worker_result
+    if not isinstance(expected, dict):
+        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
+    fields = set(expected)
+    if fields == set(_FENCE):
+        schema = worker_result.SCHEMA
+    elif fields == set(_FENCE).union(worker_result.PLAN_FENCE):
+        schema = worker_result.PLAN_SCHEMA
+    else:
+        raise ValueError('Effect recovery WorkerResult fence geçersiz.')
+    probe = {'schema':schema, 'status':'succeeded', 'evidence':[], **expected}
     worker_result.validate(probe)
     return copy.deepcopy(expected)
 
@@ -58,7 +71,12 @@ def _journal(expected: dict, *, existing=False):
     path = goal_executor._root(expected['owner']) / (expected['job_id'] + '.effects.json')
     journal=effect_journal.PersistentJournal(path)
     effect_id=_effect_id(expected)
-    if existing and journal.status(effect_id)=='not_started':
+    if (existing and 'plan_version' not in expected
+            and journal.status(effect_id)=='not_started'):
+        # A planned effect NEVER adopts a journal receipt via a partial
+        # legacy-field match: its plan version, input and node digest are one
+        # indivisible command fence. Legacy v1 recovery retains its prior
+        # lifecycle-version compatibility.
         # Lifecycle CAS may advance across restart. The immutable operation
         # identity/attempt/input must still match exactly; never adopt a result
         # from a renamed task, new input, new attempt or ambiguous old entries.
@@ -124,6 +142,14 @@ def record_receipt(expected: dict, output: dict) -> None:
 def reconcile(expected: dict, read_only_reconcile, *, receipt_readback=False):
     """Read-only recovery: no intent means no reconcile; no effect is retried."""
     expected = _checked(expected)
+    if 'plan_version' in expected:
+        # A canonical planned effect must NOT use the legacy v1 recovery
+        # bridge: it has no revalidated Scheduler offer, owner resource lease
+        # or current-plan approval/permission fence. Recording its write-ahead
+        # intent/receipt is supported, but effect reconciliation and Core CAS
+        # remain blocked until the canonical recovery path proves those gates.
+        # The callback must not be invoked or a provider side effect repeated.
+        return None
     journal, effect_id = _journal(expected,existing=True)
     decision = crash_recovery.decide(journal, effect_id)
     if decision['state'] == 'not_started':

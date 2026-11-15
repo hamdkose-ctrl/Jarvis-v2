@@ -98,6 +98,62 @@ def consume(job, step, proposal, *, now=None, profile=None):
         return row['approval_id']
 
 
+def verify_canonical(job, step, *, pending=False, now=None) -> dict:
+    """Verify one immutable Core approval without consuming/replaying an effect.
+
+    The existing goal_approval certificate is reused. A canonical worker may
+    run only after an exact owner/job/input/plan-bound user approval has been
+    durably consumed. The approval is short-lived and single use.
+    """
+    from modules import runtime_prepare_approval
+    now = time.time() if now is None else now
+    proposal = step.get('_canonical_approval_proposal')
+    row = step.get('approval')
+    if (not isinstance(proposal, dict) or not isinstance(row, dict)
+            or set(row) != {'schema','approval_id','binding','created_at','expires_at','consumed_at'}
+            or row.get('schema') != SCHEMA
+            or not isinstance(row.get('approval_id'), str)
+            or len(row['approval_id']) != 32
+            or any(c not in '0123456789abcdef' for c in row['approval_id'])
+            or any(type(row[k]) not in (int,float) or not math.isfinite(row[k])
+                   for k in ('created_at','expires_at'))
+            or not row['created_at'] <= now
+            or row['expires_at'] > row['created_at'] + TTL_SECONDS
+            or row.get('binding') != binding(job,step,proposal)):
+        raise PermissionError('Canonical approval owner, input or plan changed.')
+    bound = runtime_prepare_approval.expected(
+        {'owner':job['owner'],'job_id':job['id'],'task_id':step['id']},
+        step['tool'],step['input'],
+    )
+    if (set(proposal) != runtime_prepare_approval._FIELDS
+            or proposal.get('state') != 'approval'
+            or proposal.get('approval_schema') != runtime_prepare_approval.SCHEMA
+            or proposal.get('id') != step['id']
+            or any(proposal.get(key) != value for key,value in bound.items())):
+        raise PermissionError('Canonical prepare approval has changed.')
+    if step['tool']=='publish':
+        import re
+        digest = step.get('_canonical_payload_digest')
+        connection = step.get('_canonical_connection_digest')
+        if (not isinstance(digest,str)
+                or re.fullmatch(r'[0-9a-f]{64}',digest) is None
+                or 'İçerik SHA-256: '+digest not in proposal.get('text','')
+                or not isinstance(connection,str)
+                or re.fullmatch(r'[0-9a-f]{64}',connection) is None
+                or 'Hesap bağlantı sürümü SHA-256: '+connection
+                   not in proposal.get('text','')):
+            raise PermissionError('Publish approval has no exact payload and connection digests.')
+    consumed = row.get('consumed_at')
+    if pending:
+        if consumed is not None or not now < row['expires_at']:
+            raise PermissionError('Canonical approval expired or already consumed.')
+    elif (type(consumed) not in (int,float) or not math.isfinite(consumed)
+          or not row['created_at'] <= consumed < row['expires_at']
+          or now > consumed + TTL_SECONDS):
+        raise PermissionError('Canonical approval is not a live consumed authorization.')
+    return copy.deepcopy(row)
+
+
 def pending(owner):
     """All owner's pending goal approvals, independent of the latest pointer."""
     from modules import goal_executor

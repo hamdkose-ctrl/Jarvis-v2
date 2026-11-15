@@ -251,6 +251,36 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
             self._turn_actions(actions)
         self.ctx.system_control.set_mute.assert_not_called()
 
+    def test_successful_read_only_plain_report_unblocks_dependent_action(self):
+        actions = (self._action("a1", "weather.read", {"location": "ankara"}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
+        _, _out, _, result = self._turn_actions(actions)
+        self.ctx.system_control.set_mute.assert_called_once_with(True)
+        self.assertEqual(result.result_status, "handled")
+
+    def test_empty_read_only_response_does_not_unlock_dependency(self):
+        self.ctx._weather.return_value = "  "
+        actions = (self._action("a1", "weather.read", {"location": "ankara"}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
+        _, _out, _, result = self._turn_actions(actions)
+        self.ctx.system_control.set_mute.assert_not_called()
+        self.assertEqual(result.result_status, "partial")
+
+    def test_read_only_worker_report_without_ok_and_failure_fences(self):
+        from modules import core_brain_adapter
+        verdict = core_brain_adapter._batch_domain_outcome
+        self.assertEqual(verdict("brief.read", "Rapor hazır"), "succeeded")
+        self.assertEqual(verdict("brief.read", {"state": "done", "text": "Rapor hazır"}), "succeeded")
+        self.assertEqual(verdict("brief.read", {"status": "ok", "text": "Rapor hazır"}), "succeeded")
+        self.assertEqual(verdict("brief.read", {"state": "failed", "text": "Rapor hazır"}), "failed")
+        self.assertEqual(verdict("brief.read", {"state": "done", "text": ""}), "unknown")
+        self.assertEqual(verdict("pc.media.action", {"status": "ok", "text": "Rapor hazır"}), "unknown")
+        self.assertEqual(verdict("pc.media.action", "Bitti"), "unknown")
+        # These broad hint families include UI/file or browser side effects.
+        for capability in ("files.read", "media.search", "browser.page.read",
+                           "screen.text", "text.translate"):
+            self.assertEqual(verdict(capability, "Tamamlandı"), "unknown", capability)
+
     def test_unknown_domain_result_cannot_unlock_dependency(self):
         actions = (self._action("a1", "pc.media.action", {"media": {"action": "next"}}),
                    self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))

@@ -257,7 +257,8 @@ def _require_persisted_dependencies(
 ) -> dict[str, dict]:
     """Bind already accepted, projected predecessor bytes from the journal."""
     from modules import execution_record, goal_executor
-    if (capability not in ('task.research', 'task.account', 'task.verify')
+    if (capability not in ('task.research', 'task.account', 'task.verify',
+                           'task.writer', 'task.publish')
             or not isinstance(identity, dict) or not isinstance(node, dict)
             or node.get('capability_id') != capability
             or not isinstance(node.get('depends_on'), list)
@@ -305,3 +306,16 @@ def require_persisted_account_dependencies(identity: dict, node: dict) -> dict[s
 def require_persisted_verify_dependencies(identity: dict, node: dict) -> dict[str, dict]:
     """Validate all parent SHA-256 commitments and domain receipts."""
     return _require_persisted_dependencies(identity, node, 'task.verify')
+
+
+
+def require_persisted_effect_dependencies(identity: dict, node: dict) -> dict[str, dict]:
+    """A writer/publish worker reads only accepted and projected source bytes.
+
+    Each source is re-verified against the exact Core result digest and native
+    artifact/receipt before any new report or outbound send is permitted.
+    """
+    capability = node.get('capability_id') if isinstance(node, dict) else None
+    if capability not in ('task.writer', 'task.publish'):
+        raise goal_plan_gate.PlanFenceError('Unsupported dependent effect.')
+    return _require_persisted_dependencies(identity, node, capability)

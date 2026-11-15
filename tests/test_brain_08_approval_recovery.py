@@ -325,6 +325,89 @@ class EffectReplayTests(_OutboxFixture, unittest.TestCase):
         self.assertFalse(goal_state_store.load(path)['evidence'])
         self.send.assert_called_once()
 
+    def test_canonical_planned_effect_receipt_requires_exact_plan_fence(self):
+        """Effect journal accepts a full planned fence, never a partial v1 downgrade.
+
+        This only verifies write-ahead identity and recovery isolation. It
+        does NOT authorize a writer/coder/publish Scheduler worker or effect.
+        """
+        import hashlib
+        from pathlib import Path
+        payload_digest = hashlib.sha256(b"immutable-canonical-payload").hexdigest()
+        expected = {
+            'owner': 'alice', 'job_id': '0123456789abcdef', 'step_id': 'send',
+            'command_id': 'send:1:p1', 'attempt': 1,
+            'expected_job_version': 2, 'capability_id': 'task.publish',
+            'capability_version': '1', 'input_digest': payload_digest,
+            'plan_version': 1, 'node_digest': 'a' * 64,
+        }
+        with patch.object(goals, 'STORE', Path(self.c.tmp.name) / 'planned_goals'):
+            effect_recovery_runtime.record_intent(expected)
+            self.assertEqual(effect_recovery_runtime.status(expected), 'unknown')
+            never_recover = Mock(side_effect=AssertionError('planned effect cannot reuse v1 recovery'))
+            self.assertIsNone(effect_recovery_runtime.reconcile(
+                expected, never_recover, receipt_readback=True,
+            ))
+            never_recover.assert_not_called()
+            with self.assertRaises(effect_recovery_runtime.EffectReplayBlocked):
+                effect_recovery_runtime.record_intent(expected)
+            # A newer Core version or changed canonical digest must not
+            # adopt the old intent/receipt as if it belonged to this plan.
+            for changed in (dict(expected, expected_job_version=3),
+                            dict(expected, node_digest='b' * 64),
+                            dict(expected, plan_version=2, command_id='send:1:p2')):
+                self.assertEqual(effect_recovery_runtime.status(changed), 'not_started')
+                with self.assertRaises(effect_recovery_runtime.EffectReplayBlocked):
+                    effect_recovery_runtime.record_intent(changed)
+            effect_recovery_runtime.record_receipt(
+                expected, {'receipt': {'service': 'gmail', 'remote_id': 'receipt-1'}},
+            )
+            self.assertEqual(effect_recovery_runtime.status(expected), 'succeeded')
+            self.assertEqual(
+                effect_recovery_runtime.status(dict(expected, node_digest='b' * 64)),
+                'not_started',
+            )
+        self.send.assert_not_called()
+
+    def test_all_three_effectful_adapter_journals_are_one_shot(self):
+        """Journal contracts stage the three existing adapters, not dispatch them."""
+        from pathlib import Path
+        with patch.object(goals, 'STORE', Path(self.c.tmp.name) / 'effectful_catalog'):
+            for index, kind in enumerate(('writer', 'coder', 'publish'), start=1):
+                with self.subTest(kind=kind):
+                    expected = {
+                        'owner': 'alice', 'job_id': f'0123456789abc{index:03x}',
+                        'step_id': 'work', 'command_id': 'work:1:p1', 'attempt': 1,
+                        'expected_job_version': 1,
+                        'capability_id': 'task.' + kind, 'capability_version': '1',
+                        'input_digest': 'a' * 64, 'plan_version': 1,
+                        'node_digest': 'b' * 64,
+                    }
+                    effect_recovery_runtime.record_intent(expected)
+                    self.assertEqual(effect_recovery_runtime.status(expected), 'unknown')
+                    with self.assertRaises(effect_recovery_runtime.EffectReplayBlocked):
+                        effect_recovery_runtime.record_intent(expected)
+                    self.assertEqual(
+                        effect_recovery_runtime.status(dict(expected, node_digest='c' * 64)),
+                        'not_started',
+                    )
+
+    def test_malformed_planned_effect_fence_is_rejected(self):
+        valid = {
+            'owner': 'alice', 'job_id': '0123456789abcdef', 'step_id': 'send',
+            'command_id': 'send:1:p1', 'attempt': 1,
+            'expected_job_version': 2, 'capability_id': 'task.publish',
+            'capability_version': '1', 'input_digest': 'c' * 64,
+            'plan_version': 1, 'node_digest': 'd' * 64,
+        }
+        for invalid in (dict(valid, node_digest='nope'),
+                        {k:v for k,v in valid.items() if k!='node_digest'},
+                        dict(valid, untrusted='arbitrary'),
+                        dict(valid, plan_version=True)):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    effect_recovery_runtime._checked(invalid)
+
     def test_new_attempt_or_core_version_cannot_bypass_existing_intent(self):
         from modules import runtime_worker_result
         identity={'owner':'alice','job_id':'0123456789abcdef','task_id':'send','attempt':1}

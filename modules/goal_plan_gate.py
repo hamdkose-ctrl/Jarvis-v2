@@ -161,6 +161,63 @@ def _read_only_manifest(capability_id: str) -> dict | None:
     return spec
 
 
+_SCHEDULED_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish'})
+
+
+def _scheduled_manifest(capability_id: str) -> dict | None:
+    """Developer-installed read-only or explicitly admitted effect adapter.
+
+    This does not grant an effect: live approval, resources, WorkerResult and
+    persistent intent are independently checked by the single Scheduler.
+    """
+    from modules import capability_manifest
+    safe = _read_only_manifest(capability_id)
+    if safe is not None:
+        return safe
+    if capability_id not in _SCHEDULED_EFFECTS:
+        return None
+    try:
+        row = capability_manifest.from_task_tool(capability_id.removeprefix('task.'))
+    except ValueError:
+        return None
+    return row if row['id'] == capability_id else None
+
+
+def _effect_node_allowed(plan: dict, node: dict) -> bool:
+    """No arbitrary effectful DAG from a forged or revised GoalPlan."""
+    kind = node['capability_id']
+    if kind not in _SCHEDULED_EFFECTS:
+        return True
+    parents = {p['id']:p for p in plan['nodes']}
+    deps = node['depends_on']
+    if kind == 'task.coder':
+        return not deps
+    if kind == 'task.writer':
+        return all(parents[d]['capability_id']
+                   in ('task.research','task.account','task.verify') for d in deps)
+    if kind == 'task.publish':
+        return (not node['input'].get('source_task')
+                and (not deps or (len(deps)==1
+                                  and parents[deps[0]]['capability_id']=='task.writer'
+                                  and node['input'].get('text_from_task')==deps[0])))
+    return False
+
+
+def validate_dependent_effect_attempt(state: dict, selection: NodeCandidate,
+                                      *, attempt: int) -> dict:
+    """A writer/publish child requires exact accepted, projected parent bytes."""
+    if type(attempt) is not int or attempt != 1:
+        raise PlanFenceError('Effectful dependent may not automatically retry.')
+    node = revalidate(state, selection)
+    if (node['capability_id'] not in ('task.writer','task.publish')
+            or not node['depends_on']
+            or not _effect_node_allowed(state['goal_plan'], node)
+            or selection not in ready_read_only_candidates(
+                state, owner=selection.owner, job_id=selection.job_id)):
+        raise PlanFenceError('Effectful child requires accepted trusted predecessors.')
+    return node
+
+
 def ready_read_only_candidates(
     state: dict, *, owner: str, job_id: str,
 ) -> tuple[NodeCandidate, ...]:
@@ -193,6 +250,9 @@ def ready_read_only_candidates(
         raise PlanFenceError('GoalState evidence/audit sırası doğrulanamadı.')
 
     nodes = {node['id']: node for node in plan['nodes']}
+    if any(_scheduled_manifest(node['capability_id']) is None
+           or not _effect_node_allowed(plan, node) for node in plan['nodes']):
+        raise PlanFenceError('Unknown or invalid scheduled capability/dependency.')
     digests = fingerprints(plan)
     seen: dict[str, tuple[int, str]] = {}
     completed: set[str] = set()
@@ -213,7 +273,7 @@ def ready_read_only_candidates(
         node = nodes.get(step) if isinstance(step, str) else None
         if node is None:
             raise PlanFenceError('Current-plan WorkerResult step belirsiz.')
-        spec = _read_only_manifest(node['capability_id'])
+        spec = _scheduled_manifest(node['capability_id'])
         attempt = row.get('attempt')
         digest = _hash(node['input'])  # same canonical-input JSON hash used by runtime
         if (spec is None
@@ -244,7 +304,8 @@ def ready_read_only_candidates(
         for node in plan['nodes']
         if (node['id'] not in seen
             and all(dep in completed for dep in node['depends_on'])
-            and _read_only_manifest(node['capability_id']) is not None)
+            and _scheduled_manifest(node['capability_id']) is not None
+            and _effect_node_allowed(plan, node))
     )
 
 

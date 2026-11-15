@@ -62,7 +62,9 @@ def _accepted_row(current: dict, owner: str, job_id: str,
     attempt = result.get('attempt')
     encoded = json.dumps(node['input'], ensure_ascii=False, sort_keys=True,
                          separators=(',', ':'), allow_nan=False).encode('utf-8')
-    if (manifest['id'] != capability or manifest['effect_policy'] != 'read_only'
+    if (manifest['id'] != capability
+            or not (manifest['effect_policy'] == 'read_only'
+                    or capability in ('task.writer','task.coder','task.publish'))
             or result.get('capability_id') != capability
             or result.get('capability_version') != str(manifest['version'])
             or result.get('node_digest') != digest

@@ -208,8 +208,9 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
     }
     if snapshot is not None and snapshot.get('goal_plan') is not None:
         from modules import goal_plan_gate
-        if row['effect_policy'] != 'read_only':
-            raise ValueError('Planlı dış etki BRAIN-07 lease/approval kabulüne kadar engelli.')
+        effect = row['id'] in ('task.writer', 'task.coder', 'task.publish')
+        if row['effect_policy'] != 'read_only' and not effect:
+            raise ValueError('Unsupported planned effect capability.')
         selection = goal_plan_gate.candidate(
             snapshot, owner=owner, job_id=job_id, node_id=step_id,
         )
@@ -219,6 +220,9 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         # node ID/input; this check runs inside specialist preparation BEFORE
         # the real provider/worker starts, and the resource guard checks again.
         dispatch = identity.get('_canonical_scheduler_offer')
+        if effect and dispatch is None:
+            raise goal_plan_gate.PlanFenceError(
+                'Effect must be dispatched by the exact canonical Scheduler offer.')
         if dispatch is not None and (
                 not isinstance(dispatch, dict)
                 or set(dispatch) != {'owner', 'job_id', 'node_id', 'plan_version', 'node_digest'}
@@ -249,6 +253,11 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
                     snapshot, selection, attempt=attempt,
                 )
                 dependency_evidence.require_persisted_verify_dependencies(identity, node)
+            elif node['capability_id'] in ('task.writer', 'task.publish'):
+                goal_plan_gate.validate_dependent_effect_attempt(
+                    snapshot, selection, attempt=attempt,
+                )
+                dependency_evidence.require_persisted_effect_dependencies(identity, node)
             else:
                 raise goal_plan_gate.PlanFenceError('Dependent worker not supported.')
         if node['capability_id'] != row['id'] or node['input'] != data:
@@ -268,6 +277,9 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
             'plan_version': selection.plan_version,
             'node_digest': selection.node_digest,
         })
+        if effect:
+            from modules import scheduler_resource_gate
+            scheduler_resource_gate.require_effect_result_lease(expected)
     enriched = copy.deepcopy(identity)
     enriched.update(expected)
     return enriched, expected

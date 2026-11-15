@@ -72,6 +72,12 @@ def check(kind, output):
             raise ValueError('Kod teslim dosyası değişmiş veya eksik.')
         if output.get('file')!=files[0]['file'] or file_digest(output.get('test_log',''))!=output.get('test_log_sha256'):
             raise ValueError('Kod teslimi veya test günlüğü değişmiş.')
+        # The Scheduler's write-ahead receipt must identify the SAME verified
+        # test log, not an arbitrary successful-looking local artifact.
+        # Historical legacy coder outputs without a receipt remain readable.
+        if 'receipt' in output and output['receipt'] != {
+                'service': 'coder_draft', 'remote_id': output['test_log_sha256']}:
+            raise ValueError('Kod taslağı receipt kimliği test günlüğüyle eşleşmiyor.')
     elif kind == 'browser':
         steps = output.get('steps')
         if not isinstance(steps, list) or not steps or any(

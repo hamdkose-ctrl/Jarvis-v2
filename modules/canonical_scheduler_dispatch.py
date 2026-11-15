@@ -191,10 +191,10 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
         job["outputs"][node_id] = {
             "state": "failed",
             "text": (
-                "Canonical worker deadline elapsed; external read outcome "
+                "Canonical worker deadline elapsed; external effect/read outcome "
                 "is not proven. Manual review required; never retry automatically."
                 if deadline_expired else
-                "Canonical read-only worker stopped; manual review required."
+                "Canonical worker stopped; manual review required. No effect retried."
             ),
         }
         # Preserve the pre-existing generic failure record contract; only
@@ -220,8 +220,9 @@ def execute_offer(profile, offer, *, stop_event=None):
     """Run ONE already published node using a strictly pinned owner identity.
 
     This facade deliberately exposes no mutable foreground runtime, UI, voice,
-    or native-effect methods. The supported research/account tool adapters use
-    the owner identity and existing registered task workers only.
+    or native-effect methods. The registered task adapters receive only
+    an owner-bound identity; effects require an exact approval (when asked),
+    a live Scheduler lease, intent journal and Core WorkerResult CAS.
     """
     if not isinstance(offer, canonical_scheduler_lane.ReadyOffer):
         raise canonical_scheduler_lane.DispatchFenceError("Invalid worker offer.")
@@ -249,6 +250,62 @@ def execute_offer(profile, offer, *, stop_event=None):
         if (step["tool"] != selected.capability_id.removeprefix("task.")
                 or step["input"] != node["input"] or step["depends"] != node["depends_on"]):
             raise canonical_scheduler_lane.DispatchFenceError("Published step changed.")
+        effect_kind = step['tool'] in ('writer', 'coder', 'publish')
+        if step['tool'] in ('coder', 'publish'):
+            from modules import goal_approval, runtime_prepare_approval
+            if 'approval' not in step:
+                # This is a NO-EFFECT prepare checkpoint. No outbox send,
+                # developer workspace mutation or WorkerResult is allowed.
+                proposal = runtime_prepare_approval.prepare(
+                    {'owner':selected.owner, 'job_id':selected.job_id,
+                     'task_id':selected.node_id},
+                    step['tool'], step['input'],
+                )
+                if step['tool']=='publish':
+                    from modules import outbox, publish_services, task_workers
+                    # Resolve already accepted writer bytes BEFORE showing
+                    # the user a consent prompt. Approval binds this exact
+                    # payload digest; a changed draft must never be sent.
+                    payload = task_workers.resolve_publish_payload(
+                        selected.owner,step['input'],
+                        {k:job['outputs'][k] for k in step['depends']},
+                    )
+                    payload = publish_services.validate(payload)
+                    digest = outbox._digest(payload)
+                    # The same approved bytes must not be sent from a swapped
+                    # OAuth/provider connection. Connection generation is a
+                    # credential/config digest, not a user-approved provider ID.
+                    connection = publish_services.connection_digest(
+                        selected.owner, payload,
+                    )
+                    step['_canonical_payload_digest'] = digest
+                    step['_canonical_connection_digest'] = connection
+                    proposal['text'] = (
+                        'Dış gönderim onayı; kesin servis/hedef: '
+                        +payload['service']+' / '+payload['destination']
+                        +'\nBaşlık: '+str(payload.get('subject',''))[:200]
+                        +'\nİçerik önizleme: '+str(payload.get('text',''))[:500]
+                        +'\nİçerik SHA-256: '+digest
+                        +'\nHesap bağlantı sürümü SHA-256: '+connection
+                    )
+                else:
+                    proposal['text'] += '\nİstek: '+str(step['input']['request'])[:400]
+                step['_canonical_approval_proposal'] = proposal
+                step['approval'] = goal_approval.prepare(job, step, proposal)
+                step['state'] = 'approval'
+                job['waiting'] = step['id']
+                job['approval_at'] = time.time()
+                job['blocker'] = (
+                    'Onay gerekli: ' + step['tool'] + ' / '
+                    + str(step['input'].get('destination',step['input'].get('request','')))[:250]
+                )
+                job['updated'] = time.time()
+                release_guard.atomic(record_path, execution_record.encode(job))
+                return False
+            # The exact Core/GoalPlan-bound user approval was durably
+            # consumed by the explicit foreground command; the Scheduler,
+            # not that command, is the only executor of this effect.
+            goal_approval.verify_canonical(job, step)
         step["state"] = "running"
         step["started"] = True
         step["attempts"] = 1
@@ -260,22 +317,39 @@ def execute_offer(profile, offer, *, stop_event=None):
         # attempt. A malformed identity must not escape the failure fence
         # and strand an unaccepted 'running' journal forever.
         # The identity is built by the current goal executor, not a model.
-        runtime = SimpleNamespace(profile=SimpleNamespace(slug=selected.owner))
+        # Only the registered, owner-pinned profile may supply saved
+        # contact identities for the existing publish destination permission
+        # gate. Never substitute the model's plan or a foreground runtime.
+        contacts = getattr(profile, 'data', {})
+        if not isinstance(contacts, dict):
+            contacts = {}
+        runtime = SimpleNamespace(profile=SimpleNamespace(
+            slug=selected.owner, data=contacts,
+        ))
         identity = goal_executor._identity(job, step)
         identity["_canonical_scheduler_offer"] = {
             "owner": selected.owner, "job_id": selected.job_id,
             "node_id": selected.node_id, "plan_version": selected.plan_version,
             "node_digest": selected.node_digest,
         }
-        # This synchronous thread-bound scope travels through the existing
-        # specialist/lease/WorkerResult path. A stop during provider execution
-        # fences the Core CAS, even if the external task later returns "done".
+        # No persistent runtime_approved flag: it exists only in this
+        # Scheduler invocation after checking the consumed approval above.
+        worker_step = copy.deepcopy(step)
+        if effect_kind and step['tool'] in ('coder','publish'):
+            worker_step['runtime_approved'] = True
+        # A stop during provider execution fences the Core CAS, even when
+        # the external operation already occurred. It must NEVER be retried.
         with runtime_worker_result.scheduler_stop_scope(stop_event, selection=selected):
-            result = specialist_orchestrator.execute_step(
-                runtime, job, copy.deepcopy(step), identity,
-            )
+            from contextlib import nullcontext
+            effect_scope = (scheduler_resource_gate.effect_worker(
+                goal_executor._RESOURCE_LEASES, identity, selected,
+            ) if effect_kind else nullcontext())
+            with effect_scope:
+                result = specialist_orchestrator.execute_step(
+                    runtime, job, worker_step, identity,
+                )
         if not isinstance(result, dict) or result.get("state") != "done":
-            raise ValueError("Canonical read-only worker did not succeed.")
+            raise ValueError("Canonical worker did not produce accepted success.")
         canonical_output_projection.project_accepted(
             selected.owner, selected.job_id, selected.node_id, result,
         )

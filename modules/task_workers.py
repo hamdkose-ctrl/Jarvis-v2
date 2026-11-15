@@ -168,6 +168,36 @@ CLAIM_SYSTEM = (
 )
 
 
+def resolve_publish_payload(owner, data, dependencies):
+    """One native owner/provenance resolution shared by legacy and Scheduler.
+
+    This only resolves verified source artifacts. It does not authorize,
+    prepare, approve or send any external effect.
+    """
+    data=dict(data)
+    if data.get('text_from_task'):
+        from modules import nxapi
+        source=dependencies.get(data['text_from_task'])
+        task_results.verify(source,owner=owner)
+        if source.get('verification',{}).get('agent')!='writer':
+            raise ValueError('Gönderim metni doğrulanmış yerel taslaktan gelmeli.')
+        path=Path(source['file'])
+        expected=(Path(nxapi.FILES_DIR)/'Jarvis Görevler'/owner).resolve()
+        if expected not in path.resolve().parents:
+            raise PermissionError('Taslak dosyası başka kullanıcıya ait.')
+        text=path.read_text(encoding='utf-8')
+        data={k:v for k,v in data.items() if k!='text_from_task'}
+        data['text']=text
+    if data.get('source_task'):
+        source=dependencies.get(data['source_task'])
+        task_results.verify(source,owner=owner)
+        if source.get('verification',{}).get('agent')!='media':
+            raise ValueError('Yayın kaynağı doğrulanmış video olmalı.')
+        data={k:v for k,v in data.items() if k!='source_task'}
+        data.update(file=source['file'],file_sha256=source['sha256'])
+    return data
+
+
 def run(owner, task, dependencies):
     kind=task['agent']; data=task.get('input',{})
     if kind=='media':
@@ -178,21 +208,8 @@ def run(owner, task, dependencies):
         execution=task.get('execution',{})
         if execution.get('owner')!=owner or not execution.get('job_id'):
             raise PermissionError('Gönderim için gerçek görev yürütme kimliği gerekli.')
-        if data.get('text_from_task'):
-            from modules import nxapi
-            source=dependencies.get(data['text_from_task']);task_results.verify(source,owner=owner)
-            if source.get('verification',{}).get('agent')!='writer':raise ValueError('Gönderim metni doğrulanmış yerel taslaktan gelmeli.')
-            path=Path(source['file']);expected=(Path(nxapi.FILES_DIR)/'Jarvis Görevler'/owner).resolve()
-            if expected not in path.resolve().parents:raise PermissionError('Taslak dosyası başka kullanıcıya ait.')
-            text=path.read_text(encoding='utf-8')
-            data={k:v for k,v in data.items() if k!='text_from_task'};data['text']=text
-        if data.get('source_task'):
-            source=dependencies.get(data['source_task'])
-            task_results.verify(source,owner=owner)
-            if source.get('verification',{}).get('agent')!='media':raise ValueError('Yayın kaynağı doğrulanmış video olmalı.')
-            data={k:v for k,v in data.items() if k!='source_task'}
-            data.update(file=source['file'],file_sha256=source['sha256'])
-        oid=outbox.prepare(owner,data,execution['job_id']+':'+task['id'])
+        resolved=resolve_publish_payload(owner,data,dependencies)
+        oid=outbox.prepare(owner,resolved,execution['job_id']+':'+task['id'])
         return outbox.dispatch(owner,oid)
     if kind=='account':
         from modules import account_tools
@@ -336,7 +353,10 @@ def run(owner, task, dependencies):
             raise ValueError('Kod görevi tamamlanmadı; dosya taslağı veya geçerli test sonucu yok. '+privacy.redact(str(answer),force=True)[:1200])
         delivery=developer.deliver_code(owner,data['request'])
         return {'state':'done','text':'Kod dosyalarını oluşturdum ve taslak testleri geçti. Kaynaklara uygulanmadı.',
-                'draft':True,'test_ok':True,**delivery}
+                'draft':True,'test_ok':True,
+                # Local immutable test-log digest, not a remote provider claim.
+                'receipt': {'service':'coder_draft','remote_id': delivery['test_log_sha256']},
+                **delivery}
     if kind=='writer':
         from modules import nxapi,model_wait
         from datetime import datetime, timezone, timedelta

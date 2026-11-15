@@ -268,7 +268,7 @@ class CanonicalReadinessTests(unittest.TestCase):
                 goal_state_store.load(self.path), owner='mallory', job_id=JOB,
             )
 
-    def test_non_read_only_or_unknown_capabilities_are_never_ready(self):
+    def test_unknown_capability_fails_closed_without_offering_siblings(self):
         self.mutate('set_goal_plan', reason='USER_REPLAN', plan={
             'plan_version': 2, 'nodes': [
                 node('unknown', capability='task.no-such-tool'),
@@ -276,7 +276,21 @@ class CanonicalReadinessTests(unittest.TestCase):
                 node('read'),
             ],
         })
-        self.assertEqual(self.ready(), ('read',))
+        # Once effects are explicitly registered, a partially forged plan
+        # must fail as a WHOLE rather than exposing a possibly unsafe sibling.
+        with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                    'Unknown or invalid scheduled capability'):
+            self.ready()
+
+    def test_registered_writer_is_only_an_offer_not_effect_authority(self):
+        writer = node('writer', capability='task.writer')
+        writer['input'] = {'instruction': 'Write a local report', 'filename': 'report.md'}
+        self.mutate('set_goal_plan', reason='USER_REPLAN', plan={
+            'plan_version': 2, 'nodes': [writer, node('read')],
+        })
+        # Candidate discovery never bypasses Scheduler permission, physical
+        # lease, write-ahead intent, WorkerResult or Core CAS checks.
+        self.assertEqual(self.ready(), ('writer', 'read'))
 
 
 if __name__ == '__main__':

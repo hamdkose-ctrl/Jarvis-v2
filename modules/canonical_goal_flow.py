@@ -29,11 +29,12 @@ _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
 _READ_ONLY = frozenset({'research', 'account', 'verify'})
+_EFFECTS = frozenset({'writer', 'coder', 'publish'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
 
-def _canonical_plan(tasks):
+def _canonical_plan(tasks, *, allow_effects=False):
     """Adapt the EXISTING task_agents planner's validated DAG proposal."""
     if not isinstance(tasks, list) or not 1 <= len(tasks) <= 8:
         raise ValueError('Canonical tasks are invalid.')
@@ -41,8 +42,23 @@ def _canonical_plan(tasks):
     for task in tasks:
         kind = task['agent']
         deps = task.get('depends', [])
-        if kind not in _READ_ONLY:
-            raise ValueError('Only supported read-only task nodes may be admitted.')
+        if kind not in _READ_ONLY and not (allow_effects and kind in _EFFECTS):
+            raise ValueError('Unsupported canonical task capability.')
+        if kind == 'coder' and deps:
+            raise ValueError('Coder requires a standalone approved workspace task.')
+        if kind == 'writer' and (not deps or any(
+                next((p for p in tasks if p['id'] == dep), {}).get('agent')
+                not in ('research', 'account', 'verify') for dep in deps)):
+            # A standalone writer may be explicitly requested, but no model
+            # can silently make a draft from an effectful dependency.
+            if deps:
+                raise ValueError('Writer needs verified read-only inputs.')
+        if kind == 'publish' and (
+                len(deps) > 1
+                or (deps and (task['input'].get('text_from_task') != deps[0]
+                             or next((p for p in tasks if p['id'] == deps[0]), {}).get('agent') != 'writer'))
+                or task['input'].get('source_task')):
+            raise ValueError('Publish accepts only a verified writer draft or a direct payload.')
         if kind == 'verify':
             # Only a first-attempt, no-effect verification of existing
             # research/account results; writer remains outside this lane.
@@ -53,7 +69,7 @@ def _canonical_plan(tasks):
                     or p.get('agent') not in ('research', 'account')
                     for p in parents)):
                 raise ValueError('Verify requires read-only predecessor nodes.')
-        if deps and kind not in ('research', 'verify'):
+        if deps and kind not in ('research', 'verify', 'writer', 'publish'):
             # Developer-approved, exact Gmail chain only: a verified unread
             # list can select ONE message by index. No arbitrary account DAG.
             source = next((row for row in tasks if row['id'] == deps[0]), None) if len(deps) == 1 else None
@@ -73,14 +89,16 @@ def _canonical_plan(tasks):
             # A new canonical request has no implicit, owner-bound mail list.
             # Unqualified list indices must never select provider messages.
             raise ValueError('Gmail indexed read requires one verified list dependency.')
-        manifest = goal_plan_gate._read_only_manifest('task.' + kind)
+        manifest = (goal_plan_gate._scheduled_manifest('task.' + kind)
+                    if allow_effects else goal_plan_gate._read_only_manifest('task.' + kind))
         if manifest is None:
-            raise ValueError('Capability has no read-only execution manifest.')
+            raise ValueError('Capability has no supported execution manifest.')
         data = task_tools.validate_input(kind, task['input'])
         nodes.append({
             'id': task['id'], 'depends_on': copy.deepcopy(deps),
             'capability_id': 'task.' + kind, 'input': data,
-            'expected_output': 'Verified read-only task result',
+            'expected_output': ('Verified effectful task result' if kind in _EFFECTS
+                                else 'Verified read-only task result'),
             'acceptance': 'Domain-verified and Core-accepted WorkerResult evidence',
         })
     plan = {'plan_version': 1, 'nodes': nodes}
@@ -256,9 +274,10 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     system = (
         task_agents._SYSTEM +
         '\nBu tur canonical arka plan araştırma önerisidir. Yalnız research '
-        've salt-okunur account görevleri öner; kanıtları birleştirmek '
-        'için yalnız doğrulanmış research/account bağımlı verify görevini kullan. '
-        'Writer dosyaya yazdığı için canonical salt-okunur kapsamda değildir. '
+        've salt-okunur account görevleri öner; doğrulanmış research/account '
+        'bağımlı verify ile writer raporunu oluşturabilirsin. Coder yalnız '
+        'kilitli geliştirici alanında onayla, publish yalnız kullanıcının açık '
+        'gönderim isteği ve kesin hedefi için Core ve Outbox onayıyla çalışır. '
         'Desteklenmeyen etkiyi planlama. '
         'Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme.'
     )
@@ -270,7 +289,7 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     try:
         proposed = task_agents._json(raw)
         tasks = task_agents.validate(proposed['tasks'])
-        plan = _canonical_plan(tasks)
+        plan = _canonical_plan(tasks, allow_effects=True)
     except (KeyError, TypeError, ValueError):
         # Unsupported/invalid FIRST planner decision is still a decision
         # for this request ID. Persist its one-shot legacy handoff before
