@@ -18,6 +18,10 @@ _FAILED_STATUSES = frozenset({"failed", "cancelled"})
 # Presentation for reason codes that never carry the original exception (the
 # refusal was decided in Brain/Core before any provider call happened).
 _REASON_TEXT = {
+    'PROVIDER_REQUEST_TOO_LARGE': (
+        'Bu turu anlamlandırmak için gereken bağlam seçili modelin istek sınırını aşıyor; '
+        'uygun kapasitede bir model gerekli. Hiçbir işlem başlatmadım.'
+    ),
     "CORE_CANCELLED": "İşlem senin isteğinle durduruldu.",
     "FILE_TARGET_NOT_ACCESSIBLE": (
         "Bu dosyaya erişemiyorum (izinli klasörlerin dışında, bulunamıyor veya "

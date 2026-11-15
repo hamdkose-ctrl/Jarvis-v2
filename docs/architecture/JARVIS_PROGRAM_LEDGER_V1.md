@@ -135,3 +135,6 @@ Router #633 kabul takibi: `d2d6cf24ff1e` Windows CI başarılı; gerçek PC vali
 
 
 Router #633 ikinci PC takibi: `fd03dba` Windows CI/PC validation/yerel model/desktop başarılı, haber failed. Aynı PR'da pending kullanıcı durumundan bağımsız kabul alanı ve Türkçe stop-word normalizasyon düzeltmesi yapılır. #634 `main a3bd8e5` mevcut ses tabanı olarak normal merge ile alınır; `request_identity` ve `execution_seconds`/iptal/queue status sahipleri birlikte korunur. Yeni exact-head Windows/PC kanıtı gerekir; ayrı PR veya Core/Scheduler sahibi yoktur.
+
+
+15 Kasım Router canlı rol ölçümü takibi: #633/#637 birleşmiştir; bunlar yeniden açılmaz. Gerçek Windows raporundaki Groq413 kapasite reddinin generic provider/health hatası sayılması dar bir Router düzeltmesidir. Aynı request/exact aday tekrarı engellenir, küçük sonraki çağrı korunur ve neden Brain/Core/Full raporuna taşınır. Owner/Core yetkileri, iki fiziksel deneme ve30sn Brain bütçesi değişmez. BRAIN-11 #639 ayrı operatör kabul şerididir. Yeni kodun Windows/PC ve gerçek bulut rol kabulü ayrı kanıttır.

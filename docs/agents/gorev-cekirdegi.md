@@ -332,3 +332,6 @@ Canonical kabul girişinin mimari envanteri de aynı değişiklikte göçer: do�
 
 
 #633 kabul izolasyonu takibi: başka bir kayıtlı learning/Job/desktop pending, terminal-hedef devam State'ini üretimde engellemeye devam eder. Haber kabul aracı aynı owner'a ait temiz geçici Profile/history/Task/desktop/filesend/request sahiplerini kullanır; Core önceliği gevşetilmez, gerçek pending kaydı temizlenmez veya sürdürülmez. Kaydedilmiş pending profil + açık task job + masaüstü sorusu varken kabul ve kullanıcı dosyalarının byte-for-byte değişmezliği regresyonla korunur. #634 ses kuyruğu tabanı aynı PR'a alındı; execution_seconds ile Router owner/RID fence birlikte korunur.
+
+
+15 Kasım Router kapasite reddi: Brain `PROVIDER_REQUEST_TOO_LARGE` kodunu normal model yok/yanıt yok tanısından ayırır. Core bunu yalnız MODEL_UNAVAILABLE yolu içinde kapasite açıklaması ve failed/request_change_required feedback'i olarak sunar; capability/worker/ham dil fallback yetkisi doğmaz. Mevcut exact protokoller normal önceliğinde kalır. Manuel Full koşumu bu durumda `state=unmeasured`, `stop_reason=provider_request_too_large`, gerçek istek/yanıt sayısıyla durur; 20 örnek ölçülmüş veya model kalite kabulü geçmiş sayılmaz. 30sn bütçe, 2048 çıktı sınırı ve tam korpus/eşik/etki kapıları değişmez.

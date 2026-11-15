@@ -551,6 +551,26 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
         usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
     if r.status_code in (401, 403):
         raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+    if r.status_code == 413:
+        # Groq also uses 413 when one request exceeds its model's entire TPM
+        # capacity. Preserve that finding without a raw body or provider cooldown.
+        limit_kind = 'request_size'
+        limit = requested = None
+        try:
+            payload = r.json()
+        except ValueError:
+            payload = None
+        error = payload.get('error') if isinstance(payload, dict) else None
+        if isinstance(error, dict) and error.get('code') == 'rate_limit_exceeded':
+            message = error.get('message')
+            message = message[:4096] if isinstance(message, str) else ''
+            if re.search(r'\bTPM\b|tokens per minute', message, re.I):
+                limit_kind = 'tokens_per_minute'
+                counts = re.search(r'\bLimit\s+([0-9]{1,12})\s*,\s*Requested\s+([0-9]{1,12})\b', message, re.I)
+                if counts:
+                    limit, requested = map(int, counts.groups())
+        raise failure_policy.ProviderRequestLimitError(provider='groq',status_code=413,
+            limit_kind=limit_kind,limit=limit,requested=requested)
     if r.status_code == 429:
         headers_in = getattr(r, 'headers', None) or {}
         daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))

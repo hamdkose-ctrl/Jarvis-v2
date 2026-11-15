@@ -524,10 +524,12 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             unavailable = (not diagnostic or reason in {
                 "PROVIDER_UNAVAILABLE", "PROVIDER_ROUTE_DISABLED", "MODEL_CALL_ERROR",
                 "MODEL_CALL_OR_VALIDATION_ERROR", "LOCAL_DEADLINE_EXCEEDED", "REQUEST_CANCELLED",
+                "PROVIDER_REQUEST_TOO_LARGE",
             })
             semantic = replace(
                 evidence, reason_codes=evidence.reason_codes + (
-                    "MODEL_UNAVAILABLE" if unavailable else "MODEL_PROPOSAL_REJECTED",))
+                    "MODEL_UNAVAILABLE" if unavailable else "MODEL_PROPOSAL_REJECTED",)
+                    + (("PROVIDER_REQUEST_TOO_LARGE",) if reason == "PROVIDER_REQUEST_TOO_LARGE" else ()))
         elif "MODEL_DECIDED" not in semantic.reason_codes:
             semantic = replace(
                 semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))

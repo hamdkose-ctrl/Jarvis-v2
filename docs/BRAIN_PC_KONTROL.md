@@ -73,3 +73,10 @@ Kabulün kapanış kanıtı bu menüden üretilir: aynı commit'i hedefleyen
 `brain-holdout-<SHA>-<tarih>.json` raporunun `state=passed` sonucu (20 örneğin
 tümü yanıtlı, doğruluk en az %95, sıfır yanlış işlem önerisi, sıfır efekt
 girişimi). CI adım özetinde bu ayrım ve gereken rapor açıkça yazılır.
+
+
+## İstek kapasitesi ölçüm değildir — 15 Kasım 2026
+
+Sağlayıcı HTTP413 ile tek isteğin model kapasitesine sığmadığını bildirirse Full raporu `state=unmeasured` ve `stop_reason=provider_request_too_large` verir. Gerçek gönderim sayısı korunur; yanıtlanmamış örnek semantik başarı/başarısızlık puanı gibi kullanılmaz. Bildirilen Limit/Requested sayıları Router izinde yalnız sağlayıcı verisi olarak görünür; evrensel TPM/kalan kota veya tokenizer tahmini değildir. Aynı büyük girdi repair amacıyla tekrar gönderilmez ve bu durum daha küçük sonraki çağrıları provider cooldown'ına sokmaz. Bu düzeltme Brain istemini küçültmez, servis limitini artırmaz veya Gemini hesabının ücretsiz plan beyanını yapmaz.
+
+Gerçek Windows ölçümünde paylaşılan profil dosyasına eski sürüm yazıyorsa, o eski sürecin kimliği/kodu doğrulanıp güncel kurulumdan çalışması sağlanmalıdır. Eski yazıcı çalışırken yeni kapsamı tekrar tekrar kaydetmek kabul kanıtı değildir. Kurulum geçişi ve kapsam/beyan işlemleri gerçek kullanıcı oturumunda yürür; anahtarlar CI/bulut geliştirme hesabına taşınmaz.
