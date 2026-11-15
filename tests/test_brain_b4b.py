@@ -1,4 +1,5 @@
 """PR7 Closeout-B4b: metin çevirisi Brain'de (Candidate Builder turları -> Core translate); ikinci çeviri kaynak seçici yok."""
+from modules import core_brain_adapter
 import dataclasses
 import tempfile
 import unittest
@@ -106,7 +107,7 @@ class EndToEndTests(unittest.TestCase):
              patch("modules.engine_intents.dispatch", return_value="CORE") as dispatch:
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, dispatch
 
     def test_translation_runs_core_translate_with_brain_text_and_not_legacy_resolver(self):
@@ -134,7 +135,7 @@ class EndToEndTests(unittest.TestCase):
             plan = brain_entry.core_plan(entry)
             self.assertIsNotNone(plan, command)
             self.assertEqual(plan[0], "translate", command)
-            output, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, command)
+            output, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, command)
         self.assertFalse(handle.called)
         self.assertEqual(feedback.result_status, "handled")
         return entry, output

@@ -1,4 +1,5 @@
 """PR7 Closeout-B3c-3: notes.read -> Core notes_read (read-only; all notes or one resolved note id)."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -77,7 +78,7 @@ class EndToEndTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle
 
     def real_claim_run(self, text):
