@@ -121,7 +121,7 @@ def _queued_audio(runtime, event, voice_session=None):
     try:
         if not rid:
             raise ValueError("Ses kaydının istek kimliği yok; yeniden gönder.")
-        with runtime.as_user(user), runtime.requests_state.activate(owner, rid, complete=False):
+        with runtime.as_user(user), runtime.requests_state.activate(owner, rid, complete=False, foreground=True):
             runtime.emit("state", "thinking")
             runtime.requests_state.check()
             try:
@@ -381,7 +381,7 @@ def main(runtime, ui=None):
                     runtime._reject_queued_input()
                     continue
                 try:
-                    with runtime.as_user(user), runtime.requests_state.activate(owner, rid):
+                    with runtime.as_user(user), runtime.requests_state.activate(owner, rid, foreground=True):
                         from modules import brain_entry
                         runtime.emit("user", "📷 Fotoğraf" + (f": {question}" if question else ""), source)
                         entry = None
@@ -470,7 +470,7 @@ def main(runtime, ui=None):
                 _emit_idle_if_silent(runtime, voice_session)
                 continue
             try:
-                with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid):
+                with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid, foreground=True):
                     from modules import brain_entry
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')

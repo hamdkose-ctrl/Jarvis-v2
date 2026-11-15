@@ -496,11 +496,12 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         return dict(engine.flags)
 
     def stop_task(self) -> dict:
-        """Durdur düğmesi: yalnız çalışan işi iptal eder (mikrofon/konuşma açık kalır)."""
-        from modules import tool_printer; tool_printer.cancel_running(_p().slug)
-        engine.requests_state.cancel(_p().slug)
-        hub.publish("state", "idle")
-        return {"stopped": True, "msg": "Görev durduruldu."}
+        """Stop only a currently running foreground turn, not user-wide tools."""
+        outcome, _rid = engine.requests_state.cancel_foreground(_p().slug)
+        return {"stopped": outcome == "cancelled",
+                "msg": ("Aktif foreground işlemine durdurma istendi."
+                        if outcome == "cancelled" else
+                        "Tek bir aktif foreground işlem yok; arka plan hedefleri korundu.")}
 
     def map(self):
         """Aktif kullanıcının araç ve izin politikası görünümü."""
@@ -549,7 +550,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
     def emergency(self) -> str:
         from modules import pc_guide
         pc_guide.stop()
-        engine.requests_state.cancel(_p().slug)
+        engine.requests_state.cancel_foreground(_p().slug)
         """Acil durdur: konuşmayı keser, mikrofonu ve paylaşımı kapatır, bekleyen kapatma/onayları iptal eder."""
         voice.stop_speaking()
         _set_mic(False)
@@ -570,8 +571,8 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         except Exception:
             _record_failure('web.py:emergency')
             pass
-        hub.publish("state", "idle")
-        return "Her şey durduruldu: konuşma, mikrofon, paylaşım ve bekleyen işlemler."
+        return ("Konuşma, mikrofon, paylaşım ve bekleyen yerel onaylar durduruldu. "
+                "Arka plan hedefleri korunuyor.")
 
     def share(self, which: str | None) -> str:
         target = None if vision.mode() == which else which

@@ -162,25 +162,33 @@ def register_background(user, rid, seconds=90):
         return register(user, rid, seconds)
 
 
-def cancel(user, rid=None):
+def cancel(user, rid):
+    """Cancel only the explicitly identified owner-bound request.
+
+    Omitting the request ID must never turn into a user-wide sweep.
+    Canonical goals use their separate owner-bound job-ID control.
+    """
+    if not isinstance(rid, str) or not rid:
+        raise ValueError('İptal için açık istek kimliği gerekli.')
     with _lock:
-        for key, record in _records.items():
-            if key[0] == user and (rid is None or key[1] == rid) and record['state'] in ('queued','running'):
-                record['state'] = 'cancelled'
-        _save_terminal_state()
+        record = _records.get((user, rid))
+        if record is not None and record['state'] in ('queued', 'running'):
+            record['state'] = 'cancelled'
+            _save_terminal_state()
 
-def cancel_unambiguous(user):
-    """Cancel one owner-bound live request, but never choose among multiple.
 
-    A bare spoken "dur" must not sweep unrelated queued/running turns.
-    This is an atomic in-process request decision, NOT a GoalState cancel:
-    canonical background goals must be cancelled through their job identity.
-    Returns ("cancelled", rid), ("ambiguous", None) or ("none", None).
+def cancel_foreground(user):
+    """Cancel one actively executing foreground turn, never queued/background work.
+
+    Only interactive engine activations set the transient foreground marker.
+    Background Scheduler workers never set it. Ambiguity fails closed.
+    Returns ("cancelled", rid), ("ambiguous", None), or ("none", None).
     """
     with _lock:
         now = time.monotonic()
         active = [key for key, record in _records.items()
-                  if key[0] == user and record['state'] in ('queued', 'running')
+                  if key[0] == user and record['state'] == 'running'
+                  and record.get('foreground') is True
                   and record['deadline'] > now]
         if len(active) != 1:
             return ('ambiguous' if active else 'none'), None
@@ -191,7 +199,7 @@ def cancel_unambiguous(user):
 
 
 @contextmanager
-def activate(user, rid, *, complete=True):
+def activate(user, rid, *, complete=True, foreground=False):
     token = _current.set((user,rid))
     try:
         check()
@@ -211,6 +219,8 @@ def activate(user, rid, *, complete=True):
                     if turn is not None:
                         record['deadline'] = now + turn
                     record['state'] = 'running'
+                if foreground and record['state'] == 'running':
+                    record['foreground'] = True
         yield
     finally:
         try:
@@ -220,6 +230,8 @@ def activate(user, rid, *, complete=True):
                     # Transcription hands this same request back to the queue.
                     record['state'] = 'done' if complete else 'queued'
                     _save_terminal_state()
+                if foreground and record is not None:
+                    record.pop('foreground', None)
         finally:
             _current.reset(token)
 
