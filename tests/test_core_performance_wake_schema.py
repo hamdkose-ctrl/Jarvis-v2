@@ -112,6 +112,21 @@ class SchedulerWakeTests(unittest.TestCase):
         self.wake_event = self.enterContext(
             patch.object(task_queue, "_SCHEDULER_WAKE", threading.Event()))
 
+    def test_shutdown_rejects_new_canonical_admission_before_thread_exits(self):
+        stop = threading.Event()
+        live_thread = SimpleNamespace(is_alive=lambda: True)
+        with patch.object(task_queue, '_THREAD', live_thread), \
+             patch.object(task_queue, '_SCHEDULER_STOP_EVENT', stop):
+            self.assertTrue(task_queue.scheduler_active())
+            stop.set()
+            self.assertFalse(task_queue.scheduler_active(),
+                             'a draining Scheduler must not accept new background goals')
+            stop.clear()
+            self.assertTrue(task_queue.scheduler_active())
+        with patch.object(task_queue, '_THREAD', live_thread), \
+             patch.object(task_queue, '_SCHEDULER_STOP_EVENT', None):
+            self.assertFalse(task_queue.scheduler_active())
+
     def test_admission_wakes_without_waiting_five_seconds(self):
         stop = threading.Event()
         result = []
