@@ -299,7 +299,9 @@ class RealFeedbackTests(unittest.TestCase):
     def test_handled(self):
         _, fb, _ = self.handoff(Mock(return_value="tamam"))
         self.assertEqual((fb.result_status, fb.reason_code, fb.needs_input), ("handled", "CORE_HANDOFF_RETURNED", False))
-        self.assertIs(brain_entry.last_feedback(), fb)
+        # A JSON handoff preserves value without sharing Python object identity.
+        self.assertEqual(brain_entry.last_feedback(), fb)
+        self.assertIsNot(brain_entry.last_feedback(), fb)
 
     def test_core_opening_pending_is_needs_input(self):
         rt, state = self.runtime()
@@ -386,7 +388,9 @@ class CloseoutAEdgeCaseTests(unittest.TestCase):
             t.handoff(Mock(side_effect=KeyboardInterrupt()), rt)
         self.assertEqual(brain_entry.last_feedback().result_status, "failed")
         _, fb, _ = t.handoff(Mock(return_value="ok"), rt)
-        self.assertIs(brain_entry.last_feedback(), fb)
+        # A JSON handoff preserves value without sharing Python object identity.
+        self.assertEqual(brain_entry.last_feedback(), fb)
+        self.assertIsNot(brain_entry.last_feedback(), fb)
         self.assertEqual(fb.result_status, "handled")   # stale failure feedback is reset per handoff
 
 
