@@ -1142,7 +1142,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
            goal_candidates: tuple[Any, ...] = (),
            last_verified_level_property: str | None = None,
            photo_path: str | None = None,
-           turn_candidates: tuple[Any, ...] = ()) -> UnderstandingProposal | None:
+           turn_candidates: tuple[Any, ...] = (),
+           offered_capabilities: tuple[str, ...] | None = None) -> UnderstandingProposal | None:
     from modules.brain_core_map import CORE_INTENTS, core_plan
     from modules import persona_contract
     try:
@@ -1233,6 +1234,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             return _reject('ARGUMENT_AUTHORITY_FIELD')
         if capability_id in _MODEL_DENIED_CAPABILITIES:
             return _reject('CAPABILITY_NOT_MODEL_OWNED')
+        if offered_capabilities is not None and capability_id not in offered_capabilities:
+            return _reject('CAPABILITY_NOT_OFFERED')
         # A bare number has no level target in the utterance. It can only
         # control the most recent *verified* owner-scoped level adjustment,
         # never an arbitrary target inferred from stale discussion history.
@@ -1355,7 +1358,13 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         note_rows, _ = _note_slots(current)
         # Model, kendisine kapalı bir yeteneği de seçebilir sanmasın: önerilen katalog, yasak
         # kümeyi taşımaz. Yetki yine `_build`deki fail-closed denetimidir, promptta değil.
-        offered_capabilities = sorted(set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES)
+        current_output = _current_output(session_artifacts)
+        available_capabilities = set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES
+        # A model cannot select an action whose required produced result does not exist.
+        # This is Core-observed capability availability, not a lexical intent rule.
+        if not current_output['available']:
+            available_capabilities.discard('documents.export')
+        offered_capabilities = sorted(available_capabilities)
         prompt = json.dumps({
             "schema": SCHEMA_VERSION,
             "response_schema": _response_schema(offered_capabilities),
@@ -1374,7 +1383,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "needs_input": bool(pending_context),
                 "ambiguities": [],
                 "file_operation_hint": None,
-                "current_output": _current_output(session_artifacts),
+                "current_output": current_output,
                 "last_verified_level_property": (
                     last_verified_level_property
                     if last_verified_level_property in {"volume", "brightness"} else None),
@@ -1437,6 +1446,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "No authority fields or confidence in presentation; Core computes provenance and confidence. "
             "Use [] when absent; keep the real question/task operation and never turn style into a new effect. "
             "Do a FINAL JSON CONTRACT CHECK: include these nine keys exactly once, "
+            "especially confidence (HIGH/MEDIUM/LOW) even for chat or clarify; "
             "use the required schema_version literal, always include temporal_need, "
             "never add extra fields, and output no wrapper. Choose "
             "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
@@ -1532,7 +1542,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                               deterministic_arguments=arguments, protected_relation=protected_relation,
                               file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
                               last_verified_level_property=last_verified_level_property,
-                              photo_path=photo_path, turn_candidates=turn_candidates)
+                              photo_path=photo_path, turn_candidates=turn_candidates,
+                               offered_capabilities=tuple(offered_capabilities))
             if proposal is None:
                 raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
 
@@ -1558,7 +1569,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             deterministic_arguments=arguments, protected_relation=protected_relation,
             file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
             last_verified_level_property=last_verified_level_property,
-            photo_path=photo_path, turn_candidates=turn_candidates)
+            photo_path=photo_path, turn_candidates=turn_candidates,
+                               offered_capabilities=tuple(offered_capabilities))
         if result is not None:
             _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
         return result
