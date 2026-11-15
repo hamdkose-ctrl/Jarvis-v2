@@ -218,15 +218,15 @@ def execute(profile, job_id: str, *, stop_event=None):
                 if stop_event is not None and stop_event.is_set():
                     raise requests_state.Cancelled("Scheduler stopped the planner.")
             with requests_state.worker_probe(stop_probe):
-                # Exactly the original approved task-graph planner and canonical
-                # read-only admission schema; no regex classifier or second model.
+                # Exactly the original approved task-graph planner and
+                # developer-installed canonical capability schema.
                 system = (
                     task_agents._SYSTEM +
-                    "\nBu tur canonical arka plan araştırma önerisidir. Yalnız research "
-                    "ve salt-okunur account görevleri öner; kanıtları birleştirmek "
-                    "için yalnız doğrulanmış research/account bağımlı verify görevini kullan. "
-                    "Writer dosyaya yazdığı için canonical salt-okunur kapsamda değildir. "
-                    "Desteklenmeyen etkiyi planlama. "
+                    "\nBu tur canonical arka plan hedefidir. Research "
+                    "ve salt-okunur account görevleriyle kaynak kanıtlarını birleştir; "
+                    "doğrulanmış research/account bağımlı verify görevini kullan. "
+                    "Writer rapor üretebilir; coder ve publish yalnız kullanıcının açık hedefi, "
+                    "kesin hedef ve Core izin/onay kapıları altında yürür. Desteklenmeyen etkiyi planlama. "
                     "Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme."
                 )
                 raw = model_wait.ask(text, system=system, max_tokens=2200,
@@ -237,7 +237,7 @@ def execute(profile, job_id: str, *, stop_event=None):
                 try:
                     proposed = task_agents._json(raw)
                     tasks = task_agents.validate(proposed["tasks"])
-                    plan = canonical_goal_flow._canonical_plan(tasks)
+                    plan = canonical_goal_flow._canonical_plan(tasks, allow_effects=True)
                 except (ValueError, TypeError, KeyError):
                     _park(root, owner, job_id, reason="PLANNER_FOREGROUND_REVIEW_REQUIRED")
                     return "review"
