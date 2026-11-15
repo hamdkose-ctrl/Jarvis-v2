@@ -121,11 +121,16 @@ def verify_canonical(job, step, *, pending=False, now=None) -> dict:
             or row['expires_at'] > row['created_at'] + TTL_SECONDS
             or row.get('binding') != binding(job,step,proposal)):
         raise PermissionError('Canonical approval owner, input or plan changed.')
-    runtime_prepare_approval.accept(
-        proposal,
+    bound = runtime_prepare_approval.expected(
         {'owner':job['owner'],'job_id':job['id'],'task_id':step['id']},
         step['tool'],step['input'],
     )
+    if (set(proposal) != runtime_prepare_approval._FIELDS
+            or proposal.get('state') != 'approval'
+            or proposal.get('approval_schema') != runtime_prepare_approval.SCHEMA
+            or proposal.get('id') != step['id']
+            or any(proposal.get(key) != value for key,value in bound.items())):
+        raise PermissionError('Canonical prepare approval has changed.')
     consumed = row.get('consumed_at')
     if pending:
         if consumed is not None or not now < row['expires_at']:
