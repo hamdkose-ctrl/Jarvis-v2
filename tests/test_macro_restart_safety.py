@@ -1,3 +1,4 @@
+from modules import core_brain_adapter
 import engine_source
 """Macro control and restart failures; no real desktop or process mutations."""
 import ast
@@ -37,7 +38,7 @@ class MacroControlTests(unittest.TestCase):
         def envelope(_runtime, text):
             calls.append((_runtime, text))
             return (step(text), _Reply())
-        with patch('modules.brain_entry.run_step', side_effect=envelope):
+        with patch('modules.core_brain_adapter.run_step', side_effect=envelope):
             return calls, main_planner._macro_run(runtime, command)
 
     def test_every_pending_input_stops_macro_and_displays_its_question(self):
@@ -70,7 +71,7 @@ class MacroControlTests(unittest.TestCase):
     def test_cancellation_after_first_action_prevents_next_action(self):
         runtime, session = self.runtime()
         runtime.requests_state.check.side_effect = [None, requests_state.Cancelled('iptal')]
-        with patch('modules.brain_entry.run_step', return_value=('Tamam.', _Reply())) as step:
+        with patch('modules.core_brain_adapter.run_step', return_value=('Tamam.', _Reply())) as step:
             with self.assertRaises(requests_state.Cancelled):
                 main_planner._macro_run(runtime, 'başla')
         step.assert_called_once_with(runtime, 'ilk')
@@ -123,7 +124,7 @@ class MacroControlTests(unittest.TestCase):
         def envelope(_runtime, text):
             calls.append(text)
             return ('Hangi uygulamayı?', _Reply('needs_input'))
-        with patch('modules.brain_entry.run_step', side_effect=envelope):
+        with patch('modules.core_brain_adapter.run_step', side_effect=envelope):
             result = main_planner._macro_run(runtime, 'başla')
         self.assertEqual(calls, ['ilk'])
         self.assertIn('yanıt veya onay bekliyor', result)
@@ -192,7 +193,7 @@ class CloseChainTests(unittest.TestCase):
                 flags['closing'] = True
                 return ('Jarvis kapanıyor.', _Reply())
             return ('ikinci adım bitti', _Reply())
-        with patch('modules.brain_entry.run_step', side_effect=lambda _runtime, text: envelope(text)):
+        with patch('modules.core_brain_adapter.run_step', side_effect=lambda _runtime, text: envelope(text)):
             result = run(['jarvis kapat', 'ikinci işlem'])
         ns['handle'].assert_not_called()
         self.assertEqual(calls, ['jarvis kapat'])

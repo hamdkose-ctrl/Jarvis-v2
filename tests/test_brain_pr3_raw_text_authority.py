@@ -6,6 +6,7 @@ etki tam bir kez, doğrulanmış Core intent'i üzerinden uygulanır. Bu dosya R
 yazıldı: dallar henüz retire edilmediği için canonical effect testleri düşer.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_response
 
 import ast
@@ -149,7 +150,7 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text,
                                         source=source, model_understanding=model_understanding)
             handle = handler or Mock(return_value="HANDLER")
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, feedback
 
     def turn_real(self, text, source="yazı", model_understanding=False):

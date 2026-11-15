@@ -12,6 +12,7 @@ hiçbir test kullanıcının gerçek Masaüstü/İndirilenler/Belgeler klasörü
 geri alma kaydını okumaz/yazmaz.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import os
 import uuid
@@ -133,7 +134,7 @@ class _OrganizeHarness(pr3b._RawDoorHarness):
                 self.ctx, owner=self.owner, request_id=rid,
                 text=text, source=source, model_understanding=True)
             handle = handler if handler is not None else self.ctx.handle
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         self.turn_texts = [call.args[1] for call in self.door.call_args_list]
         return entry, out, handle, feedback
 

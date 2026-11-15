@@ -1,3 +1,4 @@
+from modules import core_brain_adapter
 import engine_source
 """Behavior regressions for the general review; no provider or device calls."""
 import ast
@@ -348,7 +349,7 @@ class MultiStepOwnershipTests(unittest.TestCase):
             calls.append(text)
             return (replies.get(text, text + ' bitti') if replies else text + ' bitti',
                     SimpleNamespace(result_status='handled'))
-        return calls, patch('modules.brain_entry.run_step', side_effect=step)
+        return calls, patch('modules.core_brain_adapter.run_step', side_effect=step)
 
     def test_a_step_cannot_consume_an_open_pending_answer(self):
         from modules.session_state import SessionState
@@ -385,7 +386,7 @@ class MultiStepOwnershipTests(unittest.TestCase):
             if text == 'kullanıcı değiştir':
                 ns['profile'] = SimpleNamespace(slug='ebru')
             return (text + ' bitti', SimpleNamespace(result_status='handled'))
-        with patch('modules.brain_entry.run_step', side_effect=step):
+        with patch('modules.core_brain_adapter.run_step', side_effect=step):
             result = ns['_run_steps'](['kullanıcı değiştir', 'dosyayı sil'])
         ns['handle'].assert_not_called()
         self.assertEqual(calls, ['kullanıcı değiştir'])

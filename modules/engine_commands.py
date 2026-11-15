@@ -252,7 +252,7 @@ def handle(runtime, command: str):
     # Free-language semantic ownership is exclusively the accepted Brain
     # proposal. There is no raw camera/share, note/calendar, fuzzy shortcut,
     # plugin or domain cascade reclassification here. The exact registered
-    # shortcut and quoted UI file protocols are claimed at brain_entry.handoff
+    # shortcut and quoted UI file protocols are claimed at core_brain_adapter.handoff
     # before this legacy handler, with Core fences; they never reach this tail.
 
     # Kayıtlı şehir ("şehrim İzmir" / "şehrimi sıfırla") artık burada seçilmiyor: karar Understanding'in

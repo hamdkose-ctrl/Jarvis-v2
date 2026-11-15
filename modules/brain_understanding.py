@@ -2130,7 +2130,7 @@ def sequence_steps(text: str) -> tuple[str, ...]:
 
     Adımlar kullanıcının kendi sözcükleriyle döner (büyük/küçük harf ve Türkçe ekler korunur).
     Yürütme typed adaptörde (`engine_sequence._run_steps`) kalır ve her adım kendi canonical
-    kararını `brain_entry.run_step` üzerinden alır. Geçersiz tip ilk kalıp çağrısında TypeError
+    kararını `core_brain_adapter.run_step` üzerinden alır. Geçersiz tip ilk kalıp çağrısında TypeError
     verir; hiçbir adım üretilmez."""
     body = _SEQUENCE_LEAD.sub("", text)
     if not is_sequenced(text):
