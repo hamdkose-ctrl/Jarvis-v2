@@ -539,7 +539,11 @@ def failure_status(exc):
 
 
 def failure_detail(attempt):
-    reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı'}.get(attempt.get('kind'), 'çağrı başarısız')
+    reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı',
+              'request_limit':'bu isteğin boyutu model kapasitesini aşıyor; isteği küçült veya uygun model kullan'}.get(attempt.get('kind'), 'çağrı başarısız')
+    if (attempt.get('kind') == 'request_limit' and type(attempt.get('limit')) is int
+            and type(attempt.get('requested')) is int):
+        reason += f" (bildirilen sınır {attempt['limit']}, istenen {attempt['requested']})"
     if attempt.get('hint') == 'ollama_missing':
         from modules import llm
         label = llm.local_label()
@@ -798,7 +802,7 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
     or fallback.  Cooperative cancellation/deadline checks happen before and
     after every adapter return, so a late answer is never adopted.
     """
-    from modules import router_quota
+    from modules import router_quota, failure_policy
     _check_request(request)
     route_plan = plan(request)
     attempts = [] if attempts is None else attempts
@@ -808,11 +812,16 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
     started = time.monotonic()
     candidates=route_plan.candidates+route_plan.alternatives
     if len(candidates)==1 and validator is not None:candidates=candidates+candidates
+    request_rejected = set()
     for spec in candidates:
         if len(attempts) >= route_plan.max_network_attempts:
             break
         with ExitStack() as admission_stack:
             _check_request(request)
+            if spec in request_rejected:
+                skipped_now.append(_skip(spec.provider,'Aynı istek bu modelin boyut sınırına sığmadı; tekrar gönderilmedi.',
+                                         'PROVIDER_REQUEST_TOO_LARGE',model=spec.model))
+                continue
             if not _current_admission(request,spec):
                 skipped_now.append(_skip(spec.provider,'Bağlantı/veri izni değişti; gönderilmedi.','PROVIDER_ADMISSION_CHANGED',model=spec.model))
                 continue
@@ -880,16 +889,21 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                              else None)
                 classified = transport or exc
                 validation_error = isinstance(exc, ResponseValidationError)
+                request_limit = isinstance(exc, failure_policy.ProviderRequestLimitError)
                 row = {'provider': spec.provider, 'model': spec.model, 'ok': False,'attempt_id':attempt_id,
                        'error': type(classified).__name__,
                        'kind': 'response_validation' if validation_error else failure_kind(classified),
                        'status': failure_status(classified)}
+                if request_limit:
+                    request_rejected.add(spec)
+                    row.update(reason_code='PROVIDER_REQUEST_TOO_LARGE',limit_kind=exc.limit_kind,
+                               limit=exc.limit,requested=exc.requested)
                 if spec.provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                     from modules import llm
                     if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                         row['hint'] = 'ollama_missing'
                 attempt.update(row,state='failed')
-                if not validation_error and type(exc).__name__ != 'ImageCapabilityError':
+                if not validation_error and not request_limit and type(exc).__name__ != 'ImageCapabilityError':
                     with _LOCK:
                         _HEALTH[_failure_health_key(request,spec,exc)] = {
                             'until': time.monotonic()+cooldown(spec.provider, exc), 'error': type(exc).__name__}
@@ -913,6 +927,9 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
         if evidence_code:
             raise failure_policy.ProviderExhaustedError(
                 message, reason_code=evidence_code, recovery_class='user_action_required')
+    if attempts and all(row.get('kind') == 'request_limit' for row in attempts):
+        raise failure_policy.ProviderExhaustedError(message,reason_code='PROVIDER_REQUEST_TOO_LARGE',
+                                                   recovery_class='request_change_required')
     raise failure_policy.ProviderExhaustedError(message)
 
 

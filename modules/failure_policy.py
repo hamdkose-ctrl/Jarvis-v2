@@ -13,6 +13,7 @@ CANCELLED = 'cancelled'
 AUTH = 'auth'
 RATE_LIMIT = 'rate_limit'            # geçici: dakikalık istek/token sınırı, kısa süre sonra açılır
 QUOTA_EXHAUSTED = 'quota_exhausted'  # kalıcı: günlük/hesap kotası bitti, beklemek bugün açmaz
+REQUEST_LIMIT = 'request_limit'      # bu tek istek kapasiteye sığmıyor; aynı girdi bekleyerek küçülmez
 LOCAL_MODEL = 'local_model'          # Ollama kurulu/çalışır değil ya da istenen model indirilmemiş
 DNS = 'dns'
 TIMEOUT = 'timeout'
@@ -30,6 +31,7 @@ UNKNOWN = 'unknown'
 _PROVIDER_REASON_CODES = {
     RATE_LIMIT: 'PROVIDER_RATE_LIMIT',
     QUOTA_EXHAUSTED: 'PROVIDER_QUOTA_EXHAUSTED',
+    REQUEST_LIMIT: 'PROVIDER_REQUEST_TOO_LARGE',
     LOCAL_MODEL: 'PROVIDER_LOCAL_MODEL',
     AUTH: 'PROVIDER_AUTH',
     DNS: 'PROVIDER_DNS',
@@ -44,6 +46,7 @@ _PROVIDER_REASON_CODES = {
 _PROVIDER_RECOVERY_CLASSES = {
     RATE_LIMIT: 'fallback_possible',
     QUOTA_EXHAUSTED: 'fallback_possible',
+    REQUEST_LIMIT: 'request_change_required',
     LOCAL_MODEL: 'user_action_required',
     AUTH: 'fallback_possible',
     DNS: 'retryable',
@@ -54,6 +57,25 @@ _PROVIDER_RECOVERY_CLASSES = {
     ENVIRONMENT: 'user_action_required',
     PROVIDER_EXHAUSTED: 'fail_closed',
 }
+
+
+class ProviderRequestLimitError(RuntimeError):
+    """A rejected request size, not exhausted balance or unhealthy transport.
+
+    Only bounded provider-reported counts are carried; never a raw error body.
+    Unknown limits remain None and are not written as account quota policies.
+    """
+    def __init__(self, *, provider, status_code, limit_kind='request_size', limit=None, requested=None):
+        self.status_code = status_code
+        self.limit_kind = 'tokens_per_minute' if limit_kind == 'tokens_per_minute' else 'request_size'
+        self.limit = limit if type(limit) is int and limit > 0 else None
+        self.requested = requested if type(requested) is int and requested > 0 else None
+        label = 'Groq' if provider == 'groq' else 'Sağlayıcı'
+        size = 'dakikalık token kapasitesine sığmıyor' if self.limit_kind == 'tokens_per_minute' else 'boyut sınırını aşıyor'
+        message = f'{label} isteği {size} (HTTP {status_code}).'
+        if self.limit is not None and self.requested is not None:
+            message += f' Sağlayıcının bildirdiği sınır {self.limit}, istenen {self.requested}.'
+        super().__init__(message + ' İsteği küçült veya bu boyuta uygun başka model kullan.')
 
 
 class ProviderExhaustedError(RuntimeError):
@@ -99,6 +121,8 @@ def is_definitive_provider_finding(exc: BaseException) -> bool:
 
 
 def classify(exc: BaseException) -> str:
+    if isinstance(exc, ProviderRequestLimitError):
+        return REQUEST_LIMIT
     if isinstance(exc, ProviderExhaustedError):
         return PROVIDER_EXHAUSTED
     name = type(exc).__name__.casefold()
@@ -180,6 +204,8 @@ def recovery_action(category: str, *, context: str = '') -> str:
     """Return strategy name only; caller decides which safe adapter implements it."""
     if category in {RATE_LIMIT, QUOTA_EXHAUSTED, LOCAL_MODEL, PROVIDER_DOWN}:
         return 'alternate_provider'
+    if category == REQUEST_LIMIT:
+        return 'reduce_request'
     if category in {DNS, NETWORK, TIMEOUT}:
         return 'alternate_path'
     if category == SOURCE_INVALID:
@@ -203,7 +229,7 @@ def recovery_action(category: str, *, context: str = '') -> str:
 
 def cooldown_seconds(provider: str, exc: BaseException) -> int:
     category = classify(exc)
-    if category == LOCAL_TIMEOUT:
+    if category in {LOCAL_TIMEOUT, REQUEST_LIMIT}:
         return 0    # kendi süremiz doldu; sağlıklı sağlayıcı ceza almaz
     if category == AUTH:
         return 1800
@@ -220,6 +246,8 @@ def cooldown_seconds(provider: str, exc: BaseException) -> int:
 
 def legacy_kind(exc: BaseException) -> str:
     category = classify(exc)
+    if category == REQUEST_LIMIT:
+        return 'request_limit'
     if category == AUTH:
         return 'key'
     if category in {RATE_LIMIT, QUOTA_EXHAUSTED}:
@@ -252,6 +280,7 @@ def failure_detail(provider: str, exc: BaseException) -> str:
         AUTH: 'kimlik/erişim reddedildi',
         RATE_LIMIT: 'geçici hız sınırı',
         QUOTA_EXHAUSTED: 'günlük kota doldu',
+        REQUEST_LIMIT: 'bu isteğin boyutu model kapasitesini aşıyor',
         LOCAL_MODEL: 'yerel model yok',
         DNS: 'DNS çözümlemesi başarısız',
         TIMEOUT: 'zaman aşımı',
@@ -272,6 +301,7 @@ def short_text(exc: BaseException) -> str:
         AUTH: 'anahtarı veya izni geçersiz',
         RATE_LIMIT: 'istek/token sınırına takıldı',
         QUOTA_EXHAUSTED: 'günlük kotası doldu',
+        REQUEST_LIMIT: 'bu isteğin boyut sınırına takıldı',
         LOCAL_MODEL: 'yerel model kullanılamadı',
         DNS: 'DNS üzerinden sunucuya ulaşamadı',
         TIMEOUT: 'zaman aşımına uğradı',
@@ -284,7 +314,7 @@ def short_text(exc: BaseException) -> str:
 
 
 # Sağlayıcı/ağ/model hataları: kullanıcıya ham metin yerine sınıflandırılmış açıklama gider.
-PROVIDER_CATEGORIES = frozenset({RATE_LIMIT, QUOTA_EXHAUSTED, LOCAL_MODEL, AUTH, DNS, NETWORK, TIMEOUT,
+PROVIDER_CATEGORIES = frozenset({RATE_LIMIT, QUOTA_EXHAUSTED, REQUEST_LIMIT, LOCAL_MODEL, AUTH, DNS, NETWORK, TIMEOUT,
                                  PROVIDER_DOWN, ENVIRONMENT, PROVIDER_EXHAUSTED})
 
 
@@ -337,6 +367,8 @@ def backoff_sleep(attempt: int, *, check=None, sleep=None, **kwargs) -> float:
 def explain(exc: BaseException) -> str:
     """User-facing diagnosis without leaking raw provider internals unnecessarily."""
     if isinstance(exc, ProviderExhaustedError):
+        return str(exc)
+    if isinstance(exc, ProviderRequestLimitError):
         return str(exc)
     category = classify(exc)
     if category in (DNS, NETWORK):

@@ -1567,6 +1567,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         elif isinstance(exc, requests_state.LocalDeadline):
             # Yerel süre aşımı ile sağlayıcının yanıt vermemesi ayrı kök nedenlerdir.
             code = 'LOCAL_DEADLINE_EXCEEDED'
+        elif getattr(exc, 'reason_code', None) == 'PROVIDER_REQUEST_TOO_LARGE':
+            code = 'PROVIDER_REQUEST_TOO_LARGE'
         else:
             code = 'MODEL_RESPONSE_INVALID' if response_received else 'MODEL_CALL_ERROR'
         if proposal_diagnostic().get('status') != 'rejected':
