@@ -40,6 +40,10 @@ class Brain11AcceptanceTests(unittest.TestCase):
         self.records[12]["critical_wrong_effect"] = True
         self.assertEqual(b11.assess(self.records, True), "failed")
 
+    def test_unknown_critical_effect_is_never_passed(self):
+        self.records[3]["critical_wrong_effect"] = None
+        self.assertEqual(b11.assess(self.records, True), "unmeasured")
+
     def test_operator_skip_cannot_be_counted_as_pass(self):
         self.records[1]["status"] = "unmeasured"
         self.assertEqual(b11.assess(self.records, True), "unmeasured")
@@ -57,6 +61,8 @@ class Brain11AcceptanceTests(unittest.TestCase):
         self.assertFalse(b11.verify_holdout(dict(self.holdout, incorrect_action_proposals=1), self.sha))
         self.assertFalse(b11.verify_holdout(dict(self.holdout, attempted_effects=1), self.sha))
         self.assertFalse(b11.verify_holdout(dict(self.holdout, accuracy=True), self.sha))
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, attempted_effects=False), self.sha))
+        self.assertFalse(b11.verify_holdout(dict(self.holdout, incorrect_action_proposals=False), self.sha))
 
 
 if __name__ == "__main__":
