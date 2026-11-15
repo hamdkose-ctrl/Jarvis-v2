@@ -106,10 +106,10 @@ def _gate(row: Any, owner: str, rid: str, gate: str) -> GateObservation:
     return GateObservation(**raw)
 
 
-def encode_entry(entry: Any) -> str:
+def encode_entry(entry: Any, *, _core_internal: bool = False) -> str:
     """Brain-owned immutable observation -> a standalone, inert JSON string."""
     from modules.brain_entry import EntryResult
-    if type(entry) is not EntryResult or entry.batch_child:
+    if type(entry) is not EntryResult or (entry.batch_child and not _core_internal):
         raise ValueError("Handoff yalnız kök Brain gözlemi kabul eder.")
     value = {
         "schema": SCHEMA, "version": VERSION,
@@ -124,12 +124,12 @@ def encode_entry(entry: Any) -> str:
         "understanding": (
             entry.understanding.to_dict() if entry.understanding is not None else None
         ),
-        "batch_child": False,
+        "batch_child": entry.batch_child,
     }
     return _dump(value)
 
 
-def decode_entry(message: str):
+def decode_entry(message: str, *, _core_internal: bool = False):
     """Core input validation; builds a NEW local value, never borrows Brain state."""
     from modules.brain_entry import EntryResult
     row = _only(_load(message), _ENTRY_KEYS, "Handoff")
@@ -140,7 +140,8 @@ def decode_entry(message: str):
             or type(rid) is not str or not rid or len(rid) > 128
             or type(row["source"]) is not str or not row["source"]
             or type(row["text"]) is not str or not row["text"].strip()
-            or row["batch_child"] is not False):
+            or (row["batch_child"] is not False
+                and not (_core_internal and row["batch_child"] is True))):
         raise ValueError("Handoff owner/request/text sınırı geçersiz.")
     ctx = dict(_only(row["active_context"], _fields(ActiveContext), "ActiveContext"))
     if (ctx["owner"], ctx["request_id"]) != (owner, rid):
@@ -169,7 +170,7 @@ def decode_entry(message: str):
         candidates=_refs(row["candidates"], owner, "candidates"),
         references=_refs(row["references"], owner, "references"),
         state_references=_refs(row["state_references"], owner, "state_references"),
-        understanding=semantic, batch_child=False,
+        understanding=semantic, batch_child=row["batch_child"],
     )
     if row["stage"] != entry.stage or type(row["stage"]) is not str:
         raise ValueError("Handoff aşama/gate uyuşmuyor.")
