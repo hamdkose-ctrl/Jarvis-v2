@@ -164,12 +164,13 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
         self.save.assert_not_called()
         self.probes.assert_not_called()
 
-    def test_missing_document_requests_a_target_without_opening_a_dialog(self):
+    def test_missing_document_rejects_unoffered_export_without_effect_or_false_success(self):
         self.ctx._session().last_doc = None
         self.proposal('documents.export')
         _, out, *_ = self.turn_real('Bunu bilgisayarıma kaydet.', model_understanding=True)
         self.save.assert_not_called()
-        self.assertIn('çıktı', out.casefold())
+        self.probes.assert_not_called()
+        self.assertIn('hiçbir işlem başlatmadım', out.casefold())
 
     def test_cancelled_dialog_does_not_claim_success(self):
         self.proposal('documents.export'); self.save.return_value = None
