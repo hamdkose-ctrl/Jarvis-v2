@@ -177,6 +177,36 @@ def decode_entry(message: str, *, _core_internal: bool = False):
     return entry
 
 
+def _restore_feedback(value: Any) -> BrainFeedback:
+    raw = dict(_only(value, _fields(BrainFeedback), "CoreFeedback"))
+    owner = raw["owner"]
+    raw["candidates"] = _refs(raw["candidates"], owner, "feedback.candidates")
+    raw["evidence"] = _refs(raw["evidence"], owner, "feedback.evidence")
+    return BrainFeedback(**raw)
+
+
+def encode_feedback(feedback: BrainFeedback | None) -> str | None:
+    """Store only an inert JSON snapshot for legacy error reporting."""
+    if feedback is None:
+        return None
+    if type(feedback) is not BrainFeedback:
+        raise ValueError("Feedback yalnız doğrulanmış taşıyıcı olmalı.")
+    return _dump({
+        "schema": "jarvis.brain-core.feedback",
+        "version": VERSION, "feedback": feedback.to_dict(),
+    })
+
+
+def decode_feedback(message: str | None) -> BrainFeedback | None:
+    if message is None:
+        return None
+    row = _only(_load(message), frozenset({"schema", "version", "feedback"}),
+                "LegacyFeedback")
+    if row["schema"] != "jarvis.brain-core.feedback" or type(row["version"]) is not int or row["version"] != VERSION:
+        raise ValueError("Feedback JSON sürümü geçersiz.")
+    return _restore_feedback(row["feedback"])
+
+
 def encode_result(output: Any, feedback: BrainFeedback, job_id: str | None,
                   *, owner: str, request_id: str) -> str:
     """Only JSON text leaves Core, never ActionOutcome or BrainFeedback objects."""
@@ -204,7 +234,7 @@ def decode_result(message: str, *, owner: str, request_id: str) -> dict:
             (row["output"] is not None and type(row["output"]) is not str) or
             (row["job_id"] is not None and type(row["job_id"]) is not str)):
         raise ValueError("Core JSON sonucu owner/request/sürüm uyuşmuyor.")
-    fb = _only(row["feedback"], _fields(BrainFeedback), "CoreFeedback")
-    if fb["owner"] != owner or fb["request_id"] != request_id:
+    fb = _restore_feedback(row["feedback"])
+    if fb.owner != owner or fb.request_id != request_id:
         raise ValueError("Core feedback kimliği uyuşmuyor.")
     return row
