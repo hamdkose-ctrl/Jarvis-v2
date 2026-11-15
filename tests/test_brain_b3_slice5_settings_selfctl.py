@@ -1,4 +1,5 @@
 """BRAIN-03 slice 5: typed model proposal -> Core -> existing adapters."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -76,8 +77,6 @@ class Slice5ProductionSeamTests(unittest.TestCase):
         self.owner = self.ctx.profile.slug
         self.ctx.emit = Mock()
         self.ctx.system_control = Mock()
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start(); self.addCleanup(guard.stop)
 
     def _proposal(self, capability, arguments):
         return UnderstandingProposal(
@@ -93,7 +92,7 @@ class Slice5ProductionSeamTests(unittest.TestCase):
             with requests_state.activate(self.owner, rid):
                 entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı", model_understanding=True)
                 legacy = Mock(side_effect=AssertionError("raw legacy handler must not run"))
-                out, feedback, _ = brain_entry.handoff(self.ctx, entry, legacy, text)
+                out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, legacy, text)
         model.assert_called_once()
         legacy.assert_not_called()
         return entry, out, feedback

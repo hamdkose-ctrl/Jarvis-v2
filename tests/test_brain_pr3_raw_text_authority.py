@@ -6,6 +6,7 @@ etki tam bir kez, doğrulanmış Core intent'i üzerinden uygulanır. Bu dosya R
 yazıldı: dallar henüz retire edilmediği için canonical effect testleri düşer.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 from provider_fixture import routed_response
 
 import ast
@@ -125,9 +126,6 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             state_patch = patch.object(target, attr, return_value=None)
             state_patch.start()
             self.addCleanup(state_patch.stop)
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.run_goal = Mock(return_value="GOAL_RUN")
         run_patch = patch.object(goal_executor, "run", self.run_goal)
         run_patch.start()
@@ -149,7 +147,7 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text,
                                         source=source, model_understanding=model_understanding)
             handle = handler or Mock(return_value="HANDLER")
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, feedback
 
     def turn_real(self, text, source="yazı", model_understanding=False):

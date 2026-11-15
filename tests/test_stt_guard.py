@@ -1,4 +1,5 @@
 """Ses tanıma süzgeci, paylaşım kapatma ve belirsiz komut sorusu (ağ/mikrofon yok)."""
+from modules import core_brain_adapter
 import importlib
 import re
 import sys
@@ -154,10 +155,9 @@ class EngineClarifyTests(unittest.TestCase):
         for text, word in (('kapat', 'kapatmamı'), ('Kapatır mısın?', 'kapatmamı'), ('aç', 'açmamı')):
             rid = 'clarify-' + uuid.uuid4().hex[:8]
             context.requests_state.register(owner, rid)
-            with context.as_user(context.profile.name), context.requests_state.activate(owner, rid), \
-                    patch.object(brain_entry, '_install_core_guards', lambda runtime: None):
+            with context.as_user(context.profile.name), context.requests_state.activate(owner, rid):
                 entry = brain_entry.prepare(context, owner=owner, request_id=rid, text=text, source='yazı')
-                answer, _feedback, _job = brain_entry.handoff(context, entry, context.handle, text)
+                answer, _feedback, _job = core_brain_adapter.handoff(context, entry, context.handle, text)
             self.assertEqual(entry.understanding.ambiguities, ('APP_TARGET_MISSING',), text)
             self.assertEqual(answer, f'Neyi {word} istiyorsun?', text)
             self.assertEqual(context._session().pending_action['question'], answer)
@@ -223,7 +223,6 @@ class EngineClarifyTests(unittest.TestCase):
         voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, state={}, speak=Mock())
         with patch('modules.engine_voice.VoiceSession', return_value=voice), patch('instance.take_over', return_value=False), \
                 patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'), \
-                patch('modules.brain_entry._install_core_guards'), \
                 patch('modules.brain_model_understanding.propose', return_value=UnderstandingProposal(
                         operation='clarify', conversation_relation=ConversationRelation.NEW_REQUEST,
                         temporal_need=TemporalNeed.STATIC,

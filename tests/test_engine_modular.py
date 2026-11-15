@@ -1,4 +1,5 @@
 """Real runtime composition/facade/loop tests with only hardware/providers mocked."""
+from modules import core_brain_adapter
 import ast
 import contextlib
 from pathlib import Path
@@ -117,9 +118,8 @@ class ModularEngineTests(unittest.TestCase):
              patch('instance.take_over',return_value=False), \
              patch('updater.pop_notice',return_value=None), \
              patch('modules.perf.start'), patch('release_guard.ready'), \
-             patch('modules.brain_entry._install_core_guards'), \
              patch('modules.brain_entry.prepare',return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.brain_entry.handoff',side_effect=handoff), \
+             patch('modules.core_brain_adapter.handoff',side_effect=handoff), \
              patch('modules.brain_echo.present'), \
              patch.object(context._llm,'take_route',return_value=None):
             context.main(ui=Mock())

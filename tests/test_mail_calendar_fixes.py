@@ -8,6 +8,7 @@
 
 Profil gerçek JSON dosyasına yazılır ve yeniden okunur; Google servisi taklittir, model çağrılmaz.
 """
+from modules import core_brain_adapter
 import sys
 import tempfile
 import unittest
@@ -97,7 +98,7 @@ def typed_reminder_create(rt, text, *, title, when, repeat=None):
                                     source="yazı", model_understanding=True)
         from unittest.mock import Mock
         forbidden = Mock(side_effect=AssertionError("typed reminder re-entered raw NL"))
-        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+        reply, feedback, _ = core_brain_adapter.handoff(rt, entry, forbidden, text)
     assert feedback.result_status in {"handled", "needs_input", "failed"}
     forbidden.assert_not_called()
     return str(reply)
@@ -128,7 +129,7 @@ def typed_notes_read(rt, text):
          patch.object(brain_entry, "apply_model_understanding", side_effect=independent):
         entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
                                     text=text, source="yazı", model_understanding=True)
-        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+        reply, feedback, _ = core_brain_adapter.handoff(rt, entry, forbidden, text)
     assert feedback.result_status == "handled"
     forbidden.assert_not_called()
     return str(reply)
@@ -143,7 +144,7 @@ def bounded_reminder_answer(rt, text):
     with requests_state.activate(owner, rid):
         entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
                                     text=text, source="yazı")
-        reply, feedback, _ = brain_entry.handoff(rt, entry, rt.handle, text)
+        reply, feedback, _ = core_brain_adapter.handoff(rt, entry, rt.handle, text)
     return str(reply)
 
 

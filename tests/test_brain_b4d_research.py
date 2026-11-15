@@ -1,3 +1,4 @@
+from modules import core_brain_adapter
 import dataclasses
 import tempfile
 import unittest
@@ -98,9 +99,6 @@ class ResearchEndToEndTests(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def run_text(self, text):
         rid = "b4d-" + uuid.uuid4().hex[:8]
@@ -109,7 +107,7 @@ class ResearchEndToEndTests(unittest.TestCase):
              patch("modules.goal_executor.run", return_value="BULGU") as run:
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, run, feedback
 
     def test_prepare_handoff_runs_explicit_research_through_core_task(self):
@@ -133,7 +131,7 @@ class ResearchEndToEndTests(unittest.TestCase):
                 arguments={"research": {"query": "başka bir şey", "route": "PRIVATE"}},
             )
             entry = dataclasses.replace(entry, understanding=forged)
-            out, _, _ = brain_entry.handoff(self.ctx, entry, Mock(wraps=self.ctx.handle), text)
+            out, _, _ = core_brain_adapter.handoff(self.ctx, entry, Mock(wraps=self.ctx.handle), text)
         self.assertEqual(out, "BULGU")
         run.assert_called_once_with(self.ctx, text)
 

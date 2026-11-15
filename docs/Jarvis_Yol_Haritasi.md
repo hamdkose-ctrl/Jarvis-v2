@@ -1043,6 +1043,11 @@ BRAIN-11, yeni bir Brain/Router/Core/Scheduler oluşturma işi değil; önceki B
 
 **Kapanış hâlâ AÇIK:** #641 son SHA tam yerel doğrulama, exact-source Windows CI ve aynı SHA gerçek PC watcher PASS; ardından aynı üretim semantik yolunda, gerçek sağlayıcıyla 20/20 Full **≥%95 doğruluk + yanlış action=0 + attempted effect=0**. Geçmezse Brain-11 CLOSED değil, model seçimi/istem/bağlam kusuru tekrar ölçülür. Ayrıca BRAIN-11'in 20 operatör senaryosu, gerçek STT/TTS, fiziksel duyulma ve gecikme kabulü ayrı açık.
 
+### BRAIN-03 — `brain_entry` yürütme sınırı, PR #644 (15 Kasım 2026; kabul bekliyor)
+
+`brain_entry.py` içindeki yürütmeye geçiş yapan `handoff`/`_batch_handoff` ve iç-adım `run_step` girişleri, Core pending/goal korelasyon ve state lifecycle vekilleri mevcut `core_brain_adapter.py` sahibine taşındı. Daha önce zaten etkisiz olan çalışma anı `_install_*guard*` kancaları kaldırıldı; gerçek Core/domain yetki, State/Fast gözlemi, mevcut batch checkpoint, owner/RID korumaları ve tek yürütücü/Scheduler korunur. Ses/komut/makro girişleri ve test fixture'ları yeni Core girişini kullanır; yeni motor veya ayrı state deposu yoktur.
+
+**Açık sınır:** `EntryResult.to_dict()` / `core_proposal()` JSON'a serileştirilebilir gözlem/öneri üretir, ancak mevcut Core handoff hâlâ immutable Python `EntryResult` taşıyıcısını kullanır ve `bind/current` request-local gözlem bağı sürer; dolayısıyla tam JSON-only/stateless kontrat tamamlandı denmez. PR #644 kaynak değişikliği ilk Windows CI'da roadmap drift kontrolünde durdu; Python/JS/smoke testleri **çalışmadı**. Yol haritası notu yalnız bu eksik kaydı giderir, CI PASS kanıtı değildir. Son SHA Windows CI + aynı SHA PC watcher ve ilgili canlı/fiziksel kabul doğrulanmadan merge/kapanış yoktur; #545/#584 açık kalır.
 ---
 
 ### AJAN 3 — yalnız aktif foreground durdurma / kimlikli iptal (15 Kasım 2026; PR #642, kabul bekliyor)

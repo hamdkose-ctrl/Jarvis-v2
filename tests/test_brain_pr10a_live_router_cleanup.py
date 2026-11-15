@@ -8,6 +8,7 @@ E  the same semantic request reaches the same canonical Understanding/Core path 
 F  `work_modes` is no longer a production semantic authority outside the legacy router chain.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 import ast
 import contextlib
@@ -134,8 +135,7 @@ class CanonicalRequestTests(unittest.TestCase):
                                     lambda **kwargs: self.context(**kwargs)),
                        patch("modules.job_front.observe", lambda owner: None),
                        patch("modules.desktop_agent._load", lambda owner: None),
-                       patch.object(brain_entry, "_install_core_guards"),
-                       patch.object(brain_entry, "_correlated_job_id", return_value=None)):
+                       patch.object(core_brain_adapter, "_correlated_job_id", return_value=None)):
             stack.enter_context(target)
 
     def text_turn(self, text: str, handler):
@@ -143,7 +143,7 @@ class CanonicalRequestTests(unittest.TestCase):
             self.guards(stack)
             dispatch = stack.enter_context(patch("modules.engine_intents.dispatch", return_value="<<core>>"))
             entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı", model_understanding=True)
-            output, _feedback, _job = brain_entry.handoff(self.runtime, entry, handler, text)
+            output, _feedback, _job = core_brain_adapter.handoff(self.runtime, entry, handler, text)
         return entry, output, dispatch
 
     def live_turn(self, text: str, handler):

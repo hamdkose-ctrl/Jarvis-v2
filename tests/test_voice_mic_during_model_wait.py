@@ -13,6 +13,7 @@ The fix re-opens only the wait window.  These tests pin both halves: the microph
 comes back while the provider is answering, and the identity lock, the owner's queue,
 the "sus"/"dur" scopes, the deadline and the late-answer fence are unchanged.
 """
+from modules import core_brain_adapter
 from provider_fixture import routed_plan
 import contextlib
 import inspect
@@ -365,7 +366,7 @@ class TurnWiring(unittest.TestCase):
         # SAME microphone hook. None creates a second execution owner.
         self.assertEqual(source.count('_turn_with_listening_foreground'), 3)
         self.assertIn('brain_entry.prepare', source)
-        self.assertIn('brain_entry.handoff', source)
+        self.assertIn('core_brain_adapter.handoff', source)
         self.assertIn('runtime.as_user', source)          # identity still wraps the turn
 
 

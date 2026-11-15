@@ -5,6 +5,7 @@ Only the model's semantic choice is deterministic in this suite. These tests
 do NOT claim recognition accuracy for spoken Turkish; a live holdout is separate.
 """
 from __future__ import annotations
+from modules import core_brain_adapter
 
 from dataclasses import replace
 from datetime import datetime
@@ -57,7 +58,7 @@ class ReminderCanonicalTests(ProfileCase):
             entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
                                         text=utterance, source="yazı",
                                         model_understanding=True)
-            result, feedback, _ = brain_entry.handoff(rt, entry, forbidden, utterance)
+            result, feedback, _ = core_brain_adapter.handoff(rt, entry, forbidden, utterance)
         forbidden.assert_not_called()
         self.assertEqual(entry.understanding.capability_hint, "reminders.manage")
         return str(result), feedback

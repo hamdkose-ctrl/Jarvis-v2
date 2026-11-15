@@ -9,6 +9,7 @@ kayıtta durur; sessizce "tamamlandı" sayılmaz.
 
 Testler üretim fonksiyonlarını ve gerçek kaynak dosyalarını okur; mock'un kendi davranışını sınemez.
 """
+from modules import core_brain_adapter
 import ast
 import re
 import unittest
@@ -134,7 +135,7 @@ class LivingAuthorityKeptTests(unittest.TestCase):
         from modules import brain_entry, engine_live_brain
         source = Path(engine_live_brain.__file__).read_text(encoding='utf-8')
         self.assertIn('brain_entry.prepare', source)
-        self.assertIn('brain_entry.handoff', source)
+        self.assertIn('core_brain_adapter.handoff', source)
         self.assertTrue(callable(brain_entry.prepare) and callable(engine_live_brain._live_command))
 
     def test_wakeword_local_stt_and_single_voice_owner_are_untouched(self):

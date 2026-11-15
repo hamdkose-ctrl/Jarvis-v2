@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from modules import core_brain_adapter
 import test_privacy_voice_and_pending
 if 'pyautogui' not in sys.modules:
     stub = types.ModuleType('pyautogui'); stub.__getattr__ = lambda attr: MagicMock(); sys.modules['pyautogui'] = stub
@@ -37,7 +38,7 @@ def canonical(command, rid, capability=None, arguments=None, **kwargs):
     with model_decision(capability, arguments, **kwargs), runtime.requests_state.activate(owner, rid):
         entry = brain_entry.prepare(runtime, owner=owner, request_id=rid, text=command,
                                     source='yazı', model_understanding=True)
-        return brain_entry.handoff(runtime, entry, runtime.handle, command)[0]
+        return core_brain_adapter.handoff(runtime, entry, runtime.handle, command)[0]
 
 
 with patch.object(pc_guide, 'handle', return_value='Önce şu klasörü aç.') as coach:

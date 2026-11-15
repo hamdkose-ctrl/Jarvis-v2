@@ -1,4 +1,5 @@
 """PR7 Closeout-B3c-2: reminder creation as a Core intent running at the planner's precedence slot."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -56,9 +57,6 @@ class Pipeline(unittest.TestCase):
         self.ctx.profile.data["events"] = []
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def through_brain(self, text):
         rid = "b3c2-" + uuid.uuid4().hex[:8]
@@ -66,7 +64,7 @@ class Pipeline(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
 
 

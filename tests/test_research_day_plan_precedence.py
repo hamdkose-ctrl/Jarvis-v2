@@ -1,4 +1,5 @@
 """Research/news requests must reach canonical routing before calendar/date convenience paths."""
+from modules import core_brain_adapter
 import queue
 import unittest
 from datetime import datetime
@@ -47,7 +48,7 @@ class ResearchDayPlanPrecedenceTests(ProfileCase):
              patch.object(brain_entry, "apply_model_understanding", side_effect=model):
             entry = brain_entry.prepare(runtime, owner=owner, request_id=rid,
                                         text=text, source="yazı", model_understanding=True)
-            out, feedback, _ = brain_entry.handoff(
+            out, feedback, _ = core_brain_adapter.handoff(
                 runtime, entry,
                 Mock(side_effect=AssertionError("typed research entered old NL")), text)
         self.assertEqual(entry.understanding.capability_hint, "research.search")

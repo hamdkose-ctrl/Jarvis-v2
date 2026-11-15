@@ -1,4 +1,5 @@
 """PR7 Closeout-B3a: clarify E2E through prepare->handoff, photo feedback, legacy front-gate precedence."""
+from modules import core_brain_adapter
 import inspect
 import logging
 import re
@@ -47,10 +48,6 @@ class _Pipeline(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        # Core guards wrap process-global modules; keep them out of the shared test process.
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
 
     def through_brain(self, text):
         """Exactly engine_loop's text path: activate -> prepare -> handoff(runtime.handle)."""
@@ -59,7 +56,7 @@ class _Pipeline(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
 
 

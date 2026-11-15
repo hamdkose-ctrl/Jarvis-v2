@@ -1,4 +1,5 @@
 """Cross-component state transfer with actual runtime and handlers."""
+from modules import core_brain_adapter
 import ast
 import concurrent.futures
 import inspect
@@ -42,7 +43,7 @@ class EngineLinkTests(unittest.TestCase):
         def handoff(_runtime, _entry, handler, command):
             return handler(command), SimpleNamespace(result_status='handled'), None
         with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.brain_entry.handoff', side_effect=handoff), \
+             patch('modules.core_brain_adapter.handoff', side_effect=handoff), \
              patch('modules.brain_echo.present'):
             self.assertEqual(context._live_command('merhaba'), 'Tamam.')
         context.handle.assert_called_once_with('merhaba')
@@ -121,7 +122,7 @@ class EngineLinkTests(unittest.TestCase):
         def handoff(_runtime, _entry, handler, command):
             return handler(command), SimpleNamespace(result_status='handled'), None
         with patch('modules.brain_entry.prepare', return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.brain_entry.handoff', side_effect=handoff), \
+             patch('modules.core_brain_adapter.handoff', side_effect=handoff), \
              patch('modules.brain_echo.present'):
             self.assertEqual(context._live_command('istek'),'Sesli kısa sonuç')
         self.assertEqual(len(observed),1)
@@ -159,7 +160,7 @@ class EngineLinkTests(unittest.TestCase):
         def step(runtime,text):
             seen.append((runtime,text))
             return (f'{text} bitti',SimpleNamespace(result_status='handled'))
-        with patch('modules.brain_entry.run_step',side_effect=step):
+        with patch('modules.core_brain_adapter.run_step',side_effect=step):
             out=context._run_steps(['bir','iki'])
         self.assertEqual([row[1] for row in seen],['bir','iki'])
         self.assertTrue(all(row[0] is context for row in seen))
@@ -169,7 +170,7 @@ class EngineLinkTests(unittest.TestCase):
 
     def test_closing_sequence_stops_before_the_first_step(self):
         context=self.context();context.flags['closing']=True;context.handle=Mock()
-        with patch('modules.brain_entry.run_step',side_effect=AssertionError('kapanırken adım çalışmaz')):
+        with patch('modules.core_brain_adapter.run_step',side_effect=AssertionError('kapanırken adım çalışmaz')):
             out=context._run_steps(['bir','iki'])
         self.assertIn('Jarvis kapanıyor',out)
         self.assertNotIn('bir bitti',out)
@@ -186,7 +187,7 @@ class EngineLinkTests(unittest.TestCase):
         def step(runtime,text):
             seen.append(text)
             return (f'{text} bitti',SimpleNamespace(result_status='handled'))
-        with patch('modules.brain_entry.run_step',side_effect=step):
+        with patch('modules.core_brain_adapter.run_step',side_effect=step):
             out=context._macro_run('başla')
         self.assertEqual(seen,['bir','iki'])
         self.assertIn('kısayolunu çalıştırdım',out)

@@ -1,4 +1,5 @@
 """PR7 Closeout: remaining natural-language file operations use one Brain target and Core action."""
+from modules import core_brain_adapter
 import tempfile
 import unittest
 import uuid
@@ -123,9 +124,6 @@ class EndToEndTests(unittest.TestCase):
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
-        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
-        guard.start()
-        self.addCleanup(guard.stop)
         self.file = Path(self.temp.name) / "rapor.txt"
         self.file.write_text("içerik", encoding="utf-8")
         original = brain_entry.build_candidates
@@ -147,7 +145,7 @@ class EndToEndTests(unittest.TestCase):
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = handler or Mock(return_value="LEGACY")
-            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
+            out, feedback, _ = core_brain_adapter.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
 
     def test_canonical_analyze_dispatches_exact_target_without_legacy_resolve_doc(self):
