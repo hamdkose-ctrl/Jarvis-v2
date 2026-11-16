@@ -1109,6 +1109,10 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 
 - `openai/gpt-oss-120b`/`openai/gpt-oss-20b` context/output kayıtları resmî model kartlarından yeniden doğrulandı (131.072 / 65.536; sayılar değişmedi) ve geçerlilik penceresi 23 Kasım 2026 19:00 UTC'ye taşındı. Native JSON schema/tool calling iddiası eklenmedi (taşıma şeması yok). Yeni CI bekçi testi, süresi dolan kartın üretimde sessiz kanıtsız kalmasını artık CI'da gürültülü hataya çevirir; gerçek PC/live model kabulü ayrıca doğrulanır.
 
+### 2026-11-17 — Çift işçi gövdesinin tek sınıra birleştirilmesi (PR-4)
+
+- `task_agents.worker` ile `task_worker_adapter.worker` aynı doğrula/kopyala/kanca/mühürle gövdesini iki kez taşıyordu; tek gövde artık `task_worker_adapter.run`. Kanonik şerit varsayılan yürütücü `task_workers.run`'ı, eski şerit çağrı anında çözülen `_worker` dikişini kullanmaya devam eder; BRAIN-07'ın `task_worker_adapter.worker` yama noktası ve `test_phase2_wiring` dikişi aynen çalışır. Kanca çiftleri, mühürleme, girdi doğrulama önceliği, derin kopya ve başarısızlık durumları iki şeritte parity testiyle kilitlendi (`tests/test_task_worker_single_boundary.py`, 10 test). Davranış değişmedi; gerçek PC gecesi ayrı kabul.
+
 ### 2026-11-17 — Teslim makbuzu dürüstlüğü ve bayat planlama durumu (PR-5)
 
 - **Makbuz:** `_emit_for` pencere geri çağırması hatasını artık yutmuyor görünümez kılar: gerçek hata yolunda `False` döner ve `_record_failure` yazılır; `event_channels.deliver` bunu `ui: failed:RuntimeError` olarak makbuza işler, `None` dönen eski klempler değişmez. `_accepted_user_channel` yalnız `ui`/`ntfy` tam `delivered` makbuzunu kabul eder; yutulan UI hatasıyla "delivered" sahte teslimatı ve journal'ın reserved→delivered geçişi kapanır. Yazılı olay teslimi (event_log/history) ve kanal yalıtımı korunur; sink kabulü insan-okudu garantisi değildir.
