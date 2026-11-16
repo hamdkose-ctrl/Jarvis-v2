@@ -7,6 +7,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 from modules import task_agents as agents, browser_agent as browser, requests_state
+from writer_consent_fixture import native_writer_after_consent
 
 
 class RecoveryTests(unittest.TestCase):
@@ -147,10 +148,10 @@ class RecoveryTests(unittest.TestCase):
 
     def test_actual_writer_digest_and_empty_result_rejected(self):
         from modules import nxapi
-        with patch.object(nxapi,'FILES_DIR',self.root/'files'),patch.object(agents.llm,'ask',return_value='Rapor'):
+        with patch.object(nxapi,'FILES_DIR',self.root/'files'),patch.object(agents.llm,'ask',return_value='Rapor'),native_writer_after_consent():
             output=agents.worker('alice',{'agent':'writer','input':{'instruction':'write'}},{})
         self.assertTrue(agents._artifact(output));self.assertEqual(len(output['sha256']),64)
-        with patch.object(agents.llm,'ask',return_value=''):
+        with patch.object(agents.llm,'ask',return_value=''),native_writer_after_consent():
             with self.assertRaisesRegex(ValueError,'boş'):agents.worker('alice',{'agent':'writer','input':{'instruction':'write'}},{})
 
     def test_history_and_retrieval_remain_after_reload(self):
