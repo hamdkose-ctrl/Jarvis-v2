@@ -298,9 +298,9 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if approval and kind=='publish':
             from modules import outbox
             return task_results.seal('publish',outbox.dispatch(owner,approval['id'],approve=True))
-        # Exactly the two canonical Phase 4A workers bypass task_agents.
-        # Existing legacy callers and every other capability are unchanged.
-        if kind in ('media', 'file') and identity.get('_canonical_scheduler_offer') is not None:
+        # All Canonical Scheduler offers execute through the shared Core worker
+        # adapter. Legacy job execution keeps its historical worker path.
+        if identity.get('_canonical_scheduler_offer') is not None:
             from modules import task_worker_adapter
             output=task_worker_adapter.worker(owner,task,dependencies)
         else:

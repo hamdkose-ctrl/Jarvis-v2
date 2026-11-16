@@ -1,4 +1,4 @@
-"""Phase 4A: only media and file may join the canonical Scheduler.
+"""Phase 4A media/file regression; keep fences after additive Phase 4B.
 
 Use real GoalState, Scheduler admission, ResourceLease, native domain receipts,
 and Core WorkerResult CAS; mock only FFmpeg/FFprobe physical execution.
@@ -32,17 +32,24 @@ class Phase4AMediaFileTests(unittest.TestCase):
             SimpleNamespace(slug=owner), self.offer(job_id),
         )
 
-    def test_only_media_and_file_enter_phase4a(self):
-        with self.assertRaises(ValueError):
-            canonical_goal_flow._canonical_plan([
-                {'id':'pay','agent':'finance','depends':[],
-                 'input':{'operation':'portfolio_summary','payload':'[]'}},
-            ],allow_effects=True)
-        with self.assertRaises(ValueError):
-            canonical_goal_flow._canonical_plan([
-                {'id':'ui','agent':'computer','depends':[],
-                 'input':{'app':'calculator','operation':'observe'}},
-            ],allow_effects=True)
+    def test_phase4b_roots_do_not_weaken_phase4a_media_dependency_fence(self):
+        # The 4A media/file capabilities stay intact as 4B adds independent,
+        # explicitly read-only finance/computer and approved browser roots.
+        for task in (
+            {'id':'pay','agent':'finance','depends':[],
+             'input':{'operation':'portfolio_summary','payload':'[]'}},
+            {'id':'ui','agent':'computer','depends':[],
+             'input':{'app':'calculator','operation':'observe'}},
+        ):
+            with self.subTest(capability=task['agent']):
+                plan = canonical_goal_flow._canonical_plan(
+                    [task], allow_effects=True,
+                )
+                self.assertEqual(plan['nodes'][0]['capability_id'],
+                                 'task.' + task['agent'])
+        # Browser remains forbidden without explicit readonly mode and without
+        # its independent exact-job approval; this is not a general browser
+        # effect admission.
         with self.assertRaises(ValueError):
             canonical_goal_flow._canonical_plan([
                 {'id':'browse','agent':'browser','depends':[],

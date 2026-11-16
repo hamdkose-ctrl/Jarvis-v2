@@ -38,7 +38,11 @@ def browser_task(owner, data):
         from modules import browser_readonly
         for action in actions:
             browser_readonly.assert_readonly_action(action)
-    return browser_agent.run(owner,[{'op':'goto','url':initial['page']['url']}]+actions,read_only=readonly_mode)
+    result = browser_agent.run(owner,[{'op':'goto','url':initial['page']['url']}]+actions,read_only=readonly_mode)
+    if readonly_mode and result.get('state') == 'done':
+        result = {**result, 'readonly': True}
+        result['receipt'] = task_results.browser_readonly_receipt(result)
+    return result
 
 
 def file_task(data):

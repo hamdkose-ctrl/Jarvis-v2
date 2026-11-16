@@ -27,7 +27,7 @@ from modules import (
     account_tools, brain_entry, canonical_goal_flow, canonical_plan_evidence,
     canonical_scheduler_dispatch, execution_record, goal_executor, goal_job_control,
     goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
-    smart_router, task_agents, task_queue, task_results, untrusted_flow,
+    smart_router, task_agents, task_queue, task_results, task_worker_adapter, untrusted_flow,
     scheduler_resource_gate,
 )
 from modules import brain_model_understanding as envelope
@@ -865,7 +865,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 'source': 'https://example.test/article', 'source_chars': 200,
             })
 
-        with patch.object(task_agents, 'worker', research_worker), \
+        with patch.object(task_worker_adapter, 'worker', research_worker), \
                 patch.object(untrusted_flow, 'observe', lambda *_: None):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner), offer,
@@ -915,7 +915,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 'source': 'https://example.test/article', 'source_chars': 200,
             })
 
-        with patch.object(task_agents, 'worker', research_worker), \
+        with patch.object(task_worker_adapter, 'worker', research_worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner), offer,
@@ -1007,7 +1007,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                           return_value={
                               'action': 'complete', 'goal': 0,
                               'evidence': ['first'],
-                          }), patch.object(task_agents, 'worker',
+                          }), patch.object(task_worker_adapter, 'worker',
                                            side_effect=AssertionError('worker replay')):
             self.assertTrue(canonical_goal_flow.complete_and_deliver(
                 self.owner, job_id, sink,
@@ -1138,7 +1138,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', research_worker),
+                (task_worker_adapter, 'worker', research_worker),
                 (untrusted_flow, 'observe', lambda *_: None),
             ):
                 patches.enter_context(patch.object(obj, attribute, value))
@@ -1264,7 +1264,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', worker),
+                (task_worker_adapter, 'worker', worker),
                 (untrusted_flow, 'observe', lambda *_: None),
                 (canonical_goal_flow, '_semantic_proposal', semantic),
             ):
@@ -1330,7 +1330,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 'state': 'done', 'text': 'Durably projected result',
                 'source': 'https://example.test/article', 'source_chars': 200,
             })
-        with patch.object(task_agents, 'worker', research_worker), \
+        with patch.object(task_worker_adapter, 'worker', research_worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner), offer,
@@ -1387,7 +1387,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                         self.assertFalse(live.is_alive(),
                                          'Recovery worker still owns a Windows file lock')
                 patches.callback(close_patched_scheduler)
-                with patch.object(task_agents, 'worker',
+                with patch.object(task_worker_adapter, 'worker',
                                   side_effect=AssertionError('worker replay')) as worker:
                     task_queue.start(
                         stop, allowed_owners=lambda: {self.owner},
@@ -1542,7 +1542,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 'text': account_tools.render_snapshot(snapshot),
                 'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
             })
-        with patch.object(task_agents, 'worker', side_effect=account_worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=account_worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             first = canonical_scheduler_dispatch.discover(self.owner)
             self.assertEqual([o.selection.node_id for o in first], ['unread'])
@@ -1671,7 +1671,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             except Exception as exc:
                 errors.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=safe_worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=safe_worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             try:
                 # Start from the real published canonical journal, not a
@@ -1824,7 +1824,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 if candidate.selection.node_id == node_id
             )
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=worker), \
              patch.object(worker_result_hook, 'execute',
                           side_effect=hold_verify), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
@@ -1960,7 +1960,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', worker),
+                (task_worker_adapter, 'worker', worker),
                 (untrusted_flow, 'observe', lambda *_: None),
                 (model_wait, 'ask', lambda *a, **kw: json.dumps({
                     'action': 'complete', 'goal': 0,
@@ -2141,7 +2141,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', worker),
+                (task_worker_adapter, 'worker', worker),
                 (untrusted_flow, 'observe', lambda *_: None),
             ):
                 patches.enter_context(patch.object(obj, attribute, value))
@@ -2306,7 +2306,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', research_worker),
+                (task_worker_adapter, 'worker', research_worker),
                 (untrusted_flow, 'observe', lambda *_: None),
             ):
                 patches.enter_context(patch.object(obj, attribute, value))
@@ -2367,7 +2367,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 'state': 'done', 'text': 'An incomplete research answer',
                 'source': 'https://example.test/article', 'source_chars': 200,
             })
-        with patch.object(task_agents, 'worker', worker), \
+        with patch.object(task_worker_adapter, 'worker', worker), \
                 patch.object(untrusted_flow, 'observe', lambda *_: None):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner), offer,
@@ -2440,7 +2440,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.assertEqual(node_ids, ('first',))
             return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
 
-        with patch.object(task_agents, 'worker',
+        with patch.object(task_worker_adapter, 'worker',
                           side_effect=AssertionError('worker replay')) as worker, \
              patch.object(canonical_goal_flow, '_semantic_proposal',
                           side_effect=semantic_after_answer):
@@ -2631,7 +2631,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(journal['state'], 'running')
         self.assertNotIn('_canonical_delivery', journal)
         delivered.assert_not_called()
-        with patch.object(task_agents, 'worker',
+        with patch.object(task_worker_adapter, 'worker',
                           side_effect=AssertionError('worker replay')) as worker, \
              patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={'action': 'complete', 'goal': 0,
@@ -2674,9 +2674,16 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         Its first model plan is passed to legacy once. No parallel canonical
         job exists, and a repeated request ID never runs that worker again.
         """
+        # Finance is now a canonical ROOT, but an intentionally dependent
+        # finance node is still non-canonical and retains the one-shot legacy
+        # fallback. Every worker input stays valid under the current schema.
         proposal = {'tasks': [{
-            'id': 'report', 'agent': 'finance', 'depends': [],
-            'input': {'operation': 'calculate', 'payload': '1+1'},
+            'id': 'source', 'agent': 'research', 'depends': [],
+            'input': {'url': 'https://example.org', 'question': 'Verify source'},
+        }, {
+            'id': 'report', 'agent': 'finance', 'depends': ['source'],
+            'input': {'operation': 'portfolio_summary', 'payload':
+                      '[{"ticker":"THYAO","quantity":"2","price":"100","currency":"TRY"}]'},
         }]}
         rid = 'safe-first-legacy-handoff'
         with patch.object(model_wait, 'ask', return_value=json.dumps(proposal)) as model:

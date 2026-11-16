@@ -22,7 +22,7 @@ from modules import (
     canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
     goal_executor, goal_plan_gate, goal_state, goal_state_store, goal_tools,
-    runtime_worker_result, scheduler_resource_gate, task_agents, task_results, untrusted_flow,
+    runtime_worker_result, scheduler_resource_gate, task_agents, task_results, task_worker_adapter, untrusted_flow,
     worker_result_hook,
 )
 
@@ -408,7 +408,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', worker),
+                (task_worker_adapter, 'worker', worker),
             ):
                 stack.enter_context(patch.object(module, name, value))
             with patch.object(canonical_scheduler_dispatch, 'discover',
@@ -546,7 +546,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 errors.append(''.join(traceback.format_exception(exc)))
 
         from modules import goal_job_control
-        with patch.object(task_agents, 'worker', side_effect=safe_worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=safe_worker), \
              patch.object(untrusted_flow, 'observe'):
             left = self.offers()[0]
             first = threading.Thread(target=dispatch, args=(left,))
@@ -620,7 +620,7 @@ class SchedulerOfferTests(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=worker), \
              patch.object(untrusted_flow, 'observe'):
             thread = threading.Thread(target=first_run)
             thread.start()
@@ -661,7 +661,7 @@ class SchedulerOfferTests(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=worker), \
              patch.object(untrusted_flow, 'observe'):
             thread = threading.Thread(target=run)
             thread.start()
@@ -718,7 +718,7 @@ class SchedulerOfferTests(unittest.TestCase):
             except Exception as exc:
                 failures.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=worker), \
              patch.object(untrusted_flow, 'observe'):
             thread = threading.Thread(target=run, name='stop-fence-test')
             thread.start()
@@ -864,7 +864,7 @@ class SchedulerOfferTests(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \
+        with patch.object(task_worker_adapter, 'worker', side_effect=worker), \
              patch.object(untrusted_flow, 'observe'):
             thread = threading.Thread(target=invoke, name='deadline-fence-test')
             thread.start()
@@ -1251,7 +1251,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 (privacy, 'blocked', lambda *_: None),
                 (source_watch, 'poll', poll),
                 (untrusted_flow, 'observe', lambda *_: None),
-                (task_agents, 'worker', worker),
+                (task_worker_adapter, 'worker', worker),
             ):
                 stack.enter_context(patch.object(module, attribute, value))
             task_queue.start(
@@ -1473,7 +1473,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 (task_queue, '_LAST_ADMITTED', {}),
                 (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
                 (task_queue, '_DAILY_NOTIFY', None),
-                (task_agents, 'worker', research_worker),
+                (task_worker_adapter, 'worker', research_worker),
                 (untrusted_flow, 'observe', lambda *_: None),
             ):
                 stack.enter_context(patch.object(module, attribute, value))

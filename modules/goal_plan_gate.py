@@ -161,7 +161,7 @@ def _read_only_manifest(capability_id: str) -> dict | None:
     return spec
 
 
-_SCHEDULED_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media'})
+_SCHEDULED_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'})
 
 
 def _scheduled_manifest(capability_id: str) -> dict | None:
@@ -192,6 +192,8 @@ def _effect_node_allowed(plan: dict, node: dict) -> bool:
     deps = node['depends_on']
     if kind == 'task.media':
         return not deps
+    if kind == 'task.browser':
+        return not deps and node['input'].get('mode') == 'readonly'
     if kind == 'task.coder':
         return not deps
     if kind == 'task.writer':

@@ -64,6 +64,17 @@ def validate_input(kind, data, *, complete=True):
         limit = 2048 if key in ('url', 'query') else 120 if key == 'filename' else 20000
         if not isinstance(value, str) or not value.strip() or len(value) > limit or '\x00' in value:
             raise ValueError('Araç girdi alanı geçersiz: ' + key)
+    if kind == 'finance' and complete:
+        import json
+        if data.get('operation') not in {
+                'normalize_ohlcv', 'compare_equities', 'portfolio_summary',
+                'dcf', 'comparable_companies', 'lbo', 'trade_plan_draft',
+                'trade_plan_risk_checklist', 'trade_plan_risk_decision'}:
+            raise ValueError('Finans worker işlemi geçersiz.')
+        try:
+            json.loads(data.get('payload', ''))
+        except (TypeError, json.JSONDecodeError):
+            raise ValueError('Finans worker verisi geçerli JSON olmalı.') from None
     if 'url' in data:
         from modules.browser_agent import _url
         _url(data['url'])
