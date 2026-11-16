@@ -706,6 +706,9 @@ def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None):
         return _loop_steps(runtime,job,answer,resume=resume,
                            initial_legacy_call=initial_legacy_call)
     except _TurnBudget as exc:
+        # A consent checkpoint is a durable UI handoff, not a planner timeout.
+        if job.get('state') == 'approval':
+            return render(job)
         job['state']='paused';job['blocker']=str(exc);_save(job)
         runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
         return render(job)
@@ -783,13 +786,13 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
             _save(job)
             from modules import news_recovery
             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
-            if _finish_completed(job):return render(job)
+            if job['state']=='approval' or _finish_completed(job):return render(job)
             job['state']='paused'
             job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'
             _save(job)
             return render(job)
         resumed=_resume_news_recovery(runtime,job,started_steps)
-        if _finish_completed(job) or resumed:return render(job)
+        if job['state']=='approval' or _finish_completed(job) or resumed:return render(job)
     for _ in range(MAX_TURNS):
         _turn_check(runtime,job)
         context=_context(job)
@@ -850,6 +853,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     if news:
                         from modules import news_recovery
                         news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    if job['state']=='approval':return render(job)
                     if news and vague:
                         job['state']='paused'
                         job['blocker']='Araştırma kısmi; diğer kaynaklardan doğrulanmış haber kanıtı eksik. Yeni bilgi vermen gerekmiyor; mevcut hedef sürdürülebilir.'
@@ -866,6 +870,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     from modules import news_recovery
                     news_recovery.deliver(runtime,job,existing_only=True,
                         max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    if job['state']=='approval':return render(job)
                     if job.get('partial_report'):break
                     if rejected_finishes>=3:
                         raise RuntimeError('Planlayıcı eksik hedefleri 3 kez bitirmeye çalıştı; mevcut sonuçlar korundu.')
@@ -904,6 +909,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                             if rejected_sources>=3:
                                 from modules import news_recovery
                                 news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                                if job['state']=='approval':return render(job)
                                 job['state']='paused';job['blocker']='Jarvis 3 kez geçersiz/keşfedilmemiş haber adresi denemesini kullanıcıya yansıtmadan durdurdu ve kayıtlı gerçek yayıncılarla sınırlı kurtarma denedi. Mevcut hedef ve dosyalar korundu.'
                                 _save(job);return render(job)
                             raise
@@ -960,7 +966,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                         except Exception as recovery_error:
                             _record_failure('modules/goal_executor.py:news_recovery')
                             job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
-                        if _finish_completed(job):return render(job)
+                        if job['state']=='approval' or _finish_completed(job):return render(job)
                     raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
             if isinstance(exc,RuntimeError):
                 if planner_pending:
@@ -978,8 +984,10 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                     except Exception as recovery_error:
                         _record_failure('modules/goal_executor.py:news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
-                    if _finish_completed(job):return render(job)
+                    if job['state']=='approval' or _finish_completed(job):return render(job)
                 break
+    if job['state']=='approval':
+        return render(job)
     job['state']='paused'
     job['blocker']=('Planlayıcı kayıtlı hedefleri tekrar planlamaya çalıştığı için duraklatıldı; mevcut plan ve sonuçlar korundu.' if rejected_plans>=3 else 'Hedef tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
     if job.get('partial_report'):
