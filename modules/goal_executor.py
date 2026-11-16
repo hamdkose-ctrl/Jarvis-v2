@@ -1109,7 +1109,13 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                  'state':'running','goals':[],'steps':[],'outputs':{}}
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
             _save(job)
-        try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
+        # An explicit Core approval is a control action, never a new user
+        # answer. Passing "hedef onayla" as an answer also skipped the
+        # no-model news recovery path, causing redundant planner retries.
+        answer=(request if resume and not approve
+                and request.casefold().strip(' .!?') not in RESUME_COMMANDS
+                else None)
+        try:return _loop(runtime,job,answer=answer,
                          resume=resume,initial_legacy_call=initial_legacy_call)
         except requests_state.Cancelled:
             # The original cancellation might be a durable terminal decision
