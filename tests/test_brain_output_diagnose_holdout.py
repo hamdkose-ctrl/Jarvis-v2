@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -26,6 +27,24 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         from modules import smart_router
         p=patch.object(smart_router,'qualification_candidate',return_value=smart_router.ModelSpec('groq','test-model'))
         p.start();self.addCleanup(p.stop)
+
+    def _versioned_repository_path(self, rel):
+        """Kabul kısayol betiği ve iş akımı yalnız kaynak checkout'unun geliştirme ürünüdür:
+        publish_policy `.ps1` (istisna yalnız modules/desktop_uia.ps1) ve `.github/` yollarını
+        yayın paketinin içine taşımaz, bu yüzden kurulu PC kopyasında dosya yoktur. Kaynak
+        checkout'unda (CI, PC watcher, geliştirme dalı) eksik dosya normal FAIL ile yakalanır."""
+        from modules.publish_policy import is_publishable_path
+        path = ROOT / rel
+        if not path.exists() and not is_publishable_path(rel) and not (ROOT / '.git').exists():
+            self.skipTest(f'{rel}: yayın paketi bu yolu taşımıyor (publish_policy); yalnız kaynak deposu denetimi.')
+        return path
+
+    def _source_sha(self, sha='f'*40):
+        """Rapor kaynağın exact SHA'sını taşımak zorundadır; üretim kodu bunu git'ten ister ve
+        kanıt yoksa uydurmaz. Ölçüm sözleşmesi (durum/exit kodu/kabul iddiası) her ağaçta
+        koşsun diye SHA kanıtı burada deterministik verilir; doğrulama gevşetilmez."""
+        return patch.object(runner, 'subprocess', SimpleNamespace(
+            check_output=lambda cmd, *a, **k: sha + '\n', CalledProcessError=subprocess.CalledProcessError))
 
     def test_response_metadata_does_not_retain_unknown_keys_or_values(self):
         from modules.brain_model_understanding import SCHEMA_VERSION
@@ -58,11 +77,12 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
     def test_missing_route_is_unmeasured_and_never_success(self):
         with tempfile.TemporaryDirectory() as td:
             report=Path(td)/'report.json'
-            with patch.object(runner,'preflight',return_value=('owner',False,'no route')), patch.object(runner,'measure') as run, redirect_stdout(io.StringIO()):
+            with self._source_sha(), patch.object(runner,'preflight',return_value=('owner',False,'no route')), patch.object(runner,'measure') as run, redirect_stdout(io.StringIO()):
                 self.assertEqual(runner.main(['--run','--json',str(report)]),2)
             data=json.loads(report.read_text())
         self.assertEqual(data['state'],'unmeasured');run.assert_not_called()
         self.assertNotIn('owner',data)
+        self.assertEqual(data['head'],'f'*40)
 
     def test_connection_probe_spends_one_case_without_claiming_semantic_acceptance(self):
         measured=runner.verdict([runner.judge(self.case(['chat']),proposal('direct_action','system.diagnose'))],0)
@@ -70,13 +90,27 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
                         results=[runner.judge(self.case(['chat']),proposal('direct_action','system.diagnose'))])
         with tempfile.TemporaryDirectory() as td:
             report=Path(td)/'report.json'
-            with patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured) as run, redirect_stdout(io.StringIO()):
+            with self._source_sha(), patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured) as run, redirect_stdout(io.StringIO()):
                 self.assertEqual(runner.main(['--run','--connection-only','--json',str(report)]),0)
             data=json.loads(report.read_text())
         self.assertEqual(len(run.call_args.args[1]),1)
         self.assertEqual(data['scope'],'connection');self.assertTrue(data['connection_ok'])
         self.assertFalse(data['semantic_acceptance'])
         self.assertNotIn('accuracy',data);self.assertNotIn('correct',data['results'][0])
+
+    def test_without_verifiable_source_sha_no_model_call_and_no_report_is_written(self):
+        # Kaynak SHA kanıtı uydurulmaz: git HEAD veremeyen ağaçta koşucu ilk model
+        # çağrısından önce durur ve hiçbir kabul raporu yazmaz. Bu, kurulu PC kopyasında
+        # kabul ölçümünün yapılamaz olduğunun kanıtıdır; boş/varsayılan sürüm stamp'lenmez.
+        def no_head(cmd,*a,**k):
+            raise subprocess.CalledProcessError(128,cmd)
+        with tempfile.TemporaryDirectory() as td:
+            report=Path(td)/'report.json'
+            with patch.object(runner,'subprocess',SimpleNamespace(check_output=no_head)), patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure') as run, redirect_stdout(io.StringIO()):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    runner.main(['--run','--json',str(report)])
+            self.assertFalse(report.exists())
+        run.assert_not_called()
 
     def test_local_deadline_and_a_silent_provider_get_different_stop_reasons(self):
         # Aynı 'yanıt yok' görünümü iki ayrı kök nedeni saklamaz: kendi süremiz dolduysa
@@ -115,7 +149,7 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
             measured.update(provider_requests=1,provider_responses=int(responded),results=[row])
             with self.subTest(responded=responded), tempfile.TemporaryDirectory() as td:
                 report=Path(td)/'report.json'
-                with patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured), redirect_stdout(io.StringIO()):
+                with self._source_sha(), patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured), redirect_stdout(io.StringIO()):
                     exit_code=runner.main(['--run','--connection-only','--json',str(report)])
                 data=json.loads(report.read_text())
                 self.assertEqual(data['state'],expected)
@@ -207,6 +241,8 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertEqual({r['group'] for r in rows},{'export','diagnose','negation','explanation_or_quote','irony','missing_output'})
 
     def test_windows_workflow_declares_live_acceptance_instead_of_measuring_it(self):
+        # CI iş akımı publish_policy'nin kaynağıdır (.yml) ve güncellemeyle de taşınır;
+        # kurulu PC kopyasında da denetlenir, bu yüzden burada koşulma kapısı yoktur.
         source=(ROOT/'.github/workflows/testler-windows.yml').read_text(encoding='utf-8')
         # Bu iş makinesinde canlı ölçüm hiç yapılmaz: otomatik çağrı, exit kodu eşlemesi ve
         # CI'da üretilmiş rapor artifact'ı yok. exit2'yi yeşile çevirmek ayrım değil,
@@ -238,7 +274,7 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
 
     def _cleanup_script(self):
         # Test edilen kod, çalışan kısayolun kendi içindeki blok olmalı: kopya bir betik yazılmıyor.
-        source = (ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
+        source = self._versioned_repository_path('scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
         block = source.split('# BEGIN-CLONE-CLEANUP')[1].split('# END-CLONE-CLEANUP')[0]
         self.assertIn('function Remove-BrainCheckClone', block)
         folder = tempfile.mkdtemp(prefix='jarvis-brain-cleanup-')
@@ -292,7 +328,7 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertIn(root, run.stdout, 'Uyarı silinemeyen klasör yolını göstermeli.')
 
     def test_launcher_wires_the_cleanup_and_never_swallows_a_leak(self):
-        source = (ROOT/'scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
+        source = self._versioned_repository_path('scripts/Run-BrainCheck.ps1').read_text(encoding='utf-8')
         finally_block = source.split('} finally {')[1].split('}')[0]
         self.assertIn('Remove-BrainCheckClone -Path $RunDir', finally_block)
         self.assertNotIn('Remove-Item -LiteralPath $RunDir', source)
