@@ -363,8 +363,8 @@ def run(owner, task, dependencies):
                 **delivery}
     if kind=='writer':
         # Model input or a legacy queue must never mint file-write authority.
-        if task.get('execution', {}).get('_writer_approved') is not True:
-            raise PermissionError('Writer dosya oluşturmak için açık kullanıcı onayı bekliyor.')
+        from modules import runtime_prepare_approval
+        runtime_prepare_approval.require_writer_execution(owner, task)
         from modules import nxapi,model_wait
         from datetime import datetime, timezone, timedelta
         data={**data,'instruction':'Güncel tarih (Europe/Istanbul): '+datetime.now(timezone(timedelta(hours=3))).date().isoformat()+'\n'+data['instruction']}

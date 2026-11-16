@@ -30,10 +30,7 @@ def _speak_isolated(runtime, voice_session, text, **kwargs):
         voice_session.speak(text, **kwargs)
         return True
     except Exception:
-        try:
-            runtime._record_failure("modules/engine_loop.py:tts_isolation")
-        except Exception:
-            pass
+        runtime._record_failure("modules/engine_loop.py:tts_isolation")
         voice_session.speak_enabled = False
         runtime.flags["speak"] = False
         try:
@@ -41,15 +38,12 @@ def _speak_isolated(runtime, voice_session, text, **kwargs):
             voice_runtime.block_legacy_on_fault()
             voice_runtime.interrupt_active()  # speech only; never Core/task cancel
         except Exception:
-            try:
-                runtime._record_failure("modules/engine_loop.py:tts_stop")
-            except Exception:
-                pass
+            runtime._record_failure("modules/engine_loop.py:tts_stop")
         try:
             runtime.emit("system", "Ses çıkışı hata nedeniyle devre dışı. "
                          "Yazılı yanıtlar ve arka plan görevleri devam ediyor.")
         except Exception:
-            pass
+            runtime._record_failure("modules/engine_loop.py:tts_notice")
         return False
 
 
@@ -58,11 +52,8 @@ def _emit_idle_if_silent(runtime, voice_session):
     try:
         silent = not _speech_blocks_mic(voice_session)
     except Exception:
+        runtime._record_failure("modules/engine_loop.py:tts_idle_probe")
         # A broken audio-driver status query is not proof of silence.
-        try:
-            runtime._record_failure("modules/engine_loop.py:tts_idle_probe")
-        except Exception:
-            pass
         return
     if silent:
         runtime.emit("state", "idle")

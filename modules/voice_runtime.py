@@ -125,6 +125,7 @@ def maybe_start(runtime):
     try:
         register(lane)
     except Exception:
+        _record_failure("modules/voice_runtime.py:voice_setup")
         # A partially registered voice owner must not leave a live speaker
         # thread/device behind after initialization aborts.
         try:
