@@ -57,6 +57,19 @@ class BrainCoreJsonWireTests(unittest.TestCase):
         self.assertIn('"schema":"jarvis.brain-core.handoff"', payload)
         self.assertNotIn("memory_address", payload)
 
+    def test_wire_entry_contract_does_not_import_brain_router(self):
+        # The Core decoder may reconstruct a local DTO without importing the
+        # entire Brain router; the public Brain alias retains source compatibility.
+        self.assertIs(brain_entry.EntryResult, brain_core_wire.EntryResult)
+        source = (Path(__file__).resolve().parents[1] / "modules" / "brain_core_wire.py").read_text(encoding="utf-8")
+        imports = [node.module for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.ImportFrom)]
+        self.assertNotIn("modules.brain_entry", imports)
+        snapshot = entry(with_reference=True)
+        restored = brain_core_wire.decode_entry(snapshot.to_handoff_json())
+        self.assertEqual(restored, snapshot)
+        self.assertIsNot(restored, snapshot)
+
     def test_core_owns_the_legacy_json_scope(self):
         # Router has no independent request-state or feedback ContextVar.
         self.assertIs(brain_entry._CURRENT, core_brain_adapter._CURRENT)
