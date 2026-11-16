@@ -270,11 +270,11 @@ class Phase4AMediaFileTests(unittest.TestCase):
         command='görev akışı video: '+json.dumps(data)
         rid='exact-video-request'
         with patch.object(requests_state._current,'get',
-                          return_value=(self.owner,rid)), \\
-             patch.object(task_queue,'scheduler_active',return_value=True), \\
-             patch.object(media_tools,'prepare',return_value=data), \\
+                          return_value=(self.owner,rid)), \
+             patch.object(task_queue,'scheduler_active',return_value=True), \
+             patch.object(media_tools,'prepare',return_value=data), \
              patch.object(canonical_goal_flow,'try_create',
-                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \\
+                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \
              patch.object(task_agents,'execute',
                           side_effect=AssertionError('Old video execute forbidden')) as legacy:
             self.assertEqual(task_agents.handle(self.owner,command),'Admitted')
@@ -288,11 +288,11 @@ class Phase4AMediaFileTests(unittest.TestCase):
         data={'scenes':[{'caption':'First scene','duration':3}]}
         command='video üret '+json.dumps(data)
         with patch.object(requests_state._current,'get',
-                          return_value=(self.owner,'video-rid')), \\
-             patch.object(task_queue,'scheduler_active',return_value=True), \\
-             patch.object(media_tools,'prepare',return_value=data), \\
+                          return_value=(self.owner,'video-rid')), \
+             patch.object(task_queue,'scheduler_active',return_value=True), \
+             patch.object(media_tools,'prepare',return_value=data), \
              patch.object(canonical_goal_flow,'try_create',
-                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \\
+                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \
              patch.object(task_agents,'execute',
                           side_effect=AssertionError('Old video execute forbidden')):
             self.assertEqual(task_agents.handle(self.owner,command),'Admitted')
@@ -301,8 +301,8 @@ class Phase4AMediaFileTests(unittest.TestCase):
     def test_no_request_rid_or_scheduler_means_no_legacy_video_fallback(self):
         data={'scenes':[{'caption':'First scene','duration':3}]}
         command='video üret '+json.dumps(data)
-        with patch.object(requests_state._current,'get',return_value=None), \\
-             patch.object(media_tools,'prepare',return_value=data), \\
+        with patch.object(requests_state._current,'get',return_value=None), \
+             patch.object(media_tools,'prepare',return_value=data), \
              patch.object(task_agents,'execute') as legacy:
             with self.assertRaises(PermissionError):
                 task_agents.handle(self.owner,command)
