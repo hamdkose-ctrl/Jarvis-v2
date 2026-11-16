@@ -13,7 +13,7 @@ import uuid
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from config import DATA_DIR
-from modules import llm, privacy, requests_state, task_results, task_tools, task_workers, task_plan_contracts
+from modules import llm, privacy, requests_state, task_results, task_tools, task_workers, task_plan_contracts, task_worker_adapter
 from modules.diagnostics import record_failure as _record_failure
 
 STORE = DATA_DIR / 'task_agents'
@@ -169,17 +169,9 @@ def validate(tasks):
 from modules.task_workers import json_text as _json, browser_task  # noqa: F401 - geri uyumlu ad
 
 def worker(owner, task, dependencies):
-    task=copy.deepcopy(task)
-    task['input']=task_tools.validate_input(task['agent'],task.get('input',{}))
-    from modules import hooks
-    hooks.observe('tool',{'phase':'start','tool':task['agent'],'task_id':task.get('id','')},owner=owner)
-    state='failed'
-    try:
-        output=task_results.seal(task['agent'], _worker(owner, task, dependencies))
-        state=output.get('state','failed') if isinstance(output,dict) else 'failed'
-        return output
-    finally:
-        hooks.observe('tool',{'phase':'end','tool':task['agent'],'task_id':task.get('id',''),'state':state},owner=owner)
+    # Single shared worker body lives in task_worker_adapter.run; the legacy
+    # lane keeps its injectable `_worker` executor seam for queue migration.
+    return task_worker_adapter.run(owner, task, dependencies, execute=_worker)
 
 
 def _gate(owner, job, task):
