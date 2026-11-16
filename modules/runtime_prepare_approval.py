@@ -102,9 +102,19 @@ def require_writer_execution(owner: str, task: dict) -> bool:
     if len(matches) != 1:
         raise PermissionError('Writer onayı tam adım/girdi ile eşleşmiyor.')
     step = matches[0]
-    if (step.get('state') != 'running' or step.get('attempts') != 1
+    canonical = identity.get('_canonical_scheduler_offer') is not None
+    # Legacy GoalExecutor records the no-effect approval as attempt 1 and
+    # performs the explicitly approved write as attempt 2. The approval
+    # proposal remains in outputs until the write replaces it; it is not a
+    # completed writer result. Canonical Scheduler starts its own attempt 1.
+    prior = job.get('outputs', {}).get(step['id'])
+    expected_attempt = 1 if canonical else 2
+    if (step.get('state') != 'running'
+            or step.get('attempts') != expected_attempt
             or step.get('started') is not True
-            or step['id'] in job.get('outputs', {})):
+            or (prior is not None and
+                (not isinstance(prior, dict) or prior.get('state') != 'approval'))
+            or (not canonical and prior is None)):
         raise PermissionError('Writer onayının tek deneme koşulu sağlanmadı.')
     if identity.get('_canonical_scheduler_offer') is not None:
         goal_approval.verify_canonical(job, step)
