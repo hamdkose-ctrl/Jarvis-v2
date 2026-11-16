@@ -128,8 +128,18 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
              if o.get('news_article')}
         if old=={o['news_article']['url'] for o in sources.values()}:
             return
-    # Reserve the complete writer + verify pair before any file is created.
-    if max_new_steps-(len(job['steps'])-before)<2 or len(job['steps'])>94:
+    # A resumed, explicitly approved Writer step is the SAME effect attempt.
+    # Reuse its receipt; never mint another report/write merely because the
+    # model-free recovery entrypoint was invoked after user consent.
+    report_data={'instruction':'Kaynak, tarih, bağlantı ve birebir alıntılı haber raporu. Eksik kapsamı tamamlandı gösterme.',
+                 'filename':'haber-kaynak-raporu.md'}
+    existing_writer=next((step for step in reversed(job['steps'])
+                          if step.get('recovery') and step.get('tool')=='writer'
+                          and step.get('input')==report_data
+                          and step.get('depends')==evidence), None)
+    used=len(job['steps'])-before
+    required=1 if existing_writer else 2
+    if max_new_steps-used<required or len(job['steps'])>96-required:
         return
     goal=next((i for i,g in enumerate(job['goals']) if g['state']!='done'),0)
     def record(kind,data,depends):
@@ -144,11 +154,27 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         job['steps'].append(step)
         goals._record(runtime,job,step)
         return ident,job['outputs'].get(ident,{})
-    report,output=record('writer',{'instruction':'Kaynak, tarih, bağlantı ve birebir alıntılı haber raporu. Eksik kapsamı tamamlandı gösterme.',
-                                  'filename':'haber-kaynak-raporu.md'},evidence)
-    if output.get('state')!='done':
-        return
-    checked_id,checked=record('verify',{},[report])
+    if existing_writer:
+        report=existing_writer['id']
+        output=job['outputs'].get(report,{})
+        if existing_writer.get('state')!='done' or output.get('state')!='done':
+            return  # Pending/uncertain effects cannot be replayed automatically.
+        goal_tools.verify(output,job['owner'],kind='writer',data=report_data)
+    else:
+        report,output=record('writer',report_data,evidence)
+        if output.get('state')!='done':
+            return  # Exact user consent is still pending; do not create verify.
+    existing_check=next((step for step in reversed(job['steps'])
+                         if step.get('recovery') and step.get('tool')=='verify'
+                         and step.get('depends')==[report]),None)
+    if existing_check:
+        checked_id=existing_check['id']
+        checked=job['outputs'].get(checked_id,{})
+        if existing_check.get('state')!='done' or checked.get('state')!='done':
+            return
+        goal_tools.verify(checked,job['owner'])
+    else:
+        checked_id,checked=record('verify',{},[report])
     if checked.get('state')=='done':
         job['partial_report']=report
         if len(job['goals'])==1 and news_pipeline.enough_evidence(
