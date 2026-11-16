@@ -32,6 +32,25 @@ class TTSEngineFaultTests(unittest.TestCase):
                 self.assertFalse(engine_loop._speak_isolated(runtime, voice, 'again'))
                 voice.speak.assert_called_once()
 
+
+    def test_startup_tts_oserror_leaves_text_engine_alive(self):
+        from modules.engine_voice import VoiceSession
+        runtime = SimpleNamespace(
+            sys=SimpleNamespace(argv=[]), flags={'speak': True, 'mic': True},
+            emit=Mock(), _record_failure=Mock(),
+        )
+        with patch('config.load_settings', return_value={}), \
+             patch('modules.voice_runtime.maybe_start', side_effect=OSError('missing device')), \
+             patch('modules.voice_runtime.block_legacy_on_fault') as block:
+            session = VoiceSession(runtime)
+        block.assert_called_once()
+        self.assertIsNone(session.voice_lane)
+        self.assertFalse(session.speak_enabled)
+        self.assertFalse(runtime.flags['speak'])
+        self.assertTrue(runtime.flags['mic'])
+        self.assertIn('yazılı yanıt', session.voice_core_fault)
+        self.assertFalse(getattr(runtime, 'stop_event', threading.Event()).is_set())
+
     def test_voice_stop_failure_does_not_escape_or_claim_silence(self):
         runtime = SimpleNamespace(
             flags={'speak': True}, stop_event=threading.Event(),
