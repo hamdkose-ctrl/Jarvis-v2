@@ -9,6 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 from modules import llm,model_wait,nxapi,task_agents,research_evidence,requests_state
+from writer_consent_fixture import native_writer_after_consent
 
 class ModelWaitTests(unittest.TestCase):
     def setUp(self):
@@ -37,7 +38,7 @@ class ModelWaitTests(unittest.TestCase):
                 def model(*args,**kwargs):
                     try:release.wait(1);return 'late answer'
                     finally:exited.set()
-                with patch.object(model_wait,'DEFAULT_SECONDS',.03),patch.object(llm,'ask',side_effect=model),patch.object(nxapi,'FILES_DIR',Path(tmp)),patch('modules.browser.page_text',return_value='Actual fetched source evidence. '*20):
+                with patch.object(model_wait,'DEFAULT_SECONDS',.03),patch.object(llm,'ask',side_effect=model),patch.object(nxapi,'FILES_DIR',Path(tmp)),patch('modules.browser.page_text',return_value='Actual fetched source evidence. '*20),native_writer_after_consent():
                     try:
                         with self.assertRaisesRegex(RuntimeError,'Geç yanıt'):
                             task_agents.worker('wait-tests',{'agent':kind,'input':data},{})
@@ -52,7 +53,7 @@ class ModelWaitTests(unittest.TestCase):
         quote='Gerçek kaynakta bulunan doğrulanabilir uzun alıntı.'
         source=quote*4
         answer=json.dumps({'supported':True,'answer':'Kaynakla sınırlı yanıt','quotes':[quote]})
-        with tempfile.TemporaryDirectory() as tmp,patch.object(nxapi,'FILES_DIR',Path(tmp)),patch('modules.browser.page_text',return_value=source),patch.object(llm,'ask',side_effect=[answer,'Rapor']) as model:
+        with tempfile.TemporaryDirectory() as tmp,patch.object(nxapi,'FILES_DIR',Path(tmp)),patch('modules.browser.page_text',return_value=source),patch.object(llm,'ask',side_effect=[answer,'Rapor']) as model,native_writer_after_consent():
             task_agents.worker('wait-tests',{'agent':'research','input':{'url':'https://example.org/'}},{})
             task_agents.worker('wait-tests',{'agent':'writer','input':{'instruction':'Rapor yaz','filename':'rapor.md'}},{})
         today=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
