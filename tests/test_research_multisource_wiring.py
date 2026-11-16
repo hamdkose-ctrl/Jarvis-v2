@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from modules import research_evidence, task_workers
+from writer_consent_fixture import native_writer_after_consent
 
 CLAIM_SENTINEL = 'İDDİA'  # matches the structured-claim system prompt used by the research worker
 
@@ -217,7 +218,8 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
              patch('modules.model_wait.ask', return_value='Enerji raporu gövdesi.'), \
              patch('modules.research_providers.search_public', return_value=[self._candidate(third['url'])]) as extra_search, \
              patch('modules.research_providers.extract_source', return_value=third) as extra_extract:
-            report = task_workers.run('alice', writer, {'r1': output})
+            with native_writer_after_consent():
+                report = task_workers.run('alice', writer, {'r1': output})
             text = Path(report['file']).read_text(encoding='utf-8')
         self.assertEqual(report['state'], 'done')
         self.assertEqual(report['source_conflict'], 'resolved_conflict')
@@ -246,7 +248,8 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
              patch('modules.model_wait.ask', return_value='Enerji raporu gövdesi.'), \
              patch('modules.research_providers.search_public', return_value=[self._candidate(ambiguous['url'])]), \
              patch('modules.research_providers.extract_source', return_value=ambiguous):
-            report = task_workers.run('alice', writer, {'r1': output})
+            with native_writer_after_consent():
+                report = task_workers.run('alice', writer, {'r1': output})
             text = Path(report['file']).read_text(encoding='utf-8')
         self.assertEqual(report['source_conflict'], 'unresolved_conflict')
         self.assertIn('Kaynak çelişkisi çözülmedi', text)
