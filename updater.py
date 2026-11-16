@@ -29,7 +29,10 @@ DATA = Path(os.environ.get("JARVIS_DATA_DIR") or (Path.home() / ".jarvis"))
 # the installed base in this repository. Credentials remain independently stored.
 STATE = DATA / "update-Jarvis-v2.json"
 TOKEN_FILE = DATA / "github_token.txt"
-SKIP = {".venv", "__pycache__", ".git", ".github", ".gradle", "build", ".idea"}   # generated build trees are excluded
+# Üretilmiş derleme ağaçları. `.github` burada DEĞİLDİR: publish_policy CI dosyalarını kaynak
+# sayar (ZIP paketi onları taşır ve "GitHub'a Yükle" oradan yükler), güncelleyici düşürseydi
+# kurulu PC'de sonsuza dek bayat kalırdı (2026-11-16 ölçüldü: aday testleri bu yüzden düştü).
+SKIP = {".venv", "__pycache__", ".git", ".gradle", "build", ".idea"}
 TIMEOUT = 4
 
 _UPDATE_INSTALL = re.compile(

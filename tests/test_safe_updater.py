@@ -66,6 +66,33 @@ class SafeUpdaterTests(unittest.TestCase):
         self.assertEqual(json.loads(self.state.read_text())['sha'],'old')
         self.assertEqual(len(list((self.data/'yerel_yedek').iterdir())),1)
 
+    def ci_path(self):
+        folder=self.root/'.github'/'workflows';folder.mkdir(parents=True,exist_ok=True)
+        return folder/'testler-windows.yml'
+
+    def test_repository_ci_file_is_delivered_by_the_update(self):
+        """publish_policy CI dosyasını (.yml) kaynak sayar: ZIP paketi ve 'GitHub'a Yükle' onu
+        taşır. Güncelleyici onu düşürürse kurulu PC'de dosya sonsuza dek bayat kalır ve kurulu
+        ağaçla gelen kendi yayın testi her adayı reddeder. Filtre artık tek politikaya uyar."""
+        self.ci_path().write_bytes(b'name: old\n')
+        self.files['.github/workflows/testler-windows.yml']=b'name: new\n'
+        self.backup_pull()
+        self.assertEqual(self.ci_path().read_bytes(),b'name: new\n')
+
+    def test_failed_candidate_still_leaves_the_ci_file_and_every_source_untouched(self):
+        self.ci_path().write_bytes(b'name: old\n')
+        self.files['.github/workflows/testler-windows.yml']=b'name: new\n'
+        with self.assertRaisesRegex(RuntimeError,'Aday güncelleme'):
+            self.backup_pull(lambda *args:(False,'regression failed'))
+        self.assertEqual(self.ci_path().read_bytes(),b'name: old\n')
+        self.assertEqual((self.root/'main.py').read_bytes(),b'old = 1\n')
+
+    def test_updater_skip_never_drops_a_path_the_shared_publish_policy_calls_source(self):
+        """İki filtre ayrı karar veremez: güncelleyicinin düşürdüğü bir klasör yayın politikasında
+        kaynaksa, kurulu PC o dosyayı asla güncelleyemez."""
+        for part in sorted(updater.SKIP):
+            self.assertFalse(updater._publishable_path(f'{part}/ornek.yml'),part)
+
     def test_normal_apply_still_refuses_local_changes(self):
         with patch.object(updater,'_local_source_changes',return_value=['main.py']):
             with self.assertRaisesRegex(RuntimeError,'yerel kaynak değişiklikleri'):

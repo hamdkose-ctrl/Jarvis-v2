@@ -56,9 +56,20 @@ class LocalGitGuardTests(unittest.TestCase):
             installer.configure_hooks(root, runner=lambda cmd, cwd: calls.append((cmd, cwd)))
             self.assertEqual(calls, [(['git', 'config', '--local', 'core.hooksPath', '.githooks'], root)])
 
+    def _versioned_repository_path(self, rel):
+        """Bu yollar yalnız kaynak checkout'unun geliştirme ürünüdür: publish_policy uzantısız
+        dosyaları yayın paketinin içine taşımaz, bu yüzden kurulu PC kopyasında yoktur ve
+        orada denetlenecek bir şey de yoktur. Kaynak checkout'unda (CI, PC watcher, geliştirme
+        dalı) dosya eksikse test normal FAIL ile yakalar; koşulma hiç azalmaz."""
+        from modules.publish_policy import is_publishable_path
+        path = ROOT / rel
+        if not path.exists() and not is_publishable_path(rel) and not (ROOT / '.git').exists():
+            self.skipTest(f'{rel}: yayın paketi bu yolu taşımıyor (publish_policy); yalnız kaynak deposu denetimi.')
+        return path
+
     def test_hook_wrappers_are_versioned_in_repo(self):
         for name in ('pre-commit', 'pre-push'):
-            path = ROOT / '.githooks' / name
+            path = self._versioned_repository_path(f'.githooks/{name}')
             self.assertTrue(path.is_file(), path)
             self.assertIn('scripts/git_local_guard.py', path.read_text(encoding='utf-8'))
 
