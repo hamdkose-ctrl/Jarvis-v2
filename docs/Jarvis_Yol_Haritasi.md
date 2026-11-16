@@ -1,3 +1,9 @@
+# BRAIN/CORE JSON taşıyıcı ayrımı — PR #650 kod adayı (16 Kasım 2026)
+
+Aynı mevcut JSON-only Brain→Core handoff'ta, `EntryResult` sınıfı `brain_entry.py` (Brain router) yerine `brain_core_wire.py` (ortak sözleşme) altında tanımlanır. Eski `brain_entry.EntryResult` adı aynı sınıfın alias'ı olarak çalışır; Core decoder yeni nesneyi JSON'dan yeniden oluşturur. `core_brain_adapter` typing sınırında da wire sözleşmesini kullanır; Brain'in diğer legacy yardımcıları hâlâ çağrıldığı için **Brain/Core tam bağımsızlığı bitmiş sayılmaz**. Yeni executor, ses, yetki veya State mekanizması eklenmez; #649 ile ayrı kapsam. Tekil regresyon testi eklendi. **Kod adayı:** exact-HEAD Windows CI ve gerçek PC watcher PASS olmadan kabul/merge yok; test başarısı henüz doğrulanmadı.
+
+---
+
 # BRAIN-10 güncel kod adayı — 14 Kasım 2026
 
 #628 BRAIN-09, kaynak3354526 exact WindowsCI43572580953 ve gerçekPC6874150892 PASS sonrası main `f77ecb020f44476447f39241822398f635155f38` olarak birleşti. Yeni yetkilendirilmiş iş BRAIN-10 tek PR'dır.
