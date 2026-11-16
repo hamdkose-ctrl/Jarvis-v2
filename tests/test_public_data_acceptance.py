@@ -14,16 +14,16 @@ class PublicDataAcceptanceTests(unittest.TestCase):
         p=patch.object(nxapi,'FILES_DIR',self.root);p.start();self.addCleanup(p.stop)
         p=patch.object(domain_tools,'headlines',return_value={'items':[]});self.headlines=p.start();self.addCleanup(p.stop)
 
-    def test_real_partial_file_verified_without_model_goal_or_account_calls(self):
+    def test_verified_public_sources_do_not_write_without_explicit_core_approval(self):
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         body=('<article><h1>Yeni araştırma</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Üniversite yapay zekâ projesini yeni bilimsel sonuçlarla birlikte duyurdu. Araştırmanın ayrıntıları açıklandı.</p></article>').encode()
         self.headlines.return_value={'items':[{'title':'Yapay zekâ projesi','url':'https://example.edu.tr/news/ai'}]}
         with patch.object(public_data,'news_search',side_effect=AssertionError('Removed service')),patch.object(domain_tools,'exchange',return_value={'data':{'date':day}}),patch.object(public_sources,'fetch',side_effect=lambda url:{'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None),patch.object(llm,'ask',side_effect=AssertionError('No model')):
             checks=acceptance.run('alice')
         report=next(c for c in checks if c['check']=='public_news_report')
-        self.assertEqual(report['state'],'passed');self.assertIn('Partial',report['detail'])
-        files=list(self.root.rglob('*.md'));self.assertEqual(len(files),1)
-        text=files[0].read_text(encoding='utf-8');self.assertIn(day,text);self.assertIn('example.edu.tr',text)
+        self.assertEqual(report['state'],'pending');self.assertIn('Core approval',report['detail'])
+        self.assertTrue(any(row['check'].startswith('public_news_article') and row['state']=='passed' for row in checks))
+        self.assertFalse(list(self.root.rglob('*.md')))
 
     def test_rate_error_does_not_block_news_and_empty_news_is_not_a_report(self):
         with patch.object(domain_tools,'exchange',side_effect=OSError('offline')),patch.object(public_data,'news_search',return_value={'items':[]}):
@@ -37,7 +37,7 @@ class PublicDataAcceptanceTests(unittest.TestCase):
             checks=acceptance.run('alice')
         worker.assert_not_called();self.assertEqual(checks[-1]['state'],'pending')
 
-    def test_search_timeout_falls_back_to_real_publisher_and_verifies_file(self):
+    def test_search_timeout_falls_back_to_real_publisher_but_waits_for_writer_approval(self):
         from urllib3.exceptions import ReadTimeoutError
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         article='https://tubitak.gov.tr/tr/haber/yapay-zeka'
@@ -46,9 +46,9 @@ class PublicDataAcceptanceTests(unittest.TestCase):
         with patch.object(domain_tools,'exchange',return_value={'data':{'date':day}}),patch.object(public_data,'news_search',side_effect=ReadTimeoutError(None,'https://api.gdeltproject.org/','timeout')) as search,patch.object(public_sources,'fetch',return_value={'url':article,'body':body}),patch('modules.privacy.blocked',return_value=None),patch.object(llm,'ask',side_effect=AssertionError('No model')):
             checks=acceptance.run('alice')
         states={r['check']:r['state'] for r in checks}
-        self.assertEqual(states['public_news_search'],'informational');self.assertEqual(states['public_news_report'],'passed')
+        self.assertEqual(states['public_news_search'],'informational');self.assertEqual(states['public_news_report'],'pending')
         search.assert_not_called();self.assertEqual(self.headlines.call_count,len(publisher_news.GENERAL_SOURCES))
-        self.assertEqual(len(list(self.root.rglob('*.md'))),1)
+        self.assertFalse(list(self.root.rglob('*.md')))
 
     def test_publisher_permission_denial_is_not_bypassed(self):
         self.headlines.side_effect=PermissionError('privacy')
