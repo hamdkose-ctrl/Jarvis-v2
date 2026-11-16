@@ -1065,6 +1065,14 @@ class GoalTests(unittest.TestCase):
             goals._record(self.runtime,job,step)
         with patch.object(public_sources,'fetch',side_effect=AssertionError('No network on report refresh')):
             news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
+            self.assertEqual(job['state'],'approval')
+            self.assertEqual(job['partial_report'],old_id)
+            # A new evidence-bound report needs a NEW owner/job/step consent.
+            pending=goals.latest('alice')
+            goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                      expected_job_id=pending['id'],
+                      expected_control=goals.control_key(pending))
+            job=goals.latest('alice')
             refreshed=job['partial_report'];count=len(job['steps'])
             news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
         self.assertNotEqual(old_id,refreshed);self.assertEqual(count,len(job['steps']))
