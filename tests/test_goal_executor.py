@@ -363,15 +363,19 @@ class GoalTests(unittest.TestCase):
         self.assertIn('true',output['text'])
 
 
-    def test_legacy_safe_dag_keeps_existing_task_journal_and_real_files(self):
+    def test_legacy_safe_dag_preserves_journal_but_cannot_write_without_core_consent(self):
         with patch.object(task_agents,'STORE',self.root/'legacy'):
-            self.responses({'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]},'Kaydedilen gerçek rapor')
-            result=self.run_with_writer_consent('Test raporu hazırla')
-            self.assertIn('Kaydedilen gerçek rapor',result)
+            self.responses({'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]},RuntimeError('model offline'))
+            result=goals.run(self.runtime,'Test raporu hazırla')
             legacy=task_agents.recent('alice');job=goals.latest('alice')
             self.assertEqual(job['legacy_job'],legacy['id'])
-            self.assertEqual(job['state'],'done')
-            self.assertEqual(Path(legacy['outputs']['report']['file']).read_text(),'Kaydedilen gerçek rapor')
+            self.assertEqual(legacy['state'],'approval')
+            self.assertEqual(legacy['outputs']['report']['state'],'approval')
+            self.assertNotEqual(job['state'],'done')
+            self.assertIn('onay',result)
+            # Legacy queues cannot mint Core's single-use writer approval.
+            # Never represent this parked legacy task as a completed file.
+            self.assertFalse(list(self.root.rglob('test.md')))
         with self.assertRaises(ValueError):
             goals._parse(json.dumps({'tasks':[{'id':'browse','agent':'browser','input':{'url':'https://example.com','instruction':'Click'}}]}))
 
