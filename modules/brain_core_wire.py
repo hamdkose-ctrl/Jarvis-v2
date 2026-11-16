@@ -8,7 +8,7 @@ No permission, execution or completion authority is conferred by a message.
 """
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import dataclass, fields
 import json
 from typing import Any
 
@@ -35,6 +35,56 @@ _AUTHORITY = frozenset({
     "allowed", "permission", "permission_granted", "approved", "authorized",
     "completed", "done", "effect_allowed", "execute",
 })
+
+
+@dataclass(frozen=True)
+class EntryResult:
+    owner: str
+    request_id: str
+    source: str
+    text: str
+    active_context: ActiveContext
+    state_gate: GateObservation
+    fast_gate: GateObservation | None = None
+    candidates: tuple[ContextReference, ...] = ()
+    references: tuple[ContextReference, ...] = ()
+    understanding: Any = None
+    batch_child: bool = False
+    state_references: tuple[ContextReference, ...] = ()
+
+    @property
+    def stage(self) -> str:
+        if self.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+            return "clarify"
+        if self.state_gate.matched:
+            return "state"
+        if self.fast_gate is not None and self.fast_gate.matched:
+            return "fast"
+        return "understanding"
+
+    def to_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "owner": self.owner,
+            "request_id": self.request_id,
+            "source": self.source,
+            "text": self.text,
+            "stage": self.stage,
+            "state_gate": self.state_gate.to_dict(),
+            "fast_gate": self.fast_gate.to_dict() if self.fast_gate is not None else None,
+        }
+        if self.understanding is not None:
+            result["understanding"] = self.understanding.to_dict()
+        if _AUTHORITY.intersection(result):
+            raise ValueError("Brain entry authority alanı taşıyamaz.")
+        return result
+
+    def to_handoff_json(self) -> str:
+        """Serialize the complete observation before the Brain/Core boundary.
+
+        Unlike to_dict (a small display projection), this is the only
+        complete, versioned input for the Core wire adapter.
+        """
+        return encode_entry(self)
 
 
 def _only(value: Any, keys: frozenset[str], name: str) -> dict:
