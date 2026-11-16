@@ -1094,3 +1094,9 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 - `finance` yalnız kullanıcıdan gelen geçerli JSON verisinde salt-okunur hesaplama, `computer` yalnız açık pilot uygulamanın UIA gözlemi yapar. İkisi de tek canonical Scheduler'ın owner/plan/attempt kilidi ve Core WorkerResult CAS'ıyla doğrulanır.
 - `browser` yalnız explicit `mode=readonly`, tek kök işlem ve aynı job/input'a bağlı kullanıcı onayıyla çalışır; native goto/read kanıtı ve imzalı olmayan ancak çıktı içeriğine bağlı yerel gözlem receipt'i yeniden doğrulanır. Click/fill/submit için canonical geçiş yapılmaz; mevcut native izin yolu korunur.
 - `task_agents.py` legacy queue, journal, devam/iptal ve geçmiş görevler için korunur. Eski yürütücülerin tamamen kaldırıldığı iddia edilmez. Son HEAD CI ve gerçek PC watcher PASS ayrı doğrulanacaktır.
+
+### 2026-11-16 — P0 TTS engine izolasyonu ve P1 Writer onayı (PR #649)
+
+- **P0/F1-1:** `engine_loop` hem arka plan bildirimlerini hem konuşma yanıtlarını mevcut tek VoiceSession'a göndermeden önce istisna izolasyonuna alır. `OSError`/`RuntimeError` gibi sürücü/sentez hataları yalnız konuşmayı kapatır; yanıt metni, Core Scheduler, kimlikli iş kuyruğu ve arka plan GoalState görevleri iptal edilmez. Fiziksel susma kanıtı alınamazsa mikrofon açılması/idle iddiası engellenir.
+- **P1/Faz 3:** `writer` izin manifestinde `ask_required`; Canonical Scheduler'ın ilk yürütme öncesi `Approval Pending` kontrolü, mevcut tek kullanımlık owner/job/step/input/plan sertifikası ve Core WorkerResult/effect journal çitleriyle çalışır. Doğrudan eski worker çağrısı dosya oluşturamaz; legacy DAG yalnız onay durumunda durdurulur. Writer planı, kullanıcı onayı yerine model kaynaklı karar kullanamaz.
+- **Kabul kanıtı ayrı:** Kod/test/regresyon doğrulaması Windows CI ile, gerçek makinede PC watcher final exact-SHA ile doğrulanır; fiziksel STT/TTS UAT bu statik yamalarla yapılmış sayılmaz. İkisi PASS olmadan PR birleştirilmez.
