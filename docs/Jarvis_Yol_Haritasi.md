@@ -1087,3 +1087,10 @@ BRAIN-11, yeni bir Brain/Router/Core/Scheduler oluşturma işi değil; önceki B
 ### Faz 4A — yalnız media/file Canonical Scheduler göçü (PR kabul bekliyor)
 
 Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**. Planlama sözleşmesi ortak `task_plan_contracts` modülüne taşınır; yalnız `file` ve `media` yeni Canonical Scheduler tarafından gerçek `task_worker_adapter` üzerinden, owner/job/node/plan-version/RID kimliğiyle çalıştırılır. `file` yalnız izinli yerel dosyayı salt-okur; içerik SHA-256 ve gerçek kaynak kimliği Core WorkerResult kabulünden önce tekrar doğrulanır. `media` yalnız bağımsız plan kökünde ilk denemedir; Scheduler efekt lease, işlem başlamadan kalıcı write-ahead intent, yerel FFprobe/digest okuması ve digest-bağlı receipt sonrası Core CAS kanıtı gerekir. İkinci Scheduler ve ikinci Core yoktur. `finance`, `computer`, `browser` bu PR'da canonical'a alınmaz; yayımlama ayrı etkidir. Geç onay/iptal/plan revizyonu ve belirsiz efekt otomatik tekrar başlatılmaz. CI, aynı SHA PC watcher ve fiziksel FFmpeg/dosya kabulü ayrı değerlendirilir; bu not test PASS iddiası değildir.
+
+### Faz 4B — finance, computer ve browser (PR #646)
+
+- Faz 4A (#647) `main` üzerindedir: `media`, `file`, paylaşılan planner/worker, kaynak/sonuç çitleri bu PR kapsamında **değiştirilmez**.
+- `finance` yalnız kullanıcıdan gelen geçerli JSON verisinde salt-okunur hesaplama, `computer` yalnız açık pilot uygulamanın UIA gözlemi yapar. İkisi de tek canonical Scheduler'ın owner/plan/attempt kilidi ve Core WorkerResult CAS'ıyla doğrulanır.
+- `browser` yalnız explicit `mode=readonly`, tek kök işlem ve aynı job/input'a bağlı kullanıcı onayıyla çalışır; native goto/read kanıtı ve imzalı olmayan ancak çıktı içeriğine bağlı yerel gözlem receipt'i yeniden doğrulanır. Click/fill/submit için canonical geçiş yapılmaz; mevcut native izin yolu korunur.
+- `task_agents.py` legacy queue, journal, devam/iptal ve geçmiş görevler için korunur. Eski yürütücülerin tamamen kaldırıldığı iddia edilmez. Son HEAD CI ve gerçek PC watcher PASS ayrı doğrulanacaktır.
