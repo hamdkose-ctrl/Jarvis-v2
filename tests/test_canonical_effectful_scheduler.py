@@ -108,6 +108,9 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
         self.assertEqual(state['evidence'], [])
         self.assertEqual(record['steps'][0]['state'], 'approval')
         self.assertEqual(record['steps'][0]['attempts'], 0)
+        self.assertIn('approval_pending',
+                      [row.status for row in canonical_restart_audit.inspect(
+                          self.owner,ident).nodes])
         self.assertEqual(list((self.root / 'files').rglob('report.md')), [])
         self.approve(ident)
         with patch.object(model_wait, 'ask', return_value='# Doğrulanmış rapor\n\nİçerik'):

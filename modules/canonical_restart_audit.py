@@ -150,7 +150,7 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
             elif (step_state == 'approval' and attempts == 0
                   and started in (None, False) and not has_output
                   and ident == journal.get('waiting')
-                  and node['capability_id'] in ('task.coder','task.publish')):
+                  and node['capability_id'] in ('task.coder','task.publish','task.browser','task.writer')):
                 from modules import goal_approval
                 try:
                     goal_approval.verify_canonical(journal, step, pending=True)
