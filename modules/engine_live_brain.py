@@ -30,10 +30,19 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
             brain_echo.present(runtime, entry)
             try:
                 runtime.requests_state.check()
-                out, brain_feedback, brain_job_id = core_brain_adapter.handoff(runtime, entry, runtime.handle, text)
+                from modules import brain_core_wire
+                wire_result = core_brain_adapter.handoff_json(
+                    runtime, entry.to_handoff_json(), runtime.handle, text,
+                )
+                response = brain_core_wire.decode_result(
+                    wire_result, owner=owner, request_id=rid,
+                )
+                out, brain_feedback, brain_job_id = (
+                    response["output"], response["feedback"], response["job_id"],
+                )
                 runtime.log.info(
                     "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
-                    rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
+                    rid, entry.stage, brain_job_id or "-", brain_feedback["result_status"],
                 )
                 runtime.requests_state.check()
             except runtime.requests_state.Cancelled:

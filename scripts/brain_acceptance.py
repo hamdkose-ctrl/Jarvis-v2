@@ -350,7 +350,14 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         proposal = brain_entry.core_proposal(entry)
         projection_fn = getattr(brain_entry, "_legacy_route_projection", None)
         projection = projection_fn(entry) if callable(projection_fn) else None
-        output, brain_feedback, _job_id = core_brain_adapter.handoff(runtime, entry, handler, text)
+        from modules import brain_core_wire
+        serialized = core_brain_adapter.handoff_json(
+            runtime, entry.to_handoff_json(), handler, text,
+        )
+        result = brain_core_wire.decode_result(
+            serialized, owner=owner, request_id=request_id,
+        )
+        output, brain_feedback = result["output"], result["feedback"]
 
     semantic = entry.understanding
     question = brain_entry.clarification(entry)
@@ -393,7 +400,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         "candidate_count": len(entry.candidates),
         "clarification": output if handoff_path in {"clarify", "context_control"} else None,
         "dispatch_intents": [intent for intent, _ in dispatch_calls],
-        "feedback": brain_feedback.to_dict(),
+        "feedback": brain_feedback,
         "failures": sorted(set(failures)),
     }
     return {"decision": decision, "info": info}

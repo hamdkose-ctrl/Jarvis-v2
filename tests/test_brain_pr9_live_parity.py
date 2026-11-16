@@ -14,17 +14,20 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         return fixtures.ModularEngineTests.context(self)
 
     def test_live_command_enters_brain_before_core_handoff(self):
-        from modules import brain_entry, core_brain_adapter
+        from modules import brain_entry, brain_core_wire, core_brain_adapter
 
         runtime = self.context()
         runtime.emit = Mock()
         runtime.handle = Mock(side_effect=AssertionError("Live ham metni Brain'i atlayarak handle edemez"))
-        sentinel_entry = SimpleNamespace(stage="understanding")
-        sentinel_feedback = BrainFeedback(owner="parity-owner", request_id="rid-parity",
-                                          result_status="handled")
+        sentinel_entry = SimpleNamespace(
+            stage="understanding", text="hava nasıl",
+            to_handoff_json=Mock(return_value='{"wire":"test-only"}'),
+        )
+        projection = {"output": "Tamam.", "feedback": {"result_status": "handled"}, "job_id": None}
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry) as prepare, \
-             patch.object(core_brain_adapter, "handoff", return_value=("Tamam.", sentinel_feedback, None)) as handoff:
+             patch.object(core_brain_adapter, "handoff_json", return_value='{"result":"test-only"}') as handoff, \
+             patch.object(brain_core_wire, "decode_result", return_value=projection) as decode:
             result = runtime._live_command("hava nasıl")
 
         self.assertEqual(result, "Tamam.")
@@ -34,7 +37,11 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         self.assertEqual(kwargs["text"], "hava nasıl")
         self.assertEqual(kwargs["source"], "ses")
         self.assertTrue(kwargs["request_id"])
-        handoff.assert_called_once_with(runtime, sentinel_entry, runtime.handle, "hava nasıl")
+        handoff.assert_called_once_with(runtime, sentinel_entry.to_handoff_json.return_value,
+                                        runtime.handle, "hava nasıl")
+        decode.assert_called_once()
+        self.assertEqual(decode.call_args.kwargs, {"owner": runtime.profile.slug,
+                                                  "request_id": kwargs["request_id"]})
         runtime.handle.assert_not_called()
 
     def test_live_command_handoff_exception_uses_existing_diagnose_fallback(self):
@@ -43,10 +50,12 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         runtime = self.context()
         runtime.emit = Mock()
         runtime.handle = Mock()
-        sentinel_entry = object()
+        sentinel_entry = SimpleNamespace(stage="understanding",
+                                         to_handoff_json=Mock(return_value='{"wire":"test-only"}'))
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry), \
-             patch.object(core_brain_adapter, "handoff", side_effect=RuntimeError("boom")), \
+             patch.object(core_brain_adapter, "handoff_json", side_effect=RuntimeError("boom")), \
+             patch.object(brain_entry, "last_feedback", return_value=None), \
              patch.object(diagnose, "explain", return_value="Tanı mesajı") as explain:
             result = runtime._live_command("hava nasıl")
 

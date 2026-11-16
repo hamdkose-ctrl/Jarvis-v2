@@ -543,8 +543,8 @@ class PhotoStructuralGuardTests(unittest.TestCase):
         main = _function(tree, "main")
         self.assertFalse([call for call in _calls(main) if _attr_call(call) == "_photo_action"])
         self.assertGreaterEqual(
-            len([call for call in _calls(main) if _attr_call(call) == "handoff"]), 2,
-            "photo turn must use the shared canonical handoff",
+            len([call for call in _calls(main) if _attr_call(call) == "handoff_json"]), 2,
+            "photo turn must use the shared JSON-only canonical handoff",
         )
 
     def test_engine_commands_never_calls_the_domain_executor_with_raw_text(self):

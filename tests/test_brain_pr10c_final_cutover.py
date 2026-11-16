@@ -490,19 +490,23 @@ class SurfaceParityTests(unittest.TestCase):
         self.assertTrue(all(owner == "ayşe kaya" for owner, _ in queued))
 
     def test_live_turn_uses_prepare_then_the_core_door(self):
-        from modules import brain_echo, brain_entry, core_brain_adapter, engine_live_brain
+        from modules import brain_echo, brain_entry, brain_core_wire, core_brain_adapter, engine_live_brain
         runtime = fake_runtime()
-        entry = SimpleNamespace(stage="understanding", text="saat kaç")
-        feedback = SimpleNamespace(result_status="ok")
+        entry = SimpleNamespace(stage="understanding", text="saat kaç",
+                                to_handoff_json=Mock(return_value='{"test":"wire"}'))
+        response = {"output": "Saat 15:00.", "feedback": {"result_status": "ok"}, "job_id": None}
         with patch.object(brain_entry, "prepare", return_value=entry) as prepare, \
-                patch.object(core_brain_adapter, "handoff", return_value=("Saat 15:00.", feedback, None)) as handoff, \
+                patch.object(core_brain_adapter, "handoff_json", return_value='{"test":"result"}') as handoff, \
+                patch.object(brain_core_wire, "decode_result", return_value=response) as decode, \
                 patch.object(brain_echo, "present"):
             out = engine_live_brain._live_command(runtime, "saat kaç")
         self.assertEqual(out, "Saat 15:00.")
         self.assertEqual(prepare.call_args.kwargs["source"], "ses")
         self.assertEqual(prepare.call_args.kwargs["text"], "saat kaç")
         self.assertEqual(handoff.call_args.args[0], runtime)
-        self.assertIs(handoff.call_args.args[2], runtime.handle)   # Core kapısı: yüzeye özel değil
+        self.assertEqual(handoff.call_args.args[1], entry.to_handoff_json.return_value)
+        self.assertIs(handoff.call_args.args[2], runtime.handle)  # no Python entry crosses Core
+        decode.assert_called_once()
         self.assertEqual([call[0] for call in runtime.requests_state.calls][:2], ["register", "activate"])
         self.assertEqual((runtime._cur_source, runtime._cur_rid), ("", None))   # çit turdan sonra temiz
 
@@ -891,9 +895,24 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                                                   active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
                                                   candidates=(ref,), references=(ref,))
         self.assertTrue(semantic.references, "bağlanan referans Understanding'e taşınmadı")
-        row = dataclasses.replace(fixtures.entry(brain_entry, semantic=semantic), text="onu aç")
+        # The shared fixture normally uses its own unrelated default RID.
+        # Keep ALL nested observations on this request identity; never weaken
+        # the JSON wire owner/RID cross-check to make an invalid fixture pass.
+        from modules.brain_gates import GateObservation
+        row = dataclasses.replace(
+            fixtures.entry(brain_entry, semantic=semantic),
+            owner=self.OWNER, request_id=self.RID, text="onu aç",
+            active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
+            state_gate=GateObservation(
+                self.OWNER, self.RID, "state", False, "NO_BOUNDED_STATE_MATCH",
+            ),
+            fast_gate=GateObservation(
+                self.OWNER, self.RID, "fast", False, "NO_EXACT_FAST_MATCH",
+            ),
+        )
         runtime = SimpleNamespace()
         with brain_entry.bind(row):
+            self.assertEqual(brain_entry.current().understanding, semantic)
             decision = brain_entry.route_command(runtime, "onu aç")
         self.assertEqual(decision, {"intent": "task", "args": {"request": "onu aç"}})
 

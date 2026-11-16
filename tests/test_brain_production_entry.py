@@ -72,7 +72,16 @@ def door(text: str, *, owner: str = OWNER, request_id: str = RID):
     semantic = brain_understanding.understand(owner=owner, request_id=request_id, text=text,
                                               active_context=ActiveContext(owner=owner, request_id=request_id),
                                               candidates=(), references=())
-    row = dataclasses.replace(entry(brain_entry, semantic=semantic), text=text)
+    # A wire message must carry ONE coherent owner/RID across every layer.
+    # Older test fixtures inherited OWNER/RID constants even when the actual
+    # Understanding used an independent request identity.
+    row = dataclasses.replace(
+        entry(brain_entry, semantic=semantic),
+        owner=owner, request_id=request_id, text=text,
+        active_context=context(owner=owner, request_id=request_id),
+        state_gate=GateObservation(owner, request_id, "state", False, "NO_BOUNDED_STATE_MATCH"),
+        fast_gate=GateObservation(owner, request_id, "fast", False, "NO_EXACT_FAST_MATCH"),
+    )
     runtime = SimpleNamespace()
     with brain_entry.bind(row):
         return semantic, brain_entry.route_command(runtime, text)

@@ -400,7 +400,8 @@ class NestedExecutionTests(unittest.TestCase):
         before = entry.references
         with brain_entry.bind(entry):
             step = brain_entry.current()
-        self.assertIs(step, entry)
+        self.assertEqual(step, entry)
+        self.assertIsNot(step, entry)  # request-local bridge returns decoded JSON snapshot
         self.assertEqual(entry.references, before)
         self.assertEqual(entry.text, "rapor.txt dosyasını özetle ardından sesi kıs")
 
@@ -479,7 +480,7 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
             self.assertEqual((row["entry"].owner, row["entry"].request_id), (self.owner, self.rid))
             self.assertNotEqual(row["entry"].text, self.SEQUENCE)
         self.assertIn(out, ("DISPATCH", "HANDLER"))
-        self.assertEqual((feedback.owner, feedback.request_id), (self.owner, self.rid))
+        self.assertEqual((feedback["owner"], feedback["request_id"]), (self.owner, self.rid))
 
     def test_the_parents_decision_is_never_borrowed_by_the_step(self):
         seen, _out, _feedback = self.observe(self.STEP)
