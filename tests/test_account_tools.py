@@ -118,11 +118,14 @@ class AccountToolsTests(unittest.TestCase):
                  {'id': 'check', 'agent': 'verify', 'depends': ['mail', 'report']}]
         with patch.object(google_api, '_service', return_value=self.service), patch.object(llm, 'ask', return_value='Mail raporu') as ask:
             job = agents.execute('alice', tasks)
-        self.assertEqual(job['state'], 'done')
-        self.assertIn('Hello', ask.call_args.args[0])
+        self.assertEqual(job['state'], 'approval')
+        ask.assert_not_called()  # The model is not run before file consent.
+        self.assertEqual(job['tasks'][0]['state'],'done')
+        self.assertEqual(job['tasks'][1]['state'],'approval')
+        self.assertEqual(job['tasks'][2]['state'],'queued')
         self.assertEqual(job['tasks'][0]['execution']['risk'], 'account_read')
         with patch.object(google_api, '_service') as connect:
-            self.assertEqual(agents.continue_job('alice', job['id'])['state'], 'done')
+            self.assertEqual(agents.continue_job('alice', job['id'])['state'], 'approval')
             connect.assert_not_called()
 
     def test_direct_command_and_capabilities_do_not_call_model(self):

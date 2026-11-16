@@ -134,7 +134,7 @@ class BackgroundSpeechNotDuplicatedTests(unittest.TestCase):
 
     def test_owner_tagged_say_events_are_marked_shown(self):
         src = (ROOT / 'modules' / 'engine_loop.py').read_text(encoding='utf-8')
-        self.assertIn('voice_session.speak(event[1], slow=(kind == "say_slow"),', src)
+        self.assertIn('_speak_isolated(runtime, voice_session, event[1], slow=(kind == "say_slow"),', src)
         self.assertIn('shown=len(event) > 2, identity=identity)', src)
         self.assertIn('identity = event[3] if len(event) > 3 else None', src,
                       'sahibi olan bildirim, anlattığı sonucu da taşımalı')

@@ -1,5 +1,6 @@
 """Durability and provider capability regressions without external services."""
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -18,9 +19,9 @@ class DurableWorkTests(unittest.TestCase):
                               (nxapi,'FILES_DIR',self.root/'files'),(study,'ROOT',self.root/'study')]:
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)
 
-    def test_resume_records_report_and_running_step_before_abrupt_interruption(self):
+    def test_resume_records_artifact_and_running_step_before_abrupt_interruption(self):
         tasks=[{'id':'browse','agent':'browser'},
-               {'id':'write','agent':'writer','depends':['browse'],'input':{'instruction':'write','filename':'rapor.md'}},
+               {'id':'write','agent':'research','depends':['browse'],'input':{'url':'https://example.org/report'}},
                {'id':'verify','agent':'verify','depends':['write']}]
         with patch.object(agents,'worker',return_value={'state':'approval','id':'approval'}):
             agents.execute('alice',tasks)
@@ -30,6 +31,11 @@ class DurableWorkTests(unittest.TestCase):
             saved=json.loads(next(agents._root(owner).glob('*.json')).read_text())
             snapshots.append(saved)
             if task['id']=='verify':raise KeyboardInterrupt('simulated process interruption')
+            if task['id']=='write':
+                path=self.root/'files'/'rapor.md';path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_text('Kaydedilmiş rapor')
+                return {'state':'done','text':'Kaydedilmiş rapor','file':str(path),
+                        'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
             return original(owner,task,deps)
         image=self.root/'screen.png';image.write_bytes(b'test screenshot')
         with patch.object(browser,'run',return_value={'state':'done','text':'browser done','steps':[{'op':'read','verified':True}], 'page':{'url':'https://example.com'},'image':str(image)}), \

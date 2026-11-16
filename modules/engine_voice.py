@@ -135,12 +135,19 @@ class VoiceSession:
         from modules import voice_runtime
         try:
             self.voice_lane, piper_enabled = voice_runtime.maybe_start(runtime)
-        except ValueError:
+        except Exception:
+            # Voice synthesis/device initialization is not an engine failure.
+            # Do not start a fallback voice or cancel the Scheduler.
             runtime._record_failure('modules/engine_voice.py:voice_core_setup')
-            voice_runtime.block_legacy_on_fault()
-            # An explicitly requested invalid configuration must never silently
-            # fall back to Edge, SAPI or a different user's voice.
-            self.voice_core_fault = "Voice Core yapılandırması hatalı. Ses değiştirilmedi; yanıt yazılı kalacak."
+            self.speak_enabled = False
+            runtime.flags['speak'] = False
+            try:
+                voice_runtime.block_legacy_on_fault()
+            except Exception:
+                runtime._record_failure('modules/engine_voice.py:voice_core_stop')
+            self.voice_core_fault = (
+                "Voice Core başlatılamadı. Ses kapalı; yazılı yanıt ve arka plan işleri devam ediyor."
+            )
         if self.voice_lane is not None and piper_enabled:
             runtime.emit("system", "Yerel Voice Core etkin: ses arka planda oynatılır, seçili ses değişmez.")
 

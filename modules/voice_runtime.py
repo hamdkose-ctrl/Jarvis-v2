@@ -124,8 +124,14 @@ def maybe_start(runtime):
         enabled = False
     try:
         register(lane)
-    except VoiceConfigurationError:
-        lane.close()
+    except Exception:
+        _record_failure("modules/voice_runtime.py:voice_setup")
+        # A partially registered voice owner must not leave a live speaker
+        # thread/device behind after initialization aborts.
+        try:
+            lane.close()
+        except Exception:
+            _record_failure("modules/voice_runtime.py:voice_setup_close")
         raise
     return lane, enabled
 

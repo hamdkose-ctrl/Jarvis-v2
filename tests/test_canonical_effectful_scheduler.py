@@ -76,15 +76,14 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
 
     def approve(self, ident):
         shown = goal_executor.read_job(self.owner, ident)
-        # A writer → publish DAG approves the WAITING publish child, not
-        # the already completed first writer step in the execution record.
+        # Writer and Publish each need their own exact waiting-step consent.
         waiting = [
             step for step in shown['steps']
             if step.get('id') == shown.get('waiting')
             and step.get('state') == 'approval'
         ]
         self.assertEqual(len(waiting), 1, shown)
-        self.assertIn(waiting[0]['tool'], ('coder', 'publish'))
+        self.assertIn(waiting[0]['tool'], ('coder', 'publish', 'writer'))
         key = goal_executor.control_key(shown)
         result = canonical_goal_control.approve_effect(
             self.owner, ident, expected_control=key,
@@ -100,6 +99,20 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
             'id':'report', 'agent':'writer', 'depends':[],
             'input':{'instruction':'Kısa Markdown raporu yaz','filename':'report.md'},
         }, 'Kısa Markdown raporunu dosyaya kaydet.')
+        with patch.object(model_wait, 'ask', side_effect=AssertionError('No writer before consent')) as model:
+            self.assertFalse(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), self.offer(ident),
+            ))
+            model.assert_not_called()
+        state, record = self.snapshots(ident)
+        self.assertEqual(state['evidence'], [])
+        self.assertEqual(record['steps'][0]['state'], 'approval')
+        self.assertEqual(record['steps'][0]['attempts'], 0)
+        self.assertIn('approval_pending',
+                      [row.status for row in canonical_restart_audit.inspect(
+                          self.owner,ident).nodes])
+        self.assertEqual(list((self.root / 'files').rglob('report.md')), [])
+        self.approve(ident)
         with patch.object(model_wait, 'ask', return_value='# Doğrulanmış rapor\n\nİçerik'):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner), self.offer(ident),
@@ -272,6 +285,11 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
              'input':{'service':'gmail','destination':destination,
                       'subject':'Draft','text_from_task':'draft'}},
         ], 'Raporu dosyaya kaydet, sonra person@example.com adresine gönder.')
+        with patch.object(model_wait,'ask',side_effect=AssertionError('No unapproved draft')):
+            self.assertFalse(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner),self.offer(ident),
+            ))
+        self.approve(ident)
         with patch.object(model_wait,'ask',return_value='**Immutable draft**'):
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner),self.offer(ident),

@@ -280,8 +280,16 @@ def _run_pending(owner,job,emit=None):
                 for d in deps:
                     previous=job['outputs'][d]
                     if previous.get('verification'):task_results.verify(previous,owner=owner)
-                _gate(owner,job,task)
-                output=worker(owner,task,{d:job['outputs'][d] for d in deps})
+                plan=_gate(owner,job,task)
+                if task['agent']=='writer' and plan['phase']=='prepare':
+                    # Legacy queue may park at approval, but cannot grant itself
+                    # writer authority. Core's owner-bound consent is required.
+                    from modules import runtime_prepare_approval
+                    output=runtime_prepare_approval.prepare(
+                        task['execution'], 'writer', task['input'],
+                    )
+                else:
+                    output=worker(owner,task,{d:job['outputs'][d] for d in deps})
                 if not isinstance(output,dict) or output.get('state') not in ('done','failed','blocked','approval','unavailable'):
                     raise ValueError('Araç geçerli bir görev sonucu döndürmedi.')
             except requests_state.Cancelled: raise

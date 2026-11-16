@@ -18,17 +18,22 @@ class TaskTests(unittest.TestCase):
         for tasks in [[{'id':'a','agent':'shell'}],[{'id':'a','agent':'writer','depends':['a']}],[{'id':'a','agent':'verify'},{'id':'a','agent':'verify'}]]:
             with self.assertRaises(ValueError):agents.validate(tasks)
 
-    def test_actual_writer_saves_report_and_verifier_checks_real_output(self):
+    def test_legacy_writer_waits_without_creating_report(self):
         from modules import nxapi
         tasks=[{'id':'write','agent':'writer','input':{'instruction':'write','filename':'rapor.md'}},
                {'id':'check','agent':'verify','depends':['write']}]
-        with patch.object(nxapi,'FILES_DIR',Path(self.tmp.name)/'files'),patch.object(agents.llm,'ask',return_value='Gerçek rapor'):
+        with patch.object(nxapi,'FILES_DIR',Path(self.tmp.name)/'files'),patch.object(agents.llm,'ask',side_effect=AssertionError('No model before approval')) as model:
             job=agents.execute('alice',tasks)
-        self.assertEqual(job['state'],'done');path=Path(job['outputs']['write']['file'])
-        self.assertEqual(path.read_text(),'Gerçek rapor')
-        self.assertEqual(agents.recent('alice')['id'],job['id']);self.assertIsNone(agents.recent('bob'))
-        path.unlink()
-        with self.assertRaises(ValueError):agents.worker('alice',tasks[1],{'write':job['outputs']['write']})
+        self.assertEqual(job['state'],'approval')
+        self.assertEqual(job['tasks'][0]['state'],'approval')
+        self.assertEqual(job['tasks'][1]['state'],'queued')
+        self.assertEqual(job['outputs']['write']['approval_schema'],'runtime_prepare_approval.v1')
+        self.assertEqual(list((Path(self.tmp.name)/'files').rglob('rapor.md')),[])
+        self.assertEqual(agents.recent('alice')['id'],job['id'])
+        self.assertIsNone(agents.recent('bob'))
+        model.assert_not_called()
+        with self.assertRaises(PermissionError):
+            agents.worker('alice',tasks[0],{})
 
     def test_failures_block_dependent_tasks_but_independent_work_runs(self):
         tasks=[{'id':'a','agent':'research'},{'id':'b','agent':'verify','depends':['a']},{'id':'c','agent':'research'}]

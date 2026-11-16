@@ -26,6 +26,10 @@ class GoalTests(unittest.TestCase):
     def done(self,*ids,goal=0):return {'action':'complete','goal':goal,'evidence':list(ids)}
     def finish(self):return {'action':'finish'}
 
+    def run_with_writer_consent(self, request, **kwargs):
+        from writer_consent_fixture import run_with_explicit_writer_approval
+        return run_with_explicit_writer_approval(self.runtime, request, **kwargs)
+
     def test_older_open_legacy_and_canonical_goals_survive_recent_closed_files(self):
         # An old open goal can be hidden by many newer completed journals.
         # Both legacy .json and canonical .execution.json must stay discoverable.
@@ -118,7 +122,7 @@ class GoalTests(unittest.TestCase):
             self.tool('action',{'action':'note_add','params':{'text':'Tamamlandı'}},goal=1),
             self.done('s4',goal=1),self.finish())
         with patch.object(task_agents,'worker',side_effect=work),patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
-            result=goals.run(self.runtime,'Araştırıp raporu dosyaya kaydet ve not ekle')
+            result=self.run_with_writer_consent('Araştırıp raporu dosyaya kaydet ve not ekle')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual([s['tool'] for s in job['steps']],['research','browser','writer','action'])
         self.assertIn('Gerçek kaynaklı rapor metni',Path(job['outputs']['s3']['file']).read_text())
@@ -129,7 +133,7 @@ class GoalTests(unittest.TestCase):
 
     def test_all_goals_and_actual_successful_evidence_are_required(self):
         self.responses(self.plan('İş bir','İş iki'),self.finish(),self.done('invented'),RuntimeError('models unavailable'))
-        result=goals.run(self.runtime,'İki işi de yap')
+        result=self.run_with_writer_consent('İki işi de yap')
         job=goals.latest('alice');self.assertEqual(job['state'],'paused')
         self.assertTrue(all(g['state']=='pending' for g in job['goals']))
         self.assertIn('tamamlanmadı',result)
@@ -139,7 +143,7 @@ class GoalTests(unittest.TestCase):
         self.profile.data['items']=[{'id':7,'text':'selected note'}]
         self.responses(self.plan('Seçilen notu sil'),self.tool('action',{'action':'note_delete','params':{'nid':7}}))
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
-            result=goals.run(self.runtime,'7 kimlikli notu sil')
+            result=self.run_with_writer_consent('7 kimlikli notu sil')
         self.assertEqual(goals.latest('alice')['state'],'approval');bridge.note_delete.assert_not_called()
         self.assertIn('onay',result.casefold())
         goals.handle(self.runtime,'sürdür')
@@ -154,7 +158,7 @@ class GoalTests(unittest.TestCase):
         bridge=SimpleNamespace(note_add=Mock(side_effect=RuntimeError('connection lost after write')))
         self.responses(self.plan('Not ekle'),self.tool('action',{'action':'note_add','params':{'text':'note'}}))
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
-            goals.run(self.runtime,'Not ekle')
+            self.run_with_writer_consent('Not ekle')
             goals.handle(self.runtime,'devam')
         self.assertEqual(goals.latest('alice')['state'],'review')
         bridge.note_add.assert_called_once()
@@ -163,7 +167,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Durumu oku'),self.tool('diagnose',{'kind':'accounts'}),
             self.tool('diagnose',{'kind':'accounts'}),self.done('s1'),self.finish())
         with patch('modules.service_health.report',return_value='Yerel hesap durumu') as check:
-            goals.run(self.runtime,'Hesap durumunu oku')
+            self.run_with_writer_consent('Hesap durumunu oku')
         check.assert_called_once_with('alice');self.assertEqual(goals.latest('alice')['state'],'done')
 
     def test_real_document_read_and_translation_share_goal_with_verified_source(self):
@@ -172,7 +176,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Belgeyi oku','İngilizceye çevir'),
             self.tool('document',{'operation':'read','path':str(path)}),self.done('s1'),
             self.tool('document',{'operation':'translate','path':str(path),'target':'English'},goal=1),self.done('s2',goal=1),self.finish())
-        with patch.object(nxapi,'allowed',return_value=path):result=goals.run(self.runtime,'Dosyayı oku ve İngilizceye çevir')
+        with patch.object(nxapi,'allowed',return_value=path):result=self.run_with_writer_consent('Dosyayı oku ve İngilizceye çevir')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertIn('Hello world',result)
         path.write_text('changed')
@@ -188,11 +192,16 @@ class GoalTests(unittest.TestCase):
     def test_failed_read_can_be_resumed_after_restart_without_losing_completed_goals(self):
         self.responses(self.plan('Durumu oku','Rapor dosyası'),self.tool('diagnose',{'kind':'accounts'}),self.done('s1'),RuntimeError('offline'))
         with patch('modules.service_health.report',return_value='Account check'):
-            goals.run(self.runtime,'Hesabı kontrol et ve rapor oluştur')
+            self.run_with_writer_consent('Hesabı kontrol et ve rapor oluştur')
         ident=goals.latest('alice')['id']
         self.responses(self.tool('writer',{'instruction':'Durum raporu','filename':'rapor.md'},goal=1,depends=['s1']),
             'Hesap durum raporu',self.done('s2',goal=1),self.finish())
         goals.handle(self.runtime,'devam et')
+        pending=goals.latest('alice')
+        self.assertEqual(pending['state'],'approval')
+        self.run_with_writer_consent('hedef onayla',resume=True,approve=True,
+                                     expected_job_id=pending['id'],
+                                     expected_control=goals.control_key(pending))
         job=goals.latest('alice');self.assertEqual(job['state'],'done');self.assertEqual(job['id'],ident)
         self.assertEqual(len(job['steps']),2)
 
@@ -202,7 +211,7 @@ class GoalTests(unittest.TestCase):
             return json.dumps(self.plan('İş'))
         self.ask.side_effect=model
         from modules import requests_state
-        with self.assertRaises(requests_state.Cancelled):goals.run(self.runtime,'İşi yap')
+        with self.assertRaises(requests_state.Cancelled):self.run_with_writer_consent('İşi yap')
         self.assertEqual(goals.latest('alice')['state'],'cancelled');self.assertIsNone(goals.latest('bob'))
 
     def test_paid_selection_and_unknown_shell_are_not_available_to_model(self):
@@ -223,7 +232,7 @@ class GoalTests(unittest.TestCase):
         bridge=SimpleNamespace(note_add=Mock(side_effect=add))
         self.responses(self.plan('Not ekle'),self.tool('action',{'action':'note_add','params':{'text':'New note'}}),self.done('s1'),self.finish())
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
-            result=goals.run(self.runtime,'New note diye not ekle')
+            result=self.run_with_writer_consent('New note diye not ekle')
         self.assertEqual(goals.latest('alice')['state'],'done',result)
         self.assertTrue(goals.latest('alice')['outputs']['s1']['reconciled'])
         bridge.note_add.assert_called_once()
@@ -235,7 +244,7 @@ class GoalTests(unittest.TestCase):
             self.tool('action',{'action':'note_add','params':{'text':'New note'}}),
             self.tool('action',{'action':'notes_list','params':{}}),self.done('s3'),self.finish())
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
-            goals.run(self.runtime,'Notu ekle ve doğrula')
+            self.run_with_writer_consent('Notu ekle ve doğrula')
         self.assertEqual(len(goals.latest('alice')['steps']),3)
 
     def test_plain_action_classification_reaches_goal_instead_of_catalog_rejection(self):
@@ -262,7 +271,7 @@ class GoalTests(unittest.TestCase):
             self.tool('writer',{'instruction':'Yerel cevap taslağı yaz','filename':'mail-cevap.md'},goal=1,depends=['s1']),
             'Merhaba, mesajınız alınmıştır.',self.done('s2',goal=1),self.finish())
         with patch.object(google_api,'_service',return_value=service),patch.object(account_tools.privacy,'blocked',return_value=None),patch.object(publish_services,'send') as send:
-            result=goals.run(self.runtime,'Mail başlıklarını oku ve yerel taslak yaz; gönderim yok')
+            result=self.run_with_writer_consent('Mail başlıklarını oku ve yerel taslak yaz; gönderim yok')
         self.assertEqual(goals.latest('alice')['state'],'done',result);send.assert_not_called()
         self.assertIn('Test',result);self.assertTrue(Path(goals.latest('alice')['outputs']['s2']['file']).exists())
 
@@ -322,7 +331,7 @@ class GoalTests(unittest.TestCase):
         if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):self.skipTest('FFmpeg unavailable')
         self.responses(self.plan('Kısa video dosyası üret'),
             self.tool('media',{'scenes':[{'caption':'Ortak yürütücü kabul testi','duration':1}],'layout':'landscape'}),self.done('s1'),self.finish())
-        result=goals.run(self.runtime,'Bir saniyelik yazılı video dosyası oluştur, yayınlama')
+        result=self.run_with_writer_consent('Bir saniyelik yazılı video dosyası oluştur, yayınlama')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         output=job['outputs']['s1'];self.assertTrue(Path(output['file']).is_file())
         self.assertTrue(task_results.verify(output,owner='alice'))
@@ -354,15 +363,19 @@ class GoalTests(unittest.TestCase):
         self.assertIn('true',output['text'])
 
 
-    def test_legacy_safe_dag_keeps_existing_task_journal_and_real_files(self):
+    def test_legacy_safe_dag_preserves_journal_but_cannot_write_without_core_consent(self):
         with patch.object(task_agents,'STORE',self.root/'legacy'):
-            self.responses({'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]},'Kaydedilen gerçek rapor')
+            self.responses({'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]},RuntimeError('model offline'))
             result=goals.run(self.runtime,'Test raporu hazırla')
-            self.assertIn('Kaydedilen gerçek rapor',result)
             legacy=task_agents.recent('alice');job=goals.latest('alice')
             self.assertEqual(job['legacy_job'],legacy['id'])
-            self.assertEqual(job['state'],'done')
-            self.assertEqual(Path(legacy['outputs']['report']['file']).read_text(),'Kaydedilen gerçek rapor')
+            self.assertEqual(legacy['state'],'approval')
+            self.assertEqual(legacy['outputs']['report']['state'],'approval')
+            self.assertNotEqual(job['state'],'done')
+            self.assertIn('onay',result)
+            # Legacy queues cannot mint Core's single-use writer approval.
+            # Never represent this parked legacy task as a completed file.
+            self.assertFalse(list(self.root.rglob('test.md')))
         with self.assertRaises(ValueError):
             goals._parse(json.dumps({'tasks':[{'id':'browse','agent':'browser','input':{'url':'https://example.com','instruction':'Click'}}]}))
 
@@ -379,7 +392,7 @@ class GoalTests(unittest.TestCase):
 
     def test_secret_fields_in_user_request_are_removed_before_planner_call(self):
         self.responses(RuntimeError('offline'))
-        goals.run(self.runtime,'Hesabı kontrol et api_key=unusual-value parola:another-value')
+        self.run_with_writer_consent('Hesabı kontrol et api_key=unusual-value parola:another-value')
         prompt=self.ask.call_args.args[0]
         self.assertNotIn('unusual-value',prompt);self.assertNotIn('another-value',prompt)
 
@@ -389,7 +402,7 @@ class GoalTests(unittest.TestCase):
         # closes canonical GoalState permanently; power loss before any
         # effect must leave the journal resumable without a duplicate effect.
         with patch.object(goal_tools,'checkpoint',side_effect=KeyboardInterrupt('crash before effect')):
-            with self.assertRaises(KeyboardInterrupt):goals.run(self.runtime,'Not ekle')
+            with self.assertRaises(KeyboardInterrupt):self.run_with_writer_consent('Not ekle')
         job=goals.latest('alice');job['state']='paused';job['steps'][0]['state']='running';goals._save(job)
         bridge=SimpleNamespace(note_add=Mock(return_value={'id':1,'text':'not'}))
         self.responses(self.tool('action',{'action':'note_add','params':{'text':'not'}}),self.done('s2'),self.finish())
@@ -402,7 +415,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Not ekle'),self.tool('action',{'action':'note_add','params':{'text':'not'}}))
         with patch.object(goal_tools,'checkpoint',side_effect=requests_state.Cancelled('stop')):
             with self.assertRaises(requests_state.Cancelled):
-                goals.run(self.runtime,'Not ekle')
+                self.run_with_writer_consent('Not ekle')
         job=goals.latest('alice')
         self.assertEqual(job['state'],'cancelled')
         path=goals.STORE/'alice'/(job['id']+'.goalstate.json')
@@ -473,7 +486,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Durumu raporla'),self.tool('sharing',{'mode':'camera'}),
             self.tool('diagnose',{'kind':'accounts'}),self.done('s2'),self.finish())
         with patch('modules.service_health.report',return_value='Yerel hesap bilgisi'):
-            result=goals.run(self.runtime,'Hesap durumunu raporla')
+            result=self.run_with_writer_consent('Hesap durumunu raporla')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertFalse(job['steps'][0]['started'])
 
@@ -498,7 +511,7 @@ class GoalTests(unittest.TestCase):
             'İstanbul iki kıtaya yayılan bir şehirdir.',self.done('s2'),
             self.tool('media',{'scenes':[{'caption':'İstanbul','duration':3}],'layout':'landscape'},goal=1),self.done('s3',goal=1),self.finish())
         with patch.object(developer,'status',return_value={'enabled':False,'unlocked':False}),patch.object(developer,'handle') as code:
-            result=goals.run(self.runtime,'İstanbul raporu dosyası ve İstanbul yazan 3 saniyelik video oluştur. Yayınlama.')
+            result=self.run_with_writer_consent('İstanbul raporu dosyası ve İstanbul yazan 3 saniyelik video oluştur. Yayınlama.')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result);code.assert_not_called()
         self.assertFalse(job['steps'][0]['started'])
         self.assertTrue(Path(job['outputs']['s2']['file']).is_file())
@@ -506,13 +519,18 @@ class GoalTests(unittest.TestCase):
 
     def test_legacy_locked_coder_review_can_resume_without_repeating_code(self):
         self.responses(self.plan('Rapor dosyası'),RuntimeError('offline'))
-        goals.run(self.runtime,'Rapor dosyası oluştur')
+        self.run_with_writer_consent('Rapor dosyası oluştur')
         job=goals.latest('alice')
         job['state']='review';job['steps']=[{'id':'s1','goal':0,'tool':'coder','input':{'request':'Rapor üret'},'state':'failed','started':True,'depends':[],'signature':'old'}]
         job['outputs']={'s1':{'state':'failed','text':'Önce sohbetten parolalı geliştirme modunu aç.'}}
         goals._save(job)
         self.responses(self.tool('writer',{'instruction':'Rapor üret','filename':'rapor.md'}),'Rapor metni',self.done('s2'),self.finish())
         result=goals.handle(self.runtime,'devam et')
+        pending=goals.latest('alice')
+        self.assertEqual(pending['state'],'approval',result)
+        result=self.run_with_writer_consent('hedef onayla',resume=True,approve=True,
+                                            expected_job_id=pending['id'],
+                                            expected_control=goals.control_key(pending))
         self.assertEqual(goals.latest('alice')['state'],'done',result)
         self.assertEqual(len(goals.latest('alice')['steps']),2)
 
@@ -526,7 +544,7 @@ class GoalTests(unittest.TestCase):
             finally:exited.set()
         self.ask.side_effect=slow
         with patch.object(goals,'PLANNER_SECONDS',.03),patch.object(goal_tools,'execute') as execute:
-            result=goals.run(self.runtime,'Bir not oluştur')
+            result=self.run_with_writer_consent('Bir not oluştur')
             job=goals.latest('alice');ident=job['id']
             self.assertEqual(job['state'],'paused');self.assertIn('Geç yanıt',result)
             self.assertEqual(job['steps'],[])
@@ -565,7 +583,7 @@ class GoalTests(unittest.TestCase):
             '# Araştırma\n15 Ekim tarihli duyuru. Kaynak: https://working.example/news',
             self.done('s4'),self.finish())
         with patch('modules.browser.page_text',side_effect=page):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ araştırmasını incele ve kaynaklı rapor dosyası oluştur')
+            result=self.run_with_writer_consent('Türkiye yapay zekâ araştırmasını incele ve kaynaklı rapor dosyası oluştur')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual([step['state'] for step in job['steps']],['failed','failed','done','done'])
         self.assertEqual(len(job['goals']),1)
@@ -581,7 +599,7 @@ class GoalTests(unittest.TestCase):
              'steps':[{'id':'s1','goal':0,'tool':'research','input':{'url':'https://example.org/'},'depends':[],'signature':'old','state':'done'}],
              'outputs':{'s1':output}}
         goals._save(job);self.ask.side_effect=RuntimeError('model unavailable')
-        goals.run(self.runtime,'hedef devam',resume=True)
+        self.run_with_writer_consent('hedef devam',resume=True)
         after=goals.latest('alice')
         self.assertEqual(after['id'],job['id']);self.assertEqual(len(after['steps']),1)
         self.assertEqual(after['steps'][0]['state'],'failed')
@@ -605,7 +623,7 @@ class GoalTests(unittest.TestCase):
         llm.note_route('Cevap: Gemini · classification',True)
         llm.note_route('Groq beklemede',False)
         self.ask.side_effect=RuntimeError('No eligible model')
-        goals.run(self.runtime,'Kaynaklı rapor oluştur')
+        self.run_with_writer_consent('Kaynaklı rapor oluştur')
         notes=llm.take_route()
         self.assertFalse(any(ok for _,ok in notes))
         self.assertIn(('Groq beklemede',False),notes)
@@ -621,7 +639,7 @@ class GoalTests(unittest.TestCase):
 
     def test_planner_asks_for_a_short_tool_reply_instead_of_a_full_report(self):
         self.responses(self.plan('Rapor'),RuntimeError('stop'))
-        goals.run(self.runtime,'Rapor hazırla')
+        self.run_with_writer_consent('Rapor hazırla')
         self.assertTrue(self.ask.call_args_list)
         for call in self.ask.call_args_list:self.assertEqual(call.kwargs['max_tokens'],1200)
 
@@ -631,7 +649,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Özgün hedef'),self.plan('Yanlış yeni hedef'),
                        self.plan('Yanlış yeni hedef'),self.plan('Yanlış yeni hedef'))
         with patch.object(goals,'_record',side_effect=AssertionError('no tool should run')):
-            text=goals.run(self.runtime,'Kaynaklı rapor hazırla')
+            text=self.run_with_writer_consent('Kaynaklı rapor hazırla')
         job=goals.latest('alice')
         self.assertEqual(self.ask.call_count,4)
         self.assertEqual(job['goals'][0]['text'],'Özgün hedef')
@@ -644,7 +662,7 @@ class GoalTests(unittest.TestCase):
     def test_replanning_rejection_can_recover_to_a_valid_next_action(self):
         self.responses(self.plan('Özgün hedef'),self.plan('Yanlış yeni hedef'),
                        {'action':'ask','question':'Hangi tarih aralığı?'})
-        goals.run(self.runtime,'Kaynaklı rapor hazırla')
+        self.run_with_writer_consent('Kaynaklı rapor hazırla')
         job=goals.latest('alice')
         self.assertEqual(job['goals'][0]['text'],'Özgün hedef')
         self.assertEqual(job['state'],'question')
@@ -655,7 +673,7 @@ class GoalTests(unittest.TestCase):
     def test_last_explicit_completion_finishes_without_another_model_call(self):
         self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),
                        'Doğrulanmış dosya',self.done('s1'),RuntimeError('HTTP 429'))
-        result=goals.run(self.runtime,'Rapor dosyası oluştur')
+        result=self.run_with_writer_consent('Rapor dosyası oluştur')
         job=goals.latest('alice')
         self.assertEqual(job['state'],'done',result)
         self.assertEqual(self.ask.call_count,4)
@@ -676,7 +694,7 @@ class GoalTests(unittest.TestCase):
             self.done('s3'),self.tool('writer',{'instruction':'Kaynaklı haber raporu','filename':'rapor.md'},goal=1,depends=['s3']),
             self.tool('verify',{},goal=1,depends=['s4']),self.done('s4','s5',goal=1),RuntimeError('HTTP 429'))
         with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır, rapor oluştur ve dosyayı doğrula. Kaynak: '+index)
+            result=self.run_with_writer_consent('Türkiye yapay zekâ son gelişmelerini araştır, rapor oluştur ve dosyayı doğrula. Kaynak: '+index)
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual(self.ask.call_count,9)
         self.assertEqual([s['state'] for s in job['steps']],['failed','done','done','done','done'])
@@ -686,19 +704,19 @@ class GoalTests(unittest.TestCase):
 
     def test_already_completed_goals_resume_without_model_and_recheck_actual_file(self):
         self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Doğrulanmış dosya',self.done('s1'))
-        goals.run(self.runtime,'Rapor dosyası oluştur')
+        self.run_with_writer_consent('Rapor dosyası oluştur')
         job=goals.latest('alice');job['state']='paused';goals._save(job)
         self.ask.reset_mock();self.ask.side_effect=AssertionError('No extra model call')
-        result=goals.run(self.runtime,'hedef devam',resume=True)
+        result=self.run_with_writer_consent('hedef devam',resume=True)
         self.assertEqual(goals.latest('alice')['state'],'done',result);self.ask.assert_not_called()
 
     def test_legacy_category_news_and_report_are_invalidated_without_deleting_file_or_goal(self):
         self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Eski kategori raporu',self.done('s1'))
-        goals.run(self.runtime,'Rapor dosyası oluştur')
+        self.run_with_writer_consent('Rapor dosyası oluştur')
         job=goals.latest('alice');path=Path(job['outputs']['s1']['file'])
         job['request']='Türkiye yapay zekâ son gelişmeleri ve haberleri';job['state']='paused';goals._save(job)
         ident=job['id'];self.ask.side_effect=RuntimeError('HTTP 429')
-        goals.run(self.runtime,'hedef devam',resume=True)
+        self.run_with_writer_consent('hedef devam',resume=True)
         job=goals.latest('alice')
         self.assertEqual(job['id'],ident);self.assertEqual(len(job['goals']),1)
         self.assertEqual(job['goals'][0]['state'],'pending');self.assertEqual(job['steps'][0]['state'],'failed')
@@ -709,7 +727,10 @@ class GoalTests(unittest.TestCase):
         snapshot={'owner':'alice','service':'gmail','operation':'read_message','fetched_at':1,
                   'message':{'id':'M1','from':'sender@example.com','subject':'Merhaba','body':'Yarın görüşelim.','format':'plain','truncated':False}}
         mail=task_results.seal('account',{'state':'done','text':account_tools.render_snapshot(snapshot),'snapshot':snapshot,'sha256':account_tools.digest(snapshot)})
-        with patch('modules.model_wait.ask',return_value='Merhaba, görüşmek üzere.'):
+        from writer_consent_fixture import native_writer_after_consent
+        # This fixture constructs an already-completed historical draft. It
+        # tests readback integrity, not the permission path for creating it.
+        with patch('modules.model_wait.ask',return_value='Merhaba, görüşmek üzere.'),native_writer_after_consent():
             draft=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Mail cevabı yaz','filename':'mail-cevap.md'},'execution':{'request':'Son haberleri araştır ve mailime cevap taslağı yaz'}},{'s1':mail})
         job={'id':'c'*16,'owner':'alice','created':0,'request':'Son haberleri araştır ve mailime cevap taslağı yaz','state':'paused',
              'goals':[{'text':'Haber araştırması','state':'pending','evidence':[]},{'text':'Mail taslağı','state':'done','evidence':['s2']}],
@@ -717,7 +738,7 @@ class GoalTests(unittest.TestCase):
                       {'id':'s2','goal':1,'tool':'writer','input':{'instruction':'Mail cevabı yaz','filename':'mail-cevap.md'},'depends':['s1'],'signature':'draft','state':'done'}],
              'outputs':{'s1':mail,'s2':draft}}
         goals._save(job);self.ask.side_effect=RuntimeError('HTTP 429')
-        goals.run(self.runtime,'hedef devam',resume=True)
+        self.run_with_writer_consent('hedef devam',resume=True)
         after=goals.latest('alice')
         self.assertEqual(after['steps'][1]['state'],'done');self.assertEqual(after['goals'][1]['state'],'done')
         self.assertTrue(goal_tools.verify(after['outputs']['s2'],'alice'))
@@ -741,7 +762,7 @@ class GoalTests(unittest.TestCase):
         with patch('modules.browser.page_text',side_effect=lambda url:(quote+' Projede üniversiteler ve araştırma kurumları birlikte çalışıyor.') if url==article else bad), \
              patch.object(public_sources,'fetch',return_value={'url':index,'body':html,'content_type':'text/html'}), \
              patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Güncel kaynakları kendin bul, kısa rapor dosyası oluştur ve doğrula.')
+            result=self.run_with_writer_consent('Güncel kaynakları kendin bul, kısa rapor dosyası oluştur ve doğrula.')
             job=goals.latest('alice')
             self.assertEqual(job['state'],'done',result)
             self.assertEqual(job['steps'][0]['state'],'failed')
@@ -756,9 +777,14 @@ class GoalTests(unittest.TestCase):
         for command in ('sürdür','SÜRDÜR!','surdur','hedef sürdür','hedef surdur'):
             with self.subTest(command=command):
                 self.responses(self.plan('Dosya'),RuntimeError('HTTP 429'))
-                goals.run(self.runtime,'Rapor dosyası oluştur');ident=goals.latest('alice')['id']
+                self.run_with_writer_consent('Rapor dosyası oluştur');ident=goals.latest('alice')['id']
                 self.responses(self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Yerel rapor',self.done('s1'))
                 result=goals.handle(self.runtime,command);job=goals.latest('alice')
+                if job['state']=='approval':
+                    result=goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                                     expected_job_id=job['id'],
+                                     expected_control=goals.control_key(job))
+                    job=goals.latest('alice')
                 self.assertEqual(job['id'],ident);self.assertEqual(job['state'],'done',result)
                 self.assertEqual(job.get('answers',[]),[])
 
@@ -784,7 +810,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Kaynakları araştır','Rapor dosyası oluştur ve doğrula'),
                        self.tool('research',{'url':index}),RuntimeError('HTTP 429; no model available'))
         with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+index)
+            result=self.run_with_writer_consent('Türkiye yapay zekâ son gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+index)
             job=goals.latest('alice');ident=job['id']
             self.assertEqual(self.ask.call_count,3)
             self.assertEqual(job['state'],'paused');self.assertTrue(all(g['state']=='pending' for g in job['goals']))
@@ -792,6 +818,8 @@ class GoalTests(unittest.TestCase):
             output=job['outputs'][job['partial_report']]
             self.assertTrue(goal_tools.verify(output,'alice'));text=Path(output['file']).read_text(encoding='utf-8')
             self.assertIn('Yapay zekâ',text);self.assertIn(day,text);self.assertIn('<'+article+'>',text)
+            self.assertEqual(sum(s['tool']=='writer' and s.get('recovery',False) for s in job['steps']),1,
+                             'One consented report must not be emitted twice on resume')
             self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
             previous_steps=len(job['steps']);previous_calls=len(calls)
             self.ask.side_effect=RuntimeError('Still no model')
@@ -815,14 +843,14 @@ class GoalTests(unittest.TestCase):
                 value={'items':[{'title':'Article','url':'https://example.org/a','published':''}],
                        'scope':'İndeks tarihi yayın tarihi değildir.'}
                 with patch.object(public_data,'news_search',return_value=value):
-                    result=goals.run(self.runtime,'Son bilim haberlerini araştır')
+                    result=self.run_with_writer_consent('Son bilim haberlerini araştır')
                 job=goals.latest('alice');self.assertEqual(job['state'],expected,result)
                 if expected=='paused':self.assertTrue(any('keşfiyle tamamlanamaz' in f for f in job['feedback']))
 
     def test_resume_reopens_old_news_goal_completed_with_only_search_evidence(self):
         from modules import public_data
         self.responses(self.plan('Haber bağlantılarını bul'),self.tool('data',{'operation':'sources'}),self.done('s1'))
-        goals.run(self.runtime,'Son bilim haberlerini araştır');job=goals.latest('alice');ident=job['id']
+        self.run_with_writer_consent('Son bilim haberlerini araştır');job=goals.latest('alice');ident=job['id']
         job['goals'][0]['text']='Son haberleri araştır';job['state']='paused';goals._save(job)
         self.responses(RuntimeError('HTTP 429'))
         goals.handle(self.runtime,'sürdür');job=goals.latest('alice')
@@ -844,13 +872,15 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Kaynak araştır','Rapor dosyası oluştur ve doğrula'),
                        self.tool('research',{'url':index}),RuntimeError('HTTP 429'))
         with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Sadece https://example.org/haberler yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur')
+            result=self.run_with_writer_consent('Sadece https://example.org/haberler yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur')
             job=goals.latest('alice');out=job['outputs'][job['partial_report']]
             self.assertTrue(goal_tools.verify(out,'alice'));self.assertIn('Kısmi rapor dosyası:',result)
             text=Path(out['file']).read_text(encoding='utf-8')
             self.assertIn(day,text);self.assertNotIn('2099',text);self.assertNotIn('foreign.org',text)
             self.assertEqual(self.ask.call_count,3);self.assertEqual(job['state'],'paused')
             self.assertFalse(any(s['input'].get('operation')=='news_search' for s in job['steps']))
+            self.assertEqual(sum(s['tool']=='writer' and s.get('recovery',False) for s in job['steps']),1,
+                             'One consented report must not be emitted twice on resume')
             self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
             self.assertTrue(all(url.startswith('https://example.org/') for url in calls))
 
@@ -875,7 +905,7 @@ class GoalTests(unittest.TestCase):
             self.tool('research',{'url':url}),{'supported':True,'answer':quote,'quotes':[quote]},
             self.done('s1'),self.finish())
         with patch.object(public_sources,'fetch',return_value={'url':url,'body':html}) as fetch,patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Son 7 gün Türkiye yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur. Kaynak: '+url)
+            result=self.run_with_writer_consent('Son 7 gün Türkiye yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur. Kaynak: '+url)
         job=goals.latest('alice')
         self.assertEqual(self.ask.call_count,5);fetch.assert_called_once()
         self.assertEqual(job['state'],'paused');self.assertEqual(job['goals'][0]['state'],'done')
@@ -892,7 +922,7 @@ class GoalTests(unittest.TestCase):
 
     def test_repeated_incomplete_finish_stops_after_three_rejections(self):
         self.responses(self.plan('Bir iş'),self.finish(),self.finish(),self.finish())
-        result=goals.run(self.runtime,'Bir iş yap')
+        result=self.run_with_writer_consent('Bir iş yap')
         self.assertEqual(self.ask.call_count,4)
         self.assertEqual(goals.latest('alice')['state'],'paused')
         self.assertIn('3 kez',result)
@@ -906,7 +936,7 @@ class GoalTests(unittest.TestCase):
             {'action':'invalid'},{'action':'invalid'},{'action':'invalid'})
         from modules import news_recovery
         with patch.object(news_recovery,'deliver') as recover:
-            goals.run(self.runtime,'Yapay zekâ son dakika haberleri')
+            self.run_with_writer_consent('Yapay zekâ son dakika haberleri')
         recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
         self.assertEqual(self.ask.call_count,4)
         self.assertEqual(goals.latest('alice')['state'],'paused')
@@ -915,14 +945,14 @@ class GoalTests(unittest.TestCase):
         from modules import news_recovery
         with patch.object(news_recovery,'deliver') as recover, \
                 patch.object(goals,'_finish_completed',side_effect=lambda _job:recover.called):
-            goals.run(self.runtime,'Son dakika haberleri')
+            self.run_with_writer_consent('Son dakika haberleri')
         recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
         self.ask.assert_not_called()
 
     def test_generic_fileless_news_pauses_when_bounded_recovery_has_no_evidence(self):
         from modules import news_recovery
         with patch.object(news_recovery,'deliver') as recover:
-            result=goals.run(self.runtime,'Son dakika haberleri')
+            result=self.run_with_writer_consent('Son dakika haberleri')
         job=goals.latest('alice')
         recover.assert_called_once_with(self.runtime,job,max_new_steps=24)
         self.ask.assert_not_called()
@@ -933,7 +963,7 @@ class GoalTests(unittest.TestCase):
 
     def test_bare_resume_closed_goal_says_it_is_closed_without_model(self):
         self.responses(self.plan('İş'),RuntimeError('models unavailable'))
-        goals.run(self.runtime,'İş yap');job=goals.latest('alice')
+        self.run_with_writer_consent('İş yap');job=goals.latest('alice')
         job['state']='cancelled';goals._save(job);self.ask.reset_mock()
         self.assertIn('iptal',goals.handle(self.runtime,'devam'))
         self.ask.assert_not_called()
@@ -949,12 +979,17 @@ class GoalTests(unittest.TestCase):
             {'supported':True,'answer':quote,'quotes':[quote]},self.done('s1'),
             {'action':'ask','question':'Türkiye yapay zekâ gelişmelerini araştır ve rapor dosyası oluştur.'})
         with patch.object(public_sources,'fetch',return_value={'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None):
-            goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+url)
+            self.run_with_writer_consent('Türkiye yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+url)
         original=goals.latest('alice');self.assertEqual(original['state'],'question')
         self.ask.reset_mock()
         with patch.object(public_sources,'fetch',side_effect=AssertionError('No fetch')):
             result=goals.handle(self.runtime,'devam')
         job=goals.latest('alice');self.assertEqual(job['id'],original['id']);self.ask.assert_not_called()
+        self.assertEqual(job['state'],'approval',result)
+        self.assertFalse(any(o.get('file') for o in job['outputs'].values()))
+        result=goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                         expected_job_id=job['id'],expected_control=goals.control_key(job))
+        job=goals.latest('alice');self.ask.assert_not_called()
         self.assertTrue(goal_tools.verify(job['outputs'][job['partial_report']],'alice'))
         self.assertIn('Kısmi rapor dosyası:',result)
         self.assertEqual(job['goals'][1]['state'],'pending')
@@ -973,7 +1008,7 @@ class GoalTests(unittest.TestCase):
             self.tool('research',{'url':'https://tubitak.gov.tr/tr/bilim-kalkinimi/yapay-zeka'}),
             self.tool('research',{'url':'https://turkiye.gov.tr/uydurulan/yapay-zeka'}))
         with patch.object(public_sources,'fetch') as fetch,patch.object(news_recovery,'deliver') as recovery:
-            result=goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+            result=self.run_with_writer_consent('Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
         fetch.assert_not_called();recovery.assert_called_once()
         self.assertEqual(self.ask.call_count,4)
         self.assertEqual(goals.latest('alice')['steps'],[])
@@ -983,7 +1018,7 @@ class GoalTests(unittest.TestCase):
         from modules import news_recovery
         self.responses(self.plan('Araştır ve rapor oluştur'),{'action':'ask','question':'Eksik somut bilgi.'})
         with patch.object(news_recovery,'deliver') as recovery:
-            result=goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+            result=self.run_with_writer_consent('Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
         recovery.assert_called_once();self.assertEqual(self.ask.call_count,2)
         self.assertEqual(goals.latest('alice')['state'],'paused')
         self.assertIn('Yeni bilgi vermen gerekmiyor',result)
@@ -1008,7 +1043,7 @@ class GoalTests(unittest.TestCase):
             return {'url':url,'body':body.encode()}
         self.responses(self.plan('Türkiye güncel haberlerini araştır','Rapor dosyası oluştur'),{'action':'ask','question':'Eksik somut bilgi'})
         with patch.object(publisher_news,'sources_for',return_value=index_rows),patch.object(public_sources,'fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün haberlerini araştır ve rapor dosyası oluştur')
+            result=self.run_with_writer_consent('Türkiye yapay zekâ son 7 gün haberlerini araştır ve rapor dosyası oluştur')
         job=goals.latest('alice');self.assertEqual(self.ask.call_count,2)
         self.assertIn('Kısmi rapor dosyası:',result)
         output=job['outputs'][job['partial_report']]
@@ -1030,6 +1065,14 @@ class GoalTests(unittest.TestCase):
             goals._record(self.runtime,job,step)
         with patch.object(public_sources,'fetch',side_effect=AssertionError('No network on report refresh')):
             news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
+            self.assertEqual(job['state'],'approval')
+            self.assertEqual(job['partial_report'],old_id)
+            # A new evidence-bound report needs a NEW owner/job/step consent.
+            pending=goals.latest('alice')
+            goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                      expected_job_id=pending['id'],
+                      expected_control=goals.control_key(pending))
+            job=goals.latest('alice')
             refreshed=job['partial_report'];count=len(job['steps'])
             news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
         self.assertNotEqual(old_id,refreshed);self.assertEqual(count,len(job['steps']))
@@ -1042,7 +1085,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Araştır'),{'action':'ask','question':'Eksik somut bilgi'})
         with patch.object(news_recovery,'deliver',side_effect=PermissionError('owner mismatch')):
             with self.assertRaises(PermissionError):
-                goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+                self.run_with_writer_consent('Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
         self.assertEqual(self.ask.call_count,2)
 
     def test_broad_news_requires_two_publishers_not_two_subdomains(self):

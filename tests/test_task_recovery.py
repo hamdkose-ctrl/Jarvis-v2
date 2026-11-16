@@ -7,6 +7,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 from modules import task_agents as agents, browser_agent as browser, requests_state
+from writer_consent_fixture import native_writer_after_consent
 
 
 class RecoveryTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class RecoveryTests(unittest.TestCase):
 
     def plan(self):
         return [{'id':'read','agent':'research','input':{'url':'https://example.com'}},
-                {'id':'write','agent':'writer','depends':['read'],'input':{'instruction':'Rapor yaz'}},
+                {'id':'write','agent':'research','depends':['read'],'input':{'url':'https://example.com/report'}},
                 {'id':'verify','agent':'verify','depends':['write']}]
 
     def test_crash_resumes_only_unfinished_safe_steps(self):
@@ -49,17 +50,17 @@ class RecoveryTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_failure_retry_does_not_repeat_completed_independent_work(self):
-        tasks=[{'id':'a','agent':'research'},{'id':'b','agent':'writer','depends':['a']},{'id':'c','agent':'research'}]
+        tasks=[{'id':'a','agent':'research'},{'id':'b','agent':'research','depends':['a']},{'id':'c','agent':'research'}]
         with patch.object(agents,'worker',side_effect=[RuntimeError('offline'),{'state':'done','text':'c'}]):job=agents.execute('alice',tasks)
         calls=[]
         with patch.object(agents,'worker',side_effect=lambda o,t,d:(calls.append(t['id']) or {'state':'done','text':'ok'})):
             self.assertEqual(agents.continue_job('alice',job['id'])['state'],'done')
         self.assertEqual(calls,['a','b'])
 
-    def test_changed_or_missing_report_blocks_dependents_on_resume(self):
+    def test_changed_or_missing_artifact_blocks_dependents_on_resume(self):
         report=self.root/'report.md';report.write_text('original')
         digest=hashlib.sha256(report.read_bytes()).hexdigest()
-        tasks=[{'id':'write','agent':'writer'},{'id':'verify','agent':'verify','depends':['write']}]
+        tasks=[{'id':'write','agent':'research'},{'id':'verify','agent':'verify','depends':['write']}]
         with patch.object(agents,'worker',side_effect=[{'state':'done','file':str(report),'sha256':digest},KeyboardInterrupt]):
             with self.assertRaises(KeyboardInterrupt):agents.execute('alice',tasks)
         job=agents.recent('alice');report.write_text('tampered')
@@ -147,10 +148,10 @@ class RecoveryTests(unittest.TestCase):
 
     def test_actual_writer_digest_and_empty_result_rejected(self):
         from modules import nxapi
-        with patch.object(nxapi,'FILES_DIR',self.root/'files'),patch.object(agents.llm,'ask',return_value='Rapor'):
+        with patch.object(nxapi,'FILES_DIR',self.root/'files'),patch.object(agents.llm,'ask',return_value='Rapor'),native_writer_after_consent():
             output=agents.worker('alice',{'agent':'writer','input':{'instruction':'write'}},{})
         self.assertTrue(agents._artifact(output));self.assertEqual(len(output['sha256']),64)
-        with patch.object(agents.llm,'ask',return_value=''):
+        with patch.object(agents.llm,'ask',return_value=''),native_writer_after_consent():
             with self.assertRaisesRegex(ValueError,'boş'):agents.worker('alice',{'agent':'writer','input':{'instruction':'write'}},{})
 
     def test_history_and_retrieval_remain_after_reload(self):

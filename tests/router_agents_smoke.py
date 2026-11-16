@@ -34,20 +34,34 @@ with tempfile.TemporaryDirectory() as folder:
         response=main.handle('router durumu');assert '| Sağlayıcı |' in response
         assert main.handle('görev durumu')=='Henüz kayıtlı görev yok.'
         plan={'tasks':[{'id':'report','agent':'writer','input':{'instruction':'Yaz','filename':'test.md'}}]}
-        with patch.object(main._llm,'ask',side_effect=[__import__('json').dumps(plan),'Rapor hazır']):
-            answer=task_agents.handle(main.profile.slug,'görev: Test raporu hazırla',main.emit);assert 'done' in answer
+        # Writer is ask-required. This legacy Task entrypoint cannot mint a
+        # Core GoalApproval certificate, so it must park without model or file
+        # effects. Canonical Writer post-consent file delivery is covered by
+        # test_canonical_effectful_scheduler; this smoke checks the real Bridge
+        # route and fail-closed legacy journal instead of faking success.
+        with patch.object(main._llm,'ask',side_effect=[__import__('json').dumps(plan)]) as planning:
+            answer=task_agents.handle(main.profile.slug,'görev: Test raporu hazırla',main.emit)
             job=task_agents.recent(main.profile.slug)
-        response=main.handle('görev durumu');assert job['id'] in response and 'Rapor hazır' in response
-        # Natural language reaches the real planner without a magic prefix: tek kapı Task zarfını verir.
+        assert planning.call_count==1
+        assert job['state']=='approval' and job['tasks'][0]['state']=='approval'
+        assert job['outputs']['report']['approval_schema']=='runtime_prepare_approval.v1'
+        assert 'approval' in answer and not list((root/'files').rglob('*.md'))
+        response=main.handle('görev durumu')
+        assert job['id'] in response and 'approval' in response
+        task_agents.cancel_job(main.profile.slug,job['id'])
+        # Natural language still reaches the one Goal entrypoint. A synthetic
+        # Goal→Task adapter cannot grant Writer permission or claim a file.
         def fixed_goal_worker(runtime, command):
             return task_agents.render(task_agents.execute(runtime.profile.slug, plan['tasks'], command, runtime.emit))
-        with patch.object(main._llm,'ask',return_value='Doğal komut raporu'), \
+        with patch.object(main._llm,'ask',side_effect=AssertionError('No Writer model before consent')) as model, \
              patch.object(goal_executor,'run',side_effect=fixed_goal_worker):
             answer=headless_smoke.canonical('Test raporu oluştur ve kaydet','agents-nl-plan',
                 'research.search',{'research':{'query':'Test raporu oluştur ve kaydet','route':'PRIVATE'}})
-            assert 'Doğal komut raporu' in answer
-            report=task_agents.recent(main.profile.slug)['outputs']['report']
-            assert report['verified'] and Path(report['file']).read_text()=='Doğal komut raporu'
+            assert 'approval' in answer
+            pending=task_agents.recent(main.profile.slug)
+            assert pending['state']=='approval' and pending['outputs']['report']['state']=='approval'
+            assert not list((root/'files').rglob('*.md'))
+            model.assert_not_called()
         with headless_smoke.model_decision():
             voice_response=main._live_command('görev durumu')
         assert 'sohbet ekranında' in voice_response

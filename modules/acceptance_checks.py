@@ -225,6 +225,19 @@ def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
             _news_turn(runtime,request,router_store=router_store,create_goal=True)
             job=goal_executor.latest(owner)
             if not job:return 'failed','Haber hedefi oluşturulmadı.'
+            if file_report and job.get('state')=='approval':
+                # Simulated USER decision in this opt-in acceptance fixture:
+                # prove no file was produced during prepare, then consume the
+                # real exact owner/job/control-bound Core consent once.
+                if any(isinstance(row,dict) and row.get('file')
+                       for row in job.get('outputs',{}).values()):
+                    return 'failed','Writer onayından önce dosya oluşturuldu.'
+                goal_executor.run(
+                    runtime, 'hedef onayla', resume=True, approve=True,
+                    expected_job_id=job['id'],
+                    expected_control=goal_executor.control_key(job),
+                )
+                job=goal_executor.latest(owner)
             if job.get('state')!='done':
                 return 'failed',_news_failure_detail(job)
             if not file_report and any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True

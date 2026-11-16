@@ -8,6 +8,7 @@ import tempfile
 from unittest.mock import patch
 
 from modules import research_providers, task_workers
+from writer_consent_fixture import native_writer_after_consent
 
 
 class ConflictModelTests(unittest.TestCase):
@@ -160,7 +161,8 @@ class ResearchOutputWiringTests(unittest.TestCase):
                           {'subject': 'faiz oranı', 'value': 45, 'unit': '%'})
         with patch('modules.research_providers.search_public', return_value=[{'url': 'https://c.test', 'title': 'C'}]) as search, \
              patch('modules.research_providers.extract_source', return_value={'url': 'https://c.test', 'text': 'Türkiye 2026 faiz oranı yüzde 45 açıklandı.', 'content_type': 'text/plain'}):
-            output = task_workers.run('alice', self._task(), deps)
+            with native_writer_after_consent():
+                output = task_workers.run('alice', self._task(), deps)
         self.assertEqual(output['source_conflict'], 'resolved_conflict')
         report = Path(output['file']).read_text(encoding='utf-8')
         self.assertIn('Kaynak çelişkisi doğrulandı', report)
@@ -172,7 +174,8 @@ class ResearchOutputWiringTests(unittest.TestCase):
                           {'subject': 'faiz oranı', 'value': 45, 'unit': '%'})
         with patch('modules.research_providers.search_public', return_value=[{'url': 'https://c.test', 'title': 'C'}]), \
              patch('modules.research_providers.extract_source', return_value={'url': 'https://c.test', 'text': 'Beklenti yüzde 42.', 'content_type': 'text/plain'}):
-            output = task_workers.run('alice', self._task(), deps)
+            with native_writer_after_consent():
+                output = task_workers.run('alice', self._task(), deps)
         self.assertEqual(output['source_conflict'], 'unresolved_conflict')
         report = Path(output['file']).read_text(encoding='utf-8')
         self.assertIn('Kaynak çelişkisi çözülmedi', report)
@@ -182,7 +185,8 @@ class ResearchOutputWiringTests(unittest.TestCase):
                           {'subject': 'faiz oranı', 'value': 45, 'unit': '%'})
         with patch('modules.research_providers.search_public') as search, \
              patch('modules.research_providers.extract_source') as extract:
-            output = task_workers.run('alice', self._task(), deps)
+            with native_writer_after_consent():
+                output = task_workers.run('alice', self._task(), deps)
         self.assertNotIn('source_conflict', output)
         search.assert_not_called()
         extract.assert_not_called()

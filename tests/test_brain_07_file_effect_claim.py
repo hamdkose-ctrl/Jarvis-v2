@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from modules import file_ops, file_resource_guard, file_worker_extensions
+from writer_consent_fixture import native_writer_after_consent
 
 
 _HOLD = """
@@ -141,7 +142,8 @@ class FileEffectClaimTests(unittest.TestCase):
             with patch.object(nxapi, 'FILES_DIR', root), \
                  patch.object(model_wait, 'ask', return_value='Verified report'), \
                  patch.object(task_workers.uuid, 'uuid4',
-                              return_value=SimpleNamespace(hex='0123456789abcdef')):
+                              return_value=SimpleNamespace(hex='0123456789abcdef')), \
+                 native_writer_after_consent():
                 return task_agents.worker('alice', task, {})
 
         child = self.holder(destination, other_data_dir=True)
@@ -174,7 +176,8 @@ class FileEffectClaimTests(unittest.TestCase):
              patch.object(model_wait, 'ask', return_value='Verified report'), \
              patch.object(task_workers.uuid, 'uuid4',
                           return_value=SimpleNamespace(hex='0123456789abcdef')), \
-             patch.object(task_workers.os, 'fsync', side_effect=OSError('disk full')):
+             patch.object(task_workers.os, 'fsync', side_effect=OSError('disk full')), \
+             native_writer_after_consent():
             with self.assertRaises(OSError):
                 task_agents.worker('alice', task, {})
         self.assertFalse(destination.exists(), 'Failed report must not leave a partial file')
@@ -184,7 +187,8 @@ class FileEffectClaimTests(unittest.TestCase):
         with patch.object(nxapi, 'FILES_DIR', root), \
              patch.object(model_wait, 'ask', return_value='Verified report'), \
              patch.object(task_workers.uuid, 'uuid4',
-                          return_value=SimpleNamespace(hex='0123456789abcdef')):
+                          return_value=SimpleNamespace(hex='0123456789abcdef')), \
+             native_writer_after_consent():
             result = task_agents.worker('alice', task, {})
         self.assertEqual(result['state'], 'done')
         self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
@@ -204,7 +208,8 @@ class FileEffectClaimTests(unittest.TestCase):
             'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
         }}
         with patch.object(nxapi, 'FILES_DIR', root), \
-             patch.object(model_wait, 'ask', return_value='Verified report'):
+             patch.object(model_wait, 'ask', return_value='Verified report'), \
+             native_writer_after_consent():
             with self.assertRaises(PermissionError):
                 task_agents.worker('alice', task, {})
         self.assertEqual(list(outside.iterdir()), [])

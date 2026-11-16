@@ -251,7 +251,7 @@ def execute_offer(profile, offer, *, stop_event=None):
                 or step["input"] != node["input"] or step["depends"] != node["depends_on"]):
             raise canonical_scheduler_lane.DispatchFenceError("Published step changed.")
         effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media', 'browser')
-        if step['tool'] in ('coder', 'publish', 'browser'):
+        if step['tool'] in ('coder', 'publish', 'browser', 'writer'):
             from modules import goal_approval, runtime_prepare_approval
             if 'approval' not in step:
                 # This is a NO-EFFECT prepare checkpoint. No outbox send,
@@ -290,6 +290,9 @@ def execute_offer(profile, offer, *, stop_event=None):
                     )
                 elif step['tool'] == 'coder':
                     proposal['text'] += '\nİstek: '+str(step['input']['request'])[:400]
+                elif step['tool'] == 'writer':
+                    proposal['text'] += ('\nRapor dosyası: '+str(step['input'].get('filename','rapor.md'))[:120]
+                                         +'\nİstek: '+str(step['input']['instruction'])[:400])
                 else:
                     proposal['text'] += '\nSalt-okunur sayfa: '+str(step['input']['url'])[:400]
                 step['_canonical_approval_proposal'] = proposal
@@ -337,7 +340,7 @@ def execute_offer(profile, offer, *, stop_event=None):
         # No persistent runtime_approved flag: it exists only in this
         # Scheduler invocation after checking the consumed approval above.
         worker_step = copy.deepcopy(step)
-        if effect_kind and step['tool'] in ('coder','publish','browser'):
+        if effect_kind and step['tool'] in ('coder','publish','browser','writer'):
             worker_step['runtime_approved'] = True
         # A stop during provider execution fences the Core CAS, even when
         # the external operation already occurred. It must NEVER be retried.
