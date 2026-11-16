@@ -17,7 +17,7 @@ Kaynak tabanlı uygulama ve eski yolların emeklilik defteri: [Uygulama ve emekl
 
 ## 2. Kaynakta mevcut durum ve değişecek karar
 
-`smart_router.py` ModelRequest/ModelSpec/RoutePlan/RouteResult, iki deneme, validator ve cancellation/deadline denetimi içerir. Seçilen model `llm._send_provider` üzerinden tek adapter denemesine gider; yeni Gemini yolunda SDK retry kapalıdır. `router_quota.py` atomik rezervasyon temeli sunar; `POLICIES={}` olduğu için gerçek hesap kota yönetimi etkin değildir.
+`smart_router.py` ModelRequest/ModelSpec/RoutePlan/RouteResult, iki deneme, validator ve cancellation/deadline denetimi içerir. Seçilen model `llm._send_provider` üzerinden tek adapter denemesine gider; yeni Gemini yolunda SDK retry kapalıdır. `router_quota.py` atomik rezervasyon temeli sunar; `POLICIES` 16 Kasım 2026'da resmî Groq Free plan taban RPM/RPD'siyle (30/1000, üç yönlendirilen metin modeli, 23 Kasım 19:00 UTC'ye kadar) dolduruldu; resmî sayısı yayımlanmayan diğer sağlayıcılarda politikasız yol geçerlidir.
 
 Mevcut `provider_privacy.py` Gemini'yi yalnız PUBLIC_RESEARCH için kabul eder; PRIVATE_GENERAL sırası Groq→Cloudflare→Ollama'dır. `brain_model_understanding.py` Ollama'yı ayrıca dışlar. İstenen hedef bu ikisinden farklıdır. Eski kaynak/test/gate'ler açık bir politika göçüyle taşınır; yanlış biçimde Gemini için “veriyi eğitimde kullanmaz” kaydı yazılmaz.
 

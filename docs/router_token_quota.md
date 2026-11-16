@@ -4,8 +4,12 @@
 when explicitly configured, **TPM/TPD conservative token budgets** in one
 SQLite `BEGIN IMMEDIATE` transaction. An enabled policy names an **exact**
 provider/model, a HTTPS evidence source and a recent verified/expiry interval.
-The `POLICIES` registry remains **empty** until the developer verifies
-actual account/project limits. This does not grant free-tier eligibility.
+The `POLICIES` registry carries only rows the developer reviewed against an
+official published limits page with a bounded verification date: currently the
+Groq Free plan base RPM/RPD (30/1000) for the three routed text models, expiring
+23 Nov 2026 19:00 UTC. Providers whose official pages publish no static free-tier
+request ceilings (Gemini, Cloudflare) remain without a policy. Nothing is ever
+guessed and this does not grant free-tier eligibility.
 
 When `tpm/tpd` are configured, the caller must supply a trusted
 `ModelRequest.token_budget` that is at least `max_output_tokens` and
