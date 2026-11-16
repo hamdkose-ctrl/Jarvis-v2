@@ -1,3 +1,9 @@
+# Brain/Core JSON taşıyıcı ayrımı (16 Kasım 2026)
+
+JSON taşıyıcı sınıfı Core tarafında Brain router modülünden değil, `modules/brain_core_wire.py` sözleşmesinden alınır. `brain_entry.EntryResult` eski çağıranlar için aynı sınıfın takma adıdır; `handoff_json` yalnız JSON metni kabul eder ve Core tarafında yeni yerel gözlem kurar. Bu sınıf taşıması diğer legacy `core_brain_adapter` → `brain_entry` yardımcı çağrılarını temizlemiş sayılmaz; ayrı kanıt ve test gerekir.
+
+---
+
 # BRAIN-10 — kanıt ve teslim sınırı (14 Kasım 2026)
 
 Expected worker kind ve owner doğrulaması mevcut completion/dependency/resume kapılarına bağlıdır. Yerel PC sonucu native owner/id/target/goal/verified-history snapshot ve özetiyle gelir; yalnız done metni yeterli değildir. Snapshot geçmiş native kanıtıdır, şu anki masaüstü durumunu yeniden ölçmez. Task journal owner'ı yeni kayıtta yazılır; eski kayıt yalnız doğrulanmış owner dizininden okunurken bağlanır, eski raw-byte CAS fence korunur, read sırasında disk migration yapılmaz. Salt-okunur render veya UI incomplete görünümü lifecycle geçişi, yeni deneme veya onay sağlamaz. Canonical Core-accepted digest/plan/audit bağı ve frozen text yeniden üretimi korunur. `docs/agents/persona.md` ve BRAIN-10 tek PR planı asıldır.
