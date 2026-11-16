@@ -50,9 +50,25 @@ class ValidationTests(unittest.TestCase):
         with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', side_effect=fake_run):
             validation.run_checks()
         self.assertEqual(calls[0], 90)               # Architecture Guard kısa/statik adımdır
-        self.assertGreaterEqual(calls[1], 600)       # Windows runner 180 sn'ye yaklaşıp düşüyordu
+        self.assertGreaterEqual(calls[1], 900)       # Tam Windows test paketi 600 sn'de kesildi
         self.assertEqual(set(calls[2:]), {90})
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': '900'}):
             self.assertEqual(validation.python_timeout(), 900)
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': 'x'}):
-            self.assertEqual(validation.python_timeout(), 600)
+            self.assertEqual(validation.python_timeout(), 900)
+
+    def test_python_timeout_remains_fail_closed_with_partial_output(self):
+        import subprocess
+        reason = subprocess.TimeoutExpired(
+            cmd=['python', '-m', 'unittest', 'discover'],
+            timeout=900,
+            output=b'Finished test_a ... ok\n',
+            stderr=b'Test still active ... ',
+        )
+        with patch.object(validation.shutil, 'which', return_value='node'), \
+             patch.object(validation.subprocess, 'run', side_effect=reason):
+            ok, report = validation.run_checks()
+        self.assertFalse(ok)
+        self.assertIn('Doğrulama tamamlanmadı', report)
+        self.assertIn('Test still active', report)
+

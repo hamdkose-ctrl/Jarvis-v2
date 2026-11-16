@@ -41,7 +41,7 @@ class SurfaceTests(unittest.TestCase):
 
     def test_worker_catalog_lists_every_executable_worker(self):
         from modules import task_tools
-        self.assertEqual(set(agents.WORKER_CATALOG), {'media', 'publish', 'account', 'research', 'finance', 'computer', 'writer', 'browser', 'coder', 'verify'})
+        self.assertEqual(set(agents.WORKER_CATALOG), {'media', 'file', 'publish', 'account', 'research', 'finance', 'computer', 'writer', 'browser', 'coder', 'verify'})
         self.assertTrue(set(task_tools.CATALOG) >= {'media', 'publish', 'account', 'research', 'writer', 'verify'})
 
 

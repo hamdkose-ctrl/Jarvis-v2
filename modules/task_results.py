@@ -159,6 +159,36 @@ def check(kind, output):
             raise ValueError('Servis/hedef kanıtı eksik.')
         if not isinstance(output.get('payload_sha256'),str) or not re.fullmatch('[a-f0-9]{64}',output['payload_sha256']):
             raise ValueError('Gönderim içerik kaydı eksik.')
+    elif kind == 'file':
+        # Read-only extraction must prove the SAME allowed file is still
+        # present with the same bytes before Core can accept WorkerResult.
+        from modules import file_worker
+        evidence = output.get('file_evidence')
+        if (not isinstance(evidence, dict)
+                or evidence.get('reason_code') != 'OK'
+                or not isinstance(evidence.get('path'), str)
+                or not isinstance(evidence.get('identity'), str)
+                or not isinstance(evidence.get('digest'), str)
+                or not re.fullmatch(r'[a-f0-9]{64}', evidence['digest'])
+                or not isinstance(evidence.get('locations'), list)
+                or not isinstance(evidence.get('warnings'), list)
+                or not isinstance(output.get('obligations'), list)):
+            raise ValueError('Dosya okuma kimlik/içerik kanıtı eksik.')
+        source = Path(evidence['path'])
+        if (source.is_symlink() or not source.is_file()
+                or source.suffix.lower() not in file_worker.docs.SUPPORTED
+                or not file_worker._is_within_allowed(source)
+                or str(source.resolve()) != evidence['identity']
+                or file_worker.content_digest(source) != evidence['digest']):
+            raise ValueError('Dosya kaynağı, izin kökü veya digest değişmiş.')
+        if (len(evidence['locations']) > file_worker.MAX_LOCATIONS
+                or any(not isinstance(row, dict)
+                       or set(row) != {'page', 'line', 'sheet', 'cell_or_range'}
+                       or any(value is not None and not isinstance(value, (str, int))
+                              for value in row.values())
+                       for row in evidence['locations'])
+                or any(not isinstance(item, str) for item in evidence['warnings'])):
+            raise ValueError('Dosya okuma konum kanıtı geçersiz.')
     elif kind == 'media':
         from modules import media_tools
         if file_digest(output.get('file',''))!=output.get('sha256'):raise ValueError('Video dosyası değişmiş.')

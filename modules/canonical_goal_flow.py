@@ -22,14 +22,14 @@ from modules import (
     canonical_output_projection, canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
-    goal_state_store, llm, model_wait, requests_state, task_agents, task_tools,
+    goal_state_store, llm, model_wait, requests_state, task_plan_contracts, task_tools,
 )
 
 _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
-_READ_ONLY = frozenset({'research', 'account', 'verify'})
-_EFFECTS = frozenset({'writer', 'coder', 'publish'})
+_READ_ONLY = frozenset({'research', 'account', 'verify', 'file'})
+_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
@@ -44,6 +44,8 @@ def _canonical_plan(tasks, *, allow_effects=False):
         deps = task.get('depends', [])
         if kind not in _READ_ONLY and not (allow_effects and kind in _EFFECTS):
             raise ValueError('Unsupported canonical task capability.')
+        if kind == 'media' and deps:
+            raise ValueError('Canonical media must be an independent first attempt.')
         if kind == 'coder' and deps:
             raise ValueError('Coder requires a standalone approved workspace task.')
         if kind == 'writer' and (not deps or any(
@@ -230,7 +232,7 @@ def _legacy_duplicate_reply():
     )
 
 
-def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None):
+def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None, direct_tasks=None):
     """Admit one request ID to canonical or one-shot legacy fallback.
 
     An unsupported first plan returns None only AFTER a durable single
@@ -239,6 +241,21 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None)
     """
     if legacy_plan_sink is not None and not callable(legacy_plan_sink):
         raise TypeError('Legacy plan sink must be callable.')
+    # Only an explicit developer-validated VIDEO command may avoid the model
+    # planner. It still passes through the SAME RID admission and Core plan,
+    # permission, resource lease, intent, WorkerResult and CAS fences.
+    if direct_tasks is not None:
+        if (legacy_plan_sink is not None or not isinstance(direct_tasks, list)
+                or len(direct_tasks) != 1 or not isinstance(direct_tasks[0], dict)
+                or direct_tasks[0].get('id') != 'video'
+                or direct_tasks[0].get('agent') != 'media'
+                or direct_tasks[0].get('depends', []) != []
+                or not re.match(
+                    r'^(?:video üret\s+|görev akışı video\s*:)',
+                    text if isinstance(text, str) else '',
+                    re.IGNORECASE,
+                )):
+            raise ValueError('Direct canonical admission needs explicit video intent.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
@@ -253,11 +270,11 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None)
     # and is held only for this request's one admission/planning window.
     with _planning_once(root, job_id):
         return _try_create_planned(owner, request_id, text, job_id, root,
-                                   legacy_plan_sink=legacy_plan_sink)
+                                   legacy_plan_sink=legacy_plan_sink, direct_tasks=direct_tasks)
 
 
 def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root,
-                        *, legacy_plan_sink=None):
+                        *, legacy_plan_sink=None, direct_tasks=None):
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
@@ -272,25 +289,31 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     # Same planner used by task_agents for its multi-node task format. No
     # duplicate free-text classifier, model/router, or autonomous capability.
     system = (
-        task_agents._SYSTEM +
-        '\nBu tur canonical arka plan araştırma önerisidir. Yalnız research '
-        've salt-okunur account görevleri öner; doğrulanmış research/account '
+        task_plan_contracts._SYSTEM +
+        '\nBu tur canonical arka plan hedefidir. Research, salt-okunur file '
+        've account görevleri öner; media yalnız açık video isteği ve gerçek kaynak hash kanıtıyla üretilir; doğrulanmış research/account '
         'bağımlı verify ile writer raporunu oluşturabilirsin. Coder yalnız '
         'kilitli geliştirici alanında onayla, publish yalnız kullanıcının açık '
         'gönderim isteği ve kesin hedefi için Core ve Outbox onayıyla çalışır. '
         'Desteklenmeyen etkiyi planlama. '
         'Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme.'
     )
-    token = llm._key_context.set(owner)
+    if direct_tasks is None:
+        token = llm._key_context.set(owner)
+        try:
+            raw = model_wait.ask(text, system=system, max_tokens=2200, seconds=60)
+        finally:
+            llm._key_context.reset(token)
     try:
-        raw = model_wait.ask(text, system=system, max_tokens=2200, seconds=60)
-    finally:
-        llm._key_context.reset(token)
-    try:
-        proposed = task_agents._json(raw)
-        tasks = task_agents.validate(proposed['tasks'])
+        proposed = (task_plan_contracts._json(raw) if direct_tasks is None
+                    else {'tasks': copy.deepcopy(direct_tasks)})
+        tasks = task_plan_contracts.validate(proposed['tasks'])
         plan = _canonical_plan(tasks, allow_effects=True)
     except (KeyError, TypeError, ValueError):
+        if direct_tasks is not None:
+            # Deterministic command failure is NOT a license to run the
+            # same external effect through legacy fallback.
+            raise
         # Unsupported/invalid FIRST planner decision is still a decision
         # for this request ID. Persist its one-shot legacy handoff before
         # returning None so a concurrent/restarted duplicate cannot launch
