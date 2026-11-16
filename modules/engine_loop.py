@@ -415,11 +415,18 @@ def main(runtime, ui=None):
                                                "ya da fotoğrafla ilgili sorunu yaz.")
                                     else:
                                         runtime.emit("state", "thinking")
-                                        out, feedback, _job = core_brain_adapter.handoff(
-                                            runtime, entry, runtime.handle, question,
+                                        from modules import brain_core_wire
+                                        wire = core_brain_adapter.handoff_json(
+                                            runtime, entry.to_handoff_json(), runtime.handle, question,
                                         )
+                                        result = brain_core_wire.decode_result(
+                                            wire, owner=owner, request_id=rid,
+                                        )
+                                        out, feedback = result["output"], result["feedback"]
                             fb = feedback or brain_entry.photo_feedback(entry, awaiting_question=awaiting_question)
-                            runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
+                            fb_status = fb["result_status"] if isinstance(fb, dict) else fb.result_status
+                            fb_reason = fb.get("reason_code") if isinstance(fb, dict) else fb.reason_code
+                            runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb_status, fb_reason or "-")
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
                             from modules import failure_policy
@@ -529,13 +536,23 @@ def main(runtime, ui=None):
                             elif explicit_read is not None:
                                 out, brain_feedback, brain_job_id = explicit_read, None, None
                             else:
-                                out, brain_feedback, brain_job_id = _turn_with_listening_foreground(
+                                from modules import brain_core_wire
+                                wire_result = _turn_with_listening_foreground(
                                     voice_session,
-                                    lambda: core_brain_adapter.handoff(runtime, entry, runtime.handle, cmd),
+                                    lambda: core_brain_adapter.handoff_json(
+                                        runtime, entry.to_handoff_json(), runtime.handle, cmd,
+                                    ),
+                                )
+                                decoded = brain_core_wire.decode_result(
+                                    wire_result, owner=owner, request_id=runtime._cur_rid,
+                                )
+                                out, brain_feedback, brain_job_id = (
+                                    decoded["output"], decoded["feedback"], decoded["job_id"],
                                 )
                                 runtime.log.info(
                                     "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
-                                    runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
+                                    runtime._cur_rid, entry.stage, brain_job_id or "-",
+                                    brain_feedback["result_status"],
                                 )
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
                                 continue

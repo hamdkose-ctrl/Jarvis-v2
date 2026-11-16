@@ -166,8 +166,14 @@ def _news_turn(runtime, text, *, router_store, create_goal=False):
                                         source='acceptance', model_understanding=True)
             if adapter.call_count != int(create_goal):
                 raise ValueError('Haber kabulünde beklenmeyen anlamlandırma çağrı sayısı.')
-        reply, _feedback, _job_id = core_brain_adapter.handoff(runtime, entry, runtime.handle, text)
-        return reply
+        from modules import brain_core_wire
+        serialized = core_brain_adapter.handoff_json(
+            runtime, entry.to_handoff_json(), runtime.handle, text,
+        )
+        result = brain_core_wire.decode_result(
+            serialized, owner=owner, request_id=rid,
+        )
+        return result["output"]
 
 
 def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):

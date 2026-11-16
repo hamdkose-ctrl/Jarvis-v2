@@ -923,7 +923,8 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
             answers.append(str(reply or ''))
             executed.append(act)
             runtime.requests_state.check()
-            if getattr(feedback, 'result_status', 'handled') != 'handled':
+            status = feedback.get('result_status', 'handled') if isinstance(feedback, dict) else getattr(feedback, 'result_status', 'handled')
+            if status != 'handled':
                 return '\n'.join(x for x in answers if x) + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
             if runtime.profile.slug != owner:
                 return '\n'.join(x for x in answers if x) + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'

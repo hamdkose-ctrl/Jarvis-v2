@@ -23,7 +23,8 @@ def _run_steps(runtime, steps: list[str]) -> str:
             if getattr(reply, 'ok', None) is False:
                 out.append('(Bu adım doğrulanamadı; ona bağlı kalan adımları çalıştırmadım.)')
                 break
-            if getattr(feedback, 'result_status', 'handled') != 'handled':
+            status = feedback.get('result_status', 'handled') if isinstance(feedback, dict) else getattr(feedback, 'result_status', 'handled')
+            if status != 'handled':
                 out.append('(Bu adım yanıt veya onay bekliyor; kalan adımları yanıtından sonra tekrar söyle.)')
                 break
             if runtime.flags.get('closing') or runtime.stop_event.is_set():

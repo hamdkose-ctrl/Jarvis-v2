@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 import time
 from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
@@ -38,8 +37,11 @@ from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_
 from modules.brain_reference import resolve_references
 from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
+from modules import core_brain_adapter as _core_scope
 
-_CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
+# Brain owns no request-state storage; legacy readers see Core-owned JSON.
+_CURRENT = _core_scope._CURRENT
+_LAST_FEEDBACK = _core_scope._LAST_FEEDBACK
 _RESERVED = frozenset({
     "allowed", "permission", "permission_granted", "approved", "authorized",
     "completed", "done", "effect_allowed", "execute",
@@ -87,6 +89,15 @@ class EntryResult:
         if _RESERVED.intersection(result):
             raise ValueError("Brain entry authority alanı taşıyamaz.")
         return result
+
+    def to_handoff_json(self) -> str:
+        """Serialize the complete observation before the Brain/Core boundary.
+
+        Unlike to_dict (a small display projection), this is the only
+        complete, versioned input for the Core wire adapter.
+        """
+        from modules.brain_core_wire import encode_entry
+        return encode_entry(self)
 
 
 def _required(name: str, value: str) -> str:
@@ -537,6 +548,21 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic, state_references=state_refs)
 
 
+def prepare_json(runtime: Any, *, owner: str, request_id: str, text: str,
+                 source: str, model_understanding: bool = True) -> str:
+    """Only JSON leaves this nested Brain entry; never skip its primary model.
+
+    The caller cannot silently disable the semantic decision. The fixed True
+    here is also audited by the production prepare-site AST regression.
+    """
+    if model_understanding is not True:
+        raise ValueError("Nested canonical Brain understanding zorunlu.")
+    return prepare(
+        runtime, owner=owner, request_id=request_id, text=text, source=source,
+        model_understanding=True,
+    ).to_handoff_json()
+
+
 def core_proposal(entry: EntryResult) -> dict[str, object]:
     """Return metadata for Core validation; never return an execution decision."""
     if not isinstance(entry, EntryResult):
@@ -632,27 +658,40 @@ def photo_feedback(entry: EntryResult, *, awaiting_question: bool = False,
     return row
 
 
-_LAST_FEEDBACK: ContextVar["BrainFeedback | None"] = ContextVar("jarvis_brain_feedback", default=None)
-
-
 def last_feedback() -> BrainFeedback | None:
-    """BrainFeedback of the most recent handoff in this request context (also set when Core raised)."""
+    """Return a detached feedback projection from the legacy JSON snapshot."""
     return _LAST_FEEDBACK.get()
 
 
 @contextmanager
 def bind(entry: EntryResult):
+    """Legacy Core handler scope stores only JSON, not Brain DTO references.
+
+    It is not an input to handoff_json: Core decodes the explicit JSON payload
+    first, and only then offers a detached snapshot to internal legacy gates.
+    Nested Core batch children are allowed only in this private request scope.
+    """
     if not isinstance(entry, EntryResult):
         raise ValueError("entry EntryResult olmalı.")
-    token = _CURRENT.set(entry)
+    from modules.brain_core_wire import encode_entry
+    token = _CURRENT.set(encode_entry(entry, _core_internal=True))
     try:
         yield entry
     finally:
         _CURRENT.reset(token)
 
 
-def current() -> EntryResult | None:
+def current_json() -> str | None:
+    """Only an inert JSON snapshot may be read from the legacy Core scope."""
     return _CURRENT.get()
+
+
+def current() -> EntryResult | None:
+    message = current_json()
+    if message is None:
+        return None
+    from modules.brain_core_wire import decode_entry
+    return decode_entry(message, _core_internal=True)
 
 
 def execution_metadata(owner: str) -> dict[str, object] | None:

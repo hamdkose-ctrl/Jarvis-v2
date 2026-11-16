@@ -112,14 +112,22 @@ class ModularEngineTests(unittest.TestCase):
         # availability. A free-language turn now requires the primary model;
         # mock that external decision seam so the fixture cannot hang in an
         # unavailable provider while never reaching the handler.
-        def handoff(_runtime, _entry, handler, command):
-            return handler(command), SimpleNamespace(result_status='handled'), None
+        import json
+        def handoff_json(_runtime, serialized_entry, handler, command):
+            json.loads(serialized_entry)  # a JSON message, never EntryResult
+            return json.dumps({'output': handler(command)})
+        def decode_result(serialized_result, *, owner, request_id):
+            return {'output': json.loads(serialized_result)['output'],
+                    'feedback': {'result_status': 'handled'}, 'job_id': None}
+        entry = SimpleNamespace(stage='semantic',
+                                to_handoff_json=lambda: json.dumps({'owner': 'test'}))
         with patch('modules.engine_voice.VoiceSession',return_value=voice), \
              patch('instance.take_over',return_value=False), \
              patch('updater.pop_notice',return_value=None), \
              patch('modules.perf.start'), patch('release_guard.ready'), \
-             patch('modules.brain_entry.prepare',return_value=SimpleNamespace(stage='semantic')), \
-             patch('modules.core_brain_adapter.handoff',side_effect=handoff), \
+             patch('modules.brain_entry.prepare',return_value=entry), \
+             patch('modules.core_brain_adapter.handoff_json',side_effect=handoff_json), \
+             patch('modules.brain_core_wire.decode_result',side_effect=decode_result), \
              patch('modules.brain_echo.present'), \
              patch.object(context._llm,'take_route',return_value=None):
             context.main(ui=Mock())

@@ -4,7 +4,33 @@ Brain entry observes and proposes. This adapter applies existing Core/domain
 protocols; it never reclassifies free text or introduces another state store.
 """
 from __future__ import annotations
+from contextvars import ContextVar
 from typing import Any, Mapping, TYPE_CHECKING
+
+from modules.brain_contracts import BrainFeedback
+
+# Core owns request-local legacy compatibility. The scopes only contain
+# detached JSON text, never live Brain EntryResult or feedback objects.
+_CURRENT: ContextVar[str | None] = ContextVar("jarvis_core_entry_json", default=None)
+
+
+class _CoreJsonFeedbackScope:
+    def __init__(self):
+        self._value: ContextVar[str | None] = ContextVar("jarvis_core_feedback_json", default=None)
+
+    def set(self, row: BrainFeedback | None):
+        from modules.brain_core_wire import encode_feedback
+        return self._value.set(encode_feedback(row))
+
+    def get(self) -> BrainFeedback | None:
+        from modules.brain_core_wire import decode_feedback
+        return decode_feedback(self._value.get())
+
+    def reset(self, token):
+        self._value.reset(token)
+
+
+_LAST_FEEDBACK = _CoreJsonFeedbackScope()
 
 if TYPE_CHECKING:
     from modules.brain_entry import EntryResult
@@ -287,7 +313,42 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
     return "\n".join(lines), row, _correlated_job_id(entry)
 
 
+def handoff_json(runtime: Any, payload: str, handler: Any, command: str) -> str:
+    """The ONLY public Brain -> Core production boundary: JSON text both ways.
+
+    Decode constructs an independent Core-local snapshot. Never use a Brain
+    EntryResult object, shared Brain current(), or a model-permission flag as
+    transport. Existing Core/domain decisions remain the effect authority.
+    """
+    from modules import brain_core_wire, requests_state
+    entry = brain_core_wire.decode_entry(payload)
+    if command != entry.text:
+        raise ValueError("Brain/Core JSON komut metni uyuşmuyor.")
+    if _runtime_profile_owner(runtime) != entry.owner:
+        raise ValueError("Brain/Core JSON owner eşleşmiyor.")
+    rid = getattr(runtime, "_cur_rid", None)
+    if rid and rid != entry.request_id:
+        raise ValueError("Brain/Core JSON etkin RID uyuşmuyor.")
+    active = requests_state._current.get()
+    if active is not None and active != (entry.owner, entry.request_id):
+        raise ValueError("Brain/Core JSON etkin istek bağlamı uyuşmuyor.")
+    output, feedback_row, job_id = handoff(runtime, entry, handler, command)
+    return brain_core_wire.encode_result(
+        output, feedback_row, job_id,
+        owner=entry.owner, request_id=entry.request_id,
+    )
+
+
+def _runtime_profile_owner(runtime: Any) -> str:
+    return str(getattr(getattr(runtime, "profile", None), "slug", "") or "").strip()
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
+    """Core-local execution helper for an ALREADY decoded entry and old fixtures.
+
+    Production callers must use handoff_json. This helper owns all legacy
+    handler compatibility and cannot be used as a Brain wire contract.
+    """
     from modules import persona
     with persona.request_scope(runtime,entry,command):
         return _handoff(runtime,entry,handler,command)
@@ -569,11 +630,13 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
     borrows the outer utterance's UnderstandingResult — `prepare` + `handoff` decide it once, and
     the raw step text never re-enters the legacy interpretation chain.
 
-    Returns (raw Core/legacy output, BrainFeedback)."""
-    from modules.brain_entry import current, _runtime_owner, prepare
-    outer = current()
-    if outer is None:
+    Returns only UI text and a plain decoded JSON feedback map."""
+    from modules import brain_core_wire
+    from modules.brain_entry import current_json, _runtime_owner, prepare_json
+    outer_payload = current_json()
+    if outer_payload is None:
         raise ValueError("Adım yalnız bağlı bir canonical isteğin içinde çalıştırılabilir.")
+    outer = brain_core_wire.decode_entry(outer_payload, _core_internal=True)
     owner = _runtime_owner(runtime)
     if owner != outer.owner:
         raise ValueError("Adım owner'ı bağlı istekle eşleşmiyor.")
@@ -586,10 +649,16 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
     if step == outer.text.strip():
         raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
     source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
-    entry = prepare(
+    payload = prepare_json(
         runtime, owner=owner, request_id=request_id, text=step, source=source,
         model_understanding=True,
     )
-    return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
+    response = brain_core_wire.decode_result(
+        handoff_json(
+            runtime, payload, getattr(runtime, "handle", None), step,
+        ),
+        owner=owner, request_id=request_id,
+    )
+    return response["output"], response["feedback"]
 
 
