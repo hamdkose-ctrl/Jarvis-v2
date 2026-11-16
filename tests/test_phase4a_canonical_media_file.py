@@ -320,6 +320,10 @@ class Phase4AMediaFileTests(unittest.TestCase):
             canonical_goal_flow.try_create(self.owner,'rid','video',direct_tasks=[
                 {'id':'bad','agent':'file','input':{'path':'x','operation':'extract_obligations'}},
             ])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.try_create(self.owner,'rid','Summarize my emails',
+                direct_tasks=[{'id':'video','agent':'media','input':{
+                    'scenes':[{'caption':'Scene','duration':3}]}}])
         for agent, data in (
             ('media', {'scenes':[{'caption':'Scene','duration':3}]}),
             ('file', {'path':'x.txt','operation':'extract_obligations'}),

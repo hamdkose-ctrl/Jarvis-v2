@@ -249,8 +249,13 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None,
                 or len(direct_tasks) != 1 or not isinstance(direct_tasks[0], dict)
                 or direct_tasks[0].get('id') != 'video'
                 or direct_tasks[0].get('agent') != 'media'
-                or direct_tasks[0].get('depends', []) != []):
-            raise ValueError('Direct canonical admission supports one explicit video only.')
+                or direct_tasks[0].get('depends', []) != []
+                or not re.match(
+                    r'^(?:video üret\s+|görev akışı video\s*:)',
+                    text if isinstance(text, str) else '',
+                    re.IGNORECASE,
+                )):
+            raise ValueError('Direct canonical admission needs explicit video intent.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
