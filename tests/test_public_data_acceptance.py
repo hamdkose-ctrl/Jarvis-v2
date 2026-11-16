@@ -33,7 +33,7 @@ class PublicDataAcceptanceTests(unittest.TestCase):
         self.assertEqual(states['public_news_report'],'pending');self.assertFalse(list(self.root.rglob('*.md')))
 
     def test_failed_search_never_reads_or_writes_an_article(self):
-        with patch.object(domain_tools,'exchange',return_value={'data':{'date':'2026-10-16'}}),patch.object(public_data,'news_search',side_effect=ValueError('429')),patch.object(acceptance.task_agents,'worker') as worker:
+        with patch.object(domain_tools,'exchange',return_value={'data':{'date':'2026-10-16'}}),patch.object(public_data,'news_search',side_effect=ValueError('429')),patch.object(acceptance.task_worker_adapter,'worker') as worker:
             checks=acceptance.run('alice')
         worker.assert_not_called();self.assertEqual(checks[-1]['state'],'pending')
 

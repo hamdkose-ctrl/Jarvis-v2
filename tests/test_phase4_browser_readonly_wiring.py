@@ -10,7 +10,10 @@ class Phase4BrowserReadonlyWiringTests(unittest.TestCase):
         page = {'url': 'https://example.test/guide', 'title': 'Guide', 'text': 'Public guide', 'controls': []}
         with patch('modules.browser_agent.run', side_effect=[
                 {'state': 'done', 'page': page},
-                {'state': 'done', 'page': page},
+                {'state': 'done', 'page': page, 'steps': [
+                    {'op': 'goto', 'url': page['url'], 'verified': True},
+                    {'op': 'read', 'url': page['url'], 'verified': True},
+                ]},
         ]) as run, patch('modules.browser_readonly.assert_readonly_action') as contract, \
              patch.object(task_workers.llm, 'ask', return_value=json.dumps({'actions': [{'op': 'read'}]})):
             result = task_workers.browser_task('alice', {
