@@ -33,7 +33,7 @@ class _CoreJsonFeedbackScope:
 _LAST_FEEDBACK = _CoreJsonFeedbackScope()
 
 if TYPE_CHECKING:
-    from modules.brain_entry import EntryResult
+    from modules.brain_core_wire import EntryResult
 
 def _photo_lifecycle(runtime: Any, entry: EntryResult) -> None:
     """Düşme kuralının tek sahibi: fotoğrafa bağlı olmayan, kararı verilmiş turn pending'ı kapatır.
