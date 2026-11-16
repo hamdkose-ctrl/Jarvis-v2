@@ -700,11 +700,12 @@ def _resume_news_recovery(runtime,job,started_steps):
     return news_policy.resume_recovery(runtime,job,started_steps,_save)
 
 
-def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None):
+def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None,approved_this_turn=False):
     token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
     try:
         return _loop_steps(runtime,job,answer,resume=resume,
-                           initial_legacy_call=initial_legacy_call)
+                           initial_legacy_call=initial_legacy_call,
+                           approved_this_turn=approved_this_turn)
     except _TurnBudget as exc:
         # A consent checkpoint is a durable UI handoff, not a planner timeout.
         if job.get('state') == 'approval':
@@ -716,7 +717,7 @@ def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None):
         _TURN_DEADLINE.reset(token)
 
 
-def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
+def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,approved_this_turn=False):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -772,7 +773,9 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
                 goal.update(state='pending',evidence=[])
                 job.setdefault('feedback',[]).append(decision['reason']);_save(job)
     if _finish_completed(job):return render(job)
-    if answer is None:
+    # A just-consumed Core approval resumes the selected planned step. Running
+    # model-free recovery first could append a second Writer to the same goal.
+    if answer is None and not approved_this_turn:
         from modules import research_evidence,model_free_news
         news_only=not re.search(r'mail|e-posta|eposta|takvim|hatırlat|hatirlat|gönder|gonder|paylaş|paylas',job['request'],re.I)
         discovery_only=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',job['request'],re.I) and
@@ -1082,6 +1085,7 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                 step['started']=False;job['state']='paused';job.pop('blocker',None)
                 job.setdefault('feedback',[]).append('Önceki coder adımı başlamadan kilit nedeniyle reddedildi. Kayıtlı hedefleri koru; rapor için writer, video için media ile sürdür.')
                 _save(job)
+        approved_this_turn=False
         if resume or approve:
             if not job:return 'Sürdürülecek kayıtlı hedef yok.'
             if job['state']=='done':
@@ -1101,6 +1105,20 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                     job['state']='review';job['blocker']=str(exc);_save(job);return render(job)
                 output=_record(runtime,job,step,approval=job['outputs'][step['id']])
                 if output['state']!='done':return render(job)
+                approved_this_turn=True
+                if step.get('recovery') and step['tool']=='writer':
+                    # This was the exact report authorized by the user. Complete
+                    # its deterministic verify using the SAME output, never
+                    # create a second Writer and never ask the model again.
+                    from modules import news_recovery
+                    news_recovery.deliver(runtime,job,existing_only=True,max_new_steps=2)
+                    if _finish_completed(job):return render(job)
+                    job['state']='paused'
+                    job['blocker']=('Onaylı kısmi haber raporu doğrulandı; eksik kapsam açık tutuldu.'
+                                    if job.get('partial_report')==step['id'] else
+                                    'Onaylı Writer sonucu henüz haber kanıtı ve verify ile tamamlanamadı.')
+                    _save(job)
+                    return render(job)
             if job['state']=='review':return render(job)
         else:
             if job and job['state'] in {'running','approval','review'} and is_open(job):
@@ -1116,7 +1134,8 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                 and request.casefold().strip(' .!?') not in RESUME_COMMANDS
                 else None)
         try:return _loop(runtime,job,answer=answer,
-                         resume=resume,initial_legacy_call=initial_legacy_call)
+                         resume=resume,initial_legacy_call=initial_legacy_call,
+                         approved_this_turn=approved_this_turn)
         except requests_state.Cancelled:
             # The original cancellation might be a durable terminal decision
             # made by another process. Do not attempt a stale journal write:
