@@ -23,3 +23,21 @@ def run_with_explicit_writer_approval(runtime, request, **kwargs):
             expected_control=goal_executor.control_key(job),
         )
     return result
+
+
+from contextlib import contextmanager
+from unittest.mock import patch
+
+
+@contextmanager
+def native_writer_after_consent():
+    """Test ONLY the post-consent rendering/model/file behavior.
+
+    The production native Writer must still validate owner/job/step and the
+    consumed Core certificate. Authorization is proven independently by
+    the end-to-end and forged-consent regression tests. This scope is not
+    imported by production code and must never be used in authorization tests.
+    """
+    with patch('modules.runtime_prepare_approval.require_writer_execution',
+               return_value=True):
+        yield
