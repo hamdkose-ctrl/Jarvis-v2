@@ -61,6 +61,14 @@ class NewsChatWriterTests(unittest.TestCase):
 
     def test_explicit_file_request_still_writes_and_verifies_file(self):
         case,job,reply,work=self.run_case(file=True)
+        # Asking for a file is not a substitute for the later explicit
+        # owner/job/step-bound consent needed before creating that file.
+        self.assertEqual(job['state'],'approval',reply)
+        self.assertFalse(any(o.get('file') for o in job['outputs'].values()))
+        reply=goals.run(case.runtime,'hedef onayla',resume=True,approve=True,
+                        expected_job_id=job['id'],
+                        expected_control=goals.control_key(job))
+        job=goals.latest('alice')
         self.assertEqual(job['state'],'done',reply)
         outputs=[o for o in job['outputs'].values() if o.get('file')]
         self.assertEqual(len(outputs),1);self.assertTrue(Path(outputs[0]['file']).is_file())
