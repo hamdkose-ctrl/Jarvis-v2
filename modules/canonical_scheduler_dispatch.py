@@ -250,8 +250,8 @@ def execute_offer(profile, offer, *, stop_event=None):
         if (step["tool"] != selected.capability_id.removeprefix("task.")
                 or step["input"] != node["input"] or step["depends"] != node["depends_on"]):
             raise canonical_scheduler_lane.DispatchFenceError("Published step changed.")
-        effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media')
-        if step['tool'] in ('coder', 'publish'):
+        effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media', 'browser')
+        if step['tool'] in ('coder', 'publish', 'browser'):
             from modules import goal_approval, runtime_prepare_approval
             if 'approval' not in step:
                 # This is a NO-EFFECT prepare checkpoint. No outbox send,
@@ -288,8 +288,10 @@ def execute_offer(profile, offer, *, stop_event=None):
                         +'\nİçerik SHA-256: '+digest
                         +'\nHesap bağlantı sürümü SHA-256: '+connection
                     )
-                else:
+                elif step['tool'] == 'coder':
                     proposal['text'] += '\nİstek: '+str(step['input']['request'])[:400]
+                else:
+                    proposal['text'] += '\nSalt-okunur sayfa: '+str(step['input']['url'])[:400]
                 step['_canonical_approval_proposal'] = proposal
                 step['approval'] = goal_approval.prepare(job, step, proposal)
                 step['state'] = 'approval'
@@ -335,7 +337,7 @@ def execute_offer(profile, offer, *, stop_event=None):
         # No persistent runtime_approved flag: it exists only in this
         # Scheduler invocation after checking the consumed approval above.
         worker_step = copy.deepcopy(step)
-        if effect_kind and step['tool'] in ('coder','publish'):
+        if effect_kind and step['tool'] in ('coder','publish','browser'):
             worker_step['runtime_approved'] = True
         # A stop during provider execution fences the Core CAS, even when
         # the external operation already occurred. It must NEVER be retried.

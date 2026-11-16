@@ -28,8 +28,8 @@ from modules import (
 _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
-_READ_ONLY = frozenset({'research', 'account', 'verify', 'file'})
-_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media'})
+_READ_ONLY = frozenset({'research', 'account', 'verify', 'file', 'finance', 'computer'})
+_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media', 'browser'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
@@ -46,6 +46,8 @@ def _canonical_plan(tasks, *, allow_effects=False):
             raise ValueError('Unsupported canonical task capability.')
         if kind == 'media' and deps:
             raise ValueError('Canonical media must be an independent first attempt.')
+        if kind == 'browser' and (deps or task['input'].get('mode') != 'readonly'):
+            raise ValueError('Canonical browser requires explicit read-only mode.')
         if kind == 'coder' and deps:
             raise ValueError('Coder requires a standalone approved workspace task.')
         if kind == 'writer' and (not deps or any(
