@@ -1,9 +1,10 @@
 """Official exact-model context cards are time-bound, not API-native or free-tier claims."""
+import time
 import unittest
 from modules import model_capabilities as caps
 
-REVIEWED=1794225600
-EXPIRES=1794830400
+REVIEWED=1794855600
+EXPIRES=1795460400
 
 class OfficialModelCardsTests(unittest.TestCase):
     def test_exact_groq_context_and_output_cards(self):
@@ -37,6 +38,16 @@ class OfficialModelCardsTests(unittest.TestCase):
                 self.assertEqual(caps.check(provider,model,min_context_tokens=128,
                                  now=REVIEWED+120)['reason_code'],
                                  'MODEL_CAPABILITY_EVIDENCE_MISSING')
+
+    def test_no_catalog_card_silently_expires_under_real_clock(self):
+        # An expired card silently stops supplying evidence at runtime; this keeps
+        # the renewal promise loud in CI instead of a quiet capability regression.
+        now = time.time()
+        for (provider, model), row in caps.CATALOG.items():
+            with self.subTest(provider=provider, model=model):
+                self.assertLessEqual(row['verified_at'], now, 'gelecekte doğrulanmış kart')
+                self.assertGreater(row['expires_at'], now, 'süresi dolmuş kart: resmî karttan yenile')
+                self.assertIsNotNone(caps.evidence(provider, model, now=now))
 
 if __name__ == '__main__':
     unittest.main()
