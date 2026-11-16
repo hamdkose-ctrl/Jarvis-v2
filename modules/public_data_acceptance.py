@@ -13,7 +13,13 @@ def run(owner):
         service_store.identity(owner);requests_state.check()
         try:return fn()
         except requests_state.Cancelled:raise
-        except PermissionError:raise
+        except PermissionError:
+            if name != 'public_news_report':
+                raise  # Privacy/owner denials in read-only probes stay fatal.
+            # This diagnostic has no user interaction or Core consent record.
+            # It must not mint Writer authority merely to produce a report.
+            add(name, 'pending', 'Writer file creation needs separate explicit Core approval; verified article evidence is preserved.')
+            return None
         except Exception as exc:
             _record_failure('modules/public_data_acceptance.py:attempt')
             add(name,'pending','Live operation unavailable: '+type(exc).__name__)
