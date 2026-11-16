@@ -9,6 +9,30 @@ VERSION = 1
 STATES = {'done', 'failed', 'blocked', 'approval', 'unavailable'}
 
 
+def browser_readonly_receipt(output):
+    """A local read-only observation receipt, never a remote effect approval.
+
+    Only the exact native goto/read steps and observed page are included;
+    this cannot be used to authorize click/fill/send or replay an effect.
+    """
+    import json
+    if not isinstance(output, dict) or output.get('readonly') is not True:
+        raise ValueError('Only completed readonly browser observations have local receipts.')
+    if (not isinstance(output.get('page'), dict)
+            or not isinstance(output.get('steps'), list)
+            or not output['steps']):
+        raise ValueError('Readonly browser page/step evidence missing.')
+    payload = json.dumps(
+        {'steps': output['steps'], 'page': output['page']},
+        ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+        allow_nan=False,
+    ).encode('utf-8')
+    if len(payload) > 1024 * 1024:
+        raise ValueError('Readonly browser evidence too large.')
+    return {'service': 'browser_readonly_observation',
+            'remote_id': hashlib.sha256(payload).hexdigest()}
+
+
 def file_digest(path):
     path = Path(path)
     if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
@@ -78,6 +102,44 @@ def check(kind, output):
         if 'receipt' in output and output['receipt'] != {
                 'service': 'coder_draft', 'remote_id': output['test_log_sha256']}:
             raise ValueError('Kod taslağı receipt kimliği test günlüğüyle eşleşmiyor.')
+    elif kind == 'finance':
+        import json
+        from modules import finance_readonly
+        allowed = {'normalize_ohlcv','compare_equities','portfolio_summary','dcf',
+                   'comparable_companies','lbo','trade_plan_draft',
+                   'trade_plan_risk_checklist','trade_plan_risk_decision'}
+        if (output.get('operation') not in allowed
+                or output.get('disclaimer') != finance_readonly.NOT_INVESTMENT_ADVICE
+                or output.get('text') !=
+                   'Finans salt-okunur analizi tamamlandı. ' + finance_readonly.NOT_INVESTMENT_ADVICE):
+            raise ValueError('FinanceWorker readonly operation or disclaimer invalid.')
+        try:
+            encoded = json.dumps(output['analysis'], allow_nan=False, sort_keys=True)
+            if len(encoded) > 500_000:
+                raise ValueError('FinanceWorker result exceeds evidence bound.')
+        except (KeyError, TypeError, OverflowError) as exc:
+            raise ValueError('FinanceWorker result is not JSON evidence.') from exc
+    elif kind == 'computer':
+        from modules import computer_worker_contract
+        observation = output.get('observation')
+        receipt = output.get('receipt')
+        if not isinstance(observation, dict) or not isinstance(receipt, dict):
+            raise ValueError('ComputerWorker receipt/observation missing.')
+        capability = receipt.get('capability')
+        if not isinstance(capability, dict):
+            raise ValueError('ComputerWorker capability missing.')
+        granted = computer_worker_contract.capability(
+            capability.get('app'), capability.get('operation'),
+        )
+        elements = observation.get('elements')
+        if (not isinstance(observation.get('window'), dict)
+                or not isinstance(elements, list)
+                or computer_worker_contract.measure_uia(elements) !=
+                    {key: observation.get(key) for key in ('state','elements','count')}
+                or receipt != computer_worker_contract.receipt(
+                    receipt.get('job_id'), granted, 'observed', evidence=observation,
+                )):
+            raise ValueError('ComputerWorker UIA readback receipt mismatch.')
     elif kind == 'browser':
         steps = output.get('steps')
         if not isinstance(steps, list) or not steps or any(
@@ -89,9 +151,16 @@ def check(kind, output):
             raise ValueError('Tarayıcı sayfa kaydı eksik.')
         from modules.browser_agent import _url
         _url(page.get('url', ''))
-        digest = file_digest(output.get('image', ''))
-        if output.get('image_sha256') != digest:
-            raise ValueError('Tarayıcı ekran dosyası değişmiş veya kanıt özeti eksik.')
+        if output.get('readonly') is True:
+            if (output.get('image') or output.get('image_sha256')
+                    or any(step.get('op') not in ('goto','read') for step in steps)):
+                raise ValueError('Read-only browser evidence contains an effect.')
+            if output.get('receipt') != browser_readonly_receipt(output):
+                raise ValueError('Read-only browser observation receipt mismatch.')
+        else:
+            digest = file_digest(output.get('image', ''))
+            if output.get('image_sha256') != digest:
+                raise ValueError('Tarayıcı ekran dosyası değişmiş veya kanıt özeti eksik.')
     elif kind == 'verify':
         checks = output.get('checks')
         if not isinstance(checks, dict) or not checks or any(v is not True for v in checks.values()):
@@ -203,7 +272,7 @@ def seal(kind, output):
         raise ValueError('Araç geçerli bir görev sonucu döndürmedi.')
     output = dict(output)
     if output['state'] == 'done':
-        if kind == 'browser':
+        if kind == 'browser' and output.get('readonly') is not True:
             output['image_sha256'] = file_digest(output.get('image', ''))
         output = outcome_contracts.attach(kind, output)
         check(kind, output)
