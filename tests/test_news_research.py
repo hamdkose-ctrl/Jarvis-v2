@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 from modules import research_evidence as evidence, task_agents, task_results, nxapi, llm
+from writer_consent_fixture import native_writer_after_consent
 
 
 class NewsTests(unittest.TestCase):
@@ -132,7 +133,8 @@ class NewsTests(unittest.TestCase):
         source=self.research()
         self.assertNotIn('1999',source['text']);self.assertNotIn('uçan araba',source['text'])
         with patch('modules.model_wait.ask',side_effect=AssertionError('Writer must not call a model')):
-            result=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Tarihli haber raporu yaz','filename':'rapor.md'},'execution':{'request':'Son gelişmeleri araştır ve rapor dosyası oluştur'}},{'s1':source})
+            with native_writer_after_consent():
+                result=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Tarihli haber raporu yaz','filename':'rapor.md'},'execution':{'request':'Son gelişmeleri araştır ve rapor dosyası oluştur'}},{'s1':source})
         text=Path(result['file']).read_text(encoding='utf-8')
         self.assertIn('Yayın tarihi: '+self.day,text);self.assertIn('<'+self.url+'>',text)
         self.assertIn(self.quote,text);self.assertNotIn('[[https',text);self.assertNotIn('1999',text)
