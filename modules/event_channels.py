@@ -100,11 +100,18 @@ def deliver(runtime, owner: str, event: dict, *, title: str = 'Jarvis') -> dict 
         # provider or plays audio, so a hung speaker can never stall the scheduler.
         runtime.events.put(("say", text, owner, speech_identity(event)))
 
+    def ui(_event):
+        # A swallowed window-callback error is not a delivery: the engine
+        # returns False only when the UI sink really failed, and the fan-out
+        # records that channel as failed instead of receipting "delivered".
+        if runtime._emit_for(profile, 'assistant', text) is False:
+            raise RuntimeError('Arayüz geri çağırması olayı işleyemedi.')
+
     chosen = channels(prefs)
     if announce_speech() and 'voice' not in chosen:
         chosen.append('voice')
     sinks = {
-        'ui': lambda _event: runtime._emit_for(profile, 'assistant', text),
+        'ui': ui,
         'ntfy': ntfy,
         'log': lambda _event: runtime.log.info('Olay %s/%s: %s', event['source'], event['kind'], owner),
         'voice': voice,

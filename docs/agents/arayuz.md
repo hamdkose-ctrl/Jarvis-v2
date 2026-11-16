@@ -134,3 +134,10 @@ Gemini konuşma/seçilmiş içerik izinleri ayrı ve geri alınabilir; eğitim k
 İstek izleri owner/request/attempt ve policy/model/ana-yedek/ret/gerçek usage/reservation ayrımını gösterir; bilinmeyen null/ölçülmedi olur. Async save/test/model listesi cevapları ve değişiklikleri beklenen owner ile çitlidir; owner değişince önceki form/mesaj/model listesi gösterilmez. Bridge argüman sözleşmeleri ve gerçek HTTP/Chromium akışı ayrı doğrulanır. Kaynak/göç: `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
 
 Hazır Cloudflare kartı owner Account ID/token kaydını mevcut image_gen key sahibine bağlar; kayıt/silme API veya model çağırmaz. Özel API için ayrıca açık **tek sentetik görüntü denemesi** vardır: beklenen kod yalnız görüntü piksellerindedir; doğru okuma endpoint/protokol/model/secret/revision taşıyıcısına süreli vision gözlemi bağlar. Bu, genel görüntü doğruluğu veya Brain rol kabulü değildir; metin bağlantı testi/checkbox vision açmaz, bağlantı değişimi gözlemi geçersizleştirir.
+
+## Teslim makbuzu — 17 Kasım 2026 (PR-5)
+
+- `engine_background._emit_for` pencere geri çağırmasını yutar ama artık iz bırakır: callback gerçekten fırlattıysa `_record_failure` yazılır ve fonksiyon `False` döner; her normal yol `True`. Yalnız ön-plan kullanıcısında UI koluna bakılır; yazılı olay kuyruğu (event_log/history) UI hatasından bağımsızdır.
+- `event_channels.deliver` UI sink'i `is False` sonucunda `RuntimeError` yükseltir; `event_fanout` bunu `ui: failed:RuntimeError` olarak makbuza yazar. `None` dönen eski test klempleri "delivered" sayılmaya devam eder (davranış değişikliği yalnız gerçek hata yolundadır). Hiçbir sahip-kanalı teslim edilmezse deliver hata eder; çağıran kaydı teslim-edilmedi olarak tutar.
+- `canonical_goal_flow._accepted_user_channel` yalnız `ui`/`ntfy` kanallarının tam `"delivered"` değerini kabul eder; `log`/`voice` tek başına makbuz değildir. Bu kabul insan tarafından okundu garantisi değildir — eski sözleşmeyle aynı: sink'in kabulü, end-to-end exactly-once değil.
+- Kanıt: `tests/test_delivery_receipt_honesty.py` (16 test, pencere/telefon/model çağırmaz). Gerçek arayüz gecesi canlı kabul olarak ayrıdır.

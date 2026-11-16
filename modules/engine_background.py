@@ -55,7 +55,12 @@ def _emit_for(runtime, owner, kind, text, source="", rid=None):
             else:
                 runtime._ui(kind, text, source)
         except Exception:
+            # The run must survive a broken window callback, but the caller now
+            # has a distinguishable no-receipt: False means the UI sink saw a
+            # real failure and a delivery receipt must not claim "delivered".
             runtime._record_failure('main.py:_emit_for')
+            return False
+    return True
 
 REMINDER_SPEECH_TTL_SECONDS = 120.0
 
