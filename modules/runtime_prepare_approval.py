@@ -84,7 +84,12 @@ def require_writer_execution(owner: str, task: dict) -> bool:
             or not isinstance(identity.get('job_id'), str)
             or not isinstance(identity.get('task_id'), str)):
         raise PermissionError('Writer açık kullanıcı onayı olmadan dosya oluşturamaz.')
-    job = goal_executor.read_job(owner, identity['job_id'])
+    try:
+        job = goal_executor.read_job(owner, identity['job_id'])
+    except (ValueError, OSError) as exc:
+        # An invented/malformed ID is always a denied authorization, not an
+        # unhandled exception that escapes the Writer's native boundary.
+        raise PermissionError('Writer onayı geçerli kayıtlı hedefe ait değil.') from exc
     if (not isinstance(job, dict) or job.get('owner') != owner
             or job.get('id') != identity['job_id']
             or job.get('state') not in ('running', 'approval')):
