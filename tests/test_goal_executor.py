@@ -763,6 +763,11 @@ class GoalTests(unittest.TestCase):
                 self.run_with_writer_consent('Rapor dosyası oluştur');ident=goals.latest('alice')['id']
                 self.responses(self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Yerel rapor',self.done('s1'))
                 result=goals.handle(self.runtime,command);job=goals.latest('alice')
+                if job['state']=='approval':
+                    result=goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                                     expected_job_id=job['id'],
+                                     expected_control=goals.control_key(job))
+                    job=goals.latest('alice')
                 self.assertEqual(job['id'],ident);self.assertEqual(job['state'],'done',result)
                 self.assertEqual(job.get('answers',[]),[])
 
