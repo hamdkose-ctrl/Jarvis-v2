@@ -65,7 +65,24 @@ class TTSEngineFaultTests(unittest.TestCase):
         self.assertEqual(runtime.emit.call_args.args[0],'system')
         self.assertFalse(runtime.stop_event.is_set())
 
-    def test_healthy_voice_preserves_foreground_and_identity(self):
+    def test_tts_status_probe_failure_does_not_crash_engine_or_open_mic(self):
+        runtime=SimpleNamespace(
+            flags={'speak': True, 'mic': True}, stop_event=threading.Event(),
+            emit=Mock(), _record_failure=Mock())
+        session=SimpleNamespace(
+            speak_enabled=True, speech_blocks_mic=Mock(side_effect=OSError('device gone')))
+        with patch('modules.voice_runtime.block_legacy_on_fault') as block, \
+             patch('modules.voice_runtime.interrupt_active') as stop:
+            self.assertFalse(engine_loop._prepare_manual_listen(runtime, session))
+            block.assert_called_once()
+            stop.assert_called_once()
+        self.assertFalse(runtime.flags['speak'])
+        self.assertTrue(runtime.flags['mic'])
+        self.assertFalse(session.speak_enabled)
+        self.assertFalse(runtime.stop_event.is_set())
+        runtime.emit.assert_called_with('system', unittest.mock.ANY)
+
+        def test_healthy_voice_preserves_foreground_and_identity(self):
         runtime=SimpleNamespace(flags={'speak': True},emit=Mock(),_record_failure=Mock())
         session=SimpleNamespace(speak_enabled=True,speak=Mock())
         self.assertTrue(engine_loop._speak_isolated(runtime,session,'hello',

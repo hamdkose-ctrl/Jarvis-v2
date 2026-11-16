@@ -60,15 +60,28 @@ def _emit_idle_if_silent(runtime, voice_session):
 
 
 def _prepare_manual_listen(runtime, voice_session):
-    """Fail closed on unverified speaker stop; do not start microphone capture."""
-    if not _speech_blocks_mic(voice_session):
-        return True
-    from modules import voice_runtime
-    if voice_runtime.handoff_to_listen():
-        return True
+    """Keep the engine alive, but fail closed if physical speech stop is unknown."""
+    try:
+        if not _speech_blocks_mic(voice_session):
+            return True
+        from modules import voice_runtime
+        if voice_runtime.handoff_to_listen():
+            return True
+    except Exception:
+        # This status probe runs outside the queued microphone capture's
+        # exception handler. A broken TTS driver must not escape the engine loop.
+        runtime._record_failure("modules/engine_loop.py:tts_mic_handoff")
+        runtime.flags["speak"] = False
+        voice_session.speak_enabled = False
+        try:
+            from modules import voice_runtime
+            voice_runtime.block_legacy_on_fault()
+            voice_runtime.interrupt_active()
+        except Exception:
+            runtime._record_failure("modules/engine_loop.py:tts_mic_stop")
     runtime.emit("system",
                  "Jarvis sesi henüz doğrulanmış biçimde durmadı; "
-                 "mikrofon açılmadı.")
+                 "mikrofon açılmadı. Yazılı yanıtlar devam ediyor.")
     return False
 
 
