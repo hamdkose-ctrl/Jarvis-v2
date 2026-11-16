@@ -20,7 +20,7 @@ from modules import (
     canonical_goal_control, canonical_goal_flow, canonical_restart_audit,
     canonical_scheduler_dispatch, goal_executor, goal_state_store,
     llm, model_wait, nxapi, outbox, publish_services, resource_leases,
-    scheduler_resource_gate, service_store, task_agents, task_results,
+    scheduler_resource_gate, service_store, task_agents, task_results, task_worker_adapter,
     untrusted_flow,
 )
 
@@ -146,7 +146,7 @@ class CanonicalEffectfulSchedulerTests(unittest.TestCase):
             'receipt':{'service':'coder_draft','remote_id':log_hash},
         })
         with patch('modules.developer.status',return_value={'enabled':True,'unlocked':True}),\
-             patch.object(task_agents,'worker',return_value=sealed) as native:
+             patch.object(task_worker_adapter,'worker',return_value=sealed) as native:
             self.assertTrue(canonical_scheduler_dispatch.execute_offer(
                 SimpleNamespace(slug=self.owner),self.offer(ident),
             ))

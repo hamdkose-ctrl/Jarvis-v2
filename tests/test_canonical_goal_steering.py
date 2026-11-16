@@ -14,7 +14,7 @@ from test_brain_primary_understanding import action, envelope
 from modules import (
     brain_entry, canonical_goal_control, canonical_plan_evidence, canonical_plan_revision,
     canonical_planning_queue, canonical_scheduler_dispatch, execution_record, goal_executor,
-    goal_job_control, goal_state, goal_state_store, model_wait, task_agents, task_queue, task_results, untrusted_flow,
+    goal_job_control, goal_state, goal_state_store, model_wait, task_agents, task_queue, task_results, task_worker_adapter, untrusted_flow,
 )
 
 
@@ -79,7 +79,7 @@ class CanonicalSteeringTests(unittest.TestCase):
         def result(owner, task, deps):
             return task_results.seal('research', {'state': 'done', 'text': 'Verified source',
                 'source': 'https://example.test/article', 'source_chars': 200})
-        with patch.object(task_agents, 'worker', worker or result), \
+        with patch.object(task_worker_adapter, 'worker', worker or result), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             return canonical_scheduler_dispatch.execute_offer(self.profile, offers[0])
 
@@ -165,7 +165,7 @@ class CanonicalSteeringTests(unittest.TestCase):
              patch.object(task_queue, '_OWNER_TICKS', {}), \
              patch.object(task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()), \
              patch.object(task_queue, 'tick', return_value=None), \
-             patch.object(task_agents, 'worker', worker), \
+             patch.object(task_worker_adapter, 'worker', worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None), \
              patch.object(model_wait, 'ask', side_effect=model):
             try:
@@ -434,7 +434,7 @@ class CanonicalSteeringTests(unittest.TestCase):
         self.assertEqual(state['goal_plan']['plan_version'], 2)
         self.assertIn('_pending_plan_projection', record)
         with patch.object(model_wait, 'ask', side_effect=AssertionError('model replay')), \
-             patch.object(task_agents, 'worker', side_effect=AssertionError('worker replay')):
+             patch.object(task_worker_adapter, 'worker', side_effect=AssertionError('worker replay')):
             self.assertFalse(canonical_scheduler_dispatch.discover(self.owner))
         state, record = self.c.persisted(ident)
         self.assertEqual(record['state'], 'running')
@@ -479,7 +479,7 @@ class CanonicalSteeringTests(unittest.TestCase):
              patch.object(task_queue, '_CANONICAL_WORKERS', {}), \
              patch.object(task_queue, '_OWNER_TICKS', {}), \
              patch.object(task_queue, 'tick', return_value=None), \
-             patch.object(task_agents, 'worker', worker), \
+             patch.object(task_worker_adapter, 'worker', worker), \
              patch.object(untrusted_flow, 'observe', lambda *_: None):
             try:
                 task_queue.start(stop, allowed_owners=lambda: [self.owner],
