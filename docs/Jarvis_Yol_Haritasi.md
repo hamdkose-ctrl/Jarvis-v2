@@ -1104,3 +1104,7 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 ### 2026-11-16 — Profil verisi güvenliği (PR #651)
 
 - Ayrıştırılamayan profil JSON'u artık varsayılanlarla sessizce ezilmez: `personalization` orijinal baytları `<slug>.bozuk-<zaman>.json` karantina kopyasına alır ve dosya adını profil anahtarında kalıcılaştırır; `rename_user` bozuk kaynağı da karantinaya sokar. `learning.clear_buffer` sohbet silme/yenileme akışında tamponu boşaltır ve `learning_status`'u gerçek beklemeden yeniden hesaplar; boş tamponda disk yazması yoktur. Kanıt: `tests/test_profile_data_safety.py` (20 test) ve `test_delete_conversation.py` güncellemesi; gerçek PC'de bozuk profil gecesi ayrı canlı kabul olarak bekliyor.
+
+### 2026-11-16 — Groq kapasite kartı yenilemesi (PR #652)
+
+- `openai/gpt-oss-120b`/`openai/gpt-oss-20b` context/output kayıtları resmî model kartlarından yeniden doğrulandı (131.072 / 65.536; sayılar değişmedi) ve geçerlilik penceresi 23 Kasım 2026 19:00 UTC'ye taşındı. Native JSON schema/tool calling iddiası eklenmedi (taşıma şeması yok). Yeni CI bekçi testi, süresi dolan kartın üretimde sessiz kanıtsız kalmasını artık CI'da gürültülü hataya çevirir; gerçek PC/live model kabulü ayrıca doğrulanır.
