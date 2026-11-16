@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any, Mapping
 
 from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest, typo
@@ -34,6 +34,7 @@ from modules.brain_contracts import (
     neutral_observation,
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
+from modules.brain_core_wire import EntryResult
 from modules.brain_reference import resolve_references
 from modules.brain_understanding import apply_model_understanding, understand
 from modules.diagnostics import record_failure as _record_failure
@@ -42,62 +43,7 @@ from modules import core_brain_adapter as _core_scope
 # Brain owns no request-state storage; legacy readers see Core-owned JSON.
 _CURRENT = _core_scope._CURRENT
 _LAST_FEEDBACK = _core_scope._LAST_FEEDBACK
-_RESERVED = frozenset({
-    "allowed", "permission", "permission_granted", "approved", "authorized",
-    "completed", "done", "effect_allowed", "execute",
-})
 _FAST_ENGINE_PROTOCOLS = frozenset({"fast.engine.close", "fast.engine.sleep", "fast.engine.wake"})
-
-
-@dataclass(frozen=True)
-class EntryResult:
-    owner: str
-    request_id: str
-    source: str
-    text: str
-    active_context: ActiveContext
-    state_gate: GateObservation
-    fast_gate: GateObservation | None = None
-    candidates: tuple[ContextReference, ...] = ()
-    references: tuple[ContextReference, ...] = ()
-    understanding: Any = None
-    batch_child: bool = False
-    state_references: tuple[ContextReference, ...] = ()
-
-    @property
-    def stage(self) -> str:
-        if self.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
-            return "clarify"
-        if self.state_gate.matched:
-            return "state"
-        if self.fast_gate is not None and self.fast_gate.matched:
-            return "fast"
-        return "understanding"
-
-    def to_dict(self) -> dict[str, object]:
-        result: dict[str, object] = {
-            "owner": self.owner,
-            "request_id": self.request_id,
-            "source": self.source,
-            "text": self.text,
-            "stage": self.stage,
-            "state_gate": self.state_gate.to_dict(),
-            "fast_gate": self.fast_gate.to_dict() if self.fast_gate is not None else None,
-        }
-        if self.understanding is not None:
-            result["understanding"] = self.understanding.to_dict()
-        if _RESERVED.intersection(result):
-            raise ValueError("Brain entry authority alanı taşıyamaz.")
-        return result
-
-    def to_handoff_json(self) -> str:
-        """Serialize the complete observation before the Brain/Core boundary.
-
-        Unlike to_dict (a small display projection), this is the only
-        complete, versioned input for the Core wire adapter.
-        """
-        from modules.brain_core_wire import encode_entry
-        return encode_entry(self)
 
 
 def _required(name: str, value: str) -> str:
