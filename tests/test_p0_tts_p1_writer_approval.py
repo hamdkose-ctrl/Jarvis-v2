@@ -1,0 +1,82 @@
+"""P0 audio isolation and P1 direct Writer consent regression."""
+import threading
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+from modules import engine_loop, runtime_prepare_approval, task_workers
+
+
+class TTSEngineFaultTests(unittest.TestCase):
+    def test_oserror_and_runtimeerror_muted_without_stopping_background(self):
+        for error in (OSError('missing speaker'), RuntimeError('tts exploded')):
+            with self.subTest(error=type(error).__name__):
+                events = []
+                stop = threading.Event()
+                runtime = SimpleNamespace(
+                    flags={'speak': True, 'mic': True}, stop_event=stop,
+                    emit=lambda *args: events.append(args),
+                    _record_failure=Mock(),
+                )
+                voice = SimpleNamespace(speak=Mock(side_effect=error), speak_enabled=True)
+                with patch('modules.voice_runtime.block_legacy_on_fault') as block, \
+                     patch('modules.voice_runtime.interrupt_active') as interrupt:
+                    self.assertFalse(engine_loop._speak_isolated(runtime, voice, 'hello', shown=True))
+                    block.assert_called_once_with()
+                    interrupt.assert_called_once_with()
+                self.assertFalse(runtime.flags['speak'])
+                self.assertTrue(runtime.flags['mic'])
+                self.assertFalse(voice.speak_enabled)
+                self.assertFalse(stop.is_set())
+                self.assertTrue(any(kind == 'system' for kind, *_ in events))
+                self.assertFalse(engine_loop._speak_isolated(runtime, voice, 'again'))
+                voice.speak.assert_called_once()
+
+    def test_voice_stop_failure_does_not_escape_or_claim_silence(self):
+        runtime = SimpleNamespace(
+            flags={'speak': True}, stop_event=threading.Event(),
+            emit=Mock(), _record_failure=Mock())
+        session = SimpleNamespace(speak_enabled=True, speak=Mock(side_effect=OSError('broken')),
+                                  speech_blocks_mic=Mock(side_effect=OSError('busy sensor')))
+        with patch('modules.voice_runtime.block_legacy_on_fault'), \
+             patch('modules.voice_runtime.interrupt_active',side_effect=RuntimeError('no receipt')):
+            self.assertFalse(engine_loop._speak_isolated(runtime,session,'test'))
+        engine_loop._emit_idle_if_silent(runtime,session)
+        runtime.emit.assert_called_once()
+        self.assertEqual(runtime.emit.call_args.args[0],'system')
+        self.assertFalse(runtime.stop_event.is_set())
+
+    def test_healthy_voice_preserves_foreground_and_identity(self):
+        runtime=SimpleNamespace(flags={'speak': True},emit=Mock(),_record_failure=Mock())
+        session=SimpleNamespace(speak_enabled=True,speak=Mock())
+        self.assertTrue(engine_loop._speak_isolated(runtime,session,'hello',
+                                                   shown=True,identity={'goal_id':'one'}))
+        session.speak.assert_called_once_with('hello',shown=True,identity={'goal_id':'one'})
+        self.assertTrue(runtime.flags['speak'])
+
+
+class WriterDirectWriteFenceTests(unittest.TestCase):
+    def test_native_writer_has_no_unapproved_model_or_filesystem_access(self):
+        with patch('modules.model_wait.ask',side_effect=AssertionError('No model')) as model:
+            with self.assertRaisesRegex(PermissionError,'onay'):
+                task_workers.run('alice',{'id':'write','agent':'writer','input':{
+                    'instruction':'Make report','filename':'report.md'}, 'execution':{
+                        'owner':'alice','job_id':'job123','task_id':'write',
+                    }}, {})
+            model.assert_not_called()
+
+    def test_prepare_approval_is_bound_to_owner_job_step_and_input(self):
+        identity={'owner':'alice','job_id':'my-job','task_id':'report'}
+        data={'instruction':'Write summary','filename':'summary.md'}
+        proposal=runtime_prepare_approval.prepare(identity,'writer',data)
+        self.assertEqual(proposal['state'],'approval')
+        self.assertTrue(runtime_prepare_approval.accept(proposal,identity,'writer',data))
+        with self.assertRaises(PermissionError):
+            runtime_prepare_approval.accept(proposal,dict(identity,owner='bob'),'writer',data)
+        with self.assertRaises(PermissionError):
+            runtime_prepare_approval.accept(proposal,identity,'writer',
+                                            dict(data,instruction='Write different bytes'))
+
+
+if __name__=='__main__':
+    unittest.main()
