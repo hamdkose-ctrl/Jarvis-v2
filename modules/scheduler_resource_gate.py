@@ -140,8 +140,16 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
         # cannot accidentally overlap the SAME account through owner aliases.
         return (provider_resource_key(service),)
 
-    # Stateless research/finance and other read-only kinds are deliberately not
-    # mapped to fake global resources. They remain outside this lease gate.
+    if capability_id == "task.finance":
+        # User-provided JSON only. The deterministic command key is never
+        # a guessed provider identity or authorization for a trade.
+        from modules import task_tools
+        task_tools.validate_input("finance", params)
+        encoded = json.dumps(params, sort_keys=True, ensure_ascii=False,
+                             separators=(",", ":"), allow_nan=False).encode("utf-8")
+        digest = hashlib.sha256(owner.encode("utf-8") + b"\x00" + encoded).hexdigest()
+        return (resource_leases.resource_key("command", digest),)
+
     raise ReadOnlyAdmissionError("No scheduler resource mapping for this capability.")
 
 
@@ -251,7 +259,7 @@ def account_read_worker(leases: resource_leases.LeaseTable,
     this context exits; it is joined before releasing any resources.
     """
     if (not isinstance(identity, dict) or not isinstance(expected, dict)
-            or expected.get('capability_id') not in ('task.account', 'task.file')
+            or expected.get('capability_id') not in ('task.account', 'task.file', 'task.finance', 'task.computer')
             or type(expected.get('plan_version')) is not int
             or expected.get('owner') != identity.get('owner')
             or expected.get('job_id') != identity.get('job_id')
@@ -636,7 +644,7 @@ def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive physical conflict identities from validated plan and manifest."""
     from modules import capability_manifest, goal_executor, task_tools
     kind = node['capability_id'].removeprefix('task.')
-    if kind not in ('writer', 'coder', 'publish', 'media'):
+    if kind not in ('writer', 'coder', 'publish', 'media', 'browser'):
         raise ReadOnlyAdmissionError('Unknown effect Scheduler capability.')
     spec = capability_manifest.from_task_tool(kind)
     if spec['id'] != node['capability_id'] or spec['effect_policy'] == 'read_only':
@@ -644,6 +652,10 @@ def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
     data = task_tools.validate_input(kind, node['input'])
     if kind == 'publish':
         return (provider_resource_key(data['service']),)
+    if kind == 'browser':
+        # A browser session is scoped to one owner, not user/model selectors.
+        digest = hashlib.sha256((kind + '\0' + owner).encode('utf-8')).hexdigest()[:63]
+        return (resource_leases.resource_key('browser_session', digest),)
     if kind == 'media':
         from modules import nxapi
         # One physical output directory per owner; the native worker separately
@@ -673,7 +685,7 @@ def effect_worker(leases: resource_leases.LeaseTable, identity: dict,
         raise ReadOnlyAdmissionError('Effect worker identity mismatch.')
     state = runtime_worker_result.canonical_snapshot(identity)
     node = goal_plan_gate.revalidate(state, selected)
-    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish', 'task.media'):
+    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'):
         raise ReadOnlyAdmissionError('Not an approved effect capability.')
     if node['depends_on']:
         goal_plan_gate.validate_dependent_effect_attempt(state, selected, attempt=1)

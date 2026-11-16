@@ -162,13 +162,13 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     # State setters enter the durable effect/receipt path only when they have
     # exact OS readback. Media keys remain outside until they do.
     durable_system=(step['tool']=='system' and step['input'].get('operation') in {'volume','mute','brightness'})
-    gated={'media','file','publish','account','research','writer','browser','coder','verify','desktop'}
+    gated={'media','file','finance','computer','publish','account','research','writer','browser','coder','verify','desktop'}
     if durable_system:
         gated.add('system')
     prepare_bound={'coder','desktop','system'}
-    if (step['tool']=='publish' and isinstance(identity,dict)
+    if (step['tool'] in ('publish','browser') and isinstance(identity,dict)
             and identity.get('_canonical_scheduler_offer') is not None):
-        prepare_bound.add('publish')
+        prepare_bound.add(step['tool'])
     plan=None;expected=None
     worker_approval=approval
     if step['tool'] in gated:
@@ -206,7 +206,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
                 from modules import effect_recovery_runtime
                 if (effect_recovery_runtime.required(step['tool'])
-                        or (step['tool'] in ('writer', 'media') and 'plan_version' in expected)):
+                        or (step['tool'] in ('writer', 'media', 'browser') and 'plan_version' in expected)):
                     # Planned writer reports also need write-ahead identity:
                     # a crash after atomic file creation cannot authorize
                     # another automatically generated report.
@@ -294,7 +294,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             return commit_checked(account_output)
 
     if (expected is not None and 'plan_version' in expected
-            and step['tool'] == 'file'):
+            and step['tool'] in ('file', 'finance', 'computer')):
         # The same canonical read-only lease covers extraction, domain proof
         # and Core WorkerResult CAS; it is never an unleased direct file read.
         from modules import goal_executor, scheduler_resource_gate, worker_result_hook
@@ -331,6 +331,10 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=worker_approval)
     else:
         output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+    if (expected is not None and 'plan_version' in expected
+            and step['tool'] == 'browser' and isinstance(output, dict)
+            and output.get('state') == 'done' and output.get('readonly') is not True):
+        raise PermissionError('Canonical browser readonly result required; effect-capable output rejected.')
     if plan and plan['phase']=='prepare':
         from modules import runtime_execution_gate
         if step['tool']=='browser' and isinstance(output,dict) and output.get('state')=='done':

@@ -159,7 +159,7 @@ def approve_effect(owner: str, job_id: str, *, expected_control: str) -> str:
         if len(steps)!=1 or steps[0].get('state')!='approval':
             raise PermissionError('Bu hedefin bekleyen tekil efekt onayı yok.')
         step=steps[0]
-        if (step.get('tool') not in ('coder','publish')
+        if (step.get('tool') not in ('coder','publish','browser')
                 or step.get('started') is not False
                 or step.get('attempts')!=0
                 or step['id'] in record.get('outputs', {})):
