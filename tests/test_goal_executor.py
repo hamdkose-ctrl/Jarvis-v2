@@ -796,6 +796,8 @@ class GoalTests(unittest.TestCase):
             output=job['outputs'][job['partial_report']]
             self.assertTrue(goal_tools.verify(output,'alice'));text=Path(output['file']).read_text(encoding='utf-8')
             self.assertIn('Yapay zekâ',text);self.assertIn(day,text);self.assertIn('<'+article+'>',text)
+            self.assertEqual(sum(s['tool']=='writer' and s.get('recovery',False) for s in job['steps']),1,
+                             'One consented report must not be emitted twice on resume')
             self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
             previous_steps=len(job['steps']);previous_calls=len(calls)
             self.ask.side_effect=RuntimeError('Still no model')
@@ -855,6 +857,8 @@ class GoalTests(unittest.TestCase):
             self.assertIn(day,text);self.assertNotIn('2099',text);self.assertNotIn('foreign.org',text)
             self.assertEqual(self.ask.call_count,3);self.assertEqual(job['state'],'paused')
             self.assertFalse(any(s['input'].get('operation')=='news_search' for s in job['steps']))
+            self.assertEqual(sum(s['tool']=='writer' and s.get('recovery',False) for s in job['steps']),1,
+                             'One consented report must not be emitted twice on resume')
             self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
             self.assertTrue(all(url.startswith('https://example.org/') for url in calls))
 
