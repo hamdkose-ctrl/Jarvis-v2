@@ -27,24 +27,8 @@ class GoalTests(unittest.TestCase):
     def finish(self):return {'action':'finish'}
 
     def run_with_writer_consent(self, request, **kwargs):
-        """Explicitly model the user's bound approval action in post-consent
-        GoalExecutor tests; never loosen production permissions or auto-approve.
-        Tests for pending/no-write live in the Canonical Writer suite.
-        """
-        result = goals.run(self.runtime, request, **kwargs)
-        for _ in range(6):
-            job = goals.latest(self.profile.slug)
-            waiting = next((step for step in job.get('steps', ())
-                            if step.get('id') == job.get('waiting')
-                            and step.get('state') == 'approval'
-                            and step.get('tool') == 'writer'), None) if job else None
-            if waiting is None:
-                break
-            # This is the test actor's explicit, exact-job user approval.
-            result = goals.run(self.runtime, 'hedef onayla', resume=True,
-                               approve=True, expected_job_id=job['id'],
-                               expected_control=goals.control_key(job))
-        return result
+        from writer_consent_fixture import run_with_explicit_writer_approval
+        return run_with_explicit_writer_approval(self.runtime, request, **kwargs)
 
     def test_older_open_legacy_and_canonical_goals_survive_recent_closed_files(self):
         # An old open goal can be hidden by many newer completed journals.
