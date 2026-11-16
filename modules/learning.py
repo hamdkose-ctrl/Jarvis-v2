@@ -585,6 +585,20 @@ def observe(profile, text):
     _pool.submit(worker)
     return added
 
+def clear_buffer(profile) -> None:
+    """'yeni sohbet' / geçmiş temizliği: ham mesaj tamponu bir daha çıkarıma gitmez.
+
+    Onay bekleyen adaylara ve kalıcı bilgilere dokunmaz; tampon kısa süreli
+    ara veridir ve kullanıcının silme isteğiyle sıfırlanır.
+    """
+    with _observe_lock, _PROFILE_LOCK:
+        if profile.data.pop('learning_buffer', None) is None and 'learning_status' not in profile.data:
+            return
+        profile.data['learning_status'] = {'state': 'pending' if pending(profile) else 'collecting',
+                                           'pending': len(pending(profile))}
+        profile.save()
+
+
 def knowledge_prompt(profile, query='', limit=6500):
     def tokens(s): return {w[:5] for w in re.findall(r'\w+', _low(s)) if len(w)>3} - {'bunun','şunun','hangi','hakkın','yardım','lütfen','söyle','nasıl'}
     qs=tokens(query)
