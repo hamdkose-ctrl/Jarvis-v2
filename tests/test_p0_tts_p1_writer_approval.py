@@ -82,7 +82,7 @@ class TTSEngineFaultTests(unittest.TestCase):
         self.assertFalse(runtime.stop_event.is_set())
         runtime.emit.assert_called_with('system', unittest.mock.ANY)
 
-        def test_healthy_voice_preserves_foreground_and_identity(self):
+    def test_healthy_voice_preserves_foreground_and_identity(self):
         runtime=SimpleNamespace(flags={'speak': True},emit=Mock(),_record_failure=Mock())
         session=SimpleNamespace(speak_enabled=True,speak=Mock())
         self.assertTrue(engine_loop._speak_isolated(runtime,session,'hello',
