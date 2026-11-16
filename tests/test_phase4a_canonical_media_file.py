@@ -276,9 +276,9 @@ class Phase4AMediaFileTests(unittest.TestCase):
         data={'scenes':[{'caption':'First scene','duration':3}]}
         command='görev akışı video: '+json.dumps(data)
         rid='exact-video-request'
-        with patch.object(requests_state._current,'get',
-                          return_value=(self.owner,rid)), \
-             patch.object(task_queue,'scheduler_active',return_value=True), \
+        token = requests_state._current.set((self.owner, rid))
+        self.addCleanup(requests_state._current.reset, token)
+        with patch.object(task_queue,'scheduler_active',return_value=True), \
              patch.object(media_tools,'prepare',return_value=data), \
              patch.object(canonical_goal_flow,'try_create',
                           return_value=('aabbccddeeff0011','Admitted')) as admitted, \
@@ -294,9 +294,9 @@ class Phase4AMediaFileTests(unittest.TestCase):
     def test_direct_video_prefix_does_not_start_old_job(self):
         data={'scenes':[{'caption':'First scene','duration':3}]}
         command='video üret '+json.dumps(data)
-        with patch.object(requests_state._current,'get',
-                          return_value=(self.owner,'video-rid')), \
-             patch.object(task_queue,'scheduler_active',return_value=True), \
+        token = requests_state._current.set((self.owner, 'video-rid'))
+        self.addCleanup(requests_state._current.reset, token)
+        with patch.object(task_queue,'scheduler_active',return_value=True), \
              patch.object(media_tools,'prepare',return_value=data), \
              patch.object(canonical_goal_flow,'try_create',
                           return_value=('aabbccddeeff0011','Admitted')) as admitted, \
@@ -308,8 +308,9 @@ class Phase4AMediaFileTests(unittest.TestCase):
     def test_no_request_rid_or_scheduler_means_no_legacy_video_fallback(self):
         data={'scenes':[{'caption':'First scene','duration':3}]}
         command='video üret '+json.dumps(data)
-        with patch.object(requests_state._current,'get',return_value=None), \
-             patch.object(media_tools,'prepare',return_value=data), \
+        token = requests_state._current.set(None)
+        self.addCleanup(requests_state._current.reset, token)
+        with patch.object(media_tools,'prepare',return_value=data), \
              patch.object(task_agents,'execute') as legacy:
             with self.assertRaises(PermissionError):
                 task_agents.handle(self.owner,command)
