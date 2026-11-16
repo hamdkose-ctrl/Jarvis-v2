@@ -84,6 +84,12 @@ class RecoveryVariations(unittest.TestCase):
              patch('modules.research_providers.search_public',return_value=[]), \
              patch('modules.privacy.blocked',return_value=None):
             reply=goals.run(case.runtime,REQUEST)
+            pending=goals.latest('alice')
+            if pending['state']=='approval':
+                # Real Core consent, bound to the actual pending writer step.
+                reply=goals.run(case.runtime,'hedef onayla',resume=True,approve=True,
+                                expected_job_id=pending['id'],
+                                expected_control=goals.control_key(pending))
         return case,goals.latest('alice'),fetched,reply
 
     def test_recovery_only_resume_scans_remaining_catalog_and_then_releases_planner(self):
