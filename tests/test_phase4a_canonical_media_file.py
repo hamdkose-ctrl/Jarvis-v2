@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from test_canonical_effectful_scheduler import CanonicalEffectfulSchedulerTests as _Harness
+from modules import task_agents, worker_result_hook, worker_result_commit
 from modules import (
     canonical_goal_flow, canonical_scheduler_dispatch, effect_recovery_runtime,
     file_worker, goal_executor, media_tools, model_wait, task_results,
@@ -192,6 +193,76 @@ class Phase4AMediaFileTests(unittest.TestCase):
             native.assert_called_once()
             self.assertEqual(canonical_scheduler_dispatch.discover(self.owner),())
 
+
+
+    def _assert_byte_identical_worker_result(self, task, request, *,
+                                             render=None, file_root=None):
+        """Run the exact same native domain operation once through legacy
+        task_agents.worker and once through the real canonical Scheduler.
+        Legacy sealed output predates WorkerResult; bind BOTH outputs to the
+        canonical execution identity and compare their complete v2 envelopes.
+        """
+        job_id = self.create(task, request)
+        legacy_task = {
+            'id': task['id'], 'agent': task['agent'],
+            'input': task['input'],
+            'execution': {'owner':self.owner, 'job_id':job_id,
+                          'task_id':task['id'], 'request':request},
+        }
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            if file_root:
+                stack.enter_context(patch.object(file_worker, 'allowed_roots',
+                                                 return_value=[self.root]))
+            if render is not None:
+                stack.enter_context(patch.object(task_workers, 'run', return_value=render))
+                stack.enter_context(patch.object(media_tools, 'probe',
+                                                 return_value=render['media']))
+            legacy = task_agents.worker(self.owner, legacy_task, {})
+            with patch.object(worker_result_hook, 'wrap_output',
+                              wraps=worker_result_hook.wrap_output) as wrapped:
+                self.assertTrue(self.run_offer(job_id))
+            self.assertEqual(wrapped.call_count, 1)
+            canonical_input, identity = wrapped.call_args.args
+            self.assertEqual(canonical_input, legacy)
+            state, record = self.snapshots(job_id)
+            self.assertEqual(record['outputs'][task['id']], legacy)
+            legacy_result = worker_result_hook.wrap_output(legacy, identity)
+            actual_result = wrapped.return_value
+            self.assertEqual(legacy_result['_worker_result'],
+                             actual_result['_worker_result'])
+            self.assertEqual(worker_result_commit._evidence(
+                legacy_result['_worker_result']), state['evidence'][0])
+            self.assertEqual(state['evidence'][0]['command_id'],
+                             task['id']+':1:p1')
+            self.assertEqual(len(state['evidence']),1)
+            self.assertEqual(record['steps'][0]['attempts'],1)
+
+    def test_legacy_file_and_scheduler_have_byte_identical_worker_result(self):
+        source = self.root/'equivalent.txt'
+        source.write_text('The contract must be filed by 2027-12-01.',
+                          encoding='utf-8')
+        self._assert_byte_identical_worker_result({
+            'id':'read','agent':'file','depends':[],
+            'input':{'path':str(source),'operation':'extract_obligations'},
+        }, 'Extract obligations from this local file.', file_root=True)
+
+    def test_legacy_media_and_scheduler_have_byte_identical_worker_result(self):
+        source = self.root/'files'/'source.png'
+        source.parent.mkdir(parents=True,exist_ok=True)
+        source.write_bytes(b'fixed mock image bytes')
+        video = self.root/'mock-render.mp4'
+        video.write_bytes(b'fixed mock MP4 payload')
+        metadata = {'width':1280,'height':720,'duration':4.0,'has_audio':False}
+        render = {'state':'done','text':'Local video rendered',
+                  'file':str(video),'sha256':task_results.file_digest(video),
+                  'media':metadata}
+        self._assert_byte_identical_worker_result({
+            'id':'video','agent':'media','depends':[],
+            'input':{'image':str(source),
+                     'image_sha256':task_results.file_digest(source),
+                     'duration':4},
+        }, 'Create a local video from this image.', render=render)
 
 if __name__=='__main__':
     unittest.main()
