@@ -122,6 +122,7 @@ class WebChat:
     def history_delete_conversation(self, day: str) -> dict:
         """Delete only the selected sidebar entry for the current user."""
         runtime = self._runtime
+        from modules import learning
         owner = runtime._p()
         deleted_ids = set()
         with runtime.engine._event_lock:
@@ -130,17 +131,20 @@ class WebChat:
                 if not (row.get('user') == owner.name and row.get('hid') in deleted_ids)]
         runtime.llm.reset_history(owner.slug)
         runtime.engine._sessions.for_owner(owner.slug).last_doc = None
+        learning.clear_buffer(owner)
         return {'ok': True, 'removed': removed}
 
     def chat_reset(self) -> bool:
         """Yeni sohbet: yazılı sohbetin kısa süreli hafızası sıfırlanır (kalıcı geçmiş silinmez)."""
         runtime = self._runtime
-        from modules import conversation_reset
-        owner = runtime._p().slug
+        from modules import conversation_reset, learning
+        profile = runtime._p()
+        owner = profile.slug
         with runtime.engine._event_lock:
             runtime.engine.requests_state.cancel_foreground(owner)
             conversation_reset.mark(owner)
             runtime.llm.reset_history(owner)
             runtime.engine._sessions.reset(owner)
             runtime.engine._pending_photo.pop(owner, None)
+        learning.clear_buffer(profile)
         return True
