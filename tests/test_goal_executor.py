@@ -197,6 +197,11 @@ class GoalTests(unittest.TestCase):
         self.responses(self.tool('writer',{'instruction':'Durum raporu','filename':'rapor.md'},goal=1,depends=['s1']),
             'Hesap durum raporu',self.done('s2',goal=1),self.finish())
         goals.handle(self.runtime,'devam et')
+        pending=goals.latest('alice')
+        self.assertEqual(pending['state'],'approval')
+        self.run_with_writer_consent('hedef onayla',resume=True,approve=True,
+                                     expected_job_id=pending['id'],
+                                     expected_control=goals.control_key(pending))
         job=goals.latest('alice');self.assertEqual(job['state'],'done');self.assertEqual(job['id'],ident)
         self.assertEqual(len(job['steps']),2)
 
@@ -517,6 +522,11 @@ class GoalTests(unittest.TestCase):
         goals._save(job)
         self.responses(self.tool('writer',{'instruction':'Rapor üret','filename':'rapor.md'}),'Rapor metni',self.done('s2'),self.finish())
         result=goals.handle(self.runtime,'devam et')
+        pending=goals.latest('alice')
+        self.assertEqual(pending['state'],'approval',result)
+        result=self.run_with_writer_consent('hedef onayla',resume=True,approve=True,
+                                            expected_job_id=pending['id'],
+                                            expected_control=goals.control_key(pending))
         self.assertEqual(goals.latest('alice')['state'],'done',result)
         self.assertEqual(len(goals.latest('alice')['steps']),2)
 
