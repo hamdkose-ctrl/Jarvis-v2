@@ -1108,3 +1108,7 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 ### 2026-11-16 — Groq kapasite kartı yenilemesi (PR #652)
 
 - `openai/gpt-oss-120b`/`openai/gpt-oss-20b` context/output kayıtları resmî model kartlarından yeniden doğrulandı (131.072 / 65.536; sayılar değişmedi) ve geçerlilik penceresi 23 Kasım 2026 19:00 UTC'ye taşındı. Native JSON schema/tool calling iddiası eklenmedi (taşıma şeması yok). Yeni CI bekçi testi, süresi dolan kartın üretimde sessiz kanıtsız kalmasını artık CI'da gürültülü hataya çevirir; gerçek PC/live model kabulü ayrıca doğrulanır.
+
+### 2026-11-17 — Çift işçi gövdesinin tek sınıra birleştirilmesi (PR-4)
+
+- `task_agents.worker` ile `task_worker_adapter.worker` aynı doğrula/kopyala/kanca/mühürle gövdesini iki kez taşıyordu; tek gövde artık `task_worker_adapter.run`. Kanonik şerit varsayılan yürütücü `task_workers.run`'ı, eski şerit çağrı anında çözülen `_worker` dikişini kullanmaya devam eder; BRAIN-07'ın `task_worker_adapter.worker` yama noktası ve `test_phase2_wiring` dikişi aynen çalışır. Kanca çiftleri, mühürleme, girdi doğrulama önceliği, derin kopya ve başarısızlık durumları iki şeritte parity testiyle kilitlendi (`tests/test_task_worker_single_boundary.py`, 10 test). Davranış değişmedi; gerçek PC gecesi ayrı kabul.
