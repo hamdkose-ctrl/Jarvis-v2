@@ -6,7 +6,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
-from modules import goal_executor as goals, goal_tools, llm, nxapi, task_results, task_agents, task_worker_adapter
+from modules import goal_executor as goals, goal_tools, llm, nxapi, task_results, task_agents
 
 
 class GoalTests(unittest.TestCase):
@@ -104,7 +104,7 @@ class GoalTests(unittest.TestCase):
         image=self.root/'screen.png';image.write_bytes(b'real saved screenshot fixture')
         browser=task_results.seal('browser',{'state':'done','steps':[{'verified':True}],
             'page':{'url':'https://example.com','text':'actual source'},'image':str(image)})
-        original=task_worker_adapter.worker
+        original=task_agents.worker
         def work(owner,task,deps):
             if task['agent']=='research':raise RuntimeError('HTTP source unavailable')
             if task['agent']=='browser':return browser
@@ -117,7 +117,7 @@ class GoalTests(unittest.TestCase):
             'Gerçek kaynaklı rapor metni',self.done('s3'),
             self.tool('action',{'action':'note_add','params':{'text':'Tamamlandı'}},goal=1),
             self.done('s4',goal=1),self.finish())
-        with patch.object(task_worker_adapter,'worker',side_effect=work),patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
+        with patch.object(task_agents,'worker',side_effect=work),patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
             result=goals.run(self.runtime,'Araştırıp raporu dosyaya kaydet ve not ekle')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual([s['tool'] for s in job['steps']],['research','browser','writer','action'])

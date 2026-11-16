@@ -3,7 +3,7 @@ from datetime import datetime,timezone,timedelta
 from pathlib import Path
 from unittest.mock import patch
 import unittest
-from modules import goal_executor as goals,task_agents,task_results,task_worker_adapter
+from modules import goal_executor as goals,task_agents,task_results
 import test_goal_executor as fixture
 
 
@@ -20,7 +20,7 @@ class NewsChatWriterTests(unittest.TestCase):
         if file:
             calls+=[case.tool('verify',{},depends=['s3']),case.done('s3','s4')]
         case.responses(*calls)
-        original=task_worker_adapter.worker
+        original=task_agents.worker
         def worker(owner,task,dependencies):
             if not file:raise AssertionError('Sohbet isteğinde writer çalışmamalı')
             return original(owner,task,dependencies)
@@ -30,7 +30,7 @@ class NewsChatWriterTests(unittest.TestCase):
             html='<article><h1>Deprem incelemeleri</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+text+'</p></article>'
             return {'url':url,'body':html.encode()}
         request='Güncel deprem haberlerini araştır ve kısa rapor ver'+(' ve raporu dosyaya kaydet' if file else '')
-        with patch.object(task_worker_adapter,'worker',side_effect=worker),patch('modules.public_sources.fetch',side_effect=fetch) as work,patch('modules.privacy.blocked',return_value=None):
+        with patch.object(task_agents,'worker',side_effect=worker),patch('modules.public_sources.fetch',side_effect=fetch) as work,patch('modules.privacy.blocked',return_value=None):
             reply=goals.run(case.runtime,request)
         return case,goals.latest('alice'),reply,work
 
