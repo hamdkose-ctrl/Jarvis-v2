@@ -29,7 +29,8 @@ _CANCEL_REQUESTED = set()
 # including dependency-wave workers. It is never model-supplied.
 _QUEUE_CLAIM = contextvars.ContextVar('jarvis_task_queue_live_claim', default=None)
 _JOURNAL_FENCE = '_journal_snapshot'
-_REPLAY_SAFE = {kind for kind, spec in task_tools.CATALOG.items() if spec['replay_safe']}
+_REPLAY_SAFE = {kind for kind, spec in task_tools.CATALOG.items()
+                if spec['replay_safe'] and kind != 'media'}
 WORKER_CATALOG = task_plan_contracts.WORKER_CATALOG
 _WORKERS = task_plan_contracts._WORKERS
 _SYSTEM = task_plan_contracts._SYSTEM
@@ -661,6 +662,30 @@ def mail_attachments_typed(owner, operation, *, emit=None, display=None):
     return display(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))
 
 
+
+def _canonical_video(owner: str, command: str, media_data: dict) -> str:
+    """No new legacy video job: admit one explicit video to the real Scheduler.
+
+    An already persisted legacy task/queue still uses its own resume and
+    cancel journal; migrating those records on the fly would bypass their
+    original SQLite lease and could repeat an uncertain FFmpeg attempt.
+    """
+    from modules import canonical_goal_flow, task_queue
+    request = requests_state._current.get()
+    if (not isinstance(request, tuple) or len(request) != 2
+            or request[0] != owner or not isinstance(request[1], str)
+            or not request[1]):
+        raise PermissionError('Video için açık owner/RID komut kimliği gerekli.')
+    if not task_queue.scheduler_active():
+        return 'Canonical Scheduler hazır değil; video başlatılmadı.'
+    _ident, reply = canonical_goal_flow.try_create(
+        owner, request[1], command, direct_tasks=[
+            {'id':'video', 'agent':'media', 'depends':[], 'input':media_data},
+        ],
+    )
+    return reply
+
+
 def handle(owner, command, emit=None, *, summary=False):
     display=render_summary if summary else render
     request=requests_state._current.get()
@@ -673,6 +698,10 @@ def handle(owner, command, emit=None, *, summary=False):
         return '\n'.join(k+': '+v for k,v in CATALOG.items())
     flow=re.fullmatch(r'görev akışı (rapor|mail|kod|video)\s*:\s*(.+)',command.strip(),re.I|re.S)
     if flow:
+        if flow[1].casefold() == 'video':
+            from modules import media_tools
+            data = media_tools.prepare(_json(flow[2]))
+            return _canonical_video(owner, command, data)
         from modules.task_workflows import build
         return display(execute(owner,build(flow[1].casefold(),flow[2]),command,emit))
     attachment_command=' '.join(c.split()).strip(' .!?')
@@ -706,7 +735,7 @@ def handle(owner, command, emit=None, *, summary=False):
     if c.startswith('video üret '):
         from modules import media_tools
         data=media_tools.prepare(_json(command.strip()[len('video üret '):]))
-        return display(execute(owner,[{'id':'video','agent':'media','input':data}], 'Yerel kaynaklardan video üret',emit))
+        return _canonical_video(owner, command, data)
     if c=='görev kuyruğu':
         from modules import task_queue
         token=llm._key_context.set(owner)
@@ -869,7 +898,10 @@ def handle(owner, command, emit=None, *, summary=False):
         token=llm._key_context.set(owner)
         try:plan=_json(llm.ask(prompt,system=_SYSTEM,max_tokens=2200))
         finally:llm._key_context.reset(token)
-        return render(execute(owner,plan['tasks'],instruction,emit,parallel=c.startswith('görev paralel:')))
+        tasks=validate(plan['tasks'])
+        if any(task['agent'] in ('media','file') for task in tasks):
+            raise ValueError('Bu görev canonical file/media hedefi olarak açılmalı; eski DAG üzerinden yeni iş başlatılmadı.')
+        return render(execute(owner,tasks,instruction,emit,parallel=c.startswith('görev paralel:')))
     if c.startswith(('tarayıcı görevi:','tarayıcı görevi ')):
         instruction=command[len('tarayıcı görevi'):].lstrip(': ').strip()
         match=re.search(r'https?://[^\s]+',instruction)

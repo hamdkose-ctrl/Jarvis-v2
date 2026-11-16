@@ -232,7 +232,7 @@ def _legacy_duplicate_reply():
     )
 
 
-def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None):
+def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None, direct_tasks=None):
     """Admit one request ID to canonical or one-shot legacy fallback.
 
     An unsupported first plan returns None only AFTER a durable single
@@ -241,6 +241,16 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None)
     """
     if legacy_plan_sink is not None and not callable(legacy_plan_sink):
         raise TypeError('Legacy plan sink must be callable.')
+    # Only an explicit developer-validated VIDEO command may avoid the model
+    # planner. It still passes through the SAME RID admission and Core plan,
+    # permission, resource lease, intent, WorkerResult and CAS fences.
+    if direct_tasks is not None:
+        if (legacy_plan_sink is not None or not isinstance(direct_tasks, list)
+                or len(direct_tasks) != 1 or not isinstance(direct_tasks[0], dict)
+                or direct_tasks[0].get('id') != 'video'
+                or direct_tasks[0].get('agent') != 'media'
+                or direct_tasks[0].get('depends', []) != []):
+            raise ValueError('Direct canonical admission supports one explicit video only.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
@@ -255,11 +265,11 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None)
     # and is held only for this request's one admission/planning window.
     with _planning_once(root, job_id):
         return _try_create_planned(owner, request_id, text, job_id, root,
-                                   legacy_plan_sink=legacy_plan_sink)
+                                   legacy_plan_sink=legacy_plan_sink, direct_tasks=direct_tasks)
 
 
 def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root,
-                        *, legacy_plan_sink=None):
+                        *, legacy_plan_sink=None, direct_tasks=None):
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
@@ -283,16 +293,22 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
         'Desteklenmeyen etkiyi planlama. '
         'Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme.'
     )
-    token = llm._key_context.set(owner)
+    if direct_tasks is None:
+        token = llm._key_context.set(owner)
+        try:
+            raw = model_wait.ask(text, system=system, max_tokens=2200, seconds=60)
+        finally:
+            llm._key_context.reset(token)
     try:
-        raw = model_wait.ask(text, system=system, max_tokens=2200, seconds=60)
-    finally:
-        llm._key_context.reset(token)
-    try:
-        proposed = task_plan_contracts._json(raw)
+        proposed = (task_plan_contracts._json(raw) if direct_tasks is None
+                    else {'tasks': copy.deepcopy(direct_tasks)})
         tasks = task_plan_contracts.validate(proposed['tasks'])
         plan = _canonical_plan(tasks, allow_effects=True)
     except (KeyError, TypeError, ValueError):
+        if direct_tasks is not None:
+            # Deterministic command failure is NOT a license to run the
+            # same external effect through legacy fallback.
+            raise
         # Unsupported/invalid FIRST planner decision is still a decision
         # for this request ID. Persist its one-shot legacy handoff before
         # returning None so a concurrent/restarted duplicate cannot launch

@@ -406,6 +406,8 @@ def _parse(text):
     if isinstance(call,dict) and set(call)=={'tasks'}:
         from modules import task_agents
         tasks=task_agents.validate(call['tasks'])
+        if any(task['agent'] in ('media', 'file') for task in tasks):
+            raise ValueError('Media/file yeni legacy_plan üzerinden yürütülemez; Canonical Scheduler kullan.')
         for task in tasks:
             goal_tools.validate(task['agent'],task.get('input',{}))
             if not goal_tools.replay_safe(task['agent'],task.get('input',{})):

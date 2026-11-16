@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from test_canonical_effectful_scheduler import CanonicalEffectfulSchedulerTests as _Harness
-from modules import task_agents, worker_result_hook, worker_result_commit
+from modules import task_agents, worker_result_hook, worker_result_commit, requests_state, task_queue
 from modules import (
     canonical_goal_flow, canonical_scheduler_dispatch, effect_recovery_runtime,
     file_worker, goal_executor, media_tools, model_wait, task_results,
@@ -263,6 +263,66 @@ class Phase4AMediaFileTests(unittest.TestCase):
                      'image_sha256':task_results.file_digest(source),
                      'duration':4},
         }, 'Create a local video from this image.', render=render)
+
+
+    def test_video_admin_entry_uses_canonical_rid_not_legacy_execute(self):
+        data={'scenes':[{'caption':'First scene','duration':3}]}
+        command='görev akışı video: '+json.dumps(data)
+        rid='exact-video-request'
+        with patch.object(requests_state._current,'get',
+                          return_value=(self.owner,rid)), \\
+             patch.object(task_queue,'scheduler_active',return_value=True), \\
+             patch.object(media_tools,'prepare',return_value=data), \\
+             patch.object(canonical_goal_flow,'try_create',
+                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \\
+             patch.object(task_agents,'execute',
+                          side_effect=AssertionError('Old video execute forbidden')) as legacy:
+            self.assertEqual(task_agents.handle(self.owner,command),'Admitted')
+            admitted.assert_called_once_with(
+                self.owner,rid,command,direct_tasks=[
+                    {'id':'video','agent':'media','depends':[], 'input':data},
+                ])
+            legacy.assert_not_called()
+
+    def test_direct_video_prefix_does_not_start_old_job(self):
+        data={'scenes':[{'caption':'First scene','duration':3}]}
+        command='video üret '+json.dumps(data)
+        with patch.object(requests_state._current,'get',
+                          return_value=(self.owner,'video-rid')), \\
+             patch.object(task_queue,'scheduler_active',return_value=True), \\
+             patch.object(media_tools,'prepare',return_value=data), \\
+             patch.object(canonical_goal_flow,'try_create',
+                          return_value=('aabbccddeeff0011','Admitted')) as admitted, \\
+             patch.object(task_agents,'execute',
+                          side_effect=AssertionError('Old video execute forbidden')):
+            self.assertEqual(task_agents.handle(self.owner,command),'Admitted')
+            self.assertEqual(admitted.call_count,1)
+
+    def test_no_request_rid_or_scheduler_means_no_legacy_video_fallback(self):
+        data={'scenes':[{'caption':'First scene','duration':3}]}
+        command='video üret '+json.dumps(data)
+        with patch.object(requests_state._current,'get',return_value=None), \\
+             patch.object(media_tools,'prepare',return_value=data), \\
+             patch.object(task_agents,'execute') as legacy:
+            with self.assertRaises(PermissionError):
+                task_agents.handle(self.owner,command)
+            legacy.assert_not_called()
+
+    def test_direct_media_only_and_no_new_legacy_media_file_plan(self):
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.try_create(self.owner,'rid','video',direct_tasks=[
+                {'id':'bad','agent':'file','input':{'path':'x','operation':'extract_obligations'}},
+            ])
+        for agent, data in (
+            ('media', {'scenes':[{'caption':'Scene','duration':3}]}),
+            ('file', {'path':'x.txt','operation':'extract_obligations'}),
+        ):
+            with self.subTest(agent):
+                with self.assertRaises(ValueError):
+                    goal_executor._parse(json.dumps({'tasks':[{
+                        'id':'step','agent':agent,'input':data,
+                    }]}))
+        self.assertNotIn('media',task_agents._REPLAY_SAFE)
 
 if __name__=='__main__':
     unittest.main()
