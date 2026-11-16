@@ -27,6 +27,11 @@ _SCAN_CURSOR = {}
 _JOB_ID = re.compile(r"[0-9a-f]{16}\Z")
 _FOREGROUND_QUERY = re.compile(r"hedef ön plan\s+([0-9a-f]{16})\s*[.!?]?\Z", re.IGNORECASE)
 _PLANNER_SECONDS = 60
+# (owner, job_id) of planning attempts started in THIS process. The OS instance
+# lock guarantees a single Jarvis process, so a persisted planning_running record
+# absent from this set belongs to a dead earlier process: its status read must
+# say so instead of claiming a model is running.
+_LIVE_ATTEMPTS: set[tuple[str, str]] = set()
 
 
 def _identity(owner: str, request_id: str, generation: int = 0):
@@ -155,6 +160,7 @@ def discover(owner: str, *, max_jobs: int = 16, max_results: int = 3):
 
 def _park(root, owner, job_id, *, reason: str):
     """Fail closed after an uncertain attempt, with no automatic replay."""
+    _LIVE_ATTEMPTS.discard((owner, job_id))
     with goal_job_control.locked(root, job_id):
         state, record = _check_pair(root, owner, job_id)
         if record.get("state") != "planning_running" or "goal_plan" in state:
@@ -201,6 +207,7 @@ def execute(profile, job_id: str, *, stop_event=None):
         record["updated"] = time.time()
         release_guard.atomic(execution_record.path_for(root, job_id),
                              execution_record.encode(record))
+        _LIVE_ATTEMPTS.add((owner, job_id))
         intent = state.get('goal_intent', {})
         text = (json.dumps({'request': record['request'], 'user_goal_intent': intent,
                             'user_goal_changes': goal_state.intent_history(state),
@@ -273,6 +280,7 @@ def execute(profile, job_id: str, *, stop_event=None):
         _park(root, owner, job_id, reason="PLANNER_ATTEMPT_UNCERTAIN")
         return "review"
     finally:
+        _LIVE_ATTEMPTS.discard((owner, job_id))
         llm._key_context.reset(token)
 
 
@@ -323,7 +331,14 @@ def status(owner: str, job_id: str) -> str | None:
     if stage == "planning_queued":
         return f"Hedef {job_id}: planlama için Scheduler kuyruğunda."
     if stage == "planning_running":
-        return f"Hedef {job_id}: planlama modeli çalışıyor; diğer komutlar beklemez."
+        if (owner, job_id) in _LIVE_ATTEMPTS:
+            return f"Hedef {job_id}: planlama modeli çalışıyor; diğer komutlar beklemez."
+        # A single Jarvis process owns the desktop; a planning_running record
+        # this process never dispatched is a leftover of a dead earlier one.
+        # Claiming "model running" would be a lie and replay is forbidden.
+        return (f"Hedef {job_id}: planlama kaydı bu oturuma ait değil; model çalışmıyor. "
+                "Eski süreçte yarım kalmış olabilir; hiçbir iş otomatik tekrar başlatılmaz. "
+                "Yeni bir açık 'hedef …' isteği gerekir.")
     if stage == "review" and "goal_plan" not in state:
         if state["audit"][-1]["reason_code"] == "PLANNER_FOREGROUND_REVIEW_REQUIRED":
             return (f"Hedef {job_id}: salt-okunur arka plan kapsamına girmiyor. "
