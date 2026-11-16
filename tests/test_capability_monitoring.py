@@ -282,7 +282,8 @@ class DomainTests(SourceFixture):
             {'action':'complete','goal':0,'evidence':['s1','s2']},{'action':'finish'}]
         from modules import team_center
         with patch.object(llm,'ask',side_effect=[json.dumps(r) if isinstance(r,dict) else r for r in responses]),patch.object(nxapi,'allowed',return_value=path),patch.object(team_center,'ROOT',self.root/'teams'):
-            result=goal_executor.run(self.runtime,'Bu finans CSV dosyasını analiz et ve rapor dosyası oluştur')
+            from writer_consent_fixture import run_with_explicit_writer_approval
+            result=run_with_explicit_writer_approval(self.runtime,'Bu finans CSV dosyasını analiz et ve rapor dosyası oluştur')
         job=goal_executor.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertIn('net 75',Path(job['outputs']['s2']['file']).read_text())
         self.assertEqual(job['steps'][0]['specialist']['id'],'finance')
