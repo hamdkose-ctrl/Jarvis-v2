@@ -162,7 +162,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     # State setters enter the durable effect/receipt path only when they have
     # exact OS readback. Media keys remain outside until they do.
     durable_system=(step['tool']=='system' and step['input'].get('operation') in {'volume','mute','brightness'})
-    gated={'media','publish','account','research','writer','browser','coder','verify','desktop'}
+    gated={'media','file','publish','account','research','writer','browser','coder','verify','desktop'}
     if durable_system:
         gated.add('system')
     prepare_bound={'coder','desktop','system'}
@@ -206,7 +206,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
                 from modules import effect_recovery_runtime
                 if (effect_recovery_runtime.required(step['tool'])
-                        or (step['tool']=='writer' and 'plan_version' in expected)):
+                        or (step['tool'] in ('writer', 'media') and 'plan_version' in expected)):
                     # Planned writer reports also need write-ahead identity:
                     # a crash after atomic file creation cannot authorize
                     # another automatically generated report.
@@ -293,6 +293,20 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 return account_output
             return commit_checked(account_output)
 
+    if (expected is not None and 'plan_version' in expected
+            and step['tool'] == 'file'):
+        # The same canonical read-only lease covers extraction, domain proof
+        # and Core WorkerResult CAS; it is never an unleased direct file read.
+        from modules import goal_executor, scheduler_resource_gate, worker_result_hook
+        with scheduler_resource_gate.read_only_worker(
+            goal_executor._RESOURCE_LEASES, identity, expected,
+        ) as commit_checked:
+            output = worker_result_hook.execute(
+                runtime, step['tool'], step['input'], deps, identity,
+                approval=worker_approval,
+            )
+            return commit_checked(output)
+
     if expected is not None:
         from modules import runtime_worker_result,worker_result_hook
         if (step['tool']=='publish' and 'plan_version' in expected
@@ -337,6 +351,15 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             return output
         if isinstance(output,dict) and output.get('state')=='done':
             from modules import effect_journal,effect_recovery_runtime
+            if step['tool']=='media' and 'plan_version' in expected:
+                # Local readback is real: source/video digest and ffprobe have
+                # already passed task_results.verify in worker_result_hook.
+                # Persist the exact artifact digest as the once-only receipt.
+                from modules import task_results
+                task_results.verify(output, job['owner'], expected_kind='media')
+                effect_recovery_runtime.record_receipt(expected, {
+                    'receipt': {'service':'local_media', 'remote_id':output['sha256']},
+                })
             if effect_recovery_runtime.required(step['tool']):
                 if output.get('receipt') is None:
                     raise effect_journal.ContractViolation(

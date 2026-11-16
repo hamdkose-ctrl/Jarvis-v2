@@ -63,7 +63,12 @@ def dispatch(context, command, normalized):
         result = task_agents.handle(owner, command, context.emit, summary=True)
         if result is None:
             return "Kullanım: görev akışı kod: isteğin (veya rapor, mail, video)."
-        session.speech_override = "Görev sonucu sohbet ekranında hazır."
+        session.speech_override = (
+            "Video hedefi arka planda çalışacak."
+            if brain_precedence.explicit_workflow_owner_protocol(normalized)
+            and "video" in normalized.casefold().split(":")[0] else
+            "Görev sonucu sohbet ekranında hazır."
+        )
         return result
 
     if session.pending_action is not None and brain_entry.pending_answer_owned("pending_action"):

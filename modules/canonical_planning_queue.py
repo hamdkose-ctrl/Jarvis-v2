@@ -19,7 +19,7 @@ import release_guard
 from modules import (
     canonical_goal_flow, execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
-    goal_state_store, llm, model_wait, requests_state, task_agents,
+    goal_state_store, llm, model_wait, requests_state, task_plan_contracts,
 )
 
 _SCAN_LOCK = threading.Lock()
@@ -221,11 +221,11 @@ def execute(profile, job_id: str, *, stop_event=None):
                 # Exactly the original approved task-graph planner and
                 # developer-installed canonical capability schema.
                 system = (
-                    task_agents._SYSTEM +
-                    "\nBu tur canonical arka plan hedefidir. Research "
+                    task_plan_contracts._SYSTEM +
+                    "\nBu tur canonical arka plan hedefidir. Research, file "
                     "ve salt-okunur account görevleriyle kaynak kanıtlarını birleştir; "
                     "doğrulanmış research/account bağımlı verify görevini kullan. "
-                    "Writer rapor üretebilir; coder ve publish yalnız kullanıcının açık hedefi, "
+                    "Writer rapor üretebilir; media yalnız açık yerel video hedefi ve kaynak digest’iyle çalışır; coder ve publish yalnız kullanıcının açık hedefi, "
                     "kesin hedef ve Core izin/onay kapıları altında yürür. Desteklenmeyen etkiyi planlama. "
                     "Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme."
                 )
@@ -235,8 +235,8 @@ def execute(profile, job_id: str, *, stop_event=None):
                 if stop_event is not None and stop_event.is_set():
                     raise requests_state.Cancelled("Scheduler stopped.")
                 try:
-                    proposed = task_agents._json(raw)
-                    tasks = task_agents.validate(proposed["tasks"])
+                    proposed = task_plan_contracts._json(raw)
+                    tasks = task_plan_contracts.validate(proposed["tasks"])
                     plan = canonical_goal_flow._canonical_plan(tasks, allow_effects=True)
                 except (ValueError, TypeError, KeyError):
                     _park(root, owner, job_id, reason="PLANNER_FOREGROUND_REVIEW_REQUIRED")
