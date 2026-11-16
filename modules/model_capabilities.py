@@ -19,8 +19,8 @@ NATIVE_FEATURES = frozenset({'native_json_schema', 'native_tool_calling', 'verif
 # ('provider','exact-id'): {'features': frozenset({'native_json_schema'}),
 #     'context_limit': 32768, 'output_limit': 4096, 'source_url': 'https://...',
 #     'verified_at': 1794000000, 'expires_at': 1795000000}
-_GROQ_REVIEWED_AT = 1794225600  # 9 Nov 2026 12:00 UTC
-_GROQ_EXPIRES_AT = 1794830400   # 16 Nov 2026 12:00 UTC
+_GROQ_REVIEWED_AT = 1794855600  # 16 Nov 2026 19:00 UTC
+_GROQ_EXPIRES_AT = 1795460400   # 23 Nov 2026 19:00 UTC
 # Only context/output capacities are asserted. Although Groq docs describe
 # native structured outputs, our transport has not implemented schema-bearing
 # API requests, so NO native JSON/tool capability is advertised here.

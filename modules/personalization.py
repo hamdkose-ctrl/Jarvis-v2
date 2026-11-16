@@ -74,7 +74,12 @@ def rename_user(old: str, new: str) -> str | None:
         return f"{new} adında başka bir kullanıcı zaten var."
     try:
         data = json.loads(old_path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
+        if not isinstance(data, dict):
+            raise ValueError("profil kökü sözlük değil")
+    except ValueError:
+        _quarantine_corrupt(old_path)   # eski baytlar üzerine yazmadan önce kopyalanır
+        data = {}
+    except OSError:
         data = {}
     data["name"] = new
     with _LOCK:
@@ -130,6 +135,30 @@ def _assistant_name() -> str:
         return ASSISTANT_NAME
 
 
+def _quarantine_corrupt(path) -> str | None:
+    """Ayrıştırılamayan profil dosyasının baytlarını zaman damgalı kopyaya alır.
+
+    Kopya adı dönülür; okuma/yazma başarısızsa None döner ve çağırıcı eski
+    davranışla devam eder. Amaç: sonraki sıradan kayıt bozuk dosyanın üzerine
+    yazmadan önce orijinal baytlar korunmuş olsun.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    name = f"{path.stem}.bozuk-{stamp}.json"
+    n = 1
+    while (path.parent / name).exists():
+        name = f"{path.stem}.bozuk-{stamp}-{n}.json"
+        n += 1
+    try:
+        (path.parent / name).write_bytes(raw)
+    except OSError:
+        return None
+    return name
+
+
 class Profile:
     def __init__(self, name: str | None = None):
         with _LOCK:
@@ -156,9 +185,16 @@ class Profile:
                      "next_id": 1}
         if self.path.exists():
             try:
-                self.data.update(json.loads(self.path.read_text(encoding="utf-8")))
-            except (ValueError, OSError):
-                pass   # bozuk dosyada varsayılanlarla başla
+                loaded = json.loads(self.path.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict):
+                    raise ValueError("profil kökü sözlük değil")
+                self.data.update(loaded)
+            except ValueError:
+                backup = _quarantine_corrupt(self.path)   # baytlar korunur, varsayılanlarla devam
+                if backup:
+                    self.data["profile_corrupt_backup"] = backup
+            except OSError:
+                pass   # okunamayan dosyada varsayılanlarla başla
         self.data["name"] = self.data.get("name") or self.name
         _SHARED[key] = self._state
 
