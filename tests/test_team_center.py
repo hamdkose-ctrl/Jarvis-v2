@@ -77,7 +77,8 @@ class TeamTests(unittest.TestCase):
                  'Kaynak verilmediği için güncel finans verisi bulunmuyor.',
                  {'action':'complete','goal':0,'evidence':['s1']},{'action':'finish'}]
         with patch.object(nxapi,'FILES_DIR',self.root/'files'),patch.object(llm,'ask',side_effect=[json.dumps(x) if isinstance(x,dict) else x for x in replies]):
-            goal_executor.run(runtime,'Finans raporu dosyası oluştur')
+            from writer_consent_fixture import run_with_explicit_writer_approval
+            run_with_explicit_writer_approval(runtime,'Finans raporu dosyası oluştur')
         job=goal_executor.latest('alice')
         self.assertEqual(job['state'],'done');self.assertEqual(job['steps'][0]['specialist']['id'],'finance')
         self.assertTrue(self.bridge.team_verify('goal',job['id'])['ok'])
