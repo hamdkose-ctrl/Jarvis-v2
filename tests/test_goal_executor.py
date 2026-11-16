@@ -727,7 +727,10 @@ class GoalTests(unittest.TestCase):
         snapshot={'owner':'alice','service':'gmail','operation':'read_message','fetched_at':1,
                   'message':{'id':'M1','from':'sender@example.com','subject':'Merhaba','body':'Yarın görüşelim.','format':'plain','truncated':False}}
         mail=task_results.seal('account',{'state':'done','text':account_tools.render_snapshot(snapshot),'snapshot':snapshot,'sha256':account_tools.digest(snapshot)})
-        with patch('modules.model_wait.ask',return_value='Merhaba, görüşmek üzere.'):
+        from writer_consent_fixture import native_writer_after_consent
+        # This fixture constructs an already-completed historical draft. It
+        # tests readback integrity, not the permission path for creating it.
+        with patch('modules.model_wait.ask',return_value='Merhaba, görüşmek üzere.'),native_writer_after_consent():
             draft=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Mail cevabı yaz','filename':'mail-cevap.md'},'execution':{'request':'Son haberleri araştır ve mailime cevap taslağı yaz'}},{'s1':mail})
         job={'id':'c'*16,'owner':'alice','created':0,'request':'Son haberleri araştır ve mailime cevap taslağı yaz','state':'paused',
              'goals':[{'text':'Haber araştırması','state':'pending','evidence':[]},{'text':'Mail taslağı','state':'done','evidence':['s2']}],
@@ -982,6 +985,11 @@ class GoalTests(unittest.TestCase):
         with patch.object(public_sources,'fetch',side_effect=AssertionError('No fetch')):
             result=goals.handle(self.runtime,'devam')
         job=goals.latest('alice');self.assertEqual(job['id'],original['id']);self.ask.assert_not_called()
+        self.assertEqual(job['state'],'approval',result)
+        self.assertFalse(any(o.get('file') for o in job['outputs'].values()))
+        result=goals.run(self.runtime,'hedef onayla',resume=True,approve=True,
+                         expected_job_id=job['id'],expected_control=goals.control_key(job))
+        job=goals.latest('alice');self.ask.assert_not_called()
         self.assertTrue(goal_tools.verify(job['outputs'][job['partial_report']],'alice'))
         self.assertIn('Kısmi rapor dosyası:',result)
         self.assertEqual(job['goals'][1]['state'],'pending')
