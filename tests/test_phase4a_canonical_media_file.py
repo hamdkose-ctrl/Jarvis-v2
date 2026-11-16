@@ -219,8 +219,14 @@ class Phase4AMediaFileTests(unittest.TestCase):
                 stack.enter_context(patch.object(media_tools, 'probe',
                                                  return_value=render['media']))
             legacy = task_agents.worker(self.owner, legacy_task, {})
+            observed = []
+            native_wrapper = worker_result_hook.wrap_output
+            def capture(output, identity):
+                result = native_wrapper(output, identity)
+                observed.append(result)
+                return result
             with patch.object(worker_result_hook, 'wrap_output',
-                              wraps=worker_result_hook.wrap_output) as wrapped:
+                              side_effect=capture) as wrapped:
                 self.assertTrue(self.run_offer(job_id))
             self.assertEqual(wrapped.call_count, 1)
             canonical_input, identity = wrapped.call_args.args
@@ -228,7 +234,8 @@ class Phase4AMediaFileTests(unittest.TestCase):
             state, record = self.snapshots(job_id)
             self.assertEqual(record['outputs'][task['id']], legacy)
             legacy_result = worker_result_hook.wrap_output(legacy, identity)
-            actual_result = wrapped.return_value
+            self.assertEqual(len(observed), 1)
+            actual_result = observed[0]
             self.assertEqual(legacy_result['_worker_result'],
                              actual_result['_worker_result'])
             self.assertEqual(worker_result_commit._evidence(
