@@ -112,6 +112,33 @@ class WriterDirectWriteFenceTests(unittest.TestCase):
                 task_workers.run('alice',forged,{})
         model.assert_not_called()
 
+    def test_legacy_writer_accepts_consumed_prepare_on_second_attempt_only(self):
+        data={'instruction':'Write summary','filename':'summary.md'}
+        identity={'owner':'alice','job_id':'job1','task_id':'write',
+                  '_writer_approved':True}
+        proposal={'state':'approval','text':'Exact user-approved proposal'}
+        approval={'consumed_at':100.0,'execution_started_at':101.0,
+                  'binding':{'certificate':'bound'}}
+        job={'id':'job1','owner':'alice','state':'running',
+             'steps':[{'id':'write','tool':'writer','input':data,
+                       'state':'running','attempts':2,'started':True,
+                       'approval':approval}],
+             'outputs':{'write':proposal}}
+        task={'agent':'writer','input':data,'execution':identity}
+        with patch('modules.goal_executor.read_job',return_value=job), \
+             patch('modules.goal_approval.binding',
+                   return_value={'certificate':'bound'}):
+            self.assertTrue(runtime_prepare_approval.require_writer_execution('alice',task))
+            # The first (prepare-only) attempt is not an authorized write.
+            job['steps'][0]['attempts']=1
+            with self.assertRaises(PermissionError):
+                runtime_prepare_approval.require_writer_execution('alice',task)
+            job['steps'][0]['attempts']=2
+            # A completed/replaced output cannot be used to replay consent.
+            job['outputs']['write']={'state':'done','file':'report.md'}
+            with self.assertRaises(PermissionError):
+                runtime_prepare_approval.require_writer_execution('alice',task)
+
     def test_prepare_approval_is_bound_to_owner_job_step_and_input(self):
         identity={'owner':'alice','job_id':'my-job','task_id':'report'}
         data={'instruction':'Write summary','filename':'summary.md'}
