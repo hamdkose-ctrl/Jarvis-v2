@@ -72,7 +72,7 @@ class DeleteConversationTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_deleted_rows_do_not_return_from_live_log(self):
-        owner=SimpleNamespace(slug='alice',name='Alice');state=SimpleNamespace(last_doc='cached')
+        owner=SimpleNamespace(slug='alice',name='Alice',data={'learning_buffer':['staged']},save=lambda:None);state=SimpleNamespace(last_doc='cached')
         events=[{'user':'Alice','hid':'old'},{'user':'Alice','hid':'selected'},{'user':'Bob','hid':'selected'}]
         runtime=SimpleNamespace(_p=lambda:owner,history=history,
             engine=SimpleNamespace(event_log=events,_event_lock=threading.RLock(),_sessions=SimpleNamespace(for_owner=lambda slug:state)),
@@ -83,3 +83,4 @@ class DeleteConversationTests(unittest.TestCase):
         self.assertEqual(result['removed'],1)
         self.assertEqual(events,[{'user':'Alice','hid':'old'},{'user':'Bob','hid':'selected'}])
         self.assertEqual(runtime.llm._histories['bob'],['keep']);self.assertIsNone(state.last_doc)
+        self.assertNotIn('learning_buffer',owner.data)
