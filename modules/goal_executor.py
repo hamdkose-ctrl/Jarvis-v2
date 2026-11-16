@@ -1395,7 +1395,7 @@ def status_summary(job):
     pending_step = next((s for s in original.get('steps', ())
                          if isinstance(s,dict) and s.get('id')==pending_id
                          and s.get('state')=='approval'
-                         and s.get('tool') in ('coder','publish')),None)
+                         and s.get('tool') in ('coder','publish','writer','browser')),None)
     if pending_step is not None:
         target = pending_step.get('input',{}).get('destination')
         proposal = pending_step.get('_canonical_approval_proposal')

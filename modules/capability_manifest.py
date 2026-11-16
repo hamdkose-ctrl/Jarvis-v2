@@ -31,7 +31,7 @@ _TASK_POLICIES = {
     'file': ('read', 'read_only', 'execute', 'safe', 'none'),
     'finance': ('read', 'read_only', 'execute', 'safe', 'none'),
     'computer': ('read', 'read_only', 'execute', 'safe', 'none'),
-    'writer': ('local_reversible', 'local_reversible', 'execute', 'safe', 'none'),
+    'writer': ('local_reversible', 'local_reversible', 'ask_required', 'safe', 'none'),
     'browser': ('local_destructive', 'external_write', 'ask_required', 'conditional', 'required'),
     'coder': ('local_destructive', 'local_destructive', 'ask_required', 'conditional', 'required'),
     'verify': ('read', 'read_only', 'execute', 'safe', 'none'),

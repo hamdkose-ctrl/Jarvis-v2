@@ -18,9 +18,53 @@ def _speech_blocks_mic(voice_session):
                              and lane.stop_unconfirmed())))
 
 
+def _speak_isolated(runtime, voice_session, text, **kwargs):
+    """Quarantine TTS/device errors without cancelling Core or background work.
+
+    Do not signal stop_event, cancel a GoalState or start a fallback voice.
+    Unproven physical audio remains subject to the existing mic handoff gate.
+    """
+    if not runtime.flags.get("speak", True):
+        return False
+    try:
+        voice_session.speak(text, **kwargs)
+        return True
+    except Exception:
+        try:
+            runtime._record_failure("modules/engine_loop.py:tts_isolation")
+        except Exception:
+            pass
+        voice_session.speak_enabled = False
+        runtime.flags["speak"] = False
+        try:
+            from modules import voice_runtime
+            voice_runtime.block_legacy_on_fault()
+            voice_runtime.interrupt_active()  # speech only; never Core/task cancel
+        except Exception:
+            try:
+                runtime._record_failure("modules/engine_loop.py:tts_stop")
+            except Exception:
+                pass
+        try:
+            runtime.emit("system", "Ses çıkışı hata nedeniyle devre dışı. "
+                         "Yazılı yanıtlar ve arka plan görevleri devam ediyor.")
+        except Exception:
+            pass
+        return False
+
+
 def _emit_idle_if_silent(runtime, voice_session):
     """Emit truthful idle only after the single speaker's physical stop proof."""
-    if not _speech_blocks_mic(voice_session):
+    try:
+        silent = not _speech_blocks_mic(voice_session)
+    except Exception:
+        # A broken audio-driver status query is not proof of silence.
+        try:
+            runtime._record_failure("modules/engine_loop.py:tts_idle_probe")
+        except Exception:
+            pass
+        return
+    if silent:
         runtime.emit("state", "idle")
 
 
@@ -319,7 +363,7 @@ def main(runtime, ui=None):
                 runtime.pause_listening.set()
                 try:
                     with runtime.audio_lock:
-                        voice_session.speak(event[1], slow=(kind == "say_slow"),
+                        _speak_isolated(runtime, voice_session, event[1], slow=(kind == "say_slow"),
                                             shown=len(event) > 2, identity=identity)
                 finally:
                     runtime.time.sleep(0.3)
@@ -596,11 +640,11 @@ def main(runtime, ui=None):
                                 runtime._session().speech_override = None
                             elif runtime._session().speech_override:
                                 spoken, runtime._session().speech_override = runtime._session().speech_override, None
-                                voice_session.speak(spoken)
+                                _speak_isolated(runtime, voice_session, spoken)
                             elif runtime._session().last_doc is not None and out.startswith(runtime._session().last_doc[0][:50]):
-                                voice_session.speak(runtime._doc_ready_line(runtime._session().last_doc[2], out))
+                                _speak_isolated(runtime, voice_session, runtime._doc_ready_line(runtime._session().last_doc[2], out))
                             else:
-                                voice_session.speak(runtime._short_for_speech(runtime.richtext.speakable(out)))
+                                _speak_isolated(runtime, voice_session, runtime._short_for_speech(runtime.richtext.speakable(out)))
                     finally:
                         runtime._cur_source = ""
                         runtime._cur_rid = None

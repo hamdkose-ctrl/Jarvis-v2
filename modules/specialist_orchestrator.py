@@ -165,7 +165,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     gated={'media','file','finance','computer','publish','account','research','writer','browser','coder','verify','desktop'}
     if durable_system:
         gated.add('system')
-    prepare_bound={'coder','desktop','system'}
+    prepare_bound={'coder','desktop','system','writer'}
     if (step['tool'] in ('publish','browser') and isinstance(identity,dict)
             and identity.get('_canonical_scheduler_offer') is not None):
         prepare_bound.add(step['tool'])
@@ -201,6 +201,12 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             return runtime_execution_gate.accept_prepare_result(
                 plan,runtime_prepare_approval.prepare(identity,step['tool'],step['input']))
         if plan['phase']=='execute':
+            if step['tool'] == 'writer':
+                if step.get('runtime_approved') is not True:
+                    raise PermissionError('Writer dosya yazmadan önce açık onay gerektirir.')
+                # The existing GoalApproval and exact prepare artifact were
+                # checked before this single invocation; never persist the flag.
+                identity = {**identity, '_writer_approved': True}
             from modules import runtime_worker_result
             if runtime_worker_result.durable_identity(identity):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
