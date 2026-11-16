@@ -1,8 +1,10 @@
 """Cross-process atomic request and optional reserved-token limits, enabled only by verified developer policy.
 
-Policies are deliberately empty until official exact-model RPM/RPD limits are
-reviewed. SQLite BEGIN IMMEDIATE prevents two local processes from consuming
-the last request slot concurrently. Windows are rolling 60s and 24h (conservative).
+Policies exist only for exact provider/model rows a developer reviewed against an
+official published limits page with a bounded validity date; every other provider
+stays without a policy and no limit is ever guessed. SQLite BEGIN IMMEDIATE
+prevents two local processes from consuming the last request slot concurrently.
+Windows are rolling 60s and 24h (conservative).
 No keys, user text or model responses are stored. This is not a provider billing
 hard stop, and neuron usage is not currently metered. Token policies require a
 trusted caller-provided upper bound for total input+output, not guessed tokens.
@@ -20,7 +22,22 @@ import time
 from urllib.parse import urlsplit
 from modules.diagnostics import record_failure as _record_failure
 
-POLICIES: dict[tuple[str, str], dict] = {}
+# Groq's official Free plan base request caps for the three routed text models,
+# reviewed 16 Nov 2026 on https://console.groq.com/docs/rate-limits. The page is
+# org-level and "there may be exceptions", so this is a conservative local request
+# ceiling, not a provider billing hard stop; the observed-429 gate still covers
+# exceptions below the base value. Free TPM (8K) is deliberately NOT reserved: no
+# caller supplies a trusted input+max-output upper bound and a tpm policy without
+# one would fail-closed every Groq send. Gemini/Cloudflare pages publish no static
+# free-tier RPM/RPD numbers, so they stay policy-less until a real verified source.
+POLICIES: dict[tuple[str, str], dict] = {
+    ('groq', model): {
+        'source_url': 'https://console.groq.com/docs/rate-limits',
+        'verified_at': 1794855600,  # 16 Nov 2026 19:00 UTC
+        'expires_at': 1795460400,   # 23 Nov 2026 19:00 UTC — re-review before expiry
+        'rpm': 30, 'rpd': 1000,
+    } for model in ('openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b')
+}
 _OWNER = re.compile(r'^[\w-]{1,100}$', re.UNICODE)
 
 
