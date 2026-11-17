@@ -13,6 +13,8 @@ class Phase4FileWorkerWiringTests(unittest.TestCase):
             content_digest='a' * 64,
             reason_code='OK',
             warnings=[],
+            truncated=False,
+            continuation=None,
             locations=[SimpleNamespace(text='Rapor 2026-12-01 tarihine kadar hazırlanmalı.', page=None, line=1, sheet=None, cell_or_range=None)],
         )
         with patch('modules.file_worker.extract', return_value=observation), \
