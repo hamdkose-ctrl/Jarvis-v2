@@ -92,6 +92,58 @@ class FileWorkerExtensionsTests(unittest.TestCase):
         self.assertEqual(rows[0]["due"], "2026-11-05")
         self.assertTrue(any(row["kind"] == "obligation" for row in rows))
 
+
+class TurkishDateExtractionTests(unittest.TestCase):
+    """Onaylı biçimler: `5 Aralık 2026`, `05.12.2026`, `2026-12-05` → ISO due.
+    Geçersiz/eksik tarihte due=None; asla tarih uydurulmaz."""
+
+    def test_iso_form_normalized(self):
+        rows = ext.extract_obligations("Teslim 2026-12-05 tarihinde yapılacak.")
+        self.assertEqual(rows[0]["due"], "2026-12-05")
+
+    def test_tr_month_name_form(self):
+        rows = ext.extract_obligations("Sözleşme 5 Aralık 2026 günü imzalanır.")
+        deadlines = [row for row in rows if row["kind"] == "deadline"]
+        self.assertEqual(deadlines[0]["due"], "2026-12-05")
+
+    def test_dotted_dmy_form(self):
+        rows = ext.extract_obligations("Rapor 05.12.2026 teslim.")
+        self.assertEqual(rows[0]["due"], "2026-12-05")
+
+    def test_slash_dmy_form(self):
+        self.assertEqual(ext.extract_dates("05/12/2026"), ["2026-12-05"])
+
+    def test_uppercase_tr_month_name(self):
+        self.assertEqual(ext.extract_dates("5 ARALIK 2026"), ["2026-12-05"])
+
+    def test_turkish_diacritic_months(self):
+        for text, expected in (("15 Şubat 2027", "2027-02-15"), ("1 Mart 2027", "2027-03-01"),
+                               ("20 Ağustos 2027", "2027-08-20"), ("9 Eylül 2027", "2027-09-09"),
+                               ("30 Kasım 2027", "2027-11-30")):
+            self.assertEqual(ext.extract_dates(text), [expected], text)
+
+    def test_invalid_calendar_date_is_not_invented(self):
+        rows = ext.extract_obligations("Kontrol 31.02.2026 tarihinde yapılacak.")
+        self.assertEqual([row for row in rows if row["kind"] == "deadline"], [])
+        for row in rows:
+            self.assertIsNone(row["due"])
+
+    def test_day_without_year_is_not_invented(self):
+        self.assertEqual(ext.extract_dates("5 Aralık teslim günü."), [])
+        self.assertEqual(ext.extract_dates("yarın son gün"), [])
+
+    def test_multiple_dates_keep_first_as_due_and_order(self):
+        rows = ext.extract_obligations("Ön rapor 3 Kasım 2026, kesin rapor 05.12.2026 tarihinde.")
+        deadline = next(row for row in rows if row["kind"] == "deadline")
+        self.assertEqual(deadline["due"], "2026-11-03")
+        self.assertEqual(ext.extract_dates("Ön rapor 3 Kasım 2026, kesin rapor 05.12.2026 tarihinde."),
+                         ["2026-11-03", "2026-12-05"])
+
+    def test_empty_text_still_rejected(self):
+        with self.assertRaises(ValueError):
+            ext.extract_obligations("   ")
+        self.assertEqual(ext.extract_dates(""), [])
+
     def test_pptx_writer_is_injected_and_payload_is_structured(self):
         calls = []
         result = ext.create_pptx("sunum.pptx", [{"title": "Başlık", "body": "İçerik"}], writer=calls.append)

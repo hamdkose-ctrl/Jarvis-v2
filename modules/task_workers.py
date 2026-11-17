@@ -50,19 +50,33 @@ def file_task(data):
     if data.get('operation') != 'extract_obligations':
         raise ValueError('Dosya worker işlemi geçersiz.')
     from modules import file_worker, file_worker_extensions
-    observation = file_worker.extract(data['path'])
+    offset = data.get('offset', 0)
+    if type(offset) is not int or offset < 0:
+        raise ValueError('Dosya worker devam offset geçersiz.')
+    observation = file_worker.extract(data['path'], offset=offset)
     if observation.reason_code != 'OK':
         raise ValueError('Dosya okunamadı: ' + observation.reason_code)
-    text = '\n'.join(location.text for location in observation.locations if location.text)
-    obligations = file_worker_extensions.extract_obligations(text, source=observation.path) if text else []
+    # Her bulgu kendi konumundan çıkar: sayfa/satır/sayfa adı bilgisi kaybolmaz.
+    obligations = []
+    for location in observation.locations:
+        if not location.text:
+            continue
+        for row in file_worker_extensions.extract_obligations(location.text, source=observation.path):
+            obligations.append({**row, 'page': location.page, 'line': location.line,
+                                'sheet': location.sheet})
     evidence = {
         'path': observation.path, 'identity': observation.file_identity,
         'digest': observation.content_digest, 'reason_code': observation.reason_code,
         'warnings': list(observation.warnings),
+        'truncated': observation.truncated, 'continuation': observation.continuation,
         'locations': [{'page': row.page, 'line': row.line, 'sheet': row.sheet,
                        'cell_or_range': row.cell_or_range} for row in observation.locations],
     }
-    return {'state': 'done', 'text': 'Dosya salt-okunur incelendi.', 'obligations': obligations,
+    text = 'Dosya salt-okunur incelendi.'
+    if observation.truncated:
+        text += (f' Kanıt kesildi ({len(observation.locations)} konum); '
+                 f'devamı için offset={observation.continuation} ile yeni tur gerekir.')
+    return {'state': 'done', 'text': text, 'obligations': obligations,
             'file_evidence': evidence}
 
 

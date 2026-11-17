@@ -40,14 +40,65 @@ def _minified(path: Path, text: str) -> bool:
     return bool(lines) and (max(map(len, lines)) > 5000 or len(lines) <= 2 and len(text) > 8000)
 
 
+_MONTHS_TR = {
+    "ocak": 1, "şubat": 2, "subat": 2, "mart": 3, "nisan": 4, "mayıs": 5, "mayis": 5,
+    "haziran": 6, "temmuz": 7, "ağustos": 8, "agustos": 8, "eylül": 9, "eylul": 9,
+    "ekim": 10, "kasım": 11, "kasim": 11, "aralık": 12, "aralik": 12,
+}
+_MONTH_NAMES = "|".join(sorted(_MONTHS_TR, key=len, reverse=True))
+_DATE_ISO = re.compile(r"\b((?:19|20)\d{2})-(\d{1,2})-(\d{1,2})\b")
+_DATE_DMY = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./]((?:19|20)\d{2})\b")
+_DATE_TR_MONTH = re.compile(rf"\b(\d{{1,2}})\s+({_MONTH_NAMES})\s+((?:19|20)\d{{2}})\b", re.IGNORECASE)
+
+
+def _normalize_date(year: int, month: int, day: int) -> str | None:
+    """Gerçek takvim tarihi doğrular; uydurma/eksik tarih None döner."""
+    from datetime import date
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def extract_dates(text: str) -> list[str]:
+    """Metindeki gerçek tarihleri ISO YYYY-MM-DD olarak, görünüş sırasıyla döner.
+
+    Desteklenen biçimler: `2026-12-05`, `05.12.2026` / `05/12/2026` ve
+    `5 Aralık 2026`. Geçersiz takvim değeri (ör. 31.02) ve çözülemeyen tarih
+    listede yer almaz; asla tarih uydurulmaz.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    found: list[tuple[int, str]] = []
+    for m in _DATE_ISO.finditer(text):
+        iso = _normalize_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if iso:
+            found.append((m.start(), iso))
+    for m in _DATE_DMY.finditer(text):
+        iso = _normalize_date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        if iso:
+            found.append((m.start(), iso))
+    for m in _DATE_TR_MONTH.finditer(text):
+        month = _MONTHS_TR.get(m.group(2).casefold())
+        if month:
+            iso = _normalize_date(int(m.group(3)), month, int(m.group(1)))
+            if iso:
+                found.append((m.start(), iso))
+    # Aynı tarih birden çok kalıba düşebilir; konum sırası korunur, tekrarlar elenir.
+    ordered: list[str] = []
+    for _, iso in sorted(found):
+        if iso not in ordered:
+            ordered.append(iso)
+    return ordered
+
+
 def extract_obligations(text: str, *, source: str = "") -> list[dict]:
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Yükümlülük çıkarımı için metin gerekli.")
     rows = []
-    date_pattern = r"(?:19|20)\d{2}-\d{2}-\d{2}"
     sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
     for sentence in sentences:
-        dates = re.findall(date_pattern, sentence)
+        dates = extract_dates(sentence)
         lower = sentence.casefold()
         obligation = bool(re.search(r"\b(?:gerekir|zorunlu|zorundasın|etmelisin|yapılmalı|yapmalısın|must|shall|required)\b", lower))
         if dates:

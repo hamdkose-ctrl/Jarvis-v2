@@ -13,7 +13,7 @@ CATALOG = {
     'research': {'risk': 'network_read', 'replay_safe': True,
                  'required': (), 'optional': ('url', 'query', 'question')},
     'file': {'risk': 'local_evidence_read', 'replay_safe': True,
-             'required': ('path', 'operation'), 'optional': ()},
+             'required': ('path', 'operation'), 'optional': ('offset',)},
     'finance': {'risk': 'local_evidence_read', 'replay_safe': True,
                 'required': ('operation', 'payload'), 'optional': ()},
     'computer': {'risk': 'local_evidence_read', 'replay_safe': True,
