@@ -35,6 +35,7 @@ _CANONICAL_WORKER_DEADLINE_SECONDS=300
 _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
+_DAILY_NOTIFY_THREAD=None
 # A single admission wake belongs to the existing Scheduler; there is no
 # second poller/worker. Wake is best-effort after a durable commit and NEVER
 # bypasses per-owner Core leases, request cancellation or planner fences.
@@ -97,12 +98,29 @@ def _quarantine_expired_workers():
 
 
 def set_daily_notify(callback):
-    """Register one lightweight engine-owned daily hook on the existing scheduler thread."""
+    """Register one lightweight engine-owned daily hook; the scheduler dispatches it
+    on its own daemon thread so a slow mail/plan source never delays goal admission."""
     global _DAILY_NOTIFY, _DAILY_NEXT
     if callback is not None and not callable(callback):
         raise ValueError('Günlük bildirim callback geçersiz.')
     _DAILY_NOTIFY=callback
     _DAILY_NEXT=0.0
+
+
+def _dispatch_daily_notify(now):
+    """Fire the due daily hook off the scheduler thread: one in-flight at a time,
+    the 60-second throttle and the recorded-failure channel are unchanged."""
+    global _DAILY_NEXT, _DAILY_NOTIFY_THREAD
+    callback=_DAILY_NOTIFY
+    if callback is None or now<_DAILY_NEXT:return False
+    if _DAILY_NOTIFY_THREAD is not None and _DAILY_NOTIFY_THREAD.is_alive():return False
+    _DAILY_NEXT=now+60
+    def run():
+        try:callback()
+        except Exception:_record_failure('modules/task_queue.py:daily_notify')
+    _DAILY_NOTIFY_THREAD=threading.Thread(target=run,daemon=True,name='jarvis-daily-notify')
+    _DAILY_NOTIFY_THREAD.start()
+    return True
 
 
 def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0, cron=''):
@@ -618,7 +636,6 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 break
 
         def loop():
-            global _DAILY_NEXT
             while _wait_for_scheduler_tick(stop_event):
                 # Only the one scheduler mutates these registries. Do not
                 # free a slot until its OS thread is actually gone: a
@@ -629,10 +646,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                         if not worker.is_alive():
                             registry.pop(key, None)
                 now=time.time()
-                if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
-                    _DAILY_NEXT=now+60
-                    try:_DAILY_NOTIFY()
-                    except Exception:_record_failure('modules/task_queue.py:daily_notify')
+                _dispatch_daily_notify(now)
                 # Canonical goals do not require a pre-existing SQLite queue.
                 # The existing Scheduler inspects registered users directly,
                 # without creating a second owner poller or opening a DB.
