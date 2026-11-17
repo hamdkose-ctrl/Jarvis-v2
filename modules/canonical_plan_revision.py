@@ -144,7 +144,9 @@ def execute(profile, job_id, *, stop_event=None):
                 if stop_event is not None and stop_event.is_set():
                     raise requests_state.Cancelled('Plan revizyonu durduruldu.')
             with requests_state.worker_probe(check_stop):
-                raw = model_wait.ask(prompt, system=task_plan_contracts._SYSTEM,
+                raw = model_wait.ask(prompt,
+                                     system=task_plan_contracts._SYSTEM +
+                                            task_plan_contracts.CANONICAL_EFFECT_NOTE,
                                      max_tokens=2200, seconds=60)
                 requests_state.check()
                 tasks = task_plan_contracts.validate(task_plan_contracts._json(raw)['tasks'])

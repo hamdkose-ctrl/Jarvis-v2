@@ -229,6 +229,7 @@ def execute(profile, job_id: str, *, stop_event=None):
                 # developer-installed canonical capability schema.
                 system = (
                     task_plan_contracts._SYSTEM +
+                    task_plan_contracts.CANONICAL_EFFECT_NOTE +
                     "\nBu tur canonical arka plan hedefidir. Research, file "
                     "ve salt-okunur account görevleriyle kaynak kanıtlarını birleştir; "
                     "doğrulanmış research/account bağımlı verify görevini kullan. "

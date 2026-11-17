@@ -115,7 +115,7 @@ class CanonicalDesktopResumeTests(unittest.TestCase):
         fake.render.return_value = 'ekran'
         fake.run.return_value = 'çalıştı'
         fake.handle.return_value = 'izin verildi'
-        with mock.patch('modules.desktop_agent', fake):
+        with mock.patch('modules.desktop_agent', fake, create=True):
             result = goal_tools.execute(_runtime(), 'desktop', data, {}, identity)
         return result, fake
 
@@ -195,7 +195,7 @@ class CanonicalDesktopResumeTests(unittest.TestCase):
         fake._load.side_effect = [previous, switched]
         fake.render.return_value = 'ekran'
         fake.run.return_value = 'çalıştı'
-        with mock.patch('modules.desktop_agent', fake):
+        with mock.patch('modules.desktop_agent', fake, create=True):
             with self.assertRaises(ValueError):
                 goal_tools.execute(_runtime(), 'desktop',
                                    {'target': 'calc', 'goal': '12 ile 7 topla'}, {}, identity)
@@ -207,7 +207,7 @@ class CanonicalDesktopResumeTests(unittest.TestCase):
         fake._load.side_effect = [None, started]
         fake.handle.return_value = 'başladı'
         fake.render.return_value = 'ekran'
-        with mock.patch('modules.desktop_agent', fake):
+        with mock.patch('modules.desktop_agent', fake, create=True):
             result = goal_tools.execute(_runtime(), 'desktop',
                                         {'target': 'calc', 'goal': '12 ile 7 topla'}, {}, identity)
         self.assertEqual(fake.handle.call_args.args[1], 'PC görevi: calc | 12 ile 7 topla')
@@ -223,6 +223,52 @@ class DispatchWiringTests(unittest.TestCase):
         for needle in ("'desktop'", '_canonical_desktop_id',
                        '_canonical_desktop_resume', "result.get('state') == 'approval'"):
             self.assertIn(needle, source)
+
+
+class PlannerAdmissionTests(unittest.TestCase):
+    """The desktop proposal must be reachable from the real planner funnel."""
+
+    def _task(self, *, deps=()):
+        return {'id': 'd1', 'agent': 'desktop', 'depends': list(deps),
+                'input': {'target': 'calc', 'goal': '12 ile 7 topla'}}
+
+    def test_background_planner_publishes_desktop_root(self):
+        from modules import canonical_goal_flow
+        plan = canonical_goal_flow._canonical_plan([self._task()], allow_effects=True)
+        node = plan['nodes'][0]
+        self.assertEqual(node['capability_id'], 'task.desktop')
+        self.assertEqual(node['input'], {'target': 'calc', 'goal': '12 ile 7 topla'})
+        self.assertEqual(node['expected_output'], 'Verified effectful task result')
+
+    def test_foreground_plan_rejects_desktop(self):
+        from modules import canonical_goal_flow
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([self._task()], allow_effects=False)
+
+    def test_desktop_with_dependency_is_rejected(self):
+        from modules import canonical_goal_flow
+        research = {'id': 'r1', 'agent': 'research', 'depends': [],
+                    'input': {'query': 'x', 'question': 'y'}}
+        with self.assertRaisesRegex(ValueError, 'standalone root task'):
+            canonical_goal_flow._canonical_plan([research, self._task(deps=['r1'])],
+                                                allow_effects=True)
+
+    def test_all_canonical_planner_prompts_see_the_note(self):
+        import inspect
+        from modules import (
+            canonical_goal_flow, canonical_plan_revision, canonical_planning_queue,
+            task_plan_contracts,
+        )
+        self.assertIn('desktop input', task_plan_contracts.CANONICAL_EFFECT_NOTE)
+        for fn in (canonical_planning_queue.execute, canonical_plan_revision.execute,
+                   canonical_goal_flow._try_create_planned):
+            self.assertIn('CANONICAL_EFFECT_NOTE', inspect.getsource(fn))
+
+    def test_legacy_planner_enumeration_stays_desktop_free(self):
+        from modules import task_plan_contracts
+        self.assertNotIn('"agent":"research|file|finance|computer|writer|browser|coder|verify|account|publish|media|desktop"',
+                         task_plan_contracts._SYSTEM)
+        self.assertNotIn('|desktop"', task_plan_contracts._SYSTEM)
 
 
 if __name__ == '__main__':
