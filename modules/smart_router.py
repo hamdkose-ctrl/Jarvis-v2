@@ -766,11 +766,12 @@ def _plan_request(request: ModelRequest) -> RoutePlan:
     return RoutePlan(tuple(specs[:2]), tuple(skipped), request.max_network_attempts,alternatives=tuple(specs[2:]))
 
 
-def qualification_candidate(owner,*,connection_id=None,local=False):
+def qualification_candidate(owner,*,connection_id=None,local=False,provider=None):
     request=ModelRequest(owner=owner,profile='custom_explicit' if connection_id else 'conversation',
         connection_id=connection_id,selection_mode='configured' if connection_id else 'local_only' if local else 'free',
         data_scope='conversation',max_output_tokens=2048,features=frozenset({'text','structured_output'}))
     candidates=plan(request).candidates
+    if provider is not None:candidates=[c for c in candidates if c.provider==provider]
     if not candidates:raise ValueError('Rol ölçümü için uygun exact bağlantı/model yok.')
     return candidates[0]
 

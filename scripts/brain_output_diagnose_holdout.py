@@ -201,12 +201,16 @@ def main(argv=None):
     parser.add_argument('--qualify-connection',help='Explicit enabled custom connection; may bill the selected account.')
     parser.add_argument('--accept-paid',action='store_true',help='Accept the bounded custom-model qualification calls.')
     parser.add_argument('--qualify-local',action='store_true',help='Measure the configured installed local model instead of free cloud.')
+    parser.add_argument('--qualify-provider',choices=('gemini','groq','cloudflare'),
+        help='Pin the first free-cloud candidate of this provider; thresholds, budget and report contract are unchanged.')
     parser.add_argument('--connection-only',action='store_true',help='One real proposal; never a semantic acceptance result.')
     parser.add_argument('--json',type=Path)
     parser.add_argument('--interval-seconds',type=float,default=35,help='Spacing outside each request budget; default35 for Free-tier token limits.')
     args = parser.parse_args(argv)
     if not 0 <= args.interval_seconds <= 120:
         parser.error('--interval-seconds must be between0 and120')
+    if args.qualify_provider and (args.qualify_connection or args.qualify_local):
+        parser.error('--qualify-provider yalnız ücretsiz bulut adayını sabitler; --qualify-connection/--qualify-local ile birlikte kullanılmaz.')
     cases = json.loads(CORPUS.read_text(encoding='utf-8'))['cases']
     if args.connection_only:
         cases = cases[:1]
@@ -230,7 +234,7 @@ def main(argv=None):
             report['reason_code'] = 'route_unavailable'
         else:
             from modules import smart_router,router_quota
-            candidate=smart_router.qualification_candidate(owner,connection_id=args.qualify_connection,local=args.qualify_local)
+            candidate=smart_router.qualification_candidate(owner,connection_id=args.qualify_connection,local=args.qualify_local,provider=args.qualify_provider)
             with smart_router.qualification_session(owner,candidate.provider,candidate.model,candidate.connection_id):
                 report.update(measure(owner,cases,interval_seconds=args.interval_seconds))
             report['qualified_target']={'provider':candidate.provider,'model':candidate.model,'connection_id':candidate.connection_id}

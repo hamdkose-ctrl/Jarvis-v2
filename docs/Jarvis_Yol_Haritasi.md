@@ -1,3 +1,13 @@
+# Brain kabul kılavuzu — ücretsiz bulut sağlayıcı sabitlemesi — 17 Kasım 2026
+
+**Bulgu (ölçüldü):** 17 Kasım sabahı Gemini Brain rolü tam holdout ile kabul edildi (20/20, doğruluk 1,0, 0 yanlış öneri, 0 efekt; `role_qualifications` satırı 7 gün). Aynı gün Groq ücretsiz-plan beyan kaydı parmak iziyle yenilendi ve üç Groq modeli `_evidence_gate`'ten geçti; buna karşın Groq'un kendi canlı rol ölçümü koşülemez kaldı: `qualification_candidate` serbest bulut sırasının ilk adayını döndürür, sıra başı Gemini olduğu sürece kılavuzda Groq'u sabitleyecek bir bayrak yoktur (`--qualify-connection`/`--qualify-local` kendi hedeflerini sabitler, ücretsiz bulutta denk bayrak yoktur). Bu, Router kabul satırındaki "standart üretim bütçeleriyle canlı rol ölçümü" maddesinin fiilen koşulamayan kısmıdır.
+
+**Değişiklik (tek ince paket):** `scripts/brain_output_diagnose_holdout.py`'a `--qualify-provider {gemini,groq,cloudflare}` eklendi; `smart_router.qualification_candidate` aynı ada filtre parametresi aldı. Sabitleme yalnız rapor hedefini seçer: ölçüm sırasında `_ROLE_EVALUATION` üretim planında exact hedef dışı ücretsiz adayları zaten eliyordu, bu kapı gevşetilmedi. Eşik (%95), 20 vaka, yanlış-öneri=0, efekt=0, `qualify_role` doğrulamaları, bütçe ve 35 sn aralık aynen durur; yerel/özel bayraklarla çakışma ilk çağrıdan önce `parser.error` ile reddedilir.
+
+**Kanıt:** `tests/test_brain_output_diagnose_holdout.py` 32 test OK (5 yeni: bayrak→aday geçişi, çakışma reddi, sağlayıcı seçim kümesi, sıralı iki filtre testi); `test_smart_router` OK; `modules.architecture_guard` OK; tam `modules.validation` bu exact head'de ayrıca kaydedilir. Not: `_role_fingerprint` kaynak ve kılavuzu hash'lediği için bu PR merge olduktan sonra mevcut Gemini/Groq yetki satırları parmak izi uyuşmazlığıyla düşer; kapanış sonrası aynı head'de `--run` (sıradaki aday) ve `--run --qualify-provider groq` ölçümleri ayrı kabul turu olarak yeniden koşulur. Exact-head Windows CI ve aynı SHA PC watcher olmadan faz kapanmaz.
+
+---
+
 # BRAIN-10 güncel kod adayı — 14 Kasım 2026
 
 #628 BRAIN-09, kaynak3354526 exact WindowsCI43572580953 ve gerçekPC6874150892 PASS sonrası main `f77ecb020f44476447f39241822398f635155f38` olarak birleşti. Yeni yetkilendirilmiş iş BRAIN-10 tek PR'dır.
