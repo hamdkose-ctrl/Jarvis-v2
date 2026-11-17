@@ -22,8 +22,9 @@ from . import docs, document_conversion, file_ops, files
 
 MAX_SCAN_FILES = 500          # tek klasör taramasında en fazla dosya (asılı kalmayı önler)
 MAX_DIGEST_BYTES = 200 * 1024 * 1024   # bundan büyük dosyada tam digest hesaplanmaz
-SNIPPET_LEN = 400              # evidence metninde tutulan en fazla karakter
+SNIPPET_LEN = 1200             # evidence metninde tutulan en fazla karakter
 MAX_LOCATIONS = 200            # tek dosyadan çıkarılan en fazla evidence konumu
+EVIDENCE_BUDGET = 24_000       # tek extract turunda toplanan evidence metni bütçesi (karakter)
 
 _STRUCTURED_EXT = {".pdf", ".docx", ".xlsx", ".csv", ".txt", ".md"}
 
@@ -53,6 +54,35 @@ class FileObservation:
     locations: list[Location] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     reason_code: str = "OK"
+    truncated: bool = False
+    continuation: int | None = None
+
+
+def _bounded_locations(units: list, offset: int, make_loc) -> tuple[list[Location], bool, int | None, int]:
+    """Konum/karakter bütçesini uygulayan tek toplama döngüsü.
+
+    `units` kaynağın tam birim listesi (sayfa/blok/satır), `make_loc(unit)` bir
+    Location üretir ya da boş birim için None döner. Dönüş: (locs, truncated,
+    continuation_offset, işlenmeyen_birim_sayısı). Kesinti sessiz değildir; çağıran
+    açık uyarı yazar ve `continuation` ile sonraki parça istenebilir.
+    """
+    locs: list[Location] = []
+    budget = EVIDENCE_BUDGET
+    index = offset
+    truncated = False
+    while index < len(units):
+        loc = make_loc(units[index])
+        if loc is None:
+            index += 1
+            continue
+        if len(locs) >= MAX_LOCATIONS or len(loc.text) > budget:
+            truncated = True
+            break
+        budget -= len(loc.text)
+        locs.append(loc)
+        index += 1
+    unprocessed = len(units) - index if truncated else 0
+    return locs, truncated, (index if truncated else None), unprocessed
 
 
 def allowed_roots() -> list[Path]:
@@ -155,53 +185,66 @@ def _extractor_version(name: str) -> str:
         return "bilinmiyor"
 
 
-def _locations_from_structured(content, ext: str) -> tuple[list[Location], str, str]:
-    """document_conversion.read_source() çıktısından evidence konumları üretir."""
-    locs: list[Location] = []
+def _locations_from_structured(content, ext: str, offset: int):
+    """document_conversion.read_source() çıktısından sınırlı evidence konumları üretir."""
     if ext == ".pdf":
-        for i, page_text in enumerate(content.pages, 1):
-            if page_text.strip():
-                locs.append(Location(page=i, text=page_text[:SNIPPET_LEN]))
-            if len(locs) >= MAX_LOCATIONS:
-                break
-        return locs, "pypdf (modules.pdf_runtime)", _extractor_version("pypdf")
+        units = list(enumerate(content.pages, 1))
+
+        def make_loc(unit):
+            page, page_text = unit
+            return Location(page=page, text=page_text[:SNIPPET_LEN]) if page_text.strip() else None
+
+        locs, truncated, continuation, unprocessed = _bounded_locations(units, offset, make_loc)
+        return locs, "pypdf (modules.pdf_runtime)", _extractor_version("pypdf"), truncated, continuation, unprocessed
     if ext == ".csv" or (ext == ".xlsx" and content.sheets):
-        for sheet_name, rows in content.sheets:
-            for r_idx, row in enumerate(rows, 1):
-                if any(v not in (None, "") for v in row):
-                    cell_range = f"A{r_idx}:{chr(64 + min(len(row), 26))}{r_idx}"
-                    text = " | ".join(str(v) for v in row if v not in (None, ""))
-                    locs.append(Location(sheet=sheet_name if ext == ".xlsx" else None,
-                                          line=r_idx if ext == ".csv" else None,
-                                          cell_or_range=cell_range if ext == ".xlsx" else None,
-                                          text=text[:SNIPPET_LEN]))
-                if len(locs) >= MAX_LOCATIONS:
-                    break
-            if len(locs) >= MAX_LOCATIONS:
-                break
+        units = [(sheet_name, r_idx, row)
+                 for sheet_name, rows in content.sheets
+                 for r_idx, row in enumerate(rows, 1)]
+
+        def make_loc(unit):
+            sheet_name, r_idx, row = unit
+            if not any(v not in (None, "") for v in row):
+                return None
+            cell_range = f"A{r_idx}:{chr(64 + min(len(row), 26))}{r_idx}"
+            text = " | ".join(str(v) for v in row if v not in (None, ""))
+            return Location(sheet=sheet_name if ext == ".xlsx" else None,
+                            line=r_idx if ext == ".csv" else None,
+                            cell_or_range=cell_range if ext == ".xlsx" else None,
+                            text=text[:SNIPPET_LEN])
+
+        locs, truncated, continuation, unprocessed = _bounded_locations(units, offset, make_loc)
         name = "openpyxl" if ext == ".xlsx" else "csv (yerel okuyucu)"
-        return locs, name, _extractor_version("openpyxl") if ext == ".xlsx" else "stdlib"
+        return locs, name, (_extractor_version("openpyxl") if ext == ".xlsx" else "stdlib"), truncated, continuation, unprocessed
     if ext in (".docx", ".txt", ".md"):
-        for i, block in enumerate(content.blocks, 1):
+        units = list(enumerate(content.blocks, 1))
+
+        def make_loc(unit):
+            i, block = unit
             text = block.text if block.kind != "table" else " | ".join(
                 " / ".join(str(c) for c in row) for row in block.rows)
-            if text and text.strip():
-                locs.append(Location(line=i, text=text[:SNIPPET_LEN]))
-            if len(locs) >= MAX_LOCATIONS:
-                break
+            return Location(line=i, text=text[:SNIPPET_LEN]) if text and text.strip() else None
+
+        locs, truncated, continuation, unprocessed = _bounded_locations(units, offset, make_loc)
         name = "python-docx" if ext == ".docx" else "markdown/metin bloklayıcı"
-        return locs, name, _extractor_version("python-docx") if ext == ".docx" else "stdlib"
-    return locs, "document_conversion", "stdlib"
+        return locs, name, (_extractor_version("python-docx") if ext == ".docx" else "stdlib"), truncated, continuation, unprocessed
+    return [], "document_conversion", "stdlib", False, None, 0
 
 
-def extract(path: str) -> FileObservation:
+def extract(path: str, *, offset: int = 0) -> FileObservation:
     """Bir dosyadan evidence-bağlı, salt-okunur çıkarım. Hiçbir şey yazmaz/değiştirmez.
 
     Desteklenen biçimlerde (`modules.docs.SUPPORTED`) başarısızsa `reason_code` ile
     dönen bir `FileObservation` üretir; hiçbir durumda istisna yutarak sessiz
     "başarı" üretmez. Desteklenmeyen biçim veya izin dışı klasör için
     `FileWorkerError` fırlatılır.
+
+    `offset` önceki turda işlenen kaynak birimi (sayfa/blok/satır) sayısıdır; uzun
+    belge parça parça incelenir. Konum/bütçe sınırına takılan tur `truncated=True`,
+    `continuation` (sonraki parçanın offset'i) ve açık bir uyarı taşır — içerik
+    sessizce atılmaz.
     """
+    if type(offset) is not int or offset < 0:
+        raise FileWorkerError("Devam offset'i negatif olmayan tam sayı olmalı.", "INVALID_OFFSET")
     p = Path(path)
     if not p.is_file():
         raise FileWorkerError(f"Dosya bulunamadı: {path}", "FILE_NOT_FOUND")
@@ -220,25 +263,42 @@ def extract(path: str) -> FileObservation:
     obs = FileObservation(path=str(p), file_identity=identity, content_digest=digest,
                            extractor_name="", extractor_version="")
 
+    def _mark_truncation(truncated: bool, continuation: int | None, unprocessed: int) -> None:
+        if not truncated:
+            return
+        obs.truncated = True
+        obs.continuation = continuation
+        limit = ("konum sınırına (200)" if len(obs.locations) >= MAX_LOCATIONS
+                 else f"karakter bütçesine ({EVIDENCE_BUDGET})")
+        obs.warnings.append(
+            f"Kanıt kesildi: {limit} takıldı, {len(obs.locations)} konum alındı, "
+            f"{unprocessed} birim işlenmedi; devam için extract(path, offset={continuation}).")
+
     try:
         if ext in _STRUCTURED_EXT:
             content = document_conversion.read_source(str(p))
-            locs, name, version = _locations_from_structured(content, ext)
+            locs, name, version, truncated, continuation, unprocessed = _locations_from_structured(content, ext, offset)
             obs.extractor_name, obs.extractor_version = name, version
             obs.locations = locs
             obs.warnings = list(content.warnings)
+            _mark_truncation(truncated, continuation, unprocessed)
         else:
             text = docs.read_document(str(p), keep_pages=True)
             obs.extractor_name, obs.extractor_version = "modules.docs.read_document", "n/a"
             if ext == ".pptx":
                 obs.extractor_name = "pptx slayt metni (zipfile/regex)"
             pages = text.split("\f") if "\f" in text else [text]
-            for i, page_text in enumerate(pages, 1):
-                if page_text.strip():
-                    obs.locations.append(Location(page=i if len(pages) > 1 else None,
-                                                    text=page_text.strip()[:SNIPPET_LEN]))
-                if len(obs.locations) >= MAX_LOCATIONS:
-                    break
+            units = list(enumerate(pages, 1))
+
+            def make_loc(unit):
+                i, page_text = unit
+                stripped = page_text.strip()
+                return Location(page=i if len(pages) > 1 else None,
+                                text=stripped[:SNIPPET_LEN]) if stripped else None
+
+            locs, truncated, continuation, unprocessed = _bounded_locations(units, offset, make_loc)
+            obs.locations = locs
+            _mark_truncation(truncated, continuation, unprocessed)
     except FileNotFoundError:
         obs.reason_code = "FILE_NOT_FOUND"
         return obs
