@@ -1,3 +1,9 @@
+# Brain kabul taşınabilirliği — 17 Kasım 2026
+
+**Bulgu (DOĞRULANDI):** Aynı commit'in iki kopyası farklı Brain parmak izi üretiyordu — GitHub ZIP kurulumu LF, yerel git checkout'u CRLF; `_role_fingerprint` bayt bayt hash'liyordu. Hamdi'nin ZIP kurulumunda tüm `role_qualifications` satırları düştü ve serbest tur fail-closed kaldı ("canlı kabul bekliyor"). İkinci gerçek: kabul betiği `.git` olmayan ağaçta `git rev-parse` yüzünden ilk çağrıdan önce ölüyordu (eski sözleşme: kanıt SHA yoksa koşulmaz) — ZIP ile kurulmuş sürümler bu tasarımıyla yeniden kabul edilemezdi. **Değişiklik (PR #658, Hamdi "aç"):** parmak izi dosya başına CRLF→LF normalize ederek hesaplanır; betik git-veremeyen ağaçta uydurma SHA değil içerik işaretçisi yazar (`head="install:<parmakiz12>"`, `head_source="fingerprint"`), kapı ise eskisi gibi yalnız fingerprint/binding/süre okur (test ile sabit). **Bilinen bedel:** şema değiştiği için merge sonrası mevcut tüm kabul satırları bir kez düşer; tek seferlik yeniden kabul bundan böyle HER checkout'tan koşılabilir (20 sınırlı ücretsiz çağrı). Bugünkü ZIP kurulumu, merge'i beklemeden LF bayt klonunda ölçülen kabul ile açıldı. Kanıt: `tests/test_brain_role_fingerprint_portability.py`, `tests/test_brain_output_diagnose_holdout.py` (CaptureHead + yeniden yazılan no-git sözleşmesi). Exact-head Windows CI + aynı SHA PC watcher gelmeden madde ✅ DEĞİLDİR.
+
+---
+
 # BRAIN-10 güncel kod adayı — 14 Kasım 2026
 
 #628 BRAIN-09, kaynak3354526 exact WindowsCI43572580953 ve gerçekPC6874150892 PASS sonrası main `f77ecb020f44476447f39241822398f635155f38` olarak birleşti. Yeni yetkilendirilmiş iş BRAIN-10 tek PR'dır.
