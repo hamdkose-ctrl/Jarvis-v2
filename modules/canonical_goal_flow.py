@@ -46,8 +46,9 @@ def _canonical_plan(tasks, *, allow_effects=False):
             raise ValueError('Unsupported canonical task capability.')
         if kind == 'media' and deps:
             raise ValueError('Canonical media must be an independent first attempt.')
-        if kind == 'browser' and (deps or task['input'].get('mode') != 'readonly'):
-            raise ValueError('Canonical browser requires explicit read-only mode.')
+        if kind == 'browser' and (deps or task['input'].get('mode')
+                                 not in ('readonly', 'interactive')):
+            raise ValueError('Canonical browser requires explicit readonly or interactive mode.')
         if kind == 'desktop' and deps:
             raise ValueError('Canonical desktop requires a standalone root task.')
         if kind == 'coder' and deps:

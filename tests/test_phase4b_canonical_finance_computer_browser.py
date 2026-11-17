@@ -28,11 +28,11 @@ class CanonicalPhase4BTests(unittest.TestCase):
             SimpleNamespace(slug=self.owner), self.offer(ident),
         )
 
-    def test_only_readonly_browser_plan_admitted(self):
+    def test_browser_plan_admission_requires_explicit_mode(self):
         self.assertIn('finance', task_plan_contracts.WORKER_CATALOG)
         self.assertIn('computer', task_plan_contracts.WORKER_CATALOG)
         self.assertIn('browser', task_plan_contracts.WORKER_CATALOG)
-        for mode in (None, 'interactive'):
+        for mode in (None, 'execute', ''):
             data = {'url':'https://example.org','instruction':'Click submit'}
             if mode is not None:
                 data['mode'] = mode
@@ -40,6 +40,14 @@ class CanonicalPhase4BTests(unittest.TestCase):
                 canonical_goal_flow._canonical_plan([
                     {'id':'browse','agent':'browser','depends':[],'input':data}
                 ],allow_effects=True)
+        for mode in ('readonly', 'interactive'):
+            with self.subTest(admitted=mode):
+                plan = canonical_goal_flow._canonical_plan([
+                    {'id':'browse','agent':'browser','depends':[],
+                     'input':{'url':'https://example.org','instruction':'Use the form',
+                              'mode':mode}}
+                ], allow_effects=True)
+                self.assertEqual(plan['nodes'][0]['capability_id'], 'task.browser')
 
     def test_finance_readonly_worker_result(self):
         ident = self.create({'id': 'money', 'agent': 'finance',

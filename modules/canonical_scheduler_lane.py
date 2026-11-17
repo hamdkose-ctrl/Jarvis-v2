@@ -132,16 +132,22 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
                 or step.get('depends') != node['depends_on']):
             raise DispatchFenceError('Published step differs from canonical GoalPlan.')
 
-        # A desktop engine pause is not a finished attempt: the native job is
-        # durably bound to this exact node and the Core approval for the next
-        # engine round was explicitly consumed. Only this narrow, bound resume
-        # may re-enter; every other started attempt stays fenced.
+        # A desktop engine pause or a browser engine pending plan is not a
+        # finished attempt: the native job is durably bound to this exact
+        # node and the Core approval for the next engine round was
+        # explicitly consumed. Only this narrow, bound resume may re-enter;
+        # every other started attempt stays fenced.
+        _RESUME_KEY = {'task.desktop': '_canonical_desktop_id',
+                       'task.browser': '_canonical_browser_token'}
+        resume_key = _RESUME_KEY.get(candidate.capability_id)
         desktop_resume = (
-            candidate.capability_id == 'task.desktop'
+            resume_key is not None
+            and (candidate.capability_id != 'task.browser'
+                 or node['input'].get('mode') == 'interactive')
             and step.get('attempts', 0) == 1
             and step.get('started') is True
-            and isinstance(step.get('_canonical_desktop_id'), str)
-            and bool(step['_canonical_desktop_id'])
+            and isinstance(step.get(resume_key), str)
+            and bool(step[resume_key])
             and isinstance(step.get('approval'), dict)
             and step['approval'].get('consumed_at') is not None
         )

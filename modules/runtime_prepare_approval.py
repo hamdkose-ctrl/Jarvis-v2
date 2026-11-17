@@ -39,6 +39,8 @@ def prepare(identity: dict, kind: str, data: dict) -> dict:
             if kind == 'publish' else
             'Writer dosyayı oluşturmadan önce kullanıcı onayı bekliyor.'
             if kind == 'writer' else
+            'Tarayıcı gerçek sayfada işlem adımına geçmeden önce açık onay bekliyor.'
+            if kind == 'browser' else
             'PC görevi gerçek masaüstü işlemi başlatmadan önce açık onay bekliyor.')
     return {'state':'approval','text':text,
             'id':bound['step_id'],'approval_schema':SCHEMA,**bound}
