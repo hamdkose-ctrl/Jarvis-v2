@@ -161,7 +161,7 @@ def _read_only_manifest(capability_id: str) -> dict | None:
     return spec
 
 
-_SCHEDULED_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'})
+_SCHEDULED_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser', 'task.desktop'})
 
 
 def _scheduled_manifest(capability_id: str) -> dict | None:
@@ -195,6 +195,10 @@ def _effect_node_allowed(plan: dict, node: dict) -> bool:
     if kind == 'task.browser':
         return not deps and node['input'].get('mode') == 'readonly'
     if kind == 'task.coder':
+        return not deps
+    if kind == 'task.desktop':
+        # One physical desktop at a time; a desktop effect never chains on
+        # another node's output inside the same canonical plan.
         return not deps
     if kind == 'task.writer':
         return all(parents[d]['capability_id']

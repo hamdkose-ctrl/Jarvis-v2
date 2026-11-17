@@ -208,7 +208,7 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
     }
     if snapshot is not None and snapshot.get('goal_plan') is not None:
         from modules import goal_plan_gate
-        effect = row['id'] in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser')
+        effect = row['id'] in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser', 'task.desktop')
         if row['effect_policy'] != 'read_only' and not effect:
             raise ValueError('Unsupported planned effect capability.')
         selection = goal_plan_gate.candidate(

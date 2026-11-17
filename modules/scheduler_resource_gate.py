@@ -644,12 +644,16 @@ def _effect_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive physical conflict identities from validated plan and manifest."""
     from modules import capability_manifest, goal_executor, task_tools
     kind = node['capability_id'].removeprefix('task.')
-    if kind not in ('writer', 'coder', 'publish', 'media', 'browser'):
+    if kind not in ('writer', 'coder', 'publish', 'media', 'browser', 'desktop'):
         raise ReadOnlyAdmissionError('Unknown effect Scheduler capability.')
     spec = capability_manifest.from_task_tool(kind)
     if spec['id'] != node['capability_id'] or spec['effect_policy'] == 'read_only':
         raise ReadOnlyAdmissionError('Effect manifest mismatch.')
     data = task_tools.validate_input(kind, node['input'])
+    if kind == 'desktop':
+        # The same physical-desktop identity the read-only pilot reserves; the
+        # native engine additionally holds its own OS claim during UIA actions.
+        return (resource_leases.resource_key('pc_desktop'),)
     if kind == 'publish':
         return (provider_resource_key(data['service']),)
     if kind == 'browser':
@@ -685,7 +689,7 @@ def effect_worker(leases: resource_leases.LeaseTable, identity: dict,
         raise ReadOnlyAdmissionError('Effect worker identity mismatch.')
     state = runtime_worker_result.canonical_snapshot(identity)
     node = goal_plan_gate.revalidate(state, selected)
-    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'):
+    if node['capability_id'] not in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser', 'task.desktop'):
         raise ReadOnlyAdmissionError('Not an approved effect capability.')
     if node['depends_on']:
         goal_plan_gate.validate_dependent_effect_attempt(state, selected, attempt=1)

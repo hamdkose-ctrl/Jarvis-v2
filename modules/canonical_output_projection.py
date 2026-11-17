@@ -64,7 +64,7 @@ def _accepted_row(current: dict, owner: str, job_id: str,
                          separators=(',', ':'), allow_nan=False).encode('utf-8')
     if (manifest['id'] != capability
             or not (manifest['effect_policy'] == 'read_only'
-                    or capability in ('task.writer','task.coder','task.publish','task.media','task.browser'))
+                    or capability in ('task.writer','task.coder','task.publish','task.media','task.browser','task.desktop'))
             or result.get('capability_id') != capability
             or result.get('capability_version') != str(manifest['version'])
             or result.get('node_digest') != digest

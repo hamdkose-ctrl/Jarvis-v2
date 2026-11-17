@@ -46,7 +46,7 @@ def planner_catalog(request=None):
 
 def validate(kind, data):
     if kind in goal_extensions.TOOLS:return goal_extensions.validate(kind,data)
-    if kind in task_tools.CATALOG:
+    if kind in task_tools.CATALOG and kind != 'desktop':
         return task_tools.validate_input(kind,data)
     if kind not in LOCAL or not isinstance(data,dict): raise ValueError('Araç girdisi geçersiz.')
     schemas={'action':({'action','params'},{'action','params'}),
@@ -258,7 +258,10 @@ def reconcile(runtime,kind,data,identity,check):
 def execute(runtime,kind,data,dependencies,identity,*,approval=None):
     owner=runtime.profile.slug;validate(kind,data);requests_state.check()
     if kind in goal_extensions.TOOLS:return goal_extensions.execute(runtime,kind,data,identity,approval)
-    if kind in task_tools.CATALOG:
+    # 'desktop' is also a canonical task capability, but its execution stays in
+    # the identity-bound native adapter below; the shared task_workers catalog
+    # adapter has no physical desktop engine binding.
+    if kind in task_tools.CATALOG and kind != 'desktop':
         from modules import untrusted_flow
         if identity.get('job_id'):
             untrusted_flow.observe(owner, identity['job_id'], dependencies)
@@ -356,6 +359,11 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         resume=data.get('resume_id')
         if resume and resume not in identity.get('desktop_ids',[]):raise NotStarted('Bu masaüstü kaydı mevcut hedefe ait değil.')
         if resume and (not matches(previous) or previous['id']!=resume):raise ValueError('Sürdürülecek masaüstü görevi değişmiş.')
+        canonical_resume=identity.get('_canonical_desktop_resume') if isinstance(identity,dict) else None
+        if canonical_resume is not None and (resume or approval):
+            raise ValueError('Canonical masaüstü sürdürme kimliği çakışıyor.')
+        if canonical_resume is not None and (not matches(previous) or (previous or {}).get('id')!=canonical_resume):
+            raise ValueError('Sürdürülecek masaüstü görevi değişmiş.')
         if approval:
             native=previous
             if not matches(native) or native['id']!=approval.get('desktop_id'):raise ValueError('Masaüstü görevi değişmiş.')
@@ -371,13 +379,25 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             else:
                 if data.get('answer'):previous['answer']=data['answer']
                 result=desktop_agent.run(previous,emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
+        elif canonical_resume:
+            # The Scheduler consumed one exact Core approval for this bound
+            # native pause; the engine's own action approval artifact decides
+            # what may physically happen next. A question/paused round has no
+            # canonical answer channel in this stage and stays blocked.
+            native=previous
+            if native['status']=='done':result=desktop_agent.render(native)
+            elif native['status']=='approval':result=desktop_agent.run(native,approval=native['approval']['id'],emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
+            elif native['status']=='consent':result=desktop_agent.handle(owner,'PC izin ver',runtime.emit,current=lambda:runtime.pc_profile().slug,source=runtime._cur_source)
+            elif native.get('pending_effect'):result=desktop_agent.run(native,emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
+            else:return {'state':'blocked','text':desktop_agent.render(native),'desktop_id':native['id'],'retry_safe':False}
         else:
             result=desktop_agent.handle(owner,'PC görevi: '+data['target']+' | '+data['goal'],runtime.emit,
                 current=lambda:runtime.pc_profile().slug,source=runtime._cur_source)
         native=desktop_agent._load(owner)
-        if not matches(native) or (not approval and not resume and previous and native['id']==previous['id']):
+        if not matches(native) or (not approval and not resume and not canonical_resume and previous and native['id']==previous['id']):
             return {'state':'blocked','text':str(result) or 'İstenen yeni masaüstü görevi başlamadı.','retry_safe':True}
-        if (approval and native['id']!=approval.get('desktop_id')) or (resume and native['id']!=resume):
+        if ((approval and native['id']!=approval.get('desktop_id')) or (resume and native['id']!=resume)
+                or (canonical_resume and native['id']!=canonical_resume)):
             raise ValueError('Masaüstü görevi yürütülürken değişmiş.')
         if not native or native['status']!='done':
             return {'state':'approval' if native and native['status'] in ('approval','consent','waiting') else 'blocked',

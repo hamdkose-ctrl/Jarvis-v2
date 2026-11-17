@@ -28,10 +28,11 @@ class ReadyOffer:
 
 
 _SUPPORTED = frozenset({'task.research', 'task.account', 'task.verify', 'task.file',
-                        'task.finance', 'task.computer',
+                        'task.finance', 'task.computer', 'task.desktop',
                         'task.writer', 'task.coder', 'task.publish', 'task.media',
                         'task.browser'})
-_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'})
+_EFFECTS = frozenset({'task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser',
+                      'task.desktop'})
 _MAX_CANDIDATES = 8
 
 
@@ -102,7 +103,7 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
     # An effect and a sibling worker must never race the same GoalState CAS.
     # This serializes ONLY this goal, not unrelated owners or other jobs.
     running_effect = any(isinstance(step, dict) and step.get('state') == 'running'
-                         and step.get('tool') in ('writer','coder','publish','media','browser')
+                         and step.get('tool') in ('writer','coder','publish','media','browser','desktop')
                          for step in published)
     running_other = any(isinstance(step, dict) and step.get('state') == 'running'
                         for step in published)
@@ -131,10 +132,24 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
                 or step.get('depends') != node['depends_on']):
             raise DispatchFenceError('Published step differs from canonical GoalPlan.')
 
+        # A desktop engine pause is not a finished attempt: the native job is
+        # durably bound to this exact node and the Core approval for the next
+        # engine round was explicitly consumed. Only this narrow, bound resume
+        # may re-enter; every other started attempt stays fenced.
+        desktop_resume = (
+            candidate.capability_id == 'task.desktop'
+            and step.get('attempts', 0) == 1
+            and step.get('started') is True
+            and isinstance(step.get('_canonical_desktop_id'), str)
+            and bool(step['_canonical_desktop_id'])
+            and isinstance(step.get('approval'), dict)
+            and step['approval'].get('consumed_at') is not None
+        )
         if (step.get('state') != 'queued'
-                or step.get('attempts', 0) != 0
-                or step.get('started') not in (None, False)
-                or candidate.node_id in record['outputs']):
+                or candidate.node_id in record['outputs']
+                or (not desktop_resume
+                    and (step.get('attempts', 0) != 0
+                         or step.get('started') not in (None, False)))):
             # Never revive a previous attempt or an already projected output.
             continue
         if node['depends_on']:

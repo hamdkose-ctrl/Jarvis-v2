@@ -1,3 +1,11 @@
+# Canonical masaüstü Aşama A — interaktif PC görevi Scheduler'da (Karar 2, A) — 17 Kasım 2026
+
+**Karar:** Hamdi'nin onayladığı Karar 2 Seçenek 1 (A → B → C) gereği interaktif masaüstü görevi canonical Core+Scheduler yaşam döngüsüne bağlanır; gerçek fiziksel operasyon mevcut `desktop_agent` motorunda adaptör olarak kalır, ikinci motor yazılmaz, `PC görevi` açık protokolü ve sync lane bu aşamada değişmez.
+
+**Değişiklik:** Yeni `task.desktop` yeteneği (physical/physical_effect/ask_required/conditional/required) plan gate, lane, dispatch, lease (`pc_desktop`), WorkerResult ve projection zincirine alındı; ilk tur ve her motor duraklaması (approval/consent/pending_effect) BRAIN-08 deseninde Core onay kartı ister, onay `hedef onayla` ile tüketilmeden fiziksel eylem başlamaz; question/paused blocked yükselir; belirsiz/çökmüş tur asla otomatik tekrarlanmaz (intent replay yasağı ve `started_unknown` fence'i korunur); done turu doğrulanmış history + `desktop_uia` receipt + succeeded journal ister. Ayrıntı: `docs/architecture/CANONICAL_DESKTOP_STAGE_A_PLAN_2026-11-17.md`.
+
+**Kanıt:** `tests/test_canonical_desktop_stage_a.py` (22 test) + komşu canonical süitler yeşil (44 test OK); exact-SHA CI + PC watcher ve ayrıca gerçek PC'de fiziksel Windows kabulü beklenir. Sync yürütme dalı ancak Aşama C parite kanıtından sonra kalkar; bu kayıt tek başına "bitti" değildir.
+
 # FileWorker kanıt kapsamı + Türkçe tarih çıkarımı (Paket 2) — 17 Kasım 2026
 
 **Karar (Hamdi, 17 Kasım 2026):** Paket 2 ONAYLANDI — `SNIPPET_LEN` 400→1200; işleme bütçesi tur başına 24.000 karakter; uzun belgeler parçalara ayrılarak incelenir; 200 konum sınırı aşımında içerik sessizce atılmaz, devam işlemi (`offset`) veya açık eksiklik bildirimi vardır; `5 Aralık 2026`, `05.12.2026`, `2026-12-05` biçimleri desteklenir; eksik/geçersiz tarihte `due=None`, tarih asla uydurulmaz; her bulgu kaynak sayfa/satır bilgisiyle korunur. Kapanış şartı: 1200. karakterden veya 200. konumdan sonraki önemli maddelerin kaybolmadığını gösteren regresyon testleri.

@@ -157,6 +157,20 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
                 except (ValueError, PermissionError, TypeError, KeyError) as exc:
                     raise RestartAuditError('Pending approval evidence invalid.') from exc
                 code = 'approval_pending'
+            elif (step_state == 'approval' and attempts == 1
+                  and started is True and not has_output
+                  and ident == journal.get('waiting')
+                  and node['capability_id'] == 'task.desktop'
+                  and isinstance(step.get('_canonical_desktop_id'), str)
+                  and step['_canonical_desktop_id']):
+                # A paused desktop engine round keeps its bound Core approval
+                # card; the native job itself is re-verified before any resume.
+                from modules import goal_approval
+                try:
+                    goal_approval.verify_canonical(journal, step, pending=True)
+                except (ValueError, PermissionError, TypeError, KeyError) as exc:
+                    raise RestartAuditError('Pending approval evidence invalid.') from exc
+                code = 'approval_pending'
             elif (step_state == 'queued' and attempts == 0
                   and started in (None, False) and not has_output):
                 code = 'queued_unstarted'
