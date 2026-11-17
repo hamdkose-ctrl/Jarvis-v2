@@ -216,12 +216,19 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                     # Planned writer reports also need write-ahead identity:
                     # a crash after atomic file creation cannot authorize
                     # another automatically generated report.
-                    # A bound desktop resume continues the SAME exact command
-                    # fence whose intent is already durable; re-recording would
-                    # be a replay, not a new effect.
-                    if not (step['tool'] == 'desktop'
-                            and isinstance(identity, dict)
-                            and identity.get('_canonical_desktop_resume')
+                    # A bound engine pause (desktop job or browser pending
+                    # token) resumes the SAME exact command fence whose
+                    # intent is already durable; re-recording would be a
+                    # replay, not a new effect.
+                    bound_resume = (
+                        isinstance(identity, dict) and (
+                            (step['tool'] == 'desktop'
+                             and identity.get('_canonical_desktop_resume'))
+                            or (step['tool'] == 'browser'
+                                and identity.get('_canonical_browser_resume'))
+                        )
+                    )
+                    if not (bound_resume
                             and effect_recovery_runtime.status(expected) != 'not_started'):
                         effect_recovery_runtime.record_intent(expected)
 
@@ -347,7 +354,14 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     if (expected is not None and 'plan_version' in expected
             and step['tool'] == 'browser' and isinstance(output, dict)
             and output.get('state') == 'done' and output.get('readonly') is not True):
-        raise PermissionError('Canonical browser readonly result required; effect-capable output rejected.')
+        # Karar 2 Aşama B: a typed interactive root may finish with a real
+        # effect, but ONLY with the exact evidence receipt of the executed
+        # plan. Any other effect-capable output stays rejected on this lane.
+        from modules import task_results
+        if not (step['input'].get('mode') == 'interactive'
+                and isinstance(output.get('receipt'), dict)
+                and output['receipt'] == task_results.browser_effect_receipt(output)):
+            raise PermissionError('Canonical browser readonly result required; effect-capable output rejected.')
     if plan and plan['phase']=='prepare':
         from modules import runtime_execution_gate
         if step['tool']=='browser' and isinstance(output,dict) and output.get('state')=='done':

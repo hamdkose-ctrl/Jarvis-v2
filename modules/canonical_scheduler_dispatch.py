@@ -298,6 +298,11 @@ def execute_offer(profile, offer, *, stop_event=None):
                                          +str(step['input'].get('target',''))[:200]
                                          +'\nHedef: '+str(step['input'].get('goal',''))[:500]
                                          +'\nGörev durduğunda her yeni tur ayrıca onay ister.')
+                elif step['tool'] == 'browser' and step['input'].get('mode') == 'interactive':
+                    proposal['text'] += ('\nEtkileşimli tarayıcı işi; adres: '
+                                         +str(step['input']['url'])[:400]
+                                         +'\nTalimat: '+str(step['input']['instruction'])[:400]
+                                         +'\nHer hassas işlem ayrıca durur; somut plan kartı ikinci turda gelir.')
                 else:
                     proposal['text'] += '\nSalt-okunur sayfa: '+str(step['input']['url'])[:400]
                 step['_canonical_approval_proposal'] = proposal
@@ -350,6 +355,12 @@ def execute_offer(profile, offer, *, stop_event=None):
             # A consumed Core approval resumes exactly this bound native job;
             # the adapter re-verifies owner/target/goal/id before any action.
             identity['_canonical_desktop_resume'] = step['_canonical_desktop_id']
+        if (step['tool'] == 'browser'
+                and isinstance(step.get('_canonical_browser_token'), str)
+                and step['_canonical_browser_token']):
+            # The engine re-verifies the exact pending plan (id, TTL, page
+            # digest, target signature) and consumes it before any effect.
+            identity['_canonical_browser_resume'] = step['_canonical_browser_token']
         # No persistent runtime_approved flag: it exists only in this
         # Scheduler invocation after checking the consumed approval above.
         worker_step = copy.deepcopy(step)
@@ -366,15 +377,20 @@ def execute_offer(profile, offer, *, stop_event=None):
                 result = specialist_orchestrator.execute_step(
                     runtime, job, worker_step, identity,
                 )
-        if (step['tool'] == 'desktop' and isinstance(result, dict)
+        pause_binding = {'desktop': ('desktop_id', '_canonical_desktop_id'),
+                         'browser': ('id', '_canonical_browser_token')}.get(step['tool'])
+        if (pause_binding is not None
+                and (step['tool'] != 'browser'
+                     or step['input'].get('mode') == 'interactive')
+                and isinstance(result, dict)
                 and result.get('state') == 'approval'
-                and isinstance(result.get('desktop_id'), str)
-                and result['desktop_id']):
+                and isinstance(result.get(pause_binding[0]), str)
+                and result[pause_binding[0]]):
             # The native engine paused for its own action approval, app
             # permission consent or a waiting effect. This is NOT a
-            # WorkerResult and NOT a failure: bind the exact native job and
-            # wait for a fresh Core approval card. The paused round never
-            # auto-repeats an ambiguous physical action.
+            # WorkerResult and NOT a failure: bind the exact native job or
+            # pending plan and wait for a fresh Core approval card. The
+            # paused round never auto-repeats an ambiguous effect.
             from modules import goal_approval, goal_state, runtime_prepare_approval
             with goal_job_control.locked(root, selected.job_id):
                 pause_state = goal_state_store.load(root / (selected.job_id + '.goalstate.json'))
@@ -388,23 +404,31 @@ def execute_offer(profile, offer, *, stop_event=None):
                         or pause_matches[0].get('state') != 'running'
                         or pause_matches[0].get('attempts') != 1):
                     raise canonical_scheduler_lane.DispatchFenceError(
-                        'Masaüstü duraklama journal kaydı değişti; tur sürdürülmedi.')
+                        'Duraklama journal kaydı değişti; tur sürdürülmedi.')
                 pause_step = pause_matches[0]
-                pause_step['_canonical_desktop_id'] = result['desktop_id']
+                pause_step[pause_binding[1]] = result[pause_binding[0]]
                 proposal = runtime_prepare_approval.prepare(
                     {'owner': selected.owner, 'job_id': selected.job_id,
                      'task_id': selected.node_id},
-                    'desktop', pause_step['input'],
+                    step['tool'], pause_step['input'],
                 )
-                proposal['text'] += ('\nMasaüstü görevi durdu ve onay bekliyor: '
-                                     + str(result.get('text', ''))[:600])
+                if step['tool'] == 'desktop':
+                    proposal['text'] += ('\nMasaüstü görevi durdu ve onay bekliyor: '
+                                         + str(result.get('text', ''))[:600])
+                    blocker_detail = str(pause_step['input'].get('target', ''))[:250]
+                else:
+                    # The engine's foreground sentence ('tarayıcı onayla <token>')
+                    # belongs to the legacy command; the card only shows the plan.
+                    proposal['text'] += ('\nTarayıcı somut işlem planı için bekliyor: '
+                                         + str(result.get('message', '')
+                                               ).split(' Bu planı uygulamak için', 1)[0][:600])
+                    blocker_detail = str(result.get('url', ''))[:250]
                 pause_step['_canonical_approval_proposal'] = proposal
                 pause_step['approval'] = goal_approval.prepare(pause_job, pause_step, proposal)
                 pause_step['state'] = 'approval'
                 pause_job['waiting'] = pause_step['id']
                 pause_job['approval_at'] = time.time()
-                pause_job['blocker'] = ('Onay gerekli: desktop / '
-                                        + str(pause_step['input'].get('target', ''))[:250])
+                pause_job['blocker'] = ('Onay gerekli: ' + step['tool'] + ' / ' + blocker_detail)
                 pause_job['updated'] = time.time()
                 release_guard.atomic(record_path, execution_record.encode(pause_job))
             return False

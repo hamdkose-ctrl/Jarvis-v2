@@ -47,9 +47,8 @@ class Phase4AMediaFileTests(unittest.TestCase):
                 )
                 self.assertEqual(plan['nodes'][0]['capability_id'],
                                  'task.' + task['agent'])
-        # Browser remains forbidden without explicit readonly mode and without
-        # its independent exact-job approval; this is not a general browser
-        # effect admission.
+        # Browser stays forbidden without an explicit readonly/interactive
+        # mode (Aşama B typed admission); modeless drafts are not admitted.
         with self.assertRaises(ValueError):
             canonical_goal_flow._canonical_plan([
                 {'id':'browse','agent':'browser','depends':[],

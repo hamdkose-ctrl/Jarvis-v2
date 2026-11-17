@@ -160,11 +160,18 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
             elif (step_state == 'approval' and attempts == 1
                   and started is True and not has_output
                   and ident == journal.get('waiting')
-                  and node['capability_id'] == 'task.desktop'
-                  and isinstance(step.get('_canonical_desktop_id'), str)
-                  and step['_canonical_desktop_id']):
-                # A paused desktop engine round keeps its bound Core approval
-                # card; the native job itself is re-verified before any resume.
+                  and (
+                      (node['capability_id'] == 'task.desktop'
+                       and isinstance(step.get('_canonical_desktop_id'), str)
+                       and step['_canonical_desktop_id'])
+                      or (node['capability_id'] == 'task.browser'
+                          and node['input'].get('mode') == 'interactive'
+                          and isinstance(step.get('_canonical_browser_token'), str)
+                          and step['_canonical_browser_token'])
+                  )):
+                # A paused desktop engine round or a paused browser pending
+                # plan keeps its bound Core approval card; the native job or
+                # pending digest is re-verified before any resume.
                 from modules import goal_approval
                 try:
                     goal_approval.verify_canonical(journal, step, pending=True)

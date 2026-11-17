@@ -159,19 +159,25 @@ def approve_effect(owner: str, job_id: str, *, expected_control: str) -> str:
         if len(steps)!=1 or steps[0].get('state')!='approval':
             raise PermissionError('Bu hedefin bekleyen tekil efekt onayı yok.')
         step=steps[0]
-        # A durably bound desktop engine pause waits for its next Core approval
-        # inside the same first attempt; the native job identity is re-verified
-        # at dispatch. Every other started attempt stays unapprovable.
-        desktop_resume=(
-            step.get('tool')=='desktop'
-            and step.get('attempts')==1
+        # A durably bound engine pause (desktop native job or browser pending
+        # plan) waits for its next Core approval inside the same first
+        # attempt; the native identity is re-verified at dispatch. Every
+        # other started attempt stays unapprovable.
+        _RESUME_KEY = {'desktop': '_canonical_desktop_id',
+                       'browser': '_canonical_browser_token'}
+        resume_key = _RESUME_KEY.get(step.get('tool'))
+        bound_pause_resume = bool(
+            resume_key
+            and step.get('attempts') == 1
             and step.get('started') is True
-            and isinstance(step.get('_canonical_desktop_id'),str)
-            and bool(step['_canonical_desktop_id'])
+            and isinstance(step.get(resume_key), str)
+            and step[resume_key]
+            and (step.get('tool') != 'browser'
+                 or (step.get('input') or {}).get('mode') == 'interactive')
         )
         if (step.get('tool') not in ('coder','publish','browser','writer','desktop')
                 or step['id'] in record.get('outputs', {})
-                or (not desktop_resume
+                or (not bound_pause_resume
                     and (step.get('started') is not False
                          or step.get('attempts')!=0))):
             raise PermissionError('Başlamış effect adımı tekrar onaylanamaz.')
