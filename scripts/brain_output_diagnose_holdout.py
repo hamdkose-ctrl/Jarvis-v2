@@ -195,6 +195,17 @@ def measure(owner, cases, *, interval_seconds=35):
             'planned_cases':len(cases), 'stop_reason':stop_reason}
 
 
+def _capture_head(root):
+    """Provenance only: git checkout reports the commit, ZIP installs report the
+    fingerprint marker. role_qualified() binds on fingerprint/binding/expiry, never
+    on this field, so a missing .git must not revoke or block an acceptance run."""
+    try:
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root), text=True).strip(), 'git'
+    except Exception:
+        from modules import smart_router
+        return 'install:' + smart_router._role_fingerprint()[:12], 'fingerprint'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run',action='store_true')
@@ -213,8 +224,8 @@ def main(argv=None):
     if not args.run:
         print(f'PLAN: {len(cases)} bounded semantic requests, synthetic context, no effects. Use --run on the configured Windows PC.')
         return 0
-    head = subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-    report = {'head':head,'corpus_sha256':hashlib.sha256(CORPUS.read_bytes()).hexdigest(),
+    head, head_source = _capture_head(ROOT)
+    report = {'head':head,'head_source':head_source,'corpus_sha256':hashlib.sha256(CORPUS.read_bytes()).hexdigest(),
               'generated_at':datetime.now(timezone.utc).isoformat(),'state':'unmeasured',
               'scope':'connection' if args.connection_only else 'holdout',
               'semantic_acceptance':False}
