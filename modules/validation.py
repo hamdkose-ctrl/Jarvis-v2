@@ -12,6 +12,7 @@ JS_GROUPS = ('desktop_flows', 'files_in_chat_behavior', 'chat_drop_behavior', 'm
 JS_GROUPS += ('team_center_behavior', 'seljuk_backdrop_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior', 'harita_behavior')
 JS_GROUPS += ('harita_wizard_behavior', 'voice_speech_highlight_behavior')
 JS_GROUPS += ('persona_preferences_behavior',)
+JS_GROUPS += ('role_qualification_behavior',)
 SMOKE_GROUPS = ('headless_smoke', 'maintenance_smoke', 'voice_actions_smoke', 'paid_provider_smoke', 'developer_smoke', 'router_agents_smoke', 'stability_contracts')
 
 def python_timeout():

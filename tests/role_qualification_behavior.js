@@ -1,0 +1,20 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),'utf8');
+(async()=>{
+ const calls=[],messages=[],draws=[];
+ const c={ACT:{},ask:async()=>false,api:async(...a)=>{calls.push(a);return {started:true}},toast:(t,k)=>messages.push([t,k]),drawSettings:()=>draws.push(1)};
+ vm.createContext(c);
+ const start=src.indexOf('function roleQualText('),end=src.indexOf('ACT.rolequalrefresh',start);
+ vm.runInContext(src.slice(start,src.indexOf('\n',end)),c);
+ await c.ACT.rolequal();assert.equal(calls.length,0,'onay yoksa tek çağrı yapılmaz');
+ c.ask=async()=>true;await c.ACT.rolequal();
+ assert.deepEqual(calls,[['role_qualification_prepare']],'doğrulama tek köprü çağrısı başlatır');
+ assert(messages.at(-1)[0].includes('Doğrulama başladı'));assert.equal(draws.length,1,'sonuç paneli yeniden çizilir');
+ c.api=async()=>{throw Error('kota kapalı')};await c.ACT.rolequal();
+ assert.equal(messages.at(-1)[1],'bad','hata görünür toast ile söylenir');
+ assert(c.roleQualText({running:true,done:7,total:20}).includes('7/20'),'ilerleme vakâ sayısıyla gösterilir');
+ assert(c.roleQualText({qualified:true}).includes('doğrulanmış'),'geçerli kabul satırı ayrıca doğrulatılmaz');
+ assert(c.roleQualText({error:'Doğrulama tamamlanamadı: provider_no_response.'}).includes('provider_no_response'),'son ölçüm nedeni görünür');
+ assert(c.roleQualText({}).includes('20 sınırlı ücretsiz'),'bütçe ve süre baştan söylenir');
+ console.log('Rol doğrulama UI: onay, tek çağrı, iptal, ilerleme, hata ve durum metinleri geçti.');
+})().catch(e=>{console.error(e);process.exit(1)});

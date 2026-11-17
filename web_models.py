@@ -54,6 +54,14 @@ class WebModels:
         runtime = self._runtime
         return runtime.llm.model_check(bool(force))
 
+    def role_qualification_status(self) -> dict:
+        from modules import role_qualification
+        return role_qualification.status()
+
+    def role_qualification_prepare(self) -> dict:
+        from modules import role_qualification
+        return role_qualification.prepare()
+
     def llm_status(self) -> dict:
         runtime = self._runtime
         st = runtime.llm.status()
