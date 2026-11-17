@@ -193,7 +193,10 @@ def _effect_node_allowed(plan: dict, node: dict) -> bool:
     if kind == 'task.media':
         return not deps
     if kind == 'task.browser':
-        return not deps and node['input'].get('mode') == 'readonly'
+        # Karar 2 Aşama B: the typed interactive plan is admissible as a
+        # standalone root; every sensitive op still pauses for its own Core
+        # card inside the existing browser engine.
+        return not deps and node['input'].get('mode') in ('readonly', 'interactive')
     if kind == 'task.coder':
         return not deps
     if kind == 'task.desktop':

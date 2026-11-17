@@ -33,6 +33,32 @@ def browser_readonly_receipt(output):
             'remote_id': hashlib.sha256(payload).hexdigest()}
 
 
+def browser_effect_receipt(output):
+    """Evidence of the executed interactive browser plan; never re-run authority.
+
+    Only the verified executed steps, the final real page and the screenshot
+    digest are bound. This receipt cannot authorize a new effect; Core still
+    requires its own consumed approval for every round.
+    """
+    import json
+    if (not isinstance(output, dict) or output.get('state') != 'done'
+            or output.get('readonly') is True
+            or not isinstance(output.get('steps'), list) or not output['steps']
+            or not isinstance(output.get('page'), dict)
+            or not output.get('image')):
+        raise ValueError('Browser effect result evidence missing.')
+    image_sha256 = output.get('image_sha256') or file_digest(output['image'])
+    payload = json.dumps(
+        {'steps': output['steps'], 'page': output['page'], 'image': image_sha256},
+        ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+        allow_nan=False,
+    ).encode('utf-8')
+    if len(payload) > 1024 * 1024:
+        raise ValueError('Browser effect evidence too large.')
+    return {'service': 'browser_agent_effect',
+            'remote_id': hashlib.sha256(payload).hexdigest()}
+
+
 def file_digest(path):
     path = Path(path)
     if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:

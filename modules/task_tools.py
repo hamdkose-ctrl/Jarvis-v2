@@ -94,6 +94,8 @@ def validate_input(kind, data, *, complete=True):
     if 'url' in data:
         from modules.browser_agent import _url
         _url(data['url'])
+    if kind == 'browser' and 'mode' in data and data['mode'] not in ('readonly', 'interactive'):
+        raise ValueError('Tarayıcı modu geçersiz.')
     if 'filename' in data and not re.fullmatch(r'[\w-]{1,80}\.md', data['filename']):
         raise ValueError('Rapor adı basit bir .md dosyası olmalı.')
     return copy.deepcopy(data)

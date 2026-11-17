@@ -295,6 +295,23 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             checks={key:verify(value,owner) for key,value in dependencies.items()}
             return task_results.seal('verify',{'state':'done','text':'Önceki çıktıların kanıtları doğrulandı.','checks':checks})
         task={'id':identity['task_id'],'agent':kind,'input':data,'execution':identity}
+        canonical_browser = (identity.get('_canonical_browser_resume')
+                             if isinstance(identity, dict) else None)
+        if kind == 'browser' and canonical_browser is not None:
+            # A consumed Core approval resumes exactly this pending plan; the
+            # engine re-verifies id/TTL/page digest/target signature and
+            # consumes pending.json BEFORE any effect. Legacy foreground
+            # approval and this bound resume can never coexist.
+            if approval:
+                raise ValueError('Canonical tarayıcı sürdürme kimliği çakışıyor.')
+            from modules import browser_agent
+            native = browser_agent.run(owner, approval=canonical_browser)
+            if native.get('state') == 'done':
+                native = {**native,
+                          'image_sha256': task_results.file_digest(native['image']),
+                          'receipt': task_results.browser_effect_receipt(native)}
+                return task_results.seal('browser', native)
+            return native
         if approval and kind=='browser':
             from modules import browser_agent
             return task_results.seal('browser',browser_agent.run(owner,approval=approval['id']))

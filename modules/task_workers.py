@@ -24,7 +24,7 @@ def json_text(text):
 def browser_task(owner, data):
     from modules import browser_agent
     mode = data.get('mode', '')
-    if mode not in ('', 'readonly'):
+    if mode not in ('', 'readonly', 'interactive'):
         raise ValueError('Tarayıcı modu geçersiz.')
     readonly_mode = mode == 'readonly'
     initial=browser_agent.run(owner,[{'op':'goto','url':data['url']},{'op':'read'}],read_only=readonly_mode)
@@ -42,6 +42,12 @@ def browser_task(owner, data):
     if readonly_mode and result.get('state') == 'done':
         result = {**result, 'readonly': True}
         result['receipt'] = task_results.browser_readonly_receipt(result)
+    if mode == 'interactive' and result.get('state') == 'done':
+        if not result.get('image'):
+            raise ValueError('Etkileşimli tarayıcı ekran görüntüsü kanıtı yok.')
+        result = {**result,
+                  'image_sha256': task_results.file_digest(result['image']),
+                  'receipt': task_results.browser_effect_receipt(result)}
     return result
 
 
