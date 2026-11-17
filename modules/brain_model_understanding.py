@@ -654,6 +654,101 @@ _CAPABILITY_PURPOSES = {
         "questions ABOUT what checks include are chat, and refusals of checking are chat; "
         "an affirmative request to inspect without repairing still runs read-only checks",
     ),
+    "research.search": (
+        "investigate the user's topic against live public web and news sources using the existing research/goal executor",
+        "the query must be the user's original research request and execution consumes that raw command, so a rewritten query never becomes executable; "
+        "the route field is always the closed PRIVATE marker meaning the request travels only over the owner's bounded free connection (a data-privacy route) and does NOT mean Jarvis lacks web or current-news access",
+    ),
+    "app.open": (
+        "launch or open a Windows application the user named (typically the answer to 'which app to open')",
+        "app is the user-named application bounded to 40 characters with no path; the existing launcher permission gate still owns the effect"),
+    "app.close": (
+        "close a running Windows application the user named",
+        "app is a bounded user-named application with no path; the existing close confirmation and permission gate are unchanged"),
+    "contacts.manage": (
+        "add a new contact to or list the user's own contact book",
+        "operation is one of add/list; add needs a grounded name and a phone the normalizer accepts; list carries no target; Core never invents numbers"),
+    "desktop.windows.list": (
+        "list the desktop windows that are currently open",
+        "carries only window.action=list; it never targets or mutates a window"),
+    "desktop.window.op": (
+        "focus, minimize, maximize or restore an existing desktop window the user named",
+        "action is one of focus/minimize/maximize/restore and target is a bounded 1..120-char name of a window that already exists; Core never creates a window"),
+    "development.manage": (
+        "work the encrypted development workspace: request a draft, or read/run/apply/rollback a typed source control",
+        "operation is a closed control; request carries a bounded goal and zero to ten file_N reference slots; apply/test/rollback only satisfy the exact existing protocol; a model enum never grants final application approval"),
+    "files.organize": (
+        "preview organizing files in an allowed folder into categories; a separate State approval owns the actual moves",
+        "operation is the single carry and folder is a key from the closed ORGANIZE_FOLDERS set; Core never sees a path and this contract has no delete power"),
+    "files.folder_analyze": (
+        "analyze an allowed folder, optionally one named subfolder, for the user's question",
+        "folder and named are keys from the closed FOLDER_KEYS set and name is a single bounded non-path word; Core resolves no disk identity and gets no path here"),
+    "finance.alert.manage": (
+        "add, list or delete a price alert on a live finance quote",
+        "operation is closed; add needs a known asset, a direction above/below and a bounded positive value; delete needs one bounded index; no model-supplied rule id is trusted"),
+    "finance.read": (
+        "read currency rates, crypto or asset prices, gram gold or a BIST stock quote",
+        "kind is one of rate/asset/stock and every code comes from the closed currency, asset, gold and stock sets; Core never invents a symbol or amount"),
+    "mail.read": (
+        "read a bounded mail view: inbox, important, work, awaiting reply or the first attachment",
+        "source is one closed enum value; read-only, never a recipient, draft, send or raw mail parsing"),
+    "message.send": (
+        "send a text message to a named contact through the user's existing messaging channel",
+        "recipient and body are bounded and Core validates their shape only; the send approval and contact resolution stay with the existing owner and no number is fabricated"),
+    "notes.read": (
+        "read the user's notes as all, a count, one note, a topic/date search or a summary",
+        "which is one closed view; one selects exactly one note_N and summary may select one or none; search uses at most three topic words and/or a bounded window; never a note id"),
+    "pc.audio.action": (
+        "mute or unmute system audio, open the volume mixer, or raise or lower the volume",
+        "the action is one closed enum and the utterance itself is the only input; no arbitrary field is derived from raw text"),
+    "pc.level.set": (
+        "set the Windows volume or screen brightness to the spoken 0..100 level",
+        "property is volume or brightness and level is an integer; clarify when the property is not named and no last_verified_level_property exists"),
+    "pc.media.action": (
+        "control media playback: next track, previous track, or play/pause",
+        "the action is one closed enum from the utterance; no other media field is invented"),
+    "pc.shutdown.request": (
+        "start the PC shutdown request flow that the existing confirmation must authorize",
+        "the utterance is the only input; the existing Core shutdown confirmation remains mandatory and Jarvis-close is never reinterpreted as shutdown"),
+    "pc.shutdown.cancel": (
+        "cancel a pending PC shutdown that has not yet run",
+        "the utterance is the only input; it only cancels an already-requested shutdown and performs nothing else"),
+    "photo.action": (
+        "analyze, translate or save a note about the current screen photo the user refers to",
+        "operation is one of analyze/translate/note; the photo path comes only from a Core-observed capture, never from user or model text"),
+    "reminder.propose": (
+        "create a new reminder with the user's title, time and optional repeat",
+        "when is ISO computed from the observed current_time and null asks for time; only create lives here; unsupported repeats clarify and never become a one-off"),
+    "screen.analyze": (
+        "read and describe the current screen photo, optionally answering the user's question about it",
+        "question may be empty for a general analysis but bounded to one line; a Core-observed photo must be available first"),
+    "screen.capture": (
+        "capture a screenshot of the current screen",
+        "carries no arguments beyond the utterance; it only captures and never analyzes or saves"),
+    "text.translate": (
+        "translate the user's inline text or a previous turn into a target language",
+        "origin is inline/assistant/user; assistant/user select an offered recent_turns id and omit text, inline must quote exact user text; never rewrite the source or invent an id"),
+    "visual.create": (
+        "generate an image of a closed kind the user asked for",
+        "kind is one of the closed visual TYPES; create only on a request, never on a quoted or explanatory mention of an image"),
+    "voice.wake.enable": (
+        "turn on wake-word listening with the fixed 'Jarvis' payload",
+        "carries no user-supplied field; the wake word, aliases and engine come only from the closed built-in payload"),
+    "watcher.manage": (
+        "list, run pending, stop or add a folder watch rule",
+        "operation is closed; folder/extension/action come from the closed vocabularies; add requires all five fields and summary/workbench require a non-empty instruction"),
+    "weather.read": (
+        "read the weather forecast for the saved city or one the user names",
+        "location is an optional lowercase city name and is omitted for the saved city; Core validates the city shape only"),
+    "weather.read.current": (
+        "read the current weather right now for the saved city or one the user names",
+        "location is an optional lowercase city name and is omitted for the saved city; this is the immediate reading, not the forecast"),
+    "weather.city.set": (
+        "save a city the user explicitly names as their new default weather city",
+        "location is a lowercase city supplied as the user's own new preference; Core validates only the city shape and never guesses it from weather chat"),
+    "weather.city.reset": (
+        "remove the user's saved default weather city preference",
+        "only an explicit request to remove the saved city; it carries no location and is never inferred from a weather question"),
 }
 
 
