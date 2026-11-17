@@ -298,6 +298,17 @@ class ArchitectureGuardTests(unittest.TestCase):
             name='brain_model_understanding.py',
         )), 1)
 
+    def test_the_purpose_contract_table_is_not_a_blocker(self):
+        # Amaç/önkoşul parite tablosu da kapalı sözleşme tablosudur: yetenek ADI anahtar olarak
+        # durur, karar ya da yasak kümesi üretilmez; red kümesi yine aynı dosyada BLOCKER'dır.
+        self.assertEqual(self._semantic_blockers(
+            "_CAPABILITY_PURPOSES = {\n"
+            "    'message.send': ('send a text message to a named contact', 'bounded recipient/body'),\n"
+            "    'contacts.manage': ('add or list a contact', 'closed operation set'),\n"
+            "}\n",
+            name='brain_model_understanding.py',
+        ), [])
+
     def test_format_and_security_controls_are_not_blocked(self):
         # İzin verilen deterministik denetimler: numara biçimi, kapalı enum, tip sınırı.
         self.assertEqual(self._semantic_blockers(
