@@ -1,3 +1,9 @@
+# Scheduler — günlük brifing scheduler thread'i dışına alındı — 17 Kasım 2026
+
+**Bulgu (DOĞRULANDI, CI kanıtı):** 05–12 UTC penceresinde `_DAILY_NOTIFY` tek `jarvis-task-queue` thread'i içinde **satır içi** çalışıyor; brifing zinciri (`engine_background._scheduled_brief → main_planner._daily_briefing → outlook.unread_mail → sleep(2)`) hedef alımını (goal admission) bekletiyordu — `testler-windows` run 44028497056 tam bu yığında tek `test_canonical_goal_steering` `entered.wait(30)` hatasını verdi. **Onarım:** `task_queue._dispatch_daily_notify` zamanı gelmiş kancayı `jarvis-daily-notify` daemon thread'ine devreder; 60 sn ateşleme aralığı, aynı anda tek iş parçacığı, aynı hata kayıt kanalı (`modules/task_queue.py:daily_notify`) ve `_DAILY_NOTIFY=None` susturma sözleşmesi korunur; `_scheduled_brief` tarih/sahip claim'i (`_BRIEF_RUNNING`/`_brief_done`) çift brifing üretmez. Kanıt: `tests/test_daily_notify_off_scheduler.py` (8 test) + BRAIN-07 scheduler suitleri (34 + 121 OK, izole veri dizisi). Ayrıntı `docs/agents/gorev-cekirdegi.md`. **PR #657; exact-head Windows CI + aynı SHA PC watcher gelmeden madde kapanmış değildir.** Sabah penceresinde canlı gecikme ölçümü ayrıca açıktır.
+
+---
+
 # BRAIN-10 güncel kod adayı — 14 Kasım 2026
 
 #628 BRAIN-09, kaynak3354526 exact WindowsCI43572580953 ve gerçekPC6874150892 PASS sonrası main `f77ecb020f44476447f39241822398f635155f38` olarak birleşti. Yeni yetkilendirilmiş iş BRAIN-10 tek PR'dır.
