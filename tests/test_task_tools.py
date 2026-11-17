@@ -16,7 +16,8 @@ class ToolContractTests(unittest.TestCase):
 
     def test_invalid_inputs_do_not_call_worker(self):
         cases = [('research', {}), ('research', {'url': 'file:///secret'}),
-                 ('browser', {'url': 'https://example.com', 'instruction': False}),
+                 ('browser', {'url': 'https://example.com', 'instruction': False, 'mode': 'readonly'}),
+                 ('browser', {'url': 'https://example.com', 'instruction': 'oku'}),
                  ('writer', {'instruction': 'write', 'filename': '../secret.md'}),
                  ('coder', {'request': 'fix', 'owner': 'bob'}),
                  ('verify', {'approval': True})]
@@ -31,7 +32,8 @@ class ToolContractTests(unittest.TestCase):
                   {'agent': 'verify', 'depends': [[]]},
                   {'agent': 'verify', 'depends': ['a', 'a']},
                   {'agent': 'writer', 'input': {'instruction': 7}},
-                  {'agent': 'browser', 'input': {'url': 'https://u:p@example.com'}} ]
+                  {'agent': 'browser', 'input': {'url': 'https://u:p@example.com',
+                                                 'instruction': 'oku', 'mode': 'readonly'}} ]
         with patch.object(agents, 'worker') as work:
             for extra in cases:
                 tasks = [{'id': 'a', 'agent': 'verify'}, {'id': 'b', 'agent': 'verify', **extra}]
@@ -41,12 +43,14 @@ class ToolContractTests(unittest.TestCase):
         self.assertFalse(list(agents.STORE.glob('**/*.json')))
 
     def test_contract_saved_before_effect_and_cannot_be_spoofed(self):
-        task = {'id': 'a', 'agent': 'browser',
+        # coder is the legacy lane's non-replay-safe kind: interactive browser
+        # and desktop work are canonical Scheduler goals since Karar 2 Aşama C.
+        task = {'id': 'a', 'agent': 'coder', 'input': {'request': 'düzelt'},
                 'execution': {'owner': 'bob', 'risk': 'read', 'replay_safe': True}}
         def effect(owner, step, deps):
             record = agents.recent(owner)['tasks'][0]['execution']
             self.assertEqual(record['owner'], 'alice')
-            self.assertEqual(record['risk'], 'external_effect_possible')
+            self.assertEqual(record['risk'], 'development_workspace')
             self.assertFalse(record['replay_safe'])
             self.assertEqual(record['attempt'], 1)
             self.assertEqual(record['outcome'], 'pending')
@@ -69,13 +73,23 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(done['tasks'][0]['execution']['outcome'], 'verified')
 
     def test_contract_does_not_grant_approval(self):
+        # Aşama C: metadata yalnız riski anlatır; eski şeritte onay tüketen bir
+        # yürütücü yoktur ve foreground 'tarayıcı onayla' motora gitmez.
+        readonly = {'id': 'a', 'agent': 'browser', 'input': {
+            'url': 'https://example.org', 'instruction': 'oku', 'mode': 'readonly'}}
         with patch.object(agents, 'worker', return_value={'state': 'approval', 'id': 'exact'}):
-            job = agents.execute('alice', [{'id': 'a', 'agent': 'browser'}])
+            job = agents.execute('alice', [readonly])
         self.assertEqual(job['state'], 'approval')
         self.assertEqual(job['tasks'][0]['execution']['outcome'], 'approval_required')
         with patch.object(browser_agent, 'run') as run:
-            with self.assertRaises(ValueError): agents.resume('alice', 'wrong')
+            self.assertIn('hedef onayla', agents.handle('alice', 'tarayıcı onayla wrong'))
             run.assert_not_called()
+        interactive = {'id': 'b', 'agent': 'browser', 'input': {
+            'url': 'https://example.org', 'instruction': 'gönder', 'mode': 'interactive'}}
+        with patch.object(agents, 'worker') as work:
+            with self.assertRaisesRegex(ValueError, 'canonical Scheduler'):
+                agents.execute('alice', [interactive])
+        work.assert_not_called()
 
     def test_bounds_and_returned_data_are_independent(self):
         for data in ({'request': ' '}, {'request': 'x' * 20001}, {'request': 'a\x00b'}):

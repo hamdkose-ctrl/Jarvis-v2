@@ -1,3 +1,12 @@
+# Karar 2 Aşama C sonrası açık kabul ve Aşama D — 18 Kasım 2026
+
+- **Canlı kabul (Aşama C'yi kapatan tek ölçüm):** fiziksel Windows gecesinde (1) `PC görevi: Hesap Makinesi | 12 ile 7 topla` typed ve sözlü biçimleri canonical hedef + prepare kartı + `hedef onayla` ile gerçekten çalışır, (2) motor duraklamasında (approval/consent/pending_effect) ikinci Core kartı çıkar ve Scheduler sürdürür, (3) `origin=scheduler` kayıtta `PC onayla`/`PC görevi devam` reddi ile pointer görünür, iptal (`PC görevi iptal`/`hedef iptal`) görevi kapatır, (4) interaktif tarayıcı planı tek başına duraklar, karttan uygulanır ve receipt'li done verir. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge tek başına "bitti" değildir.
+- **Aşama D-1 — motor sorusunun canonical cevap kanalı:** `desktop_agent` `question` turu canonical hedef içinde blocked kalır (cevap alanı admission'da reddedilir, `PC görevi cevap:` Scheduler kaydı için pointer'a düşer). Kullanıcı cevabını aynı job/soru kimliğiyle Core'a taşıyacak tek sözleşme gerekir; eski `answer`/`resume_id` smuggling'i geri açılmaz.
+- **Aşama D-2 — `--desktop` kabul harness'ı:** `modules/acceptance_checks.py` fiziksel Calculator adımı motoru doğrudan `desktop_agent.handle` ile sürer (`origin=command`); ölçtüğü şey UIA/ekran kanıtı hattıdır, admission değildir. Harness'ın canonical kart üzerinden geçirilip geçirilmeyeceği Hamdi'nin kararıdır.
+- **Aşama D-3 — `hedef iptal` ve bağlı motor kaydı:** canonical hedefi iptal etmek bağlı `desktop_agent` görevini otomatik iptal etmez; fiziksel valf `PC görevi iptal`dır. Birbirine bağlama (veya ayrı tutma gerekçesi) Aşama D'de kararlaştırılır.
+
+---
+
 # BRAIN-10 güncel kabul — 14 Kasım 2026
 
 - BRAIN-09 #628 kabul edildi ve mainf77ecb0 olarak birleşti. Tek aktif kullanıcı işi BRAIN-10 doğrulanmış sonuç/cevap/görünürlük PR'ıdır; plan `docs/architecture/BRAIN_10_SINGLE_PR_PLAN_2026-11-14.md`.

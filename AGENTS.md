@@ -42,10 +42,10 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (24 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (27 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (28 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (12 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (11 bölüm)
-- `docs/agents/pc-masaustu.md`: PC, masaüstü ve tarayıcı kontrolü (11 bölüm)
+- `docs/agents/pc-masaustu.md`: PC, masaüstü ve tarayıcı kontrolü (12 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (17 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (6 bölüm)
@@ -98,7 +98,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Calculator operatör kanıtı: UIA ham ağaç gezintisi 500 öğeyle sınırlıdır. Yalnız gerçek Calculator sürecinin `CalculatorExpression` Text kontrolü ekran dışındayken salt okunur olarak dahil edilir; patterns boş ve işlem hedefi değildir. Ekran dışı kanıt tamamlanma/işlem başarısı sayılmaz. Operatör sonrası görünür ifade adı değişimi doğrulanır; mevcut sonuç ekranı kanıt sayılmaz.
 
-- Açık `PC görev`/`PC görevi` ve `PC onayla` komutları model/rehber/geliştirme yorumundan önce sahiplik kontrolü yapan masaüstü motoruna gider. Görev kontrolünde fazla boşluk ve son noktalama temizlenir; iptal kalıcı görev kaydını kapatır. Telefon/aktif kullanıcı sınırı korunur.
+- Açık `PC görev`/`PC görevi` ve `PC onayla` model/rehber yorumundan önce gelir; taze fiziksel görevi yalnız canonical Scheduler hedefi ile Core onay kartı başlatır, motor sahiplik/okuma denetler. İptal kalıcı görev kaydını kapatır; telefon sınırı korunur.
 
 - Hesap Makinesi pencere seçimi `calc`, `calculator`, `calculatorapp`, Türkçe belirtme eki ve `uygulaması` söylenişlerini tanır. UWP çerçevesi yalnız tam Calculator/Hesap Makinesi başlığıyla aday olur; açılış başarısı için UIA gerçek Calculator uygulama PID'sini doğrular. Genel `ApplicationFrameHost` veya tarayıcı başlığı açılış kanıtı değildir.
 

@@ -34,10 +34,17 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(missing, {})
 
     def test_known_entry_points_are_present(self):
-        for name in ('worker', 'execute', 'continue_job', 'cancel_job', 'resume', 'handle', 'render', 'render_summary',
+        for name in ('worker', 'execute', 'continue_job', 'cancel_job', 'handle', 'render', 'render_summary',
                      'recent', 'history', 'validate', 'Busy', '_root', '_job_path', '_active', 'memory_context'):
             with self.subTest(name):
                 self.assertTrue(hasattr(agents, name))
+
+    def test_retired_foreground_surfaces_stay_removed(self):
+        # Karar 2 Aşama C: eski görev onay tüketicisi ve işçi yeniden-ihracı
+        # kaldırıldı; yüzey test listesi bunları geri isteyemez.
+        for name in ('resume', '_resume', 'browser_task'):
+            with self.subTest(name):
+                self.assertFalse(hasattr(agents, name))
 
     def test_worker_catalog_lists_every_executable_worker(self):
         from modules import task_tools
@@ -49,7 +56,6 @@ class WorkerMoveTests(unittest.TestCase):
     def test_workers_live_in_task_workers_and_task_agents_delegates(self):
         from modules import task_workers
         self.assertTrue(callable(task_workers.run) and callable(task_workers.browser_task))
-        self.assertIs(agents.browser_task, task_workers.browser_task)
         with patch.object(task_workers, 'run', return_value={'state': 'done'}) as run:
             self.assertEqual(agents._worker('alice', {'agent': 'verify'}, {}), {'state': 'done'})
         run.assert_called_once()

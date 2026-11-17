@@ -24,12 +24,24 @@ with patch.object(goal_executor,'run',side_effect=lambda runtime,command,**kw: s
 assert seen.get('command')=='onu aç' and 'devredildi' in reply
 with tempfile.TemporaryDirectory() as folder:
     root=Path(folder)
+    # Karar 2 Aşama C: the typed ``PC görevi`` sentence is admitted only by the
+    # canonical Scheduler, whose Core card is the sole effect approval. The
+    # engine keeps the physical composition, so this smoke drives the same
+    # engine entrypoint the ``--desktop`` acceptance harness uses.
     with patch.object(desktop_agent,'STORE',root/'desktop'), patch.object(desktop_uia,'DesktopUI',return_value=FakeUI()), patch.object(main._llm,'ask',side_effect=[__import__('json').dumps(action()),__import__('json').dumps({'op':'finish','expect':action()['expect'],'message':'19 doğrulandı'})]):
-        answer=headless_smoke.canonical('PC görevi: Hesap Makinesi | 12 ile 7 topla','agents-desktop')
+        answer=desktop_agent.handle(main.profile.slug,'PC görevi: Hesap Makinesi | 12 ile 7 topla',current=lambda:main.profile.slug)
         assert 'Tamamlandı' in answer and '19 doğrulandı' in answer
         assert desktop_agent._load(main.profile.slug)['status'] == 'done'
         assert desktop_agent._load(main.profile.slug)['history'][0]['verified']
         assert main._session().pending_desktop is None
+    # At the Bridge the identical sentence never reaches the engine while no
+    # canonical Scheduler loop is live: it fails closed without a physical task
+    # record instead of using a second admission authority.
+    with tempfile.TemporaryDirectory() as gate:
+        with patch.object(desktop_agent,'STORE',Path(gate)/'desktop'), patch.object(desktop_agent,'handle') as engine:
+            refused=headless_smoke.canonical('PC görevi: Hesap Makinesi | 12 ile 7 topla','agents-desktop-gate')
+        engine.assert_not_called()
+        assert 'Canonical Scheduler hazır değil' in refused and not (Path(gate)/'desktop').exists()
     with patch.object(smart_router,'_STORE',root/'router'),patch.object(task_agents,'STORE',root/'tasks'),patch.object(nxapi,'FILES_DIR',root/'files'):
         response=main.handle('router durumu');assert '| Sağlayıcı |' in response
         assert main.handle('görev durumu')=='Henüz kayıtlı görev yok.'

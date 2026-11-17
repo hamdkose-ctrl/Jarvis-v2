@@ -166,7 +166,7 @@ def validate(tasks):
     return task_plan_contracts.validate(tasks)
 
 
-from modules.task_workers import json_text as _json, browser_task  # noqa: F401 - geri uyumlu ad
+from modules.task_workers import json_text as _json  # noqa: F401 - geri uyumlu ad
 
 def worker(owner, task, dependencies):
     # Single shared worker body lives in task_worker_adapter.run; the legacy
@@ -220,10 +220,18 @@ def execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=No
 
 def _execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=None, parallel=False):
     tasks=validate(tasks); root=_root(owner)
+    # Karar 2 Aşama C: this legacy DAG never owns a physical desktop task and
+    # never hands an effect-capable browser plan to the engine. Both reach the
+    # Scheduler, whose Core card is the only effect approval.
+    if any(t['agent']=='desktop' for t in tasks):
+        raise ValueError('Masaüstü görevi yalnız canonical Scheduler hedefi olarak yürütülür.')
+    if any(t['agent']=='browser' and (t.get('input') or {}).get('mode')!='readonly' for t in tasks):
+        raise ValueError('Etkileşimli tarayıcı görevi yalnız canonical Scheduler hedefi olarak yürütülür.')
     if parallel and any(t['agent'] not in _REPLAY_SAFE for t in tasks):raise ValueError('Paralel görevde dış yayın, tarayıcı veya kod çalıştırılmaz.')
     previous=recent(owner)
     from modules import browser_agent
-    if (previous and previous['state'] in ('approval','interrupted','running')) or (browser_agent._root(owner)/'pending.json').exists(): raise ValueError('Önce açık görevi sürdür, onayla veya iptal et.')
+    if (previous and previous['state'] in ('approval','interrupted','running')) or (browser_agent._root(owner)/'pending.json').exists():
+        raise ValueError('Önce açık görevi sürdür veya iptal et; bekleyen tarayıcı planı hedef onay kartındadır.')
     job_id=job_id or uuid.uuid4().hex[:12]
     if _job_path(root,job_id).exists():raise ValueError('Görev kimliği zaten kaydedilmiş; yeni iş olarak tekrar başlatılmaz.')
     job={'owner':owner,'id':job_id,'created':time.time(),'instruction':instruction,'state':'running',
@@ -451,8 +459,6 @@ def cancel_job(owner,job_id=None):
         for task in job['tasks']:
             if task['state']!='done':_transition(job,task,'cancelled')
         _transition(job,None,'cancelled');_save(_root(owner),job)
-        from modules import browser_agent
-        approvals={out.get('id') for out in job['outputs'].values() if out.get('state')=='approval'}
         from modules import outbox
         for task in job['tasks']:
             output=job['outputs'].get(task['id'],{})
@@ -460,11 +466,10 @@ def cancel_job(owner,job_id=None):
                 token=llm._key_context.set(owner)
                 try:outbox.cancel(owner,output['id'])
                 finally:llm._key_context.reset(token)
-        with browser_agent._LOCK:
-            pending=browser_agent._root(owner)/'pending.json'
-            if approvals and pending.exists():
-                saved=json.loads(pending.read_text(encoding='utf-8'))
-                if saved.get('id') in approvals:pending.unlink()
+        # Karar 2 Aşama C: a legacy task job never holds a browser approval, so
+        # this lane has no authority over the engine's pending plan.  The live
+        # valves are the user's 'tarayıcı iptal' and the canonical goal cancel,
+        # which discards only the token bound to its own step.
         return job
 
 
@@ -581,43 +586,6 @@ def recent(owner):
     return job
 
 
-def resume(owner, approval, emit=None):
-    with _active(owner):
-        return _resume(owner,approval,emit)
-
-
-def _resume(owner, approval, emit=None):
-    from modules import browser_agent
-    requests_state.allow_long_operation(600)
-    job=recent(owner)
-    if not job or job['state']!='approval': return browser_agent.render(browser_agent.run(owner,approval=approval))
-    task=next(t for t in job['tasks'] if t['state']=='approval')
-    if task['agent']!='browser':raise ValueError('Bu onay tarayıcıya ait değil; işlem onayla komutunu kullan.')
-    if job['outputs'][task['id']].get('id')!=approval: raise ValueError('Onay bu göreve ait değil.')
-    from modules import hooks
-    hooks.observe('approval',{'kind':'browser','decision':'onayla','job_id':job['id'],'approval_id':approval},owner=owner)
-    try:
-        output=task_results.seal('browser',browser_agent.run(owner,approval=approval))
-    except requests_state.Cancelled:
-        job['state']='cancelled';task['state']='cancelled';_save(_root(owner),job);raise
-    except Exception as exc:
-        _record_failure('modules/task_agents.py:resume_browser')
-        output={'state':'failed','message':privacy.redact(str(exc))}
-    if output['state']!='done' and (browser_agent._root(owner)/'pending.json').exists():
-        job['outputs'][task['id']]['message']=output.get('message','Tarayıcı açılamadı; tekrar onaylayabilir veya iptal edebilirsin.')
-        _save(_root(owner),job);return render(job)
-    task['state']=output['state']; job['outputs'][task['id']]=output
-    task['execution']={**task_tools.execution(owner,job['id'],task),'request':job.get('instruction','')}
-    task['execution']['outcome']=task_tools.outcome(task['agent'],output['state'])
-    if output['state']!='done':
-        job['state']='incomplete'
-        for t in job['tasks']:
-            if t['state']=='queued': t['state']='blocked'
-        _save(_root(owner),job);return render(job)
-    _transition(job,None,'running'); _save(_root(owner),job)
-    return render(_run_pending(owner,job,emit))
-
-
 def mail_attachments_typed(owner, operation, *, emit=None, display=None):
     """Read the first mail's attachments through the existing account spine.
 
@@ -681,6 +649,30 @@ def _canonical_video(owner: str, command: str, media_data: dict) -> str:
     _ident, reply = canonical_goal_flow.try_create(
         owner, request[1], command, direct_tasks=[
             {'id':'video', 'agent':'media', 'depends':[], 'input':media_data},
+        ],
+    )
+    return reply
+
+
+def _canonical_browser(owner: str, command: str, url: str, instruction: str) -> str:
+    """Same typed admission as video: one interactive browser root, Core card.
+
+    The legacy foreground plan and its raw approval token are retired in
+    Karar 2 Aşama C; only the canonical Scheduler may hand this exact plan to
+    the engine, and only after the displayed Core approval is consumed.
+    """
+    from modules import canonical_goal_flow, task_queue
+    request = requests_state._current.get()
+    if (not isinstance(request, tuple) or len(request) != 2
+            or request[0] != owner or not isinstance(request[1], str)
+            or not request[1]):
+        raise PermissionError('Tarayıcı görevi için açık owner/RID komut kimliği gerekli.')
+    if not task_queue.scheduler_active():
+        return 'Canonical Scheduler hazır değil; tarayıcı görevi başlatılmadı.'
+    _ident, reply = canonical_goal_flow.try_create(
+        owner, request[1], command, direct_tasks=[
+            {'id': 'browser', 'agent': 'browser', 'depends': [],
+             'input': {'url': url, 'instruction': instruction, 'mode': 'interactive'}},
         ],
     )
     return reply
@@ -875,16 +867,16 @@ def handle(owner, command, emit=None, *, summary=False):
         return '\n'.join('Görev '+j['id']+' · '+j['state']+' · '+privacy.redact(j.get('instruction',''))[:120] for j in jobs) if jobs else 'Henüz kayıtlı görev yok.'
     if c=='görev durumu' or (match and match[1]=='durumu'):
         job=_load(owner,match[2]) if match and match[2] else recent(owner); return render(job) if job else 'Henüz kayıtlı görev yok.'
-    if c.startswith('tarayıcı onayla '): return resume(owner,command.strip().split()[-1],emit)
+    if c.startswith('tarayıcı onayla '):
+        # Karar 2 Aşama C: the legacy foreground approval consumer is gone;
+        # only the Core card of the owning canonical goal applies a plan.
+        return ('Tarayıcı işlem planı artık hedef onay kartıyla uygulanır: '
+                '“hedef onayla” de veya bekleyen planı “tarayıcı iptal” ile kapat.')
     if c=='tarayıcı iptal':
+        # Discarding an unexecuted pending plan has no external effect, so it
+        # stays available even when no canonical goal exists to cancel.
         from modules import browser_agent
-        result=browser_agent.cancel(owner);job=recent(owner)
-        if job and job['state']=='approval':
-            job['state']='cancelled'
-            for t in job['tasks']:
-                if t['state'] in ('approval','queued'): t['state']='cancelled'
-            _save(_root(owner),job)
-        return result
+        return browser_agent.cancel(owner)
     if c.startswith(('görev:','görev yap:','görev paralel:')):
         instruction=command.split(':',1)[1].strip()
         if not instruction:return 'Ne yapmamı istediğini görev: sonrasında yaz.'
@@ -906,6 +898,8 @@ def handle(owner, command, emit=None, *, summary=False):
         instruction=command[len('tarayıcı görevi'):].lstrip(': ').strip()
         match=re.search(r'https?://[^\s]+',instruction)
         if not match: return 'Tarayıcı görevi için site adresini http/https olarak yaz.'
-        return render(execute(owner,[{'id':'browser','agent':'browser','input':{'url':match.group(),'instruction':instruction},'depends':[]}],instruction,emit))
+        # Karar 2 Aşama C: no legacy browser DAG is started from the typed
+        # command; the exact plan waits on the canonical goal's Core card.
+        return _canonical_browser(owner, command, match.group(), instruction)
     return None
 

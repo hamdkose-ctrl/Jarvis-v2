@@ -19,12 +19,11 @@ class DurableWorkTests(unittest.TestCase):
                               (nxapi,'FILES_DIR',self.root/'files'),(study,'ROOT',self.root/'study')]:
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)
 
-    def test_resume_records_artifact_and_running_step_before_abrupt_interruption(self):
-        tasks=[{'id':'browse','agent':'browser'},
-               {'id':'write','agent':'research','depends':['browse'],'input':{'url':'https://example.org/report'}},
+    def test_durable_job_records_artifact_and_running_step_before_abrupt_interruption(self):
+        # Aşama C: süreklilik ölçümü eski tarayıcı onay tüketicisine dayanmaz;
+        # aynı kayıtlı görev yürütücüsü tek çalışmada sınanır.
+        tasks=[{'id':'write','agent':'research','input':{'url':'https://example.org/report'}},
                {'id':'verify','agent':'verify','depends':['write']}]
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'approval'}):
-            agents.execute('alice',tasks)
         original=agents.worker
         snapshots=[]
         def worker(owner,task,deps):
@@ -37,18 +36,17 @@ class DurableWorkTests(unittest.TestCase):
                 return {'state':'done','text':'Kaydedilmiş rapor','file':str(path),
                         'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
             return original(owner,task,deps)
-        image=self.root/'screen.png';image.write_bytes(b'test screenshot')
-        with patch.object(browser,'run',return_value={'state':'done','text':'browser done','steps':[{'op':'read','verified':True}], 'page':{'url':'https://example.com'},'image':str(image)}), \
-             patch.object(agents.llm,'ask',return_value='Kaydedilmiş rapor'),patch.object(agents,'worker',side_effect=worker):
-            with self.assertRaises(KeyboardInterrupt):agents.resume('alice','approval')
-        self.assertEqual(snapshots[0]['tasks'][1]['state'],'running')
-        self.assertEqual(snapshots[1]['tasks'][2]['state'],'running')
+        with patch.object(agents.llm,'ask',side_effect=AssertionError('No model in durability')), \
+             patch.object(agents,'worker',side_effect=worker):
+            with self.assertRaises(KeyboardInterrupt):agents.execute('alice',tasks)
+        self.assertEqual(snapshots[0]['tasks'][0]['state'],'running')
+        self.assertEqual(snapshots[1]['tasks'][1]['state'],'running')
         saved=agents.recent('alice')
-        self.assertEqual(saved['tasks'][1]['state'],'done')
+        self.assertEqual(saved['tasks'][0]['state'],'done')
         output=saved['outputs']['write']
         self.assertEqual(output['text'],'Kaydedilmiş rapor')
         self.assertEqual(Path(output['file']).read_text(),'Kaydedilmiş rapor')
-        self.assertEqual(saved['tasks'][2]['state'],'interrupted')
+        self.assertEqual(saved['tasks'][1]['state'],'interrupted')
 
     def test_pdf_subprocess_timeout_never_calls_inline_reader(self):
         profile=SimpleNamespace(slug='alice',data={},save=Mock(),_new_id=lambda:1)

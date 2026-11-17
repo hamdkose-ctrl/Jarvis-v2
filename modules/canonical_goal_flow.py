@@ -33,6 +33,16 @@ _EFFECTS = frozenset({'writer', 'coder', 'publish', 'media', 'browser', 'desktop
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
+# Typed one-node admissions that skip the planner. Each entry keeps its own
+# sentence gate, so no free text can request a deterministic effect node; the
+# node still passes the SAME RID admission, Core plan, permission, resource
+# lease, intent, WorkerResult and CAS fences.
+_DIRECT_ADMISSION = {
+    'video': ('media', re.compile(r'^(?:video üret\s+|görev akışı video\s*:)', re.IGNORECASE)),
+    'pc': ('desktop', re.compile(r'^pc\s+görev(?:i)?(?=[:\s])', re.IGNORECASE)),
+    'browser': ('browser', re.compile(r'^tarayıcı görevi[:\s]', re.IGNORECASE)),
+}
+
 
 def _canonical_plan(tasks, *, allow_effects=False):
     """Adapt the EXISTING task_agents planner's validated DAG proposal."""
@@ -246,21 +256,19 @@ def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None,
     """
     if legacy_plan_sink is not None and not callable(legacy_plan_sink):
         raise TypeError('Legacy plan sink must be callable.')
-    # Only an explicit developer-validated VIDEO command may avoid the model
-    # planner. It still passes through the SAME RID admission and Core plan,
-    # permission, resource lease, intent, WorkerResult and CAS fences.
+    # Only an explicit developer-validated typed command may avoid the model
+    # planner (see _DIRECT_ADMISSION). It still passes through the SAME RID
+    # admission and Core plan, permission, resource lease, intent,
+    # WorkerResult and CAS fences.
     if direct_tasks is not None:
-        if (legacy_plan_sink is not None or not isinstance(direct_tasks, list)
-                or len(direct_tasks) != 1 or not isinstance(direct_tasks[0], dict)
-                or direct_tasks[0].get('id') != 'video'
-                or direct_tasks[0].get('agent') != 'media'
-                or direct_tasks[0].get('depends', []) != []
-                or not re.match(
-                    r'^(?:video üret\s+|görev akışı video\s*:)',
-                    text if isinstance(text, str) else '',
-                    re.IGNORECASE,
-                )):
-            raise ValueError('Direct canonical admission needs explicit video intent.')
+        node = (direct_tasks[0] if isinstance(direct_tasks, list)
+                and len(direct_tasks) == 1 and isinstance(direct_tasks[0], dict) else None)
+        key = node.get('id') if node and isinstance(node.get('id'), str) else None
+        rule = _DIRECT_ADMISSION.get(key)
+        if (legacy_plan_sink is not None or rule is None
+                or node.get('agent') != rule[0] or node.get('depends', []) != []
+                or not isinstance(text, str) or not rule[1].match(text.strip())):
+            raise ValueError('Direct canonical admission needs an explicit typed command.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():

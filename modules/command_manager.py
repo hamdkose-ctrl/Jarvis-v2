@@ -48,7 +48,13 @@ def dispatch(context, command, normalized):
     owner, session = context.profile.slug, context.session
 
     if brain_precedence.explicit_desktop_owner_protocol(command):
-        from modules import desktop_agent
+        from modules import canonical_desktop_frontdoor, desktop_agent
+        # Karar 2 Aşama C: a new physical task or a physical effect approval
+        # is decided here, before the native engine sees the sentence.
+        forwarded = canonical_desktop_frontdoor.dispatch(
+            owner, command, current=context.pc_owner, source=context.source)
+        if forwarded is not None:
+            return forwarded
         result = desktop_agent.handle(
             owner, command, context.emit, current=context.pc_owner,
             source=context.source)

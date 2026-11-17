@@ -69,9 +69,11 @@ class DesktopInputValidationTests(unittest.TestCase):
         data = {'target': 'calc', 'goal': '12 ile 7 topla'}
         self.assertEqual(task_tools.validate_input('desktop', data), data)
 
-    def test_answer_optional_bounded(self):
-        data = {'target': 'notepad', 'goal': 'yaz', 'answer': 'evet'}
-        self.assertEqual(task_tools.validate_input('desktop', data), data)
+    def test_answer_field_is_rejected(self):
+        # Aşama C: motorun soru turunun canonical cevap kanalı yoktur; model
+        # cevap alanını sızdıramaz.
+        with self.assertRaises(ValueError):
+            task_tools.validate_input('desktop', {'target': 'a', 'goal': 'b', 'answer': 'evet'})
         with self.assertRaises(ValueError):
             task_tools.validate_input('desktop', {'target': 'a', 'goal': 'b', 'answer': 5})
 
@@ -105,6 +107,12 @@ def _native(owner='hamdi', job_id='dj1', status='running', **extra):
            'goal': '12 ile 7 topla', 'status': status, 'history': []}
     job.update(extra)
     return job
+
+
+def _offer(owner='hamdi', job_id='sj1', node_id='d1'):
+    """The marker the dispatching Scheduler round alone writes into identity."""
+    return {'owner': owner, 'job_id': job_id, 'node_id': node_id,
+            'plan_version': 1, 'node_digest': 'a' * 64}
 
 
 class CanonicalDesktopResumeTests(unittest.TestCase):
@@ -202,7 +210,7 @@ class CanonicalDesktopResumeTests(unittest.TestCase):
 
     def test_fresh_canonical_start_uses_engine_protocol(self):
         started = _native(job_id='dj9', status='waiting', pending_effect={'action': 'invoke'})
-        identity = {'owner': 'hamdi'}
+        identity = {'owner': 'hamdi', '_canonical_scheduler_offer': _offer()}
         fake = mock.Mock()
         fake._load.side_effect = [None, started]
         fake.handle.return_value = 'başladı'
@@ -213,6 +221,19 @@ class CanonicalDesktopResumeTests(unittest.TestCase):
         self.assertEqual(fake.handle.call_args.args[1], 'PC görevi: calc | 12 ile 7 topla')
         self.assertEqual(result['state'], 'approval')
         self.assertEqual(result['desktop_id'], 'dj9')
+
+    def test_fresh_start_without_scheduler_offer_is_refused(self):
+        # Aşama C: taze fiziksel görevi yalnız canonical Scheduler başlatır.
+        for identity in ({'owner': 'hamdi'},
+                         {'owner': 'hamdi', 'desktop_ids': []},
+                         {'owner': 'hamdi', 'desktop_ids': ['dj1']}):
+            fake = mock.Mock()
+            fake._load.return_value = None
+            with mock.patch('modules.desktop_agent', fake, create=True):
+                with self.assertRaises(goal_tools.NotStarted):
+                    goal_tools.execute(_runtime(), 'desktop',
+                                       {'target': 'calc', 'goal': '12 ile 7 topla'}, {}, identity)
+            fake.handle.assert_not_called()
 
 
 class DispatchWiringTests(unittest.TestCase):

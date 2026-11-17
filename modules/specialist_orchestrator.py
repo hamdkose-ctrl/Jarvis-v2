@@ -69,7 +69,7 @@ def run(runtime, request, tasks):
         deps={key:outputs[key] for key in task['depends']}
         for value in deps.values():goal_tools.verify(value,owner)
         identity={'owner':owner,'job_id':'team-'+hashlib.sha256(request.encode()).hexdigest()[:12],
-                  'task_id':task['id'],'request':request,'desktop_ids':[],
+                  'task_id':task['id'],'request':request,
                   'specialist':task['specialist']}
         checkpoint=goal_tools.checkpoint(runtime,task['tool'],task['input'])
         try:

@@ -173,7 +173,8 @@ def _save_pending(root, page, actions, item, permission_asks=None):
     if permission_asks:
         note=' İzin kapısı onay notu: '+'; '.join(permission_asks)+'.'
     return {'state':'approval','id':token,'action':actions[0], 'url':page.url,
-            'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}.{note} Bu planı uygulamak için ‘tarayıcı onayla {token}’, vazgeçmek için ‘tarayıcı iptal’ yaz."}
+            'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}.{note} "
+                      "Bu plan yalnız hedefin Core onay kartıyla uygulanır; vazgeçmek için ‘tarayıcı iptal’ yaz."}
 
 
 def _execute(page, root, actions, approved=None, *, owner=None, read_only=False):
@@ -299,12 +300,3 @@ def render(result):
         data=base64.b64encode(Path(result['image']).read_bytes()).decode()
         text+='\n\n![Tarayıcı sonucu](data:image/png;base64,'+data+')'
     return f'Tarayıcı: {state}\n'+text
-
-
-def handle(owner, command):
-    c=command.casefold().strip()
-    if c=='tarayıcı iptal': return cancel(owner)
-    if c.startswith('tarayıcı onayla '):
-        try: return render(run(owner,approval=command.strip().split()[-1]))
-        except (ValueError,RuntimeError) as exc: return str(exc)
-    return None

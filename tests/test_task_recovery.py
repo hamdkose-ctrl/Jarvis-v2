@@ -9,6 +9,10 @@ from unittest.mock import Mock, patch
 from modules import task_agents as agents, browser_agent as browser, requests_state
 from writer_consent_fixture import native_writer_after_consent
 
+# Karar 2 Aşama C: salt-okunur mod legacy görev kuyruğunun kabul ettiği tek
+# tarayıcı biçimidir; etkileşimli plan yalnız canonical Scheduler hedefidir.
+READONLY={'url':'https://example.com','instruction':'sayfadaki başlıkları oku','mode':'readonly'}
+
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -42,8 +46,10 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(agents,'worker') as run:agents.continue_job('alice',saved['id']);run.assert_not_called()
 
     def test_unknown_browser_effect_is_never_replayed(self):
+        # Salt-okunur mod legacy kuyruğun tek browser biçimidir; yine de dış
+        # etki ihtimali olan adım kesinti sonrası otomatik tekrarlanmaz.
         with patch.object(agents,'worker',side_effect=KeyboardInterrupt):
-            with self.assertRaises(KeyboardInterrupt):agents.execute('alice',[{'id':'send','agent':'browser'}])
+            with self.assertRaises(KeyboardInterrupt):agents.execute('alice',[{'id':'send','agent':'browser','input':READONLY}])
         job=agents.recent('alice')
         with patch.object(agents,'worker') as run:
             with self.assertRaisesRegex(ValueError,'dış işlem'):agents.continue_job('alice',job['id'])
@@ -119,19 +125,41 @@ class RecoveryTests(unittest.TestCase):
             reply=agents.handle('alice','görev: yeni bir rapor hazırla');model.assert_not_called()
         self.assertIn('açık görevi',reply)
 
-    def test_cancel_removes_only_this_jobs_pending_browser_approval(self):
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'exact'}):
-            job=agents.execute('alice',[{'id':'a','agent':'browser'}])
-        path=browser._root('alice')/'pending.json';path.write_text(json.dumps({'id':'exact'}))
-        agents.cancel_job('alice',job['id']);self.assertFalse(path.exists())
-        with patch.object(agents,'worker',return_value={'state':'done','text':'ok'}):
-            self.assertEqual(agents.execute('alice',[{'id':'b','agent':'research'}])['state'],'done')
+    def pending(self,body):
+        path=browser._root('alice')/'pending.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps(body),encoding='utf-8')
+        return path
 
-    def test_cancel_does_not_remove_unrelated_browser_plan(self):
+    def test_legacy_task_cancel_leaves_the_browser_plan_alone(self):
+        # Karar 2 Aşama C: legacy görev günlükte tarayıcı onayı tutamaz, bu
+        # yüzden bekleyen tarayıcı planını silme yetkisi de yoktur. Yayın
+        # onayının iptali yalnız kendi outbox kaydını kapatır; planı düşüren
+        # iki canlı valf vardır: kullanıcının 'tarayıcı iptal'i ve kendi token'ına
+        # bağlı canonical hedef iptali.
+        from modules import outbox
         with patch.object(agents,'worker',return_value={'state':'approval','id':'exact'}):
-            job=agents.execute('alice',[{'id':'a','agent':'browser'}])
-        path=browser._root('alice')/'pending.json';path.write_text(json.dumps({'id':'other'}))
-        agents.cancel_job('alice',job['id']);self.assertEqual(json.loads(path.read_text())['id'],'other')
+            job=agents.execute('alice',[{'id':'p','agent':'publish','input':{'service':'gmail','destination':'a@b.c','subject':'Rapor','text':'gövde'}}])
+        self.assertEqual(job['state'],'approval')
+        path=self.pending({'id':'exact'})
+        with patch.object(outbox,'cancel') as close:
+            cancelled=agents.cancel_job('alice',job['id'])
+        self.assertEqual(cancelled['state'],'cancelled')
+        self.assertEqual(close.call_args.args,('alice','exact'))
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['id'],'exact')
+        self.assertIn('iptal edildi',agents.handle('alice','tarayıcı iptal'))
+        self.assertFalse(path.exists())
+
+    def test_bound_plan_cancel_discards_only_the_matching_token(self):
+        path=self.pending({'id':'exact'})
+        with self.assertRaisesRegex(ValueError,'eşleşmiyor'):
+            browser.cancel('alice',expected_token='other')
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['id'],'exact')
+        with self.assertRaisesRegex(ValueError,'geçersiz'):
+            browser.cancel('alice',expected_token='')
+        self.assertTrue(path.exists())
+        browser.cancel('alice',expected_token='exact')
+        self.assertFalse(path.exists())
 
     def test_missing_success_record_cannot_be_reported_as_completed(self):
         agents._save(agents._root('alice'),{'id':'corrupt','state':'done','tasks':[{'id':'a','agent':'research','state':'done'}],'outputs':{}})
