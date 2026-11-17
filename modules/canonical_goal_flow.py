@@ -29,7 +29,7 @@ _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
 _READ_ONLY = frozenset({'research', 'account', 'verify', 'file', 'finance', 'computer'})
-_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media', 'browser'})
+_EFFECTS = frozenset({'writer', 'coder', 'publish', 'media', 'browser', 'desktop'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
@@ -48,6 +48,8 @@ def _canonical_plan(tasks, *, allow_effects=False):
             raise ValueError('Canonical media must be an independent first attempt.')
         if kind == 'browser' and (deps or task['input'].get('mode') != 'readonly'):
             raise ValueError('Canonical browser requires explicit read-only mode.')
+        if kind == 'desktop' and deps:
+            raise ValueError('Canonical desktop requires a standalone root task.')
         if kind == 'coder' and deps:
             raise ValueError('Coder requires a standalone approved workspace task.')
         if kind == 'writer' and (not deps or any(
@@ -292,6 +294,7 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     # duplicate free-text classifier, model/router, or autonomous capability.
     system = (
         task_plan_contracts._SYSTEM +
+        task_plan_contracts.CANONICAL_EFFECT_NOTE +
         '\nBu tur canonical arka plan hedefidir. Research, salt-okunur file '
         've account görevleri öner; media yalnız açık video isteği ve gerçek kaynak hash kanıtıyla üretilir; doğrulanmış research/account '
         'bağımlı verify ile writer raporunu oluşturabilirsin. Coder yalnız '

@@ -63,6 +63,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Motor değişmedi: `desktop_agent`/`desktop_uia` gerçek operasyonun sahibi; kendi OS claim'i, `_BUSY` kilidi, adım doğrulaması, 120 saniyelik onay süresi ve `_NEVER_APPS` aynen geçerli. Canonical lease ayrıca `pc_desktop` anahtarıyla read-only pilot gözlemle aynı fiziksel kaynağı serileştirir.
 - question/paused turları bu aşamada blocked yükselir (canonical cevap kanalı yok); belirsiz/çökmüş tur asla otomatik tekrarlanmaz. Done turu doğrulanmış history + `desktop_uia` receipt + succeeded effect journal ister.
 - `PC görevi` açık protokolü ve sync goal lane bu aşamada değişmez; sync dalın kaldırılması Aşama C parite kanıtına bağlıdır. Plan: `docs/architecture/CANONICAL_DESKTOP_STAGE_A_PLAN_2026-11-17.md`. Fiziksel Windows kabulü (Hamdi'nin PC gecesi) beklenir.
+- Yayın erişimi: gerçek "hedef …" akışında desktop görevini yalnız canonical planlayıcılar önerebilir — ön plan (`canonical_goal_flow._try_create_planned`), arka plan ilk plan (`canonical_planning_queue.execute`) ve revizyon (`canonical_plan_revision.execute`); bunlar `task_plan_contracts.CANONICAL_EFFECT_NOTE` ekini görür ve `_canonical_plan` desktop'u yalnız bağımsız kök olarak yayınlar (`allow_effects`). Eski `_SYSTEM` ajan listesi desktop'suzdur; legacy kuyruk/cron yorumcusu görevi göremez, legacy worker yolu `Ajan geçersiz` ile fail-closed kalır.
 
 ## Uygulama izinleri — AGENTS.md'den taşınan ayrıntı
 
