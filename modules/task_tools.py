@@ -18,6 +18,8 @@ CATALOG = {
                 'required': ('operation', 'payload'), 'optional': ()},
     'computer': {'risk': 'local_evidence_read', 'replay_safe': True,
                  'required': ('app', 'operation'), 'optional': ()},
+    'desktop': {'risk': 'physical_effect', 'replay_safe': False,
+                'required': ('target', 'goal'), 'optional': ('answer',)},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
@@ -48,6 +50,20 @@ def validate_input(kind, data, *, complete=True):
         if not isinstance(data, dict) or set(data) != {'app', 'operation'}:
             raise ValueError('ComputerWorker girdisi geçersiz.')
         computer_worker_contract.capability(data['app'], data['operation'])
+        return copy.deepcopy(data)
+    if kind == 'desktop':
+        if (not isinstance(data, dict)
+                or not isinstance(data.get('target'), str)
+                or not data['target'].strip() or len(data['target'].strip()) > 200
+                or not isinstance(data.get('goal'), str)
+                or not data['goal'].strip() or len(data['goal'].strip()) > 2000):
+            raise ValueError('Masaüstü görev girdisi geçersiz.')
+        if 'answer' in data and (not isinstance(data['answer'], str)
+                                 or len(data['answer']) > 2000):
+            raise ValueError('Masaüstü yanıt alanı geçersiz.')
+        allowed = {'target', 'goal'} | ({'answer'} if 'answer' in data else set())
+        if set(data) != allowed:
+            raise ValueError('Masaüstü görev girdisi desteklenmeyen alan içeriyor.')
         return copy.deepcopy(data)
     if not isinstance(data, dict) or any(
         not isinstance(key, str) or key not in spec['required'] + spec['optional']

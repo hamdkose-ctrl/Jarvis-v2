@@ -250,8 +250,8 @@ def execute_offer(profile, offer, *, stop_event=None):
         if (step["tool"] != selected.capability_id.removeprefix("task.")
                 or step["input"] != node["input"] or step["depends"] != node["depends_on"]):
             raise canonical_scheduler_lane.DispatchFenceError("Published step changed.")
-        effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media', 'browser')
-        if step['tool'] in ('coder', 'publish', 'browser', 'writer'):
+        effect_kind = step['tool'] in ('writer', 'coder', 'publish', 'media', 'browser', 'desktop')
+        if step['tool'] in ('coder', 'publish', 'browser', 'writer', 'desktop'):
             from modules import goal_approval, runtime_prepare_approval
             if 'approval' not in step:
                 # This is a NO-EFFECT prepare checkpoint. No outbox send,
@@ -293,6 +293,11 @@ def execute_offer(profile, offer, *, stop_event=None):
                 elif step['tool'] == 'writer':
                     proposal['text'] += ('\nRapor dosyası: '+str(step['input'].get('filename','rapor.md'))[:120]
                                          +'\nİstek: '+str(step['input']['instruction'])[:400])
+                elif step['tool'] == 'desktop':
+                    proposal['text'] += ('\nFiziksel masaüstü görevi; uygulama/pencere: '
+                                         +str(step['input'].get('target',''))[:200]
+                                         +'\nHedef: '+str(step['input'].get('goal',''))[:500]
+                                         +'\nGörev durduğunda her yeni tur ayrıca onay ister.')
                 else:
                     proposal['text'] += '\nSalt-okunur sayfa: '+str(step['input']['url'])[:400]
                 step['_canonical_approval_proposal'] = proposal
@@ -330,17 +335,25 @@ def execute_offer(profile, offer, *, stop_event=None):
             contacts = {}
         runtime = SimpleNamespace(profile=SimpleNamespace(
             slug=selected.owner, data=contacts,
-        ))
+        ), emit=lambda *args, **kwargs: None,
+            pc_profile=lambda: SimpleNamespace(slug=selected.owner),
+            _cur_source='scheduler')
         identity = goal_executor._identity(job, step)
         identity["_canonical_scheduler_offer"] = {
             "owner": selected.owner, "job_id": selected.job_id,
             "node_id": selected.node_id, "plan_version": selected.plan_version,
             "node_digest": selected.node_digest,
         }
+        if (step['tool'] == 'desktop'
+                and isinstance(step.get('_canonical_desktop_id'), str)
+                and step['_canonical_desktop_id']):
+            # A consumed Core approval resumes exactly this bound native job;
+            # the adapter re-verifies owner/target/goal/id before any action.
+            identity['_canonical_desktop_resume'] = step['_canonical_desktop_id']
         # No persistent runtime_approved flag: it exists only in this
         # Scheduler invocation after checking the consumed approval above.
         worker_step = copy.deepcopy(step)
-        if effect_kind and step['tool'] in ('coder','publish','browser','writer'):
+        if effect_kind and step['tool'] in ('coder','publish','browser','writer','desktop'):
             worker_step['runtime_approved'] = True
         # A stop during provider execution fences the Core CAS, even when
         # the external operation already occurred. It must NEVER be retried.
@@ -353,6 +366,48 @@ def execute_offer(profile, offer, *, stop_event=None):
                 result = specialist_orchestrator.execute_step(
                     runtime, job, worker_step, identity,
                 )
+        if (step['tool'] == 'desktop' and isinstance(result, dict)
+                and result.get('state') == 'approval'
+                and isinstance(result.get('desktop_id'), str)
+                and result['desktop_id']):
+            # The native engine paused for its own action approval, app
+            # permission consent or a waiting effect. This is NOT a
+            # WorkerResult and NOT a failure: bind the exact native job and
+            # wait for a fresh Core approval card. The paused round never
+            # auto-repeats an ambiguous physical action.
+            from modules import goal_approval, goal_state, runtime_prepare_approval
+            with goal_job_control.locked(root, selected.job_id):
+                pause_state = goal_state_store.load(root / (selected.job_id + '.goalstate.json'))
+                pause_job = execution_record.load(root, selected.owner, selected.job_id)
+                pause_matches = [s for s in pause_job.get('steps', [])
+                                 if isinstance(s, dict) and s.get('id') == selected.node_id]
+                if (goal_state.authority(pause_state) != 'canonical'
+                        or pause_state['state'] not in ('pending', 'running')
+                        or len(pause_matches) != 1
+                        or pause_job.get('state') != 'running'
+                        or pause_matches[0].get('state') != 'running'
+                        or pause_matches[0].get('attempts') != 1):
+                    raise canonical_scheduler_lane.DispatchFenceError(
+                        'Masaüstü duraklama journal kaydı değişti; tur sürdürülmedi.')
+                pause_step = pause_matches[0]
+                pause_step['_canonical_desktop_id'] = result['desktop_id']
+                proposal = runtime_prepare_approval.prepare(
+                    {'owner': selected.owner, 'job_id': selected.job_id,
+                     'task_id': selected.node_id},
+                    'desktop', pause_step['input'],
+                )
+                proposal['text'] += ('\nMasaüstü görevi durdu ve onay bekliyor: '
+                                     + str(result.get('text', ''))[:600])
+                pause_step['_canonical_approval_proposal'] = proposal
+                pause_step['approval'] = goal_approval.prepare(pause_job, pause_step, proposal)
+                pause_step['state'] = 'approval'
+                pause_job['waiting'] = pause_step['id']
+                pause_job['approval_at'] = time.time()
+                pause_job['blocker'] = ('Onay gerekli: desktop / '
+                                        + str(pause_step['input'].get('target', ''))[:250])
+                pause_job['updated'] = time.time()
+                release_guard.atomic(record_path, execution_record.encode(pause_job))
+            return False
         if not isinstance(result, dict) or result.get("state") != "done":
             raise ValueError("Canonical worker did not produce accepted success.")
         canonical_output_projection.project_accepted(

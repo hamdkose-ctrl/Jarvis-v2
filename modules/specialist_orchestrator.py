@@ -216,7 +216,14 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                     # Planned writer reports also need write-ahead identity:
                     # a crash after atomic file creation cannot authorize
                     # another automatically generated report.
-                    effect_recovery_runtime.record_intent(expected)
+                    # A bound desktop resume continues the SAME exact command
+                    # fence whose intent is already durable; re-recording would
+                    # be a replay, not a new effect.
+                    if not (step['tool'] == 'desktop'
+                            and isinstance(identity, dict)
+                            and identity.get('_canonical_desktop_resume')
+                            and effect_recovery_runtime.status(expected) != 'not_started'):
+                        effect_recovery_runtime.record_intent(expected)
 
     if step['tool']=='research':
         from modules import research_evidence

@@ -307,7 +307,7 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             goal_plan_gate.validate_root_attempt(
                 current, selection, attempt=accepted['attempt'],
             )
-        if accepted['capability_id'] in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser'):
+        if accepted['capability_id'] in ('task.writer', 'task.coder', 'task.publish', 'task.media', 'task.browser', 'task.desktop'):
             from modules import scheduler_resource_gate, effect_recovery_runtime
             scheduler_resource_gate.require_effect_result_lease(accepted)
             expected = {key: accepted[key] for key in (
@@ -318,7 +318,7 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             if journal_status == 'not_started':
                 raise goal_state_store.PersistedStateConflict(
                     'Planned effect has no durable write-ahead intent.')
-            if (accepted['capability_id'] in ('task.coder', 'task.publish', 'task.media', 'task.browser')
+            if (accepted['capability_id'] in ('task.coder', 'task.publish', 'task.media', 'task.browser', 'task.desktop')
                     and journal_status != 'succeeded'):
                 raise goal_state_store.PersistedStateConflict(
                     'Planned effect has no verified durable receipt.')
