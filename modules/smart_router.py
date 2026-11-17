@@ -31,14 +31,20 @@ POLICY_VERSION = 'jarvis-router.v2'
 _ROLE_EVALUATION=ContextVar('router_role_evaluation',default=None)
 
 
-def _role_fingerprint():
-    root=Path(__file__).resolve().parents[1]
+_ROLE_FINGERPRINT_PATHS=(
+    'modules/smart_router.py','modules/brain_model_understanding.py','modules/brain_contracts.py',
+    'modules/model_capabilities.py','modules/provider_privacy.py','modules/router_connections.py',
+    'modules/provider_protocols.py','modules/llm.py','modules/router_quota.py',
+    'tests/data/brain_output_diagnose_holdout.json','scripts/brain_output_diagnose_holdout.py')
+
+
+def _role_fingerprint(root=None):
+    """Bind the Brain role to semantic code bytes only: CRLF/LF checkouts
+    (git clone vs GitHub ZIP) must not silently revoke a live acceptance."""
     digest=hashlib.sha256()
-    for name in ('smart_router.py','brain_model_understanding.py','brain_contracts.py','model_capabilities.py',
-                 'provider_privacy.py','router_connections.py','provider_protocols.py','llm.py','router_quota.py'):
-        digest.update((root/'modules'/name).read_bytes())
-    digest.update((root/'tests/data/brain_output_diagnose_holdout.json').read_bytes())
-    digest.update((root/'scripts/brain_output_diagnose_holdout.py').read_bytes())
+    base=Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    for name in _ROLE_FINGERPRINT_PATHS:
+        digest.update((base/name).read_bytes().replace(b'\r\n',b'\n'))
     return digest.hexdigest()
 
 

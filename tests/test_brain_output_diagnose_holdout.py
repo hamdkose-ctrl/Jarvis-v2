@@ -98,18 +98,22 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertFalse(data['semantic_acceptance'])
         self.assertNotIn('accuracy',data);self.assertNotIn('correct',data['results'][0])
 
-    def test_without_verifiable_source_sha_no_model_call_and_no_report_is_written(self):
-        # Kaynak SHA kanıtı uydurulmaz: git HEAD veremeyen ağaçta koşucu ilk model
-        # çağrısından önce durur ve hiçbir kabul raporu yazmaz. Bu, kurulu PC kopyasında
-        # kabul ölçümünün yapılamaz olduğunun kanıtıdır; boş/varsayılan sürüm stamp'lenmez.
+    def test_zip_install_without_git_provenances_by_fingerprint_and_never_invents_a_sha(self):
+        # Kaynak SHA uydurulmaz: .git olmayan ZIP kurulumunda kanıt, ölçülen içerığın
+        # parmak izidir (install:<fp12>, head_source=fingerprint). Kapı zaten yalnız
+        # fingerprint/binding/süreye bakar; head alanı tek başına yetki vermez.
         def no_head(cmd,*a,**k):
             raise subprocess.CalledProcessError(128,cmd)
+        from modules import smart_router
+        expected='install:'+smart_router._role_fingerprint()[:12]
         with tempfile.TemporaryDirectory() as td:
             report=Path(td)/'report.json'
-            with patch.object(runner,'subprocess',SimpleNamespace(check_output=no_head)), patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure') as run, redirect_stdout(io.StringIO()):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    runner.main(['--run','--json',str(report)])
-            self.assertFalse(report.exists())
+            with patch.object(runner,'subprocess',SimpleNamespace(check_output=no_head)), patch.object(runner,'preflight',return_value=('owner',False,'no route')), patch.object(runner,'measure') as run, redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.main(['--run','--json',str(report)]),2)
+            data=json.loads(report.read_text())
+        self.assertEqual(data['head'],expected)
+        self.assertEqual(data['head_source'],'fingerprint')
+        self.assertEqual(data['state'],'unmeasured')
         run.assert_not_called()
 
     def test_local_deadline_and_a_silent_provider_get_different_stop_reasons(self):
@@ -398,3 +402,26 @@ class QualificationCandidateTargetTests(unittest.TestCase):
         with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(specs, (), 1)):
             self.assertEqual(smart_router.qualification_candidate('owner').model, 'q-1')
             self.assertEqual(smart_router.qualification_candidate('owner', provider='gemini').model, 'g-1')
+
+
+class CaptureHeadTests(unittest.TestCase):
+    def test_git_checkout_reports_the_commit_and_is_marked_as_git(self):
+        with patch('subprocess.check_output', return_value='abc123def\n') as out:
+            head, source = runner._capture_head(Path('.'))
+        self.assertEqual((head, source), ('abc123def', 'git'))
+        out.assert_called_once()
+
+    def test_non_git_zip_install_falls_back_to_the_fingerprint_marker(self):
+        from modules import smart_router
+        failure = subprocess.CalledProcessError(128, ['git', 'rev-parse', 'HEAD'])
+        with patch('subprocess.check_output', side_effect=failure):
+            head, source = runner._capture_head(Path('.'))
+        self.assertEqual(source, 'fingerprint')
+        self.assertEqual(head, 'install:' + smart_router._role_fingerprint()[:12])
+
+    def test_head_is_provenance_only_and_the_gate_never_reads_it(self):
+        import inspect
+        from modules import router_quota, smart_router
+        gate = inspect.getsource(router_quota.role_qualified)
+        self.assertNotIn('head', gate)
+        self.assertIn('_role_fingerprint()', inspect.getsource(smart_router._brain_role_allowed))

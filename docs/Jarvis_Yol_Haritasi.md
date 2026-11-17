@@ -6,6 +6,10 @@
 
 **Kanıt:** `tests/test_brain_output_diagnose_holdout.py` 32 test OK (5 yeni: bayrak→aday geçişi, çakışma reddi, sağlayıcı seçim kümesi, sıralı iki filtre testi); `test_smart_router` OK; `modules.architecture_guard` OK; tam `modules.validation` bu exact head'de ayrıca kaydedilir. Not: `_role_fingerprint` kaynak ve kılavuzu hash'lediği için bu PR merge olduktan sonra mevcut Gemini/Groq yetki satırları parmak izi uyuşmazlığıyla düşer; kapanış sonrası aynı head'de `--run` (sıradaki aday) ve `--run --qualify-provider groq` ölçümleri ayrı kabul turu olarak yeniden koşulur. Exact-head Windows CI ve aynı SHA PC watcher olmadan faz kapanmaz.
 
+# Brain kabul taşınabilirliği — 17 Kasım 2026
+
+**Bulgu (DOĞRULANDI):** Aynı commit'in iki kopyası farklı Brain parmak izi üretiyordu — GitHub ZIP kurulumu LF, yerel git checkout'u CRLF; `_role_fingerprint` bayt bayt hash'liyordu. Hamdi'nin ZIP kurulumunda tüm `role_qualifications` satırları düştü ve serbest tur fail-closed kaldı ("canlı kabul bekliyor"). İkinci gerçek: kabul betiği `.git` olmayan ağaçta `git rev-parse` yüzünden ilk çağrıdan önce ölüyordu (eski sözleşme: kanıt SHA yoksa koşulmaz) — ZIP ile kurulmuş sürümler bu tasarımıyla yeniden kabul edilemezdi. **Değişiklik (PR #658, Hamdi "aç"):** parmak izi dosya başına CRLF→LF normalize ederek hesaplanır; betik git-veremeyen ağaçta uydurma SHA değil içerik işaretçisi yazar (`head="install:<parmakiz12>"`, `head_source="fingerprint"`), kapı ise eskisi gibi yalnız fingerprint/binding/süre okur (test ile sabit). **Bilinen bedel:** şema değiştiği için merge sonrası mevcut tüm kabul satırları bir kez düşer; tek seferlik yeniden kabul bundan böyle HER checkout'tan koşılabilir (20 sınırlı ücretsiz çağrı). Bugünkü ZIP kurulumu, merge'i beklemeden LF bayt klonunda ölçülen kabul ile açıldı. Kanıt: `tests/test_brain_role_fingerprint_portability.py`, `tests/test_brain_output_diagnose_holdout.py` (CaptureHead + yeniden yazılan no-git sözleşmesi). Exact-head Windows CI + aynı SHA PC watcher gelmeden madde ✅ DEĞİLDİR.
+
 ---
 
 # BRAIN-10 güncel kod adayı — 14 Kasım 2026
