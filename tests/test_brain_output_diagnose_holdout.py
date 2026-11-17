@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -337,6 +337,71 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertIn('Remove-BrainCheckClone -Path $RunDir', finally_block)
         self.assertNotIn('Remove-Item -LiteralPath $RunDir', source)
         self.assertIn('Write-Warning', source.split('# BEGIN-CLONE-CLEANUP')[1])
+
+    def test_provider_pin_is_passed_as_the_exact_free_cloud_target(self):
+        # Sabitleme yalnız adayı seçmez: ölçüm o exact bulut modelinin rapor hedefiyle
+        # koşülur. Eşikler, bütçe ve kabul koşulları bu baytın varlığıyla değişmez.
+        from modules import smart_router
+        seen = {}
+        def candidate(owner, **kwargs):
+            seen.update(kwargs)
+            return smart_router.ModelSpec('groq', 'test-model')
+        with self._source_sha(), patch.object(runner, 'preflight', return_value=('owner', True, 'ready')), \
+                patch.object(smart_router, 'qualification_candidate', side_effect=candidate), \
+                patch.object(runner, 'measure', return_value={'state': 'failed'}) as run, \
+                redirect_stdout(io.StringIO()):
+            exit_code = runner.main(['--run', '--qualify-provider', 'groq'])
+        self.assertEqual(seen, {'connection_id': None, 'local': False, 'provider': 'groq'})
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(exit_code, 1)
+
+    def test_provider_pin_refuses_local_and_custom_modes_before_any_preflight(self):
+        # --qualify-provider yalnız ücretsiz bulut sırasını sabitler; yerel/özel hedefin
+        # kendi sabitlemesi vardır. Çakışma ilk model çağrısından önce reddedilir.
+        for other in ('--qualify-local', '--qualify-connection'):
+            argv = ['--run', '--qualify-provider', 'groq', other]
+            if other == '--qualify-connection':
+                argv += ['conn-1', '--accept-paid']
+            with self.subTest(other=other), patch.object(runner, 'preflight') as pre, \
+                    patch.object(runner, 'measure') as run, \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as got:
+                    runner.main(argv)
+            self.assertEqual(got.exception.code, 2)
+            pre.assert_not_called()
+            run.assert_not_called()
+
+    def test_provider_pin_only_accepts_the_three_free_cloud_providers(self):
+        # Yerel/özel sağlayıcılar kendi sabitleme bayraklarıyla ölçülür; serbest metin
+        # uydurma hedefe ilk çağrıyı gönderemez.
+        for name in ('ollama', 'custom', 'GROQ'):
+            with self.subTest(name=name), patch.object(runner, 'preflight') as pre, \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as got:
+                    runner.main(['--run', '--qualify-provider', name])
+            self.assertEqual(got.exception.code, 2)
+            pre.assert_not_called()
+
+
+class QualificationCandidateTargetTests(unittest.TestCase):
+    def test_provider_filter_pins_the_first_matching_free_candidate(self):
+        from modules import smart_router
+        specs = (smart_router.ModelSpec('gemini', 'g-1'),
+                 smart_router.ModelSpec('groq', 'q-1'),
+                 smart_router.ModelSpec('groq', 'q-2'))
+        with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(specs, (), 1)):
+            self.assertEqual(smart_router.qualification_candidate('owner').model, 'g-1')
+            self.assertEqual(smart_router.qualification_candidate('owner', provider='groq').model, 'q-1')
+            with self.assertRaises(ValueError):
+                smart_router.qualification_candidate('owner', provider='cloudflare')
+
+    def test_routed_free_candidates_carry_the_original_order_when_unpinned(self):
+        # Sabitleme yoksa sözleşme eskisi gibi: ilk uygun ücretsiz bulut adayı döner.
+        from modules import smart_router
+        specs = (smart_router.ModelSpec('groq', 'q-1'), smart_router.ModelSpec('gemini', 'g-1'))
+        with patch.object(smart_router, 'plan', return_value=smart_router.RoutePlan(specs, (), 1)):
+            self.assertEqual(smart_router.qualification_candidate('owner').model, 'q-1')
+            self.assertEqual(smart_router.qualification_candidate('owner', provider='gemini').model, 'g-1')
 
 
 class CaptureHeadTests(unittest.TestCase):
