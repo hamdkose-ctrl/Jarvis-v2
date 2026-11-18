@@ -316,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Gerçek ücretsiz istekler arasında kota korumalı bekleme; varsayılan 35 saniye.")
     parser.add_argument("--corpus", type=Path, default=CORPUS,
                         help="İsteğe bağlı bağımsız değerlendirme korpusu; prompt/regex değildir.")
+    parser.add_argument("--case-id", help="Yalnız tek cümle tanısı; tam holdout PASS veremez.")
     args = parser.parse_args(argv)
     if not 0 <= args.interval_seconds <= 120:
         parser.error("--interval-seconds must be between 0 and 120")
@@ -327,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ÖLÇÜLEMEDİ: geçersiz korpus ({type(exc).__name__}: {exc})")
         return 2
+    full_corpus_cases = len(rows)
+    if args.case_id:
+        rows = [row for row in rows if row["id"] == args.case_id]
+        if len(rows) != 1:
+            print("ÖLÇÜLEMEDİ: bilinmeyen/tekrarlanan --case-id (model çağrısı yapılmadı).")
+            return 2
+        print("TEK CÜMLE TANISI: Bu koşu 24 cümlelik kabul yerine geçmez.")
     owner, ok, reason = _preflight()
     print(f"Korpus: {args.corpus.name} ({len(rows)} cümle) — {len(rows)} bounded model çağrısı gerekir.")
     if not ok:
@@ -417,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     summary["planned_cases"] = len(rows)
     summary["stop_reason"] = stop_reason
     summary["completed_cases"] = sum(row["model_response_received"] for row in results)
-    passed = (complete and summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
+    passed = (not args.case_id and complete and summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
               and (summary["hedef_dogrulugu"] or 0.0) >= TARGET_THRESHOLD
               and summary["kritik_yanlis_etki"] == 0
               and summary["equivalence"]["passed"]
@@ -426,6 +434,10 @@ def main(argv: list[str] | None = None) -> int:
     invalid_response = any(row["model_response_received"] and row["zarf"] is None for row in results)
     summary["state"] = "passed" if passed else "failed" if complete or invalid_response else "unmeasured"
     summary["passed"] = passed
+    summary["full_corpus_cases"] = full_corpus_cases
+    summary["targeted_case_id"] = args.case_id
+    if args.case_id and complete and not invalid_response:
+        summary["state"] = "diagnostic"
     if not complete:
         # Partial/no responses are not a full accuracy sample. A no-response negative
         # is NOT a correct no-effect decision or a proven safety outcome.
@@ -437,11 +449,12 @@ def main(argv: list[str] | None = None) -> int:
         args.json.write_text(json.dumps({"summary": summary, "results": results},
                                         ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"Rapor: {args.json}")
-    print("Semantik kabul: GEÇTİ." if passed else
+    print("Tek cümle tanısı: geçerli model önerisi; tam kabul ölçülmedi." if summary["state"] == "diagnostic" else
+          "Semantik kabul: GEÇTİ." if passed else
           "Semantik kabul: KALDI (model yanıtı Brain sözleşmesini geçemedi)." if invalid_response else
           "Semantik kabul: ÖLÇÜLEMEDİ (sağlayıcı yanıtı eksik)." if not complete else
           "Semantik kabul: KALDI (gerçek yanıtlarda niyet/hedef veya kritik etki başarısız).")
-    return 0 if passed else 1 if summary["state"] == "failed" else 2
+    return 0 if summary["state"] in {"passed", "diagnostic"} else 1 if summary["state"] == "failed" else 2
 
 
 if __name__ == "__main__":
