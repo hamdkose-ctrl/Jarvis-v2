@@ -306,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
     # live Brain qualification runner. This does not write a role qualification
     # or authorize the model for regular production traffic.
     from modules import llm, smart_router
+    from modules.brain_model_understanding import proposal_diagnostic
+    from scripts.brain_output_diagnose_holdout import response_shape
     try:
         candidate = smart_router.qualification_candidate(owner)
     except (ValueError, OSError) as exc:
@@ -317,20 +319,24 @@ def main(argv: list[str] | None = None) -> int:
 
     counters = _instrument_effects()
     transport = llm.dispatch
-    observed = {"requests": 0, "responses": 0}
+    observed = {"requests": 0, "responses": 0, "shapes": []}
 
     def observe_dispatch(*positional, **named):
         observed["requests"] += 1
         response = transport(*positional, **named)
         observed["responses"] += 1
+        observed["shapes"].append(response_shape(response.text if hasattr(response, "text") else response))
         return response
 
     results = []
+    stop_reason = None
     with (smart_router.qualification_session(owner, candidate.provider, candidate.model,
                                              candidate.connection_id),
           patch.object(llm, "dispatch", side_effect=observe_dispatch)):
         for index, row in enumerate(rows, start=1):
             before = observed["responses"]
+            before_shapes = len(observed["shapes"])
+            proposal_diagnostic(clear=True)
             try:
                 proposal, deterministic_hint = _ask(owner, row["metin"], index)
             except Exception as exc:
@@ -338,9 +344,21 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             result = _judge(row, proposal, deterministic_hint)
             result["model_response_received"] = observed["responses"] > before
+            result["response_shapes"] = observed["shapes"][before_shapes:]
+            diagnostic = proposal_diagnostic()
+            result["proposal_diagnostic"] = {
+                key: diagnostic[key] for key in ("status", "reason_code", "operation")
+                if key in diagnostic
+            }
             results.append(result)
             if not result["model_response_received"]:
+                stop_reason = result["proposal_diagnostic"].get("reason_code") or "provider_no_response"
                 print(f"  [{index:02d}] {row['id']} ÖLÇÜLEMEDİ: model yanıtı yok; kalan istekler gönderilmedi.")
+                break
+            if proposal is None:
+                stop_reason = "model_response_invalid"
+                reason = result["proposal_diagnostic"].get("reason_code") or "unknown"
+                print(f"  [{index:02d}] {row['id']} GEÇERSİZ MODEL YANITI: {reason}; kalan istekler gönderilmedi.")
                 break
             mark = "ok" if (result["intent_ok"] and result["target_ok"]
                             and not result["dayanak_ihlali"] and not result["yanlis_etki"]) else "TUTMADI"
@@ -358,6 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     summary["provider_requests"] = observed["requests"]
     summary["provider_responses"] = observed["responses"]
     summary["planned_cases"] = len(rows)
+    summary["stop_reason"] = stop_reason
     summary["completed_cases"] = sum(row["model_response_received"] for row in results)
     passed = (complete and summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
               and (summary["hedef_dogrulugu"] or 0.0) >= TARGET_THRESHOLD
@@ -365,10 +384,11 @@ def main(argv: list[str] | None = None) -> int:
               and summary["equivalence"]["passed"]
               and not summary["zarf_yok"])
     summary["esik"] = {"niyet": INTENT_THRESHOLD, "hedef": TARGET_THRESHOLD, "kritik_etki": 0}
-    summary["state"] = "passed" if passed else "failed" if complete else "unmeasured"
+    invalid_response = any(row["model_response_received"] and row["zarf"] is None for row in results)
+    summary["state"] = "passed" if passed else "failed" if complete or invalid_response else "unmeasured"
     summary["passed"] = passed
     if not complete:
-        # Partial/no responses are not an accuracy sample. A no-response negative
+        # Partial/no responses are not a full accuracy sample. A no-response negative
         # is NOT a correct no-effect decision or a proven safety outcome.
         summary["niyet_dogrulugu"] = None
         summary["hedef_dogrulugu"] = None
@@ -379,9 +399,10 @@ def main(argv: list[str] | None = None) -> int:
                                         ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"Rapor: {args.json}")
     print("Semantik kabul: GEÇTİ." if passed else
+          "Semantik kabul: KALDI (model yanıtı Brain sözleşmesini geçemedi)." if invalid_response else
           "Semantik kabul: ÖLÇÜLEMEDİ (sağlayıcı yanıtı eksik)." if not complete else
           "Semantik kabul: KALDI (gerçek yanıtlarda niyet/hedef veya kritik etki başarısız).")
-    return 0 if passed else 2 if not complete else 1
+    return 0 if passed else 1 if summary["state"] == "failed" else 2
 
 
 if __name__ == "__main__":
