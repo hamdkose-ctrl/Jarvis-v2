@@ -1,0 +1,310 @@
+{
+  "format_version": "brain-semantic-paraphrases.v1",
+  "aciklama": "Değerlendirme verisi, uygulama sözlüğü/regex/prompt örneği DEĞİLDİR. Aynı equivalence_group içindeki tüm söylenişler aynı capability ve tipli slot sonucunu üretmeli; tek bir kaçırma grubu başarısız kılar. Negatifler hiçbir eylem önermemeli. Gerçek Brain model zarfı ölçülür, hiçbir dış etki yürütülmez. Her beklenen cümleden bağımsız olarak geliştirilmiştir.",
+  "cumleler": [
+    {
+      "id": "eq-volume20-01",
+      "sinif": "equivalent_volume20",
+      "equivalence_group": "volume20",
+      "metin": "Sesi yüzde 20 yap.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "volume",
+          "level": 20
+        }
+      }
+    },
+    {
+      "id": "eq-volume20-02",
+      "sinif": "equivalent_volume20",
+      "equivalence_group": "volume20",
+      "metin": "Ses düzeyini %20'ye ayarla.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "volume",
+          "level": 20
+        }
+      }
+    },
+    {
+      "id": "eq-volume20-03",
+      "sinif": "equivalent_volume20",
+      "equivalence_group": "volume20",
+      "metin": "Bilgisayarın sesini 20 olarak ayarla.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "volume",
+          "level": 20
+        }
+      }
+    },
+    {
+      "id": "eq-volume20-04",
+      "sinif": "equivalent_volume20",
+      "equivalence_group": "volume20",
+      "metin": "Ses seviyesini yirmiye getir.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "volume",
+          "level": 20
+        }
+      }
+    },
+    {
+      "id": "eq-brightness40-01",
+      "sinif": "equivalent_brightness40",
+      "equivalence_group": "brightness40",
+      "metin": "Ekran parlaklığını yüzde 40 yap.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "brightness",
+          "level": 40
+        }
+      }
+    },
+    {
+      "id": "eq-brightness40-02",
+      "sinif": "equivalent_brightness40",
+      "equivalence_group": "brightness40",
+      "metin": "Parlaklığı 40'a ayarla.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "brightness",
+          "level": 40
+        }
+      }
+    },
+    {
+      "id": "eq-brightness40-03",
+      "sinif": "equivalent_brightness40",
+      "equivalence_group": "brightness40",
+      "metin": "Ekranın ışık düzeyini 40 olarak ayarla.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "pc.level.set",
+        "slotlar": {
+          "property": "brightness",
+          "level": 40
+        }
+      }
+    },
+    {
+      "id": "eq-open_chrome-01",
+      "sinif": "equivalent_open_chrome",
+      "equivalence_group": "open_chrome",
+      "metin": "Chrome'u aç.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "app.open",
+        "slotlar": {
+          "app": "chrome"
+        }
+      }
+    },
+    {
+      "id": "eq-open_chrome-02",
+      "sinif": "equivalent_open_chrome",
+      "equivalence_group": "open_chrome",
+      "metin": "Chrome uygulamasını başlat.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "app.open",
+        "slotlar": {
+          "app": "chrome"
+        }
+      }
+    },
+    {
+      "id": "eq-open_chrome-03",
+      "sinif": "equivalent_open_chrome",
+      "equivalence_group": "open_chrome",
+      "metin": "Bilgisayarda Chrome'u çalıştır.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "app.open",
+        "slotlar": {
+          "app": "chrome"
+        }
+      }
+    },
+    {
+      "id": "eq-message_ayse-01",
+      "sinif": "equivalent_message_ayse",
+      "equivalence_group": "message_ayse",
+      "metin": "WhatsApp'tan Ayşe'ye toplantı saat üçte yaz.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "message.send",
+        "slotlar": {
+          "recipient": "Ayşe",
+          "body": "toplantı saat üçte"
+        }
+      }
+    },
+    {
+      "id": "eq-message_ayse-02",
+      "sinif": "equivalent_message_ayse",
+      "equivalence_group": "message_ayse",
+      "metin": "Ayşe'ye WhatsApp mesajı gönder: toplantı saat üçte.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "message.send",
+        "slotlar": {
+          "recipient": "Ayşe",
+          "body": "toplantı saat üçte"
+        }
+      }
+    },
+    {
+      "id": "eq-message_ayse-03",
+      "sinif": "equivalent_message_ayse",
+      "equivalence_group": "message_ayse",
+      "metin": "WhatsApp ile Ayşe'ye toplantı saat üçte diye mesaj at.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "message.send",
+        "slotlar": {
+          "recipient": "Ayşe",
+          "body": "toplantı saat üçte"
+        }
+      }
+    },
+    {
+      "id": "eq-contact_elif-01",
+      "sinif": "equivalent_contact_elif",
+      "equivalence_group": "contact_elif",
+      "metin": "Rehbere Elif'i 532 777 88 99 numarasıyla ekle.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "contacts.manage",
+        "slotlar": {
+          "operation": "add",
+          "name": "Elif",
+          "phone": "532 777 88 99"
+        }
+      }
+    },
+    {
+      "id": "eq-contact_elif-02",
+      "sinif": "equivalent_contact_elif",
+      "equivalence_group": "contact_elif",
+      "metin": "Elif'i 532 777 88 99 numarasıyla kişi olarak kaydet.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "contacts.manage",
+        "slotlar": {
+          "operation": "add",
+          "name": "Elif",
+          "phone": "532 777 88 99"
+        }
+      }
+    },
+    {
+      "id": "eq-contact_elif-03",
+      "sinif": "equivalent_contact_elif",
+      "equivalence_group": "contact_elif",
+      "metin": "Yeni kişi ekle: Elif, telefon 532 777 88 99.",
+      "beklenen": {
+        "kind": "effect",
+        "capability": "contacts.manage",
+        "slotlar": {
+          "operation": "add",
+          "name": "Elif",
+          "phone": "532 777 88 99"
+        }
+      }
+    },
+    {
+      "id": "neg-volume_not",
+      "sinif": "negative_negation",
+      "metin": "Sesi 20 yapma.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-volume_how",
+      "sinif": "negative_explanation",
+      "metin": "Ses seviyesini 20 yapmak için ne yapmalıyım?",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-chrome_not",
+      "sinif": "negative_negation",
+      "metin": "Chrome'u açma.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-chrome_how",
+      "sinif": "negative_explanation",
+      "metin": "Chrome nasıl açılır, anlatır mısın?",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-message_not",
+      "sinif": "negative_negation",
+      "metin": "Ayşe'ye WhatsApp'tan mesaj gönderme.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-message_past",
+      "sinif": "negative_past",
+      "metin": "Ayşe'ye WhatsApp'tan mesaj attım.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-quote",
+      "sinif": "negative_quote",
+      "metin": "'Sesi 20 yap' cümlesindeki anlamı açıkla.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    },
+    {
+      "id": "neg-ambiguous",
+      "sinif": "ambiguous_no_context",
+      "metin": "20 yap.",
+      "beklenen": {
+        "kind": "no_effect",
+        "capability": null,
+        "slotlar": {}
+      }
+    }
+  ]
+}
