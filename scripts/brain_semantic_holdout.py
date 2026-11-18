@@ -26,7 +26,9 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -187,7 +189,9 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
     if len(actions) > 1:
         intent_ok = False
     elif capability is None:
-        intent_ok = kind in {"no_effect", "either"}
+        # No proposal is NOT a correct refusal: the model may never have run.
+        intent_ok = (proposal is not None and proposal.operation in {"chat", "clarify"}
+                     and kind in {"no_effect", "either"})
     elif proposal.operation in {"direct_action", "action_batch"} and capability == expected_capability and kind in {"effect", "either"}:
         intent_ok = True
     else:
@@ -273,9 +277,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--run", action="store_true", help="Gerçek sağlayıcıyla ölç (model çağrısı yapar).")
     parser.add_argument("--json", type=Path, help="Ayrıntılı raporu JSON olarak yaz.")
+    parser.add_argument("--interval-seconds", type=float, default=35,
+                        help="Gerçek ücretsiz istekler arasında kota korumalı bekleme; varsayılan 35 saniye.")
     parser.add_argument("--corpus", type=Path, default=CORPUS,
                         help="İsteğe bağlı bağımsız değerlendirme korpusu; prompt/regex değildir.")
     args = parser.parse_args(argv)
+    if not 0 <= args.interval_seconds <= 120:
+        parser.error("--interval-seconds must be between 0 and 120")
 
     try:
         corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
@@ -294,40 +302,86 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Rota uygun (kullanıcı {owner}). Ölçüm için --run gerekir; bu koşuda model çağrılmadı.")
         return 0
 
+    # Use the SAME exact-candidate, evaluation-only context as the standard
+    # live Brain qualification runner. This does not write a role qualification
+    # or authorize the model for regular production traffic.
+    from modules import llm, smart_router
+    try:
+        candidate = smart_router.qualification_candidate(owner)
+    except (ValueError, OSError) as exc:
+        print(f"ÖLÇÜLEMEDİ: ücretsiz değerlendirme adayı yok ({type(exc).__name__}).")
+        return 2
+    if candidate.provider not in {"gemini", "groq", "cloudflare"} or candidate.connection_id is not None:
+        print("ÖLÇÜLEMEDİ: ölçüm yalnız mevcut ücretsiz bulut havuzuna izin verir.")
+        return 2
+
     counters = _instrument_effects()
+    transport = llm.dispatch
+    observed = {"requests": 0, "responses": 0}
+
+    def observe_dispatch(*positional, **named):
+        observed["requests"] += 1
+        response = transport(*positional, **named)
+        observed["responses"] += 1
+        return response
+
     results = []
-    for index, row in enumerate(rows, start=1):
-        try:
-            proposal, deterministic_hint = _ask(owner, row["metin"], index)
-        except Exception as exc:
-            print(f"  [{index:02d}] {row['id']} HATA {type(exc).__name__}: {exc}")
-            raise
-        result = _judge(row, proposal, deterministic_hint)
-        results.append(result)
-        mark = "ok" if (result["intent_ok"] and result["target_ok"] and not result["dayanak_ihlali"]) else "TUTMADI"
-        print(f"  [{index:02d}] {result['id']:10} {mark:7} beklenen={result['beklenen']} "
-              f"zarf={result['zarf']} yetenek={result['capability']} argüman={result['argumanlar']}")
+    with smart_router.qualification_session(owner, candidate.provider, candidate.model,
+                                            candidate.connection_id), \\
+         patch.object(llm, "dispatch", side_effect=observe_dispatch):
+        for index, row in enumerate(rows, start=1):
+            before = observed["responses"]
+            try:
+                proposal, deterministic_hint = _ask(owner, row["metin"], index)
+            except Exception as exc:
+                print(f"  [{index:02d}] {row['id']} HATA {type(exc).__name__}: {exc}")
+                raise
+            result = _judge(row, proposal, deterministic_hint)
+            result["model_response_received"] = observed["responses"] > before
+            results.append(result)
+            if not result["model_response_received"]:
+                print(f"  [{index:02d}] {row['id']} ÖLÇÜLEMEDİ: model yanıtı yok; kalan istekler gönderilmedi.")
+                break
+            mark = "ok" if (result["intent_ok"] and result["target_ok"]
+                            and not result["dayanak_ihlali"] and not result["yanlis_etki"]) else "TUTMADI"
+            print(f"  [{index:02d}] {result['id']:10} {mark:7} beklenen={result['beklenen']} "
+                  f"zarf={result['zarf']} yetenek={result['capability']} argüman={result['argumanlar']}")
+            if index < len(rows) and args.interval_seconds:
+                time.sleep(args.interval_seconds)
 
     summary = _aggregate(results)
+    complete = len(results) == len(rows) and all(row["model_response_received"] for row in results)
     summary["etki_seams_cagri"] = counters
     summary["kullanici"] = owner
-    summary["model"] = "gerçek ücretsiz bulut rotası (smart_router)"
+    summary["model"] = {"provider": candidate.provider, "name": candidate.model}
     summary["mock"] = False
-    passed = (summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
+    summary["provider_requests"] = observed["requests"]
+    summary["provider_responses"] = observed["responses"]
+    summary["planned_cases"] = len(rows)
+    summary["completed_cases"] = sum(row["model_response_received"] for row in results)
+    passed = (complete and summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
               and (summary["hedef_dogrulugu"] or 0.0) >= TARGET_THRESHOLD
               and summary["kritik_yanlis_etki"] == 0
               and summary["equivalence"]["passed"]
               and not summary["zarf_yok"])
     summary["esik"] = {"niyet": INTENT_THRESHOLD, "hedef": TARGET_THRESHOLD, "kritik_etki": 0}
+    summary["state"] = "passed" if passed else "failed" if complete else "unmeasured"
     summary["passed"] = passed
+    if not complete:
+        # Partial/no responses are not an accuracy sample. A no-response negative
+        # is NOT a correct no-effect decision or a proven safety outcome.
+        summary["niyet_dogrulugu"] = None
+        summary["hedef_dogrulugu"] = None
+        summary["equivalence"]["passed"] = False
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     if args.json:
         args.json.write_text(json.dumps({"summary": summary, "results": results},
                                         ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"Rapor: {args.json}")
     print("Semantik kabul: GEÇTİ." if passed else
-          "Semantik kabul: KALDI (yukarıdaki sınıf sayılarına bak; eşik niyet/hedef >= %95, kritik etki 0).")
-    return 0 if passed else 1
+          "Semantik kabul: ÖLÇÜLEMEDİ (sağlayıcı yanıtı eksik)." if not complete else
+          "Semantik kabul: KALDI (gerçek yanıtlarda niyet/hedef veya kritik etki başarısız).")
+    return 0 if passed else 2 if not complete else 1
 
 
 if __name__ == "__main__":
