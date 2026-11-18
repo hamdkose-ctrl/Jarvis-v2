@@ -1,3 +1,12 @@
+## 19 Kasım 2026 — 10/10 temel PC cümlesi; mesaj alıcısında Türkçe isim biçimi (PR #673; canlı kabul bekliyor)
+
+- **Fiziksel PC'den gerçek ücretsiz Gemini ölçümü:** `45dcaa95ce01` kaynaklı 24 cümlelik kabulün ilk 10'u **doğru model önerisi** verdi (4 ses, 3 parlaklık, 3 Chrome). Hiçbir gerçek sistem eylemi yürütülmedi. 11. cümle `eq-message_ayse-01` (`message.send`) `CORE_ARGUMENTS_INVALID` ile durdu; toplam 12 model yanıtı alındı, kalan 13 cümle ölçülmedi. Bu sonuç **FAILED**; niyet/hedef başarı yüzdesi tüm 24 için ölçülmüş değildir.
+- **Dar biçim düzeltmesi:** `brain_core_map._MESSAGE_RECIPIENT` yalnız küçük harfleri kabul ettiğinden modelin normal özel isim `Ayşe`/`İpek` seçmesi Core'da reddedilebiliyordu. `_message_args` ve `_contacts_args` artık aynı kapalı Türkçe harf/uzunluk gramerini büyük-küçük harf katlamasından sonra doğrular, Türkçe yazımını kanonikleştirir. Sayı, e-posta, ekli çekim eki, yabancı alanlar, uydurma isimler ve metin uzunluk sınırları geçerli olmaz; Brain'in `argument_sources` alıntı kanıtı ve kullanıcının `pending_msg` onayı değişmedi. **Bu yalnız güçlü bir olası sebebin düzeltmesidir; ham canlı model argümanı kaydedilmediği için tek kök neden denmez.**
+- **Kota korumalı tanı:** `brain_semantic_holdout.py --run --case-id eq-message_ayse-01` sadece tam korpus geçerliliği doğrulandıktan sonra tek cümleyi gerçek ücretsiz modelle ölçer. Bu çalışma `state=diagnostic` ve `passed=false` yazar, **24 cümlelik tam kabul yerine geçemez**. Yanlış hedef/niyet varsa FAIL döner. `model_message_arg_shapes` yalnız Core alıcı/gövde biçiminin kapalı türünü gösterir; kişi adı, mesaj içeriği, sağlayıcı ham yanıtı veya model kaynak alıntısı rapora çıkmaz.
+- **Kabul kapıları:** Yeni exact HEAD Windows CI + aynı SHA gerçek PC Watcher PASS; ayrıca tüm 24 cümle ücretsiz sağlayıcı canlı PASS, kritik yanlış etki sıfır. Sesli fiziksel STT/TTS kabulü ayrı kalır. Merge henüz yetkili değildir.
+
+---
+
 ## 19 Kasım 2026 — Brain kullanıcı-dayanak alanı ile tipli komut ayrımı (PR #673; canlı kabul bekliyor)
 
 - **Gerçek canlı ölçüm:** Son `69236123450f` SHA üzerinde Gemini `gemini-3.5-flash-lite` ile iki fiziksel model yanıtı alındı. İkisinde de yetenek `pc.level.set`, kaynak türü `nonempty_object` idi; iki yanıt `ARGUMENT_SOURCE_INVALID` nedeniyle reddedildi. 24 cümlenin yalnız ilki tamamlanabildi (durum: failed); model argümanlarının doğruluğu ve sonraki 23 cümle henüz ölçülemedi. Gizli değerler/ham sağlayıcı yanıtları loglanmadı.
