@@ -30,6 +30,13 @@ DEFAULTS = [
 ]
 
 
+SCHEDULER_ONLY_TOOLS = {
+    'desktop': 'Fiziksel masaüstü görevi: hedef uygulama ile iş, tek kök olarak açılır',
+}
+SCHEDULER_ONLY_SCOPE = ('Yalnız canonical Scheduler hedefi ve kullanıcının Core onay kartıyla yürür; '
+                        'uzman dizini bu aracı çalıştırma yetkisi vermez')
+
+
 def _path(owner):
     service_store.identity(owner)
     path = ROOT / (owner + '.json')
@@ -41,9 +48,14 @@ def _path(owner):
 def capabilities():
     from modules import goal_tools
     catalog = goal_tools.catalog()
-    tools = {**catalog['workers'], **catalog['local_tools']}
+    # Karar 2 Aşama C: the desktop tool is a routable expertise area but is not
+    # a legacy worker; only the canonical Scheduler with the Core card runs it.
+    scheduler_only = {kind: SCHEDULER_ONLY_TOOLS[kind] for kind in catalog['inputs']
+                      if kind in SCHEDULER_ONLY_TOOLS}
+    tools = {**catalog['workers'], **scheduler_only, **catalog['local_tools']}
     return [{'id':key, 'description':value,
-             'scope':'Mevcut adaptör; bağlantı ve izin çalıştırma sırasında denetlenir'}
+             'scope': SCHEDULER_ONLY_SCOPE if key in scheduler_only
+             else 'Mevcut adaptör; bağlantı ve izin çalıştırma sırasında denetlenir'}
             for key,value in tools.items()]
 
 

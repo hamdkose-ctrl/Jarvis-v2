@@ -49,8 +49,8 @@ Yalnız bağlamdaki goals listesi boşsa ilk yanıt: {"action":"plan","goals":["
 Sonra {"action":"tool","goal":0,"tool":"araç","specialist":"kayıtlı uzman id","input":{...},"depends":["s1",...]}. Uzmanı bağlamdaki specialists listesinden araç yeteneğine göre seç; uzman seçimi işlem izni sağlamaz.
 depends yalnız gerçekten tamamlanmış önceki adımlar. Çıktıları oku, kimlik/yol/özet uydurma.
 Araç yanıtı başarısızsa nedenini incele, farklı girdi/araç/yöntem dene; aynı başarısız isteği körlemesine yineleme.
-Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web sayfası, salt-okuma browser araması veya belgelerle;
-rapor dosyası writer ile, sohbet raporu complete ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
+Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web sayfası, salt-okuma browser araması veya belgelerle; browser input mode zorunludur ve bu araçta yalnız readonly geçerlidir,
+rapor dosyası writer ile, sohbet raporu complete ile, hesap işleri account/publish ile, medya media ile; uygulama/system ayarı application ve action kataloğuyla yapılır. Fiziksel masaüstü görevi (desktop) bu araç listesinde değildir; yalnız canonical Scheduler hedefi olarak yürür.
 Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa video media scenes/caption/duration ile üretilir.
 Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
@@ -422,18 +422,17 @@ def _identity(job,step):
     tool=step['tool'];data=step['input']
     if tool in task_tools.CATALOG:
         result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':step.get('attempts', 0)})
-    elif tool=='desktop' or (tool=='system' and data.get('operation') in {'volume','mute','brightness'}):
-        # The desktop adapter is an existing local goal tool.  Give only this
-        # effectful local path the durable execution identity needed by the
-        # Core gate; this does not turn every legacy local helper into a worker.
+    elif tool=='system' and data.get('operation') in {'volume','mute','brightness'}:
+        # Only this effectful local state setter needs the durable execution
+        # identity for the Core gate; it is not a general local-helper rule.
+        # The desktop tool is a canonical task capability and takes the
+        # catalog branch above.
         result={'version':task_tools.VERSION,'owner':job['owner'],'job_id':job['id'],
                 'task_id':step['id'],'capability':tool,
-                'risk':'physical_effect' if tool=='desktop' else 'local_destructive',
-                'replay_safe':False,'attempt':step.get('attempts', 0),'outcome':'pending'}
+                'risk':'local_destructive','replay_safe':False,'attempt':step.get('attempts', 0),'outcome':'pending'}
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
     approved_target=((step.get('approval') or {}).get('binding') or {}).get('target_state_digest')
-    return {**result,'approval_target_digest':approved_target,'source_only':step.get('source_only') is True,'request':job['request'],'request_started_at':job.get('created'),'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
-            'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
+    return {**result,'approval_target_digest':approved_target,'source_only':step.get('source_only') is True,'request':job['request'],'request_started_at':job.get('created'),'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[]))}
 
 
 def _reconcile(runtime,job,step):
@@ -632,8 +631,7 @@ def _record(runtime,job,step,approval=None):
             safe_code=developer.code_retry_safe(job['owner'],step['input']['request'])
             step['retry_safe']=safe_code
         safe_open=step['tool']=='application' and output.get('retry_safe') is True
-        safe_desktop=step['tool']=='desktop' and output.get('retry_safe') is True
-        if not safe_initial_browser and not safe_code and not safe_open and not safe_desktop and step['started']:
+        if not safe_initial_browser and not safe_code and not safe_open and step['started']:
             job['state']='review';job['blocker']='İşlemin etkisi kesinleşmedi; sonucu kontrol etmeden ikinci işlem başlatılmadı.'
     _save(job)
     runtime.emit('activity','Hedef adımı '+('tamamlandı' if output['state']=='done' else output['state']),

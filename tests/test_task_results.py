@@ -92,10 +92,12 @@ class ResultTests(unittest.TestCase):
         with self.assertRaises(ValueError):results.seal('browser',self.browser())
 
     def test_resume_rechecks_completed_browser_without_replaying(self):
-        from modules import browser_agent
+        from modules import browser_agent, task_workers
+        readonly = {'url': 'https://example.com', 'instruction': 'başlıkları oku',
+                    'mode': 'readonly'}
         with patch.object(agents, 'STORE', self.path.parent / 'tasks'), patch.object(browser_agent, 'STORE', self.path.parent / 'browser'):
-            with patch.object(agents, 'browser_task', return_value=self.browser()):
-                job = agents.execute('alice', [{'id': 'a', 'agent': 'browser'}])
+            with patch.object(task_workers, 'browser_task', return_value=self.browser()):
+                job = agents.execute('alice', [{'id': 'a', 'agent': 'browser', 'input': readonly}])
             self.path.unlink()
             with patch.object(agents, 'worker') as work:
                 with self.assertRaises(ValueError): agents.continue_job('alice', job['id'])

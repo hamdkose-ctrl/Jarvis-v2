@@ -19,11 +19,11 @@ CATALOG = {
     'computer': {'risk': 'local_evidence_read', 'replay_safe': True,
                  'required': ('app', 'operation'), 'optional': ()},
     'desktop': {'risk': 'physical_effect', 'replay_safe': False,
-                'required': ('target', 'goal'), 'optional': ('answer',)},
+                'required': ('target', 'goal'), 'optional': ()},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
-                'required': ('url', 'instruction'), 'optional': ('mode',)},
+                'required': ('url', 'instruction', 'mode'), 'optional': ()},
     'coder': {'risk': 'development_workspace', 'replay_safe': False,
               'required': ('request',), 'optional': ()},
     'verify': {'risk': 'local_evidence_read', 'replay_safe': True,
@@ -58,11 +58,9 @@ def validate_input(kind, data, *, complete=True):
                 or not isinstance(data.get('goal'), str)
                 or not data['goal'].strip() or len(data['goal'].strip()) > 2000):
             raise ValueError('Masaüstü görev girdisi geçersiz.')
-        if 'answer' in data and (not isinstance(data['answer'], str)
-                                 or len(data['answer']) > 2000):
-            raise ValueError('Masaüstü yanıt alanı geçersiz.')
-        allowed = {'target', 'goal'} | ({'answer'} if 'answer' in data else set())
-        if set(data) != allowed:
+        if set(data) != {'target', 'goal'}:
+            # Karar 2 Aşama C: the engine question round has no canonical
+            # answer channel, so no model may smuggle an answer field here.
             raise ValueError('Masaüstü görev girdisi desteklenmeyen alan içeriyor.')
         return copy.deepcopy(data)
     if not isinstance(data, dict) or any(

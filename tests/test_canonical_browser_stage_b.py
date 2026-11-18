@@ -26,8 +26,8 @@ URL = 'https://example.org/form'
 INPUT = {'url': URL, 'instruction': 'Ara kutusuna merhaba yaz ve gönder',
          'mode': 'interactive'}
 PAUSE_MESSAGE = ("İşlem planı hazır: [{\"op\":\"click\",\"selector\":\"#send\"}]. "
-                 "Bu planı uygulamak için 'tarayıcı onayla a1b2c3d4e5f6', "
-                 "vazgeçmek için 'tarayıcı iptal' yaz.")
+                 "Bu plan yalnız hedefin Core onay kartıyla uygulanır; "
+                 "vazgeçmek için ‘tarayıcı iptal’ yaz.")
 
 
 def engine_pause(token='a1b2c3d4e5f6'):
@@ -240,6 +240,9 @@ class InteractiveFlowTests(StageBHarness):
         card = step['_canonical_approval_proposal']['text']
         self.assertIn('İşlem planı hazır', card)
         self.assertNotIn('tarayıcı onayla', card)
+        # Aşama C: the engine never offers a second approval channel.
+        self.assertIn('yalnız hedefin Core onay kartıyla uygulanır', card)
+        self.assertIn('tarayıcı iptal', card)
         self.assertIn('Onay gerekli: browser / ' + URL, shown['blocker'])
         state, journal = self.snapshots(ident)
         self.assertEqual(state['evidence'], [])

@@ -49,6 +49,10 @@ _PERMISSION = re.compile(r'pc (?:izin|izni|izinleri|izinler)\b')
 _SYSTEM_APPS = {'systemsettings', 'control', 'mmc', 'msconfig', 'windowsdefender', 'securityhealthsystray'}   # anahtarları sistemi değiştirir
 _ctx = threading.local()   # run() sırasında görev sahibi; validate izin listesine bakarken kullanır
 _DESKTOP_BUSY_MESSAGE = 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
+_SCHEDULER_GOAL_POINTER = (
+    'Bu masaüstü görevini Scheduler canonical hedef içinde açtı; sonraki adım '
+    'yalnız o hedefin Core onay kartıyla yürür. Onay için “hedef onayla” de, '
+    'kapatmak için “hedef iptal” veya “PC görevi iptal” yazabilirsin.')
 
 
 @contextmanager
@@ -750,6 +754,31 @@ def _run_claimed(job, *, approval=None, emit=lambda *args: None, current=None,
         _ctx.native_running = False
 
 
+TASK_USAGE = 'Hedef pencereyi ve işi belirt: PC görevi: Hesap Makinesi | 12 ile 7 topla'
+_TASK_APP = r'(hesap makinesi(?:ni)?|calculatorapp|calculator|calc|not defteri|notepad)(?:\s+uygulaması)?'
+
+
+def parse_task(text):
+    """Typed desktop task form: (target, goal), the usage line, or None.
+
+    None is free language that belongs to the context-aware intent router, not
+    a malformed task. The native engine and the canonical front door share
+    exactly this grammar so neither can admit a different task from the same
+    sentence.
+    """
+    text = re.sub(r'^pc\s+görev(?:i)?(?=[:\s])', 'PC görevi', str(text).strip(), flags=re.I)
+    body = re.sub(r'^pc görevi\s*:?\s*', '', text, flags=re.I)
+    parts = body.split('|', 1)
+    if len(parts) != 2:
+        spoken = re.fullmatch(_TASK_APP + r'\s+(.+)', body, re.I)
+        if not spoken:
+            return None
+        parts = [spoken.group(1), spoken.group(2)]
+    if not all(p.strip() for p in parts):
+        return TASK_USAGE
+    return parts[0].strip()[:200], parts[1].strip()[:2000]
+
+
 def handle(owner, command, emit=lambda *args: None, *, current=None, source='yazı'):
     text = command.strip()
     text = re.sub(r'^pc\s+görev(?:i)?(?=[:\s])', 'PC görevi', text, flags=re.I)
@@ -769,10 +798,10 @@ def handle(owner, command, emit=lambda *args: None, *, current=None, source='yaz
     with _desktop_claim() as owned:
         if not owned:
             return _DESKTOP_BUSY_MESSAGE
-        return _handle_claimed(owner, text, low, permission, emit, current)
+        return _handle_claimed(owner, text, low, permission, emit, current, source)
 
 
-def _handle_claimed(owner, text, low, permission, emit, current):
+def _handle_claimed(owner, text, low, permission, emit, current, source='yazı'):
     """Re-read the native job only after this process owns the desktop."""
     if _PERMISSION.match(permission):
         return _permission_command(owner, permission, emit, current)
@@ -784,22 +813,26 @@ def _handle_claimed(owner, text, low, permission, emit, current):
     if low == 'pc görevi devam' or low.startswith('pc onayla ') or low.startswith('pc görevi cevap:'):
         if not job or job['status'] in ('done', 'cancelled'):
             return 'Devam ettirilecek açık masaüstü görevi yok.'
+        if job.get('origin') == 'scheduler':
+            # Karar 2 Aşama C: the Scheduler opened this task inside a
+            # canonical goal, so its next physical step is authorized only by
+            # that goal's exact Core card. Chat text can never approve it.
+            return _SCHEDULER_GOAL_POINTER
         if low.startswith('pc görevi cevap:'):
             job['answer'] = text.split(':',1)[1].strip()
         token = text.split()[-1] if low.startswith('pc onayla ') else None
         return run(job, approval=token, emit=emit, current=current)
-    body = re.sub(r'^pc görevi\s*:?\s*', '', text, flags=re.I)
-    parts = body.split('|', 1)
-    if len(parts) != 2:
-        spoken = re.fullmatch(r'(hesap makinesi(?:ni)?|calculatorapp|calculator|calc|not defteri|notepad)(?:\s+uygulaması)?\s+(.+)', body, re.I)
-        if not spoken:
-            return None  # Other natural requests reach the context-aware intent router.
-        parts = [spoken.group(1), spoken.group(2)]
-    if len(parts) != 2 or not all(p.strip() for p in parts):
-        return 'Hedef pencereyi ve işi belirt: PC görevi: Hesap Makinesi | 12 ile 7 topla'
+    body = parse_task(text)
+    if body is None:
+        return None  # Other natural requests reach the context-aware intent router.
+    if isinstance(body, str):
+        return body
+    target, goal = body
     # Yeni açık görev, yarım kalmış (durmuş, bekleyen, onay/soru bekleyen) eski görevin yerine geçer; elle iptal gerekmez.
-    job = {'id':uuid.uuid4().hex,'owner': owner, 'target': parts[0].strip()[:200], 'goal': parts[1].strip()[:2000],
-           'status': 'running', 'history': [], 'hwnd': None, 'approval': None, 'pending_effect': None}
+    job = {'id':uuid.uuid4().hex,'owner': owner, 'target': target, 'goal': goal,
+           'status': 'running', 'history': [], 'hwnd': None, 'approval': None,
+           'pending_effect': None,
+           'origin': 'scheduler' if source == 'scheduler' else 'command'}
     _save(job)
     return run(job, emit=emit, current=current)
 
@@ -854,6 +887,10 @@ def answer_typed(owner, answer, *, expected_job_id, expected_question,
         if (not job or job.get('id') != expected_job_id or job.get('status') != 'question'
                 or job.get('question') != expected_question):
             return 'Masaüstü sorusu değişmiş; eski cevapla işlem yapmadım.'
+        if job.get('origin') == 'scheduler':
+            # Aşama C: an engine question inside a canonical goal has no
+            # answer channel yet, so chat cannot continue the physical plan.
+            return _SCHEDULER_GOAL_POINTER
         job['answer'] = answer.strip()
         return run(job, emit=emit, current=current)
 

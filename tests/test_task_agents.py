@@ -58,19 +58,65 @@ class TaskTests(unittest.TestCase):
         self.assertNotIn('receipt', result)
         write_text.assert_not_called()
 
-    def test_browser_approval_stops_dependents_and_resumes_exact_job(self):
-        tasks=[{'id':'a','agent':'browser'},{'id':'b','agent':'verify','depends':['a']}]
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'123','message':'approve'}):job=agents.execute('alice',tasks)
-        self.assertEqual(job['state'],'approval');self.assertEqual(job['tasks'][1]['state'],'queued')
-        with self.assertRaises(ValueError):agents.resume('alice','wrong')
-        image=Path(self.tmp.name)/'screen.png';image.write_bytes(b'actual test screenshot')
-        with patch.object(browser,'run',return_value={'state':'done','steps':[{'op':'read','verified':True}], 'image':str(image),'page':{'title':'OK','url':'https://example.com','text':'sent'}}):
-            result=agents.resume('alice','123')
-        self.assertIn('done',result);self.assertEqual(agents.recent('alice')['state'],'done')
+    def test_legacy_lane_refuses_desktop_and_effect_capable_browser(self):
+        # Karar 2 Aşama C: bu DAG hiçbir zaman fiziksel masaüstü görevinin veya
+        # etkileşimli/mod-suz tarayıcı planının yürütücüsü değildir; üçü de
+        # canonical Scheduler hedefinin Core kartından geçer.
+        desktop = {'id': 'a', 'agent': 'desktop', 'input': {'target': 'calc', 'goal': '12 ile 7 topla'}}
+        interactive = {'id': 'a', 'agent': 'browser',
+                       'input': {'url': 'https://example.org', 'instruction': 'gönder', 'mode': 'interactive'}}
+        modeless = {'id': 'a', 'agent': 'browser',
+                    'input': {'url': 'https://example.org', 'instruction': 'oku'}}
+        work = Mock(side_effect=AssertionError('No executor before the canonical Core card'))
+        for tasks in ([desktop], [interactive], [modeless],
+                      [{'id': 'a', 'agent': 'verify'}, desktop]):
+            with patch.object(agents, 'worker', work):
+                with self.assertRaises(ValueError):agents.execute('alice',tasks)
+        work.assert_not_called()
+        self.assertIsNone(agents.recent('alice'))
+        # Salt-okunur gözlem eski şeritte serbesttir.
+        readonly = {'id': 'a', 'agent': 'browser',
+                    'input': {'url': 'https://example.org', 'instruction': 'oku', 'mode': 'readonly'}}
+        with patch.object(agents,'worker',return_value={'state':'done','text':'ok'}):
+            job=agents.execute('alice',[readonly])
+        self.assertEqual(job['state'],'done')
+
+    def test_legacy_resume_api_is_retired(self):
+        # Aşama C: eski görev onay tüketicisi ve onun yeniden-ihracından
+        # kalanlar kaldırıldı; sürdürebilen tek yol canonical hedef kartıdır.
+        self.assertFalse(hasattr(agents,'resume'))
+        self.assertFalse(hasattr(agents,'browser_task'))
+
+    def test_pending_plan_blocks_a_new_job(self):
+        pending=browser._root('alice')/'pending.json'
+        pending.parent.mkdir(parents=True,exist_ok=True)
+        pending.write_text(json.dumps({'id':'123'}))
+        with patch.object(agents,'worker',side_effect=AssertionError('No work while a plan is pending')):
+            with self.assertRaises(ValueError):agents.execute('alice',[{'id':'a','agent':'verify'}])
+        # Vazgeçme valfi durur: plan silinince aynı şerit yeniden çalışabilir.
+        self.assertEqual(agents.handle('alice','tarayıcı iptal'),'Bekleyen tarayıcı işlemi iptal edildi.')
+        self.assertFalse(pending.exists())
+        with patch.object(agents,'worker',return_value={'state':'done','text':'ok'}):
+            self.assertEqual(agents.execute('alice',[{'id':'a','agent':'verify'}])['state'],'done')
+
+    def test_foreground_browser_approval_is_pointer_only(self):
+        path=browser._root('alice')/'pending.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps({'id':'123'}))
+        with patch.object(browser,'run',side_effect=AssertionError('No engine without the Core card')) as run:
+            reply=agents.handle('alice','tarayıcı onayla 123')
+        self.assertIn('hedef onayla',reply)
+        self.assertIn('tarayıcı iptal',reply)
+        run.assert_not_called()
+        self.assertEqual(json.loads(path.read_text())['id'],'123')
 
     def test_cancel_marks_job_and_never_runs_dependencies(self):
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'123'}):agents.execute('alice',[{'id':'a','agent':'browser'}])
-        agents.handle('alice','tarayıcı iptal')
+        # Eski iptal cümlesi görev kaydını artık tarayıcı planından ayırıyor:
+        # 'görev iptal' job'u kapatır, bekleyen tarayıcı planı ayrı durur.
+        with patch.object(agents,'worker',return_value={'state':'approval','id':'123'}):
+            job=agents.execute('alice',[{'id':'a','agent':'verify'}])
+        self.assertEqual(job['state'],'approval')
+        agents.handle('alice','görev iptal')
         self.assertEqual(agents.recent('alice')['state'],'cancelled')
 
     def test_cancellation_is_not_recorded_as_success(self):
@@ -98,22 +144,6 @@ class TaskTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'yalnız açıklama'):
                 agents.worker('alice',{'agent':'coder','input':{'request':'örnek'}},{})
         self.assertTrue(handle.call_args.kwargs['require_draft'])
-
-    def test_browser_failure_after_consumed_approval_releases_job_and_blocks_dependents(self):
-        tasks=[{'id':'a','agent':'browser'},{'id':'b','agent':'verify','depends':['a']}]
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'123'}):agents.execute('alice',tasks)
-        with patch.object(browser,'run',side_effect=RuntimeError('site timeout')):
-            self.assertIn('incomplete',agents.resume('alice','123'))
-        job=agents.recent('alice');self.assertEqual(job['tasks'][0]['state'],'failed');self.assertEqual(job['tasks'][1]['state'],'blocked')
-        with patch.object(agents,'worker',return_value={'state':'done','text':'ok'}):
-            self.assertEqual(agents.execute('alice',[{'id':'a','agent':'verify'}])['state'],'done')
-
-    def test_browser_unavailable_preserves_unconsumed_approval_for_retry(self):
-        import json
-        with patch.object(agents,'worker',return_value={'state':'approval','id':'123'}):agents.execute('alice',[{'id':'a','agent':'browser'}])
-        (browser._root('alice')/'pending.json').write_text(json.dumps({'id':'123'}))
-        with patch.object(browser,'run',return_value={'state':'unavailable','message':'browser missing'}):agents.resume('alice','123')
-        job=agents.recent('alice');self.assertEqual(job['state'],'approval');self.assertEqual(job['outputs']['a']['id'],'123')
 
     def test_running_job_is_visible_and_same_user_cannot_start_second_job(self):
         def work(owner,task,deps):

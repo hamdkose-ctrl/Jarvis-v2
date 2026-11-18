@@ -417,11 +417,11 @@ def execute_offer(profile, offer, *, stop_event=None):
                                          + str(result.get('text', ''))[:600])
                     blocker_detail = str(pause_step['input'].get('target', ''))[:250]
                 else:
-                    # The engine's foreground sentence ('tarayıcı onayla <token>')
-                    # belongs to the legacy command; the card only shows the plan.
+                    # The engine describes its paused plan; the foreground
+                    # approval sentence was retired in Karar 2 Aşama C, so the
+                    # card shows the plan text as-is and only Core approves.
                     proposal['text'] += ('\nTarayıcı somut işlem planı için bekliyor: '
-                                         + str(result.get('message', '')
-                                               ).split(' Bu planı uygulamak için', 1)[0][:600])
+                                         + str(result.get('message', ''))[:600])
                     blocker_detail = str(result.get('url', ''))[:250]
                 pause_step['_canonical_approval_proposal'] = proposal
                 pause_step['approval'] = goal_approval.prepare(pause_job, pause_step, proposal)

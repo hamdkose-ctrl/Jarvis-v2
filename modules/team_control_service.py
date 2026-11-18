@@ -67,9 +67,12 @@ def dispatch(
             receipt = job['outputs'].get(step['id'], {}) if step else {}
             if not step or receipt.get('id') != approval_id or not _APPROVAL_RE.fullmatch(approval_id or ''):
                 raise ValueError('Onay seçilen görevin bekleyen işlemiyle eşleşmiyor.')
-            if step['agent'] not in {'publish', 'browser'}:
+            if step['agent'] != 'publish':
+                # Karar 2 Aşama C: a legacy task job has no browser approval.
+                # An interactive browser plan only exists on a canonical goal
+                # card, which the 'goal' branch above already owns.
                 raise ValueError('Bu işlem sohbetten yönetilmeli.')
-            command = ('işlem onayla ' if step['agent'] == 'publish' else 'tarayıcı onayla ') + approval_id
+            command = 'işlem onayla ' + approval_id
         else:
             raise ValueError('Bu görev türü serbest yanıt kabul etmiyor.')
     else:

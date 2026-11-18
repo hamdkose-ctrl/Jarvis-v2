@@ -23,8 +23,8 @@ def json_text(text):
 
 def browser_task(owner, data):
     from modules import browser_agent
-    mode = data.get('mode', '')
-    if mode not in ('', 'readonly', 'interactive'):
+    mode = data.get('mode')
+    if mode not in ('readonly', 'interactive'):
         raise ValueError('Tarayıcı modu geçersiz.')
     readonly_mode = mode == 'readonly'
     initial=browser_agent.run(owner,[{'op':'goto','url':data['url']},{'op':'read'}],read_only=readonly_mode)

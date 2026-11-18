@@ -13,16 +13,18 @@ class NotStarted(PermissionError):
 
 LOCAL = {
     'action': 'Jarvis iç işlemleri: action ve params; gerçek app_actions kataloğunu kullan.',
-    'desktop': 'Windows uygulamasında doğrulanan görev: target, goal. Yerel aktif kullanıcı gerekir. Durmuş/soru bekleyen kendi adımını resume_id=desktop_id ve gerekirse answer ile sürdür; yeni görev oluşturma.',
     'document': 'Kullanıcı dosyasında read/summarize/insights/translate/convert: operation,path; question,target,format isteğe bağlı.',
     'observe': 'Güncel ekran/kamera inceleme: kind=screen|camera, question. Kamera önceden açık olmalı; uzak kamera için target cihaz kimliği olabilir.',
-    'application': 'Gerçek kurulu uygulamaları keşfet/aç: operation=list|open, name isteğe bağlı. open yalnız uygulamayı açmanın kendisi kullanıcı hedefiyse başarıdır; uygulama içi işlem gerekiyorsa desktop/task kullan.',
+    'application': 'Gerçek kurulu uygulamaları keşfet/aç: operation=list|open, name isteğe bağlı. open yalnız uygulamayı açmanın kendisi kullanıcı hedefiyse başarıdır; uygulama içi fiziksel işlem kullanıcı hedefi olarak "PC görevi" ile canonical hedefe gider.',
     'diagnose': 'Gerçek yerel önkoşulları oku: kind=system|accounts|media|narration; kurulum yapmaz.',
     'sharing': 'Paylaşım durumunu değiştir: mode=screen|camera|off. Yalnız kullanıcı bunu istemişse.',
     'schedule': 'Kuyruğa gerçek iş kaydet: tasks (mevcut worker DAG), request, seconds; repeat_seconds isteğe bağlı. Dış gönderim/code/browser zamanlanamaz.',
     'system': 'PC ses/parlaklık/medya: operation=status|volume|mute|brightness|media; level/on/action gerektiğinde.',
 }
 LOCAL.update(goal_extensions.TOOLS)
+# 'desktop' is proven by the task capability catalog, not the local adapter table:
+# its adapter is the native engine, and only the canonical Scheduler may run it.
+LOCAL_EVIDENCE = set(LOCAL) | {'desktop'}
 
 
 def catalog(request=None):
@@ -46,11 +48,10 @@ def planner_catalog(request=None):
 
 def validate(kind, data):
     if kind in goal_extensions.TOOLS:return goal_extensions.validate(kind,data)
-    if kind in task_tools.CATALOG and kind != 'desktop':
+    if kind in task_tools.CATALOG:
         return task_tools.validate_input(kind,data)
     if kind not in LOCAL or not isinstance(data,dict): raise ValueError('Araç girdisi geçersiz.')
     schemas={'action':({'action','params'},{'action','params'}),
-             'desktop':({'target','goal'},{'target','goal','resume_id','answer'}),
              'document':({'operation','path'},{'operation','path','question','target','format'}),
              'observe':({'kind','question'},{'kind','question','target'}),
              'application':({'operation'},{'operation','name'}), 'diagnose':({'kind'},{'kind'}),
@@ -138,7 +139,8 @@ def local_result(owner,kind,text,**extra):
 def verify(output,owner,*,kind=None,data=None):
     if not isinstance(output,dict):raise ValueError('Araç sonucu geçersiz.')
     if output.get('verification'):return task_results.verify(output,owner=owner,expected_kind=kind)
-    if output.get('state')!='done' or output.get('owner')!=owner or output.get('local_evidence') not in LOCAL:
+    if (output.get('state')!='done' or output.get('owner')!=owner
+            or output.get('local_evidence') not in LOCAL_EVIDENCE):
         raise ValueError('Yerel araç kanıtı veya sahibi geçersiz.')
     if not isinstance(output.get('text'),str) or not output['text'].strip():raise ValueError('Araç sonucu boş.')
     outcome_contracts.validate_common(output['local_evidence'],output,local=True)
@@ -300,8 +302,8 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if kind == 'browser' and canonical_browser is not None:
             # A consumed Core approval resumes exactly this pending plan; the
             # engine re-verifies id/TTL/page digest/target signature and
-            # consumes pending.json BEFORE any effect. Legacy foreground
-            # approval and this bound resume can never coexist.
+            # consumes pending.json BEFORE any effect. The legacy foreground
+            # approval consumer was retired in Karar 2 Aşama C.
             if approval:
                 raise ValueError('Canonical tarayıcı sürdürme kimliği çakışıyor.')
             from modules import browser_agent
@@ -312,9 +314,13 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
                           'receipt': task_results.browser_effect_receipt(native)}
                 return task_results.seal('browser', native)
             return native
-        if approval and kind=='browser':
-            from modules import browser_agent
-            return task_results.seal('browser',browser_agent.run(owner,approval=approval['id']))
+        if (kind == 'browser' and data.get('mode') == 'interactive'
+                and (not isinstance(identity, dict)
+                     or identity.get('_canonical_scheduler_offer') is None)):
+            # Karar 2 Aşama C: an interactive browser plan has physical effect
+            # potential, so only a Scheduler-offered node with the consumed
+            # Core card reaches the engine. Legacy lanes keep readonly.
+            raise NotStarted('Etkileşimli tarayıcı adımını yalnız canonical Scheduler yürütür.')
         if approval and kind=='publish':
             from modules import outbox
             return task_results.seal('publish',outbox.dispatch(owner,approval['id'],approve=True))
@@ -367,36 +373,29 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             return {'state':'failed','text':_text({'message':str(result),'real_candidates':list(getattr(result,'candidates',()))}),'retry_safe':True}
         return local_result(owner,kind,str(result))
     if kind=='desktop':
+        # Karar 2 Aşama C: the Scheduler is the only desktop executor. The old
+        # sync-lane approval/resume_id continuation died with this comment; a
+        # first Scheduler round starts the native task through the engine's own
+        # explicit protocol, later rounds resume only the bound native id.
         _pc_owner(runtime,owner)
         from modules import desktop_agent
         previous=desktop_agent._load(owner)
         def matches(native):
             return bool(native and native.get('owner')==owner and
                 native.get('target')==data['target'].strip()[:200] and native.get('goal')==data['goal'].strip()[:2000])
-        resume=data.get('resume_id')
-        if resume and resume not in identity.get('desktop_ids',[]):raise NotStarted('Bu masaüstü kaydı mevcut hedefe ait değil.')
-        if resume and (not matches(previous) or previous['id']!=resume):raise ValueError('Sürdürülecek masaüstü görevi değişmiş.')
         canonical_resume=identity.get('_canonical_desktop_resume') if isinstance(identity,dict) else None
-        if canonical_resume is not None and (resume or approval):
+        if canonical_resume is not None and approval:
             raise ValueError('Canonical masaüstü sürdürme kimliği çakışıyor.')
+        if canonical_resume is None and (not isinstance(identity,dict)
+                or identity.get('_canonical_scheduler_offer') is None):
+            # Karar 2 Aşama C: the Scheduler is the only fresh desktop owner.
+            # The marker is written by the dispatching Scheduler round itself,
+            # so no foreground, queue or legacy planner caller can reach the
+            # native engine with a new physical task.
+            raise NotStarted('Masaüstü görevini yalnız canonical Scheduler başlatır; hedef akışını kullan.')
         if canonical_resume is not None and (not matches(previous) or (previous or {}).get('id')!=canonical_resume):
             raise ValueError('Sürdürülecek masaüstü görevi değişmiş.')
-        if approval:
-            native=previous
-            if not matches(native) or native['id']!=approval.get('desktop_id'):raise ValueError('Masaüstü görevi değişmiş.')
-            if native['status']=='done':result=desktop_agent.render(native)
-            elif native['status']=='approval':result=desktop_agent.run(native,approval=native['approval']['id'],emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
-            elif native['status']=='consent':result=desktop_agent.handle(owner,'PC izin ver',runtime.emit,current=lambda:runtime.pc_profile().slug,source=runtime._cur_source)
-            elif native.get('pending_effect'):result=desktop_agent.run(native,emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
-            else:return {'state':'approval','text':desktop_agent.render(native),'desktop_id':native['id']}
-        elif resume:
-            if previous.get('pending_effect') or previous['status'] in {'consent','approval','waiting'}:
-                return {'state':'approval','text':desktop_agent.render(previous),'desktop_id':previous['id']}
-            if previous['status']=='done':result=desktop_agent.render(previous)
-            else:
-                if data.get('answer'):previous['answer']=data['answer']
-                result=desktop_agent.run(previous,emit=runtime.emit,current=lambda:runtime.pc_profile().slug)
-        elif canonical_resume:
+        if canonical_resume:
             # The Scheduler consumed one exact Core approval for this bound
             # native pause; the engine's own action approval artifact decides
             # what may physically happen next. A question/paused round has no
@@ -411,10 +410,9 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             result=desktop_agent.handle(owner,'PC görevi: '+data['target']+' | '+data['goal'],runtime.emit,
                 current=lambda:runtime.pc_profile().slug,source=runtime._cur_source)
         native=desktop_agent._load(owner)
-        if not matches(native) or (not approval and not resume and not canonical_resume and previous and native['id']==previous['id']):
+        if not matches(native) or (not canonical_resume and previous and native['id']==previous['id']):
             return {'state':'blocked','text':str(result) or 'İstenen yeni masaüstü görevi başlamadı.','retry_safe':True}
-        if ((approval and native['id']!=approval.get('desktop_id')) or (resume and native['id']!=resume)
-                or (canonical_resume and native['id']!=canonical_resume)):
+        if canonical_resume and native['id']!=canonical_resume:
             raise ValueError('Masaüstü görevi yürütülürken değişmiş.')
         if not native or native['status']!='done':
             return {'state':'approval' if native and native['status'] in ('approval','consent','waiting') else 'blocked',

@@ -116,7 +116,7 @@ class GoalTests(unittest.TestCase):
         bridge=SimpleNamespace(note_add=Mock(return_value={'id':1,'text':'Tamamlandı'}))
         self.responses(self.plan('Kaynaklı rapor dosyası','Not kaydı'),
             self.tool('research',{'url':'https://example.com'}),
-            self.tool('browser',{'url':'https://example.com','instruction':'Yalnız oku'}),
+            self.tool('browser',{'url':'https://example.com','instruction':'Yalnız oku','mode':'readonly'}),
             self.tool('writer',{'instruction':'Kaynağa göre rapor yaz','filename':'rapor.md'},depends=['s2']),
             'Gerçek kaynaklı rapor metni',self.done('s3'),
             self.tool('action',{'action':'note_add','params':{'text':'Tamamlandı'}},goal=1),
@@ -338,15 +338,17 @@ class GoalTests(unittest.TestCase):
         self.assertAlmostEqual(output['media']['duration'],1,delta=.2)
 
     def test_desktop_completion_and_natural_consent_use_saved_native_id(self):
+        # Aşama C: sürdürme yalnız Scheduler'ın bağladığı native kimlikle olur;
+        # eski approval={'desktop_id':…} tüketici yolu kaldırıldı.
         from modules import desktop_agent
         native={'id':'native1','owner':'alice','status':'consent','history':[],'pending_app':'notepad','target':'Notepad','goal':'Metni yaz'}
-        identity={'owner':'alice','job_id':'goal','task_id':'s1'}
+        identity={'owner':'alice','job_id':'goal','task_id':'s1','_canonical_desktop_resume':'native1'}
         data={'target':'Notepad','goal':'Metni yaz'}
         def consent(*args,**kwargs):
             self.assertEqual(args[1],'PC izin ver')
             native.update(status='done',history=[{'verified':True}]);return 'Text entered'
         with patch.object(desktop_agent,'_load',return_value=native),patch.object(desktop_agent,'handle',side_effect=consent):
-            out=goal_tools.execute(self.runtime,'desktop',data,{},identity,approval={'desktop_id':'native1'})
+            out=goal_tools.execute(self.runtime,'desktop',data,{},identity)
         self.assertEqual(out['state'],'done');self.assertEqual(out['desktop_id'],'native1')
 
     def test_validation_and_permission_errors_never_launch_shell_or_change_provider(self):
@@ -431,8 +433,9 @@ class GoalTests(unittest.TestCase):
     def test_old_completed_desktop_job_cannot_prove_new_rejected_request(self):
         from modules import desktop_agent
         old={'id':'old','owner':'alice','target':'Calculator','goal':'12+7','status':'done','history':[{'verified':True}]}
+        identity={'owner':'alice','_canonical_scheduler_offer':{'owner':'alice','job_id':'goal','node_id':'s1'}}
         with patch.object(desktop_agent,'_load',return_value=old),patch.object(desktop_agent,'handle',return_value='Başka görev çalışıyor'):
-            result=goal_tools.execute(self.runtime,'desktop',{'target':'Calculator','goal':'12+7'}, {},{'owner':'alice'})
+            result=goal_tools.execute(self.runtime,'desktop',{'target':'Calculator','goal':'12+7'}, {},identity)
         self.assertEqual(result['state'],'blocked');self.assertTrue(result['retry_safe'])
 
     def test_followup_answers_and_tool_inputs_are_redacted_before_planning(self):
@@ -461,16 +464,22 @@ class GoalTests(unittest.TestCase):
 
 
 
-    def test_native_desktop_question_resumes_same_saved_job_without_recreating_it(self):
+    def test_native_desktop_question_has_no_legacy_answer_channel(self):
+        # Aşama C: motorun soru turunu model answer/resume_id alanlarıyla
+        # sürdürmek kaldırıldı; Scheduler turu salt blokeli döner (Aşama D:
+        # kanonik cevap kanalı).
         from modules import desktop_agent
         native={'id':'native','owner':'alice','target':'Notepad','goal':'Metni yaz','status':'question','history':[{'verified':True}]}
-        def resume(job,**kwargs):
-            self.assertEqual(job['answer'],'Merhaba');job['status']='done';return 'Metin yazıldı'
-        data={'target':'Notepad','goal':'Metni yaz','resume_id':'native','answer':'Merhaba'}
-        with patch.object(desktop_agent,'_load',return_value=native),patch.object(desktop_agent,'run',side_effect=resume),patch.object(desktop_agent,'handle') as create:
-            with self.assertRaises(PermissionError):goal_tools.execute(self.runtime,'desktop',data,{}, {'owner':'alice'})
-            output=goal_tools.execute(self.runtime,'desktop',data,{}, {'owner':'alice','desktop_ids':['native']})
-        self.assertEqual(output['state'],'done');create.assert_not_called()
+        identity={'owner':'alice','_canonical_desktop_resume':'native'}
+        with patch.object(desktop_agent,'_load',return_value=native),patch.object(desktop_agent,'run') as run, \
+             patch.object(desktop_agent,'handle') as create,patch.object(desktop_agent,'render',return_value='Soru: hangi dosya?'):
+            output=goal_tools.execute(self.runtime,'desktop',{'target':'Notepad','goal':'Metni yaz'},{},identity)
+        self.assertEqual(output['state'],'blocked');self.assertFalse(output['retry_safe'])
+        self.assertEqual(output['desktop_id'],'native')
+        run.assert_not_called();create.assert_not_called()
+        for smuggled in ({'answer':'Merhaba'},{'resume_id':'native'}):
+            with self.subTest(**smuggled),self.assertRaises(ValueError):
+                goal_tools.validate('desktop',{'target':'Notepad','goal':'Metni yaz',**smuggled})
 
 
 
