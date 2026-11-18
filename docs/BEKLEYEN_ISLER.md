@@ -1,3 +1,9 @@
+# Karar 3 (tek JARVIS kişiliği) canlı kabul — 18 Kasım 2026
+
+- **Ölçülecek geceler:** (1) sesli sohbette yanıt gerçekten kısa gelir ve `Ayarlar › Hafıza › Yanıt tercihlerin` içindeki `Yanıt uzunluğu` `uzun` seçilince iki cümle tavanı kalkar; (2) telefonda yazılan sorunun yanıtı seslendirildiğinde kısa ve düz cümledir (markdown/emoji yok); (3) günlük brifing `notification=kısa` iken tek cümleye, `normal` iken önem sıralı en fazla altı cümleye iner; (4) ekran fotoğrafı/görsel analizi yanıtları ekranda numaralı adımlarla kalır; (5) Hoca/Çalışma yüzeyinde matematik `\( ... \)` ile render edilir, sohbette düz Unicode yazılır. Kod tarafı tek sahipliği statik taramayla ölçer; bu madde modelin gerçek davranışını ayrıca kanıtlar. exact-SHA Windows CI + aynı SHA PC watcher ve merge tek başına "bitti" değildir. Ayrıntı: `docs/architecture/JARVIS_KARAR3_SINGLE_PERSONA_2026-11-18.md`.
+
+---
+
 # Karar 2 Aşama C sonrası açık kabul ve Aşama D — 18 Kasım 2026
 
 - **Canlı kabul (Aşama C'yi kapatan tek ölçüm):** fiziksel Windows gecesinde (1) `PC görevi: Hesap Makinesi | 12 ile 7 topla` typed ve sözlü biçimleri canonical hedef + prepare kartı + `hedef onayla` ile gerçekten çalışır, (2) motor duraklamasında (approval/consent/pending_effect) ikinci Core kartı çıkar ve Scheduler sürdürür, (3) `origin=scheduler` kayıtta `PC onayla`/`PC görevi devam` reddi ile pointer görünür, iptal (`PC görevi iptal`/`hedef iptal`) görevi kapatır, (4) interaktif tarayıcı planı tek başına duraklar, karttan uygulanır ve receipt'li done verir. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge tek başına "bitti" değildir.

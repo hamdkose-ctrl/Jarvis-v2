@@ -17,15 +17,19 @@ def style_snapshot(owner,*,background=False):
 
 
 def validate_style(style):
+    from modules import persona_contract as contract
     if (not isinstance(style,dict) or set(style)!={'version','verbosity'}
-            or style['version']!=VERSION or style['verbosity'] not in ('kısa','orta','uzun')):
+            or style['version']!=VERSION
+            or style['verbosity'] not in contract.PREFERENCES['verbosity']):
         raise ValueError('Yanıt sunum kaydı geçersiz.')
     return dict(style)
 
 
-def preview(text,style,*,normal=1200):
+def preview(text,style,*,normal=None):
+    # Karar 3: yanıt uzunluğu sözcük listesi ve karakter bütçesi persona sözleşmesindendir.
+    from modules import persona_contract as contract
     style=validate_style(style)
-    limit={'kısa':400,'orta':normal,'uzun':max(6000,normal)}[style['verbosity']]
+    limit=contract.preview_limit(style['verbosity'],contract.PREVIEW_CHARS['orta'] if normal is None else normal)
     if len(text)<=limit:return text
     cut=text[:limit];space=cut.rfind(' ')
     return (cut[:space] if space>limit//2 else cut)+'\nMetnin devamı görev ayrıntılarında.'

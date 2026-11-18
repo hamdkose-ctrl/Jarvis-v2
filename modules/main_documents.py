@@ -78,9 +78,9 @@ def _file_command(runtime, command: str) -> str | None:
         from modules import filesend
         return filesend.send(p)
     if 'metni çıkar' in act or ('metin' in act and is_img):
-        return runtime.ask_image(path, 'Bu görseldeki tüm yazıyı olduğu gibi, satır düzenini koruyarak çıkar. Açıklama ekleme.', runtime.profile.system_prompt(), max_tokens=3500).strip() or 'Görselde okunabilir yazı bulamadım.'
+        return runtime.ask_image(path, 'Bu görseldeki tüm yazıyı olduğu gibi, satır düzenini koruyarak çıkar. Açıklama ekleme.', runtime.profile.system_prompt(channel='ekran'), max_tokens=3500).strip() or 'Görselde okunabilir yazı bulamadım.'
     if is_img and runtime.re.search('analiz|özetle|incele|açıkla', act):
-        result = runtime.ask_image(path, 'Bu görseli Türkçe ve ayrıntılı analiz et: ne görünüyor, önemli ayrıntılar, varsa üzerindeki yazılar ve teknik bilgiler, son olarak kısa öneriler.', runtime.profile.system_prompt(), max_tokens=3000).strip()
+        result = runtime.ask_image(path, 'Bu görseli Türkçe ve ayrıntılı analiz et: ne görünüyor, önemli ayrıntılar, varsa üzerindeki yazılar ve teknik bilgiler, son olarak kısa öneriler.', runtime.profile.system_prompt(channel='ekran'), max_tokens=3000).strip()
         runtime._session().last_doc = (result, path, 'gorsel_analiz')
         return result
     language_target = runtime.tr.target_from_command(act)
@@ -125,7 +125,7 @@ def _file_command(runtime, command: str) -> str | None:
         return result + '\n\nDosya olarak almak istersen çıktı al de.'
     question = m.group(2).strip()
     if is_img:
-        result = runtime.ask_image(path, question + '\nTürkçe yanıtla.', runtime.profile.system_prompt(), max_tokens=3000).strip()
+        result = runtime.ask_image(path, question + '\nTürkçe yanıtla.', runtime.profile.system_prompt(channel='ekran'), max_tokens=3000).strip()
     else:
         result = runtime.docs.insights(path, question)
         runtime.kb.remember(runtime.profile, path)
@@ -213,7 +213,9 @@ def _photo_action(runtime, path: str, operation: str, *, question: str = "",
         runtime._add_note(text, photo=path)
         runtime.privacy.audit('fotoğraflı not', text[:60])
         return f'Fotoğraflı not aldım: {text}'
-    photo_sys = f'Sen {runtime.ASSISTANT_NAME} adlı, Türkçe konuşan bir asistansın; {runtime.profile.name} ile konuşuyorsun. Bu yanıt ekranda okunacak: anlaşılır ve gerektiği kadar ayrıntılı yaz. LaTeX ($...$, \\frac gibi) kullanma; düz metin ve Unicode yaz (x², √x, a/b, ≤, ×). Markdown başlıkları ve emoji kullanma; adımları 1), 2) diye numarala. Emin değilsen söyle.'
+    from modules import persona
+    # Karar 3: ekranda okunacak fotoğraf yanıtının kimlik ve üslup metni tek sahibinden gelir.
+    photo_sys = persona.prompt(runtime.profile, channel='ekran')
     if operation == 'translate':
         prompt = f'Fotoğraftaki bütün yazıları oku ve {target or "Türkçe"} diline çevir. Önce “Metin:” satırlarıyla özgün yazıyı, sonra “Çeviri:” satırlarıyla çeviriyi yaz. Fotoğrafta yazı yoksa bunu söyle.'
         runtime.privacy.audit('fotoğraf çevirisi', target or 'Türkçe')

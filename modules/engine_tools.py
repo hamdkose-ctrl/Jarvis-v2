@@ -138,8 +138,8 @@ def _keep_photo(runtime, src: str) -> str:
     return main_documents._keep_photo(runtime, src)
 
 def _sys_prompt(runtime, command: str = "") -> str:
-    """Sohbet talimatı. Soru sesle sorulduysa cevap kısa olsun (hızlı gelir, dinlemesi kolay); 'Detaylı' seçiliyse dokunma."""
-    base = runtime.profile.system_prompt(command)
+    """Sohbet talimatı. Kimlik, üslup ve kanal kuralı tek sahibinden gelir (Karar 3)."""
+    base = runtime.profile.system_prompt(command, channel=runtime._cur_source or 'yazı')
     try:
         from config import load_settings
         from modules import advisory_router
@@ -149,10 +149,6 @@ def _sys_prompt(runtime, command: str = "") -> str:
     base += (' Bu yanıt yalnızca sohbet metnidir; bu yolda bilgisayar işlemi, dosya değişikliği veya arka plan görevi çalıştırılmaz. '
              'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Desteklenmeyen eylemde sınırı açıkla; '
              'belirsiz hedefte tek net soru sor. Yalnızca gerçekten ürettiğin metni/kodu hazır olarak sunabilirsin.')
-    from modules import persona
-    if runtime._cur_source == "ses" and persona.effective(runtime.profile)['verbosity']['value'] != "uzun":
-        base += (" Bu soru sesle soruldu ve cevabın sesli okunacak: en fazla 2 kısa cümleyle doğrudan cevap ver. "
-                 "Liste, kod ya da uzun açıklama gerekiyorsa kısaca özetle ve 'ayrıntısını ekrana yazayım mı?' diye sor.")
     return base
 
 def _notes_text(runtime) -> str:

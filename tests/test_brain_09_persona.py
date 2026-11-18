@@ -157,7 +157,11 @@ class PersonaTests(unittest.TestCase):
                                       source='yazı',model_understanding=True)
             out,feedback,_=core_brain_adapter.handoff(runtime,entry,runtime.handle,text)
         self.assertEqual(semantic_call.call_count,1)
-        self.assertIn('technical_detail=teknik',out)
+        # Karar 3: benimsenen tercih modele sahibinin cümlesiyle gider; ham anahtar=değer
+        # dökümü hiçbir yüzeyde tekrar üretilmez.
+        from modules import persona_contract
+        self.assertIn(persona_contract.style_sentence('technical_detail','teknik'),out)
+        self.assertNotIn('technical_detail=teknik',out)
         self.assertEqual(feedback.result_status,'handled')
         runtime.chat.assert_called_once()
         self.assertEqual(self.profile.data['presentation_preferences']['explicit']['technical_detail']['request_id'],'native-b09')

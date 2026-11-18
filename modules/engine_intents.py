@@ -601,7 +601,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                     "panelindeki CPU, RAM, servis veya sistem durumu kutularını kullanıcı özellikle sistem durumunu sormadıysa "
                     "cevabın ana konusu yapma. Görüntüde ne olduğunu kısa ve somut Türkçe anlat; görüntüde olmayan bilgi uydurma."
                 )
-                return runtime.ask_image(image_path, question, runtime.profile.system_prompt())
+                return runtime.ask_image(image_path, question, runtime.profile.system_prompt(channel=runtime._cur_source or 'yazı'))
             except Exception as e:
                 runtime._record_failure('main.py:handle')
                 from modules import failure_policy
@@ -741,7 +741,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 try:
                     shot = runtime.vision.snapshot_path()
                     if shot:
-                        return runtime.ask_image(shot, command, runtime.profile.system_prompt())
+                        return runtime.ask_image(shot, command, runtime.profile.system_prompt(channel=runtime._cur_source or 'yazı'))
                 except Exception as e:
                     runtime._record_failure('main.py:handle')
                     from modules import failure_policy

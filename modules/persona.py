@@ -198,10 +198,61 @@ def request_scope(runtime,entry,command):
     finally:_CURRENT.reset(token)
 
 
-def prompt(profile):
-    values=effective(profile)
-    text=' '.join(f'{key}={row["value"]}.' for key,row in values.items() if key!='verbosity')
-    return (f'Persona {contract.VERSION}: {contract.FIXED} Kullanıcı tercihi: yanıt uzunluğu='
-            f'{values["verbosity"]["value"]}. Kısa tercihinde doğrudan özetle; orta tercihinde yeterli açıklama; '
-            'uzun tercihinde gerekli ayrıntı ve örnekleri ver. Metin/ekran gerektiğinde liste ve kod gösterebilir. '
-            'Sunum ayarları (yalnız üslup, zorunlu uyarıları veya onayı gizleme): '+text)
+IDENTITY = ('Sen {asistan} adlı, Türkçe konuşan sesli bir masaüstü asistanısın. Şu an {kullanici} ile '
+            'konuşuyorsun. Başka kullanıcılar hakkında bilgi verme.')
+CODE_BLOCK = ("Kodu ```dil biçiminde bir kod bloğuna koy (kod sesli okunmaz, ekranda görünür) "
+              "ve kod dışındaki açıklamayı kısa tut.")
+DELIVERY_TEXT = {
+    'yazı': 'Bu yanıt ekranda metin olarak okunur: gerektiğinde liste, başlık ve kod bloğu kullanabilirsin. ' + CODE_BLOCK,
+    'ekran': 'Bu yanıt ekranda okunur: Markdown başlığı ve emoji kullanma, adımları 1), 2) diye numarala. ' + CODE_BLOCK,
+}
+SPOKEN_CAP = ("Bu soru sesle soruldu ve cevabın sesli okunacak: en fazla 2 kısa cümleyle doğrudan cevap ver. "
+              "Liste, kod ya da uzun açıklama gerekiyorsa kısaca özetle ve 'ayrıntısını ekrana yazayım mı?' diye sor.")
+PLAIN_PROSE = 'madde işareti, başlık ve emoji kullanma; düz cümle konuş'
+SPOKEN_PLAIN = f'Sesli okunacak yanıt: {PLAIN_PROSE}.'
+NOTIFICATION_TEXT = f'Bu yanıt sesli okunacak bir bildiridir: {{clause}}, {PLAIN_PROSE}.'
+NOTATION_TEXT = {
+    'düz': ('Matematik ifadelerini LaTeX ile ($...$, \\pm, \\frac gibi) yazma; düz metin ve Unicode kullan '
+            '(örn. 6k ± 1, x², √x, a/b, ≤).'),
+    'latex': ('LaTeX gerekiyorsa \\( ... \\) biçimini kullan; ham programlama yazımı (x^2) yerine mümkün olduğunca '
+              'gerçek semboller kullan (×, ÷, √, ≤, ≥, ≠, π, ∑, ∫) ve her denklem adımını ayrı satırda göster.'),
+}
+
+
+def notation_text(notation):
+    """The one notation sentence, for artifact contracts that state it without the persona identity."""
+    return NOTATION_TEXT[contract.notation(notation)]
+
+
+def prompt(profile, *, session=None, channel='yazı', notation='düz'):
+    """Karar 3: the one identity, üslup and delivery text every surface composes.
+
+    Preference values come from the versioned contract; a surface may add task
+    content, never restate presentation.
+    """
+    values = effective(profile, session=session)
+    from modules.personalization import _LOCK, _assistant_name
+    with _LOCK:
+        name = profile.data.get('name') or getattr(profile, 'name', '') or profile.slug
+    parts = [f'Persona {contract.VERSION}: {contract.FIXED}',
+             IDENTITY.format(asistan=_assistant_name(), kullanici=name),
+             'Kullanıcı tercihi: yanıt uzunluğu=' + values['verbosity']['value'] +
+             '. Kısa tercihinde doğrudan özetle; orta tercihinde yeterli açıklama; '
+             'uzun tercihinde gerekli ayrıntı ve örnekleri ver.']
+    clauses = [contract.style_sentence(key, row['value'])
+               for key, row in values.items() if key in contract.STYLE]
+    parts.append('Üslup: ' + '; '.join(clauses) + '.')
+    delivery = contract.delivery(channel)
+    if delivery == 'ses':
+        if values['verbosity']['value'] != 'uzun':
+            parts.append(SPOKEN_CAP + ' ' + SPOKEN_PLAIN)
+        else:
+            parts.append(SPOKEN_PLAIN)
+    elif delivery == 'bildirim':
+        parts.append(NOTIFICATION_TEXT.format(
+            clause=contract.NOTIFICATION[values['notification']['value']]))
+    else:
+        parts.append(DELIVERY_TEXT[delivery])
+    parts.append(notation_text(notation))
+    return ' '.join(parts)
+

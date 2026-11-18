@@ -996,7 +996,14 @@ def _daily_briefing(runtime) -> str:
     facts = runtime._brief_facts()
     plain = ' '.join((f for f in facts[1:] if not f.endswith(': yok')))
     try:
-        text = runtime.ask('\n'.join(facts), f'Sen {runtime.ASSISTANT_NAME} adlı kişisel asistansın. Aşağıdaki GERÇEK verilerden kullanıcıya sesli okunacak kısa bir günlük özet yaz: selamla (saate göre), önce en önemli/acil olanı söyle (yaklaşan toplantı, önemli mail), sonra kalanları toparla. En fazla 6 cümle. Veride olmayan hiçbir şeyi uydurma; boş kalemleri hiç anma. Mailleri tek tek okumak yerine kimden ve ne hakkında olduklarını grupla. Madde işareti, başlık ya da emoji kullanma; doğal, sıcak ve profesyonel Türkçe konuş.', 600).strip()
+        from modules import persona
+        # Karar 3: selamlama biçimi, cümle bütçesi ve düz-metin kuralı persona sahibinden;
+        # burada yalnız brifingin içerik sözleşmesi durur.
+        text = runtime.ask('\n'.join(facts), persona.prompt(runtime.profile, channel='bildirim') +
+            ' Aşağıdaki GERÇEK verilerden kullanıcıya sesli okunacak kısa bir günlük özet yaz: selamla (saate göre),'
+            ' önce en önemli/acil olanı söyle (yaklaşan toplantı, önemli mail), sonra kalanları toparla.'
+            ' Veride olmayan hiçbir şeyi uydurma; boş kalemleri hiç anma.'
+            ' Mailleri tek tek okumak yerine kimden ve ne hakkında olduklarını grupla.', 600).strip()
         if text:
             return text
     except Exception as exc:

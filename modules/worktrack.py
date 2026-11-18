@@ -252,10 +252,18 @@ def _ai(text: str, system: str, max_tokens: int = 700) -> str:
     return llm.ask(text, system, max_tokens)
 
 
-_SYS = ("Sen kullanıcının kişisel asistanı {name}'sin. Kullanıcı raylı sistemlerde sinyalizasyon teknikeri; hem sahada "
-        "hem ofiste çalışıyor. Aşağıdaki iş maili ÖZETLERİNDEN (yalnızca gönderen, konu, tarih ve işaretler; içerik yok) "
-        "{task} Veride olmayan hiçbir şeyi uydurma; içerik görmediğini unutma, konudan çıkarım yaparken 'konuya göre' de. "
-        "İngilizce konuları Türkçe anlat. Sesli okunacak: madde işareti, başlık, emoji kullanma; kısa, net, doğal Türkçe.")
+def _sys(task: str) -> str:
+    """Karar 3: kimlik, üslup ve sesli bildirim biçimi persona sahibinden gelir.
+
+    Burada yalnız iş maili bağlamı ve içerik sözleşmesi kalır; cümle bütçesi
+    kullanıcının bildirim tercihidir.
+    """
+    from modules import persona, personalization
+    return (persona.prompt(personalization.Profile(personalization.get_active()), channel='bildirim') +
+        " Kullanıcı raylı sistemlerde sinyalizasyon teknikeri; hem sahada hem ofiste çalışıyor."
+        " Aşağıdaki iş maili ÖZETLERİNDEN (yalnızca gönderen, konu, tarih ve işaretler; içerik yok) "
+        + task + " Veride olmayan hiçbir şeyi uydurma; içerik görmediğini unutma, konudan çıkarım yaparken 'konuya göre' de."
+        " İngilizce konuları Türkçe anlat.")
 
 
 def report(kind: str = "status", project: str | None = None) -> str:
@@ -267,20 +275,16 @@ def report(kind: str = "status", project: str | None = None) -> str:
     if not f["recent"]:
         return (f"Son bir haftada {project} ile ilgili mail görmedim." if project else "Son bir haftada iş maili görmedim.")
     task = {
-        "status": "proje proje durumu en fazla 6 cümlede anlat: hangi projede ne hareket var, ne açıkta görünüyor.",
-        "reply": "cevap bekleyen mailleri önem sırasına koyarak say; en fazla 6 cümle.",
-        "dated": "yaklaşan tarihli işleri (keşif, toplantı, teslim) sırayla söyle; en fazla 5 cümle.",
+        "status": "proje proje durumunu anlat: hangi projede ne hareket var, ne açıkta görünüyor.",
+        "reply": "cevap bekleyen mailleri önem sırasına koyarak say.",
+        "dated": "yaklaşan tarihli işleri (keşif, toplantı, teslim) sırayla söyle.",
         "priority": "şu an en öncelikli 3 işi seç ve nedenini kısaca söyle (yakın tarih, önemli kişi, cevap bekleyen).",
-        "weekly": "bu haftanın özetini yap: hangi projelerde neler döndü, ne açıkta kaldı, gelecek hafta ne var. En fazla 7 cümle.",
+        "weekly": "bu haftanın özetini yap: hangi projelerde neler döndü, ne açıkta kaldı, gelecek hafta ne var.",
     }.get(kind, "durumu kısaca anlat.")
     if project:
         task = f"yalnızca {project} projesi için " + task
     try:
-        try:
-            from config import ASSISTANT_NAME as name
-        except ImportError:
-            name = "Jarvis"
-        return _ai(prompt_data(f), _SYS.format(task=task, name=name)).strip() or _plain(f, kind)
+        return _ai(prompt_data(f), _sys(task)).strip() or _plain(f, kind)
     except Exception:           # noqa: BLE001 - yapay zeka yoksa düz liste
         _record_failure('modules/worktrack.py:report')
         if settings()["ai"] == "local":     # iş maili buluta gitmez: Ollama yoksa düz liste + açık uyarı
