@@ -57,6 +57,16 @@ class ParaphraseScoringTests(unittest.TestCase):
         self.assertTrue(result["yanlis_etki"])
         self.assertEqual(holdout._aggregate([result])["kritik_yanlis_etki"], 1)
 
+    def test_second_action_cannot_hide_behind_a_correct_first_action(self):
+        row = self.rows[0]
+        first = SimpleNamespace(capability_id="pc.level.set",
+                                arguments={"property": "volume", "level": 20})
+        second = SimpleNamespace(capability_id="app.open", arguments={"app": "chrome"})
+        combined = SimpleNamespace(operation="action_batch", actions=[first, second])
+        result = holdout._judge(row, combined, None)
+        self.assertFalse(result["intent_ok"])
+        self.assertEqual(result["action_count"], 2)
+
     def test_one_bad_paraphrase_fails_its_whole_group(self):
         sample = [next(row for row in self.rows if row["equivalence_group"] == "volume20") for _ in range(20)]
         good = holdout._judge(sample[0], proposal("pc.level.set",
