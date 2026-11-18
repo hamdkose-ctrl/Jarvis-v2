@@ -326,9 +326,9 @@ def main(argv: list[str] | None = None) -> int:
         return response
 
     results = []
-    with smart_router.qualification_session(owner, candidate.provider, candidate.model,
-                                            candidate.connection_id), \\
-         patch.object(llm, "dispatch", side_effect=observe_dispatch):
+    with (smart_router.qualification_session(owner, candidate.provider, candidate.model,
+                                             candidate.connection_id),
+          patch.object(llm, "dispatch", side_effect=observe_dispatch)):
         for index, row in enumerate(rows, start=1):
             before = observed["responses"]
             try:
