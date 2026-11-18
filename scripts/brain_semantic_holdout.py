@@ -103,6 +103,41 @@ def _equivalence(results: list[dict]) -> dict:
     return {"groups": report, "passed": all(group["passed"] for group in report.values())}
 
 
+def _model_source_shapes(raw: str) -> list[dict[str, Any]]:
+    """Safe live-response diagnostics: closed capability names and source *types* only.
+
+    Never store user text, provider response, arguments, source quotations, or
+    credential data. A rejected proposal must be diagnosable without weakening
+    Brain's argument-source check.
+    """
+    from modules.brain_core_map import CORE_INTENTS
+
+    try:
+        envelope = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("actions"), list):
+        return []
+    result = []
+    for action in envelope["actions"][:5]:
+        if not isinstance(action, dict):
+            result.append({"capability": "unknown", "source_type": "invalid_action"})
+            continue
+        capability = action.get("capability_id")
+        if not isinstance(capability, str) or capability not in CORE_INTENTS:
+            capability = "unknown"
+        if "argument_sources" not in action:
+            kind = "missing"
+        elif action["argument_sources"] is None:
+            kind = "null"
+        elif isinstance(action["argument_sources"], dict):
+            kind = "empty_object" if not action["argument_sources"] else "nonempty_object"
+        else:
+            kind = "wrong_type"
+        result.append({"capability": capability, "source_type": kind})
+    return result
+
+
 def _preflight() -> tuple[str, bool, str]:
     """Gerçek ücretsiz rota gerçekten uygun mu? Uygun değilse ölçüm YAPILMAZ, gerekçe döner.
 
@@ -319,13 +354,15 @@ def main(argv: list[str] | None = None) -> int:
 
     counters = _instrument_effects()
     transport = llm.dispatch
-    observed = {"requests": 0, "responses": 0, "shapes": []}
+    observed = {"requests": 0, "responses": 0, "shapes": [], "sources": []}
 
     def observe_dispatch(*positional, **named):
         observed["requests"] += 1
         response = transport(*positional, **named)
         observed["responses"] += 1
-        observed["shapes"].append(response_shape(response.text if hasattr(response, "text") else response))
+        raw_text = response.text if hasattr(response, "text") else response
+        observed["shapes"].append(response_shape(raw_text))
+        observed["sources"].append(_model_source_shapes(raw_text))
         return response
 
     results = []
@@ -336,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
         for index, row in enumerate(rows, start=1):
             before = observed["responses"]
             before_shapes = len(observed["shapes"])
+            before_sources = len(observed["sources"])
             proposal_diagnostic(clear=True)
             try:
                 proposal, deterministic_hint = _ask(owner, row["metin"], index)
@@ -345,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
             result = _judge(row, proposal, deterministic_hint)
             result["model_response_received"] = observed["responses"] > before
             result["response_shapes"] = observed["shapes"][before_shapes:]
+            result["model_source_shapes"] = observed["sources"][before_sources:]
             diagnostic = proposal_diagnostic()
             result["proposal_diagnostic"] = {
                 key: diagnostic[key] for key in ("status", "reason_code", "operation")
