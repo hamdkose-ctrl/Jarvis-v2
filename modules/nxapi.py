@@ -224,17 +224,6 @@ def _background_refresh(generation=None) -> None:
                 _file_refreshing.clear()
 
 
-def reset_file_cache() -> None:
-    """Önbelleği boşaltır. Testler FILES_DIR'i patch'lediği için testler arasında eski kopyanın
-    sızmamasını sağlar; arayüzün "yenile" düğmesine de ayrı bir zorlama yolu verir."""
-    global _file_generation
-    with _FILE_CACHE_LOCK:
-        _file_generation += 1
-        _file_refreshing.clear()
-        _FILE_CACHE["rows"] = None
-        _FILE_CACHE["ts"] = 0.0
-
-
 _SHAPE_CACHE = {}
 
 

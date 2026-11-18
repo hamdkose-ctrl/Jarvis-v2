@@ -54,12 +54,6 @@ def sources_for(request=None):
                  live_connection_tested=False) for row in rows]
 
 
-def multiple_publishers(request):
-    restricted=re.search(r'https://|sadece|yalnız|yalniz|\bonly\b|tek (?:haber|kaynak)|bir haber',request,re.I)
-    return not restricted and bool(re.search(r'son\s+dakika|genel|gündem|gundem|haberler\w*|gelişmeler\w*|gelismeler\w*|\bnews\b',request,re.I))
-
-
-
 def publisher_key(url):
     labels=(urlsplit(url).hostname or '').removeprefix('www.').split('.')
     return '.'.join(labels[-3:] if '.'.join(labels[-2:]) in {'edu.tr','gov.tr','com.tr','org.tr'} else labels[-2:])

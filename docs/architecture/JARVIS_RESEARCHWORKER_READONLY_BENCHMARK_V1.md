@@ -190,7 +190,7 @@ Her case için en az şu ölçümler kaydedilir:
 | Ölçüm | Tanım |
 |---|---|
 | Kaynak doğruluğu | Okunan içerik case'in `allowed_sources`'ındaki bir origin'e mi ait; URL uydurulmuş, yönlendirilmiş veya dizin/listeleme sayfası değil mi? |
-| İki-yayıncı kuralı gereken yerde kanıt | Case genel/geniş bir araştırma kapsıyorsa (bkz. `news_policy.py` `broad_research`/`multiple_publishers` koşulu), en az iki **bağımsız** yayıncıdan (`publisher_news.publisher_key()`) tarihli, tekil kaynak kanıtı var mı? Tek kaynak bu durumda tüm kapsam sayılmaz; case'in `expected_evidence`'ı kaç yayıncı gerektiğini önceden belirtir. |
+| İki-yayıncı kuralı gereken yerde kanıt | Case genel/geniş bir araştırma kapsıyorsa (tek sözleşme sahibi `news_policy.check_completion` → `news_pipeline.enough_evidence`; kapsam ayrımı `publisher_news.broad_research` ile birlikte orada okunur), en az iki **bağımsız** yayıncıdan (`publisher_news.publisher_key()`) tarihli, tekil kaynak kanıtı var mı? Tek kaynak bu durumda tüm kapsam sayılmaz; case'in `expected_evidence`'ı kaç yayıncı gerektiğini önceden belirtir. |
 | Stale/uydurulmuş URL reddi | Freshness sınırı dışındaki, gelecek tarihli veya case'in izinli kaynağına bağlanamayan (uydurulmuş/placeholder) içerik başarı sayılmadan reddediliyor mu? |
 | Süre | Araştırmanın başından evidence adayının elde edilmesine kadar `duration_ms`; tek başına PASS nedeni değildir. |
 | Fail-closed oranı | Yanlış/izinsiz kaynak, stale, eksik/yanlış konu, eksik publisher veya yetersiz literal alıntı vakalarının güvenli biçimde reddedilme oranı. |
