@@ -449,7 +449,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                 self.assertEqual(model.proposal_diagnostic().get("reason_code"),
                                  "ARGUMENT_SOURCE_INVALID")
         envelope["actions"][0]["argument_sources"] = {"level": "yüzde 20"}
-        envelope["actions"][0]["arguments"]["level"] = 101
+        envelope["actions"][0]["arguments"]["level"] = "20"
         self.assertIsNone(self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
                                    active=observed, args={}))
         self.assertEqual(model.proposal_diagnostic().get("reason_code"),
