@@ -142,6 +142,39 @@ class ParaphraseScoringTests(unittest.TestCase):
             self.assertEqual(len(report["results"]), 1)
             ask.assert_called_once()
 
+    def test_first_invalid_live_response_stops_without_spending_more_calls(self):
+        """A provider reply rejected by the Brain contract is FAIL, not unmeasured."""
+        from modules import llm
+        candidate = SimpleNamespace(provider="gemini", model="fixture", connection_id=None)
+        def rejected(owner, text, index):
+            llm.dispatch()
+            return None, None
+
+        with TemporaryDirectory() as folder:
+            output = Path(folder) / "report.json"
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
+                 patch("modules.smart_router.qualification_candidate", return_value=candidate), \
+                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \
+                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text="not-json")), \
+                 patch.object(holdout, "_ask", side_effect=rejected) as ask, \
+                 patch.object(holdout, "_sleep") as sleep, \
+                 redirect_stdout(StringIO()):
+                code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
+            self.assertEqual(code, 1)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            summary = report["summary"]
+            self.assertEqual(summary["state"], "failed")
+            self.assertEqual(summary["stop_reason"], "model_response_invalid")
+            self.assertEqual(summary["provider_requests"], 1)
+            self.assertEqual(summary["provider_responses"], 1)
+            self.assertEqual(summary["planned_cases"], 24)
+            self.assertEqual(len(report["results"]), 1)
+            self.assertEqual(report["results"][0]["response_shapes"], [{"json_object": False}])
+            self.assertFalse(report["results"][0]["intent_ok"])
+            ask.assert_called_once()
+            sleep.assert_not_called()
+
     def test_mocked_transport_observation_and_qualification_scope(self):
         """Only fixture responses permit offline scoring; this is not real model evidence."""
         from modules import llm, smart_router
