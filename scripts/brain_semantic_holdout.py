@@ -138,6 +138,62 @@ def _model_source_shapes(raw: str) -> list[dict[str, Any]]:
     return result
 
 
+def _message_argument_shapes(raw: str) -> list[dict[str, Any]]:
+    """Closed-form diagnostics only: NEVER record a contact name, body or key value.
+
+    The model's redacted source-shape log cannot explain CORE_ARGUMENTS_INVALID.
+    This reports whether a message's *shape* meets the existing Core validator,
+    without duplicating or loosening that validator or disclosing any PII.
+    """
+    from modules import brain_core_map
+
+    try:
+        envelope = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("actions"), list):
+        return []
+    report = []
+    for action in envelope["actions"][:5]:
+        if not isinstance(action, dict) or action.get("capability_id") != "message.send":
+            continue
+        args = action.get("arguments")
+        if not isinstance(args, dict):
+            report.append({"capability": "message.send", "args_shape": "not_object"})
+            continue
+        recipient, body = args.get("recipient"), args.get("body")
+        if "recipient" not in args:
+            rshape = "missing"
+        elif not isinstance(recipient, str):
+            rshape = "wrong_type"
+        elif not recipient.strip():
+            rshape = "empty"
+        elif brain_core_map._MESSAGE_RECIPIENT.fullmatch(recipient.strip()):
+            rshape = "lowercase"
+        elif brain_core_map._name_shape(recipient.strip()) is not None:
+            rshape = "proper_case"
+        else:
+            rshape = "invalid"
+        if "body" not in args:
+            bshape = "missing"
+        elif not isinstance(body, str):
+            bshape = "wrong_type"
+        elif "\x00" in body or len(body) > brain_core_map.MESSAGE_BODY_MAX:
+            bshape = "invalid"
+        else:
+            bshape = "text"
+        report.append({
+            "capability": "message.send",
+            "args_shape": "object",
+            "extra_keys": bool(set(args) - {"recipient", "body"}),
+            "recipient_shape": rshape,
+            "body_shape": bshape,
+            "core_format_valid": brain_core_map._message_args({
+                "original_text": "", **args}) is not None,
+        })
+    return report
+
+
 def _preflight() -> tuple[str, bool, str]:
     """Gerçek ücretsiz rota gerçekten uygun mu? Uygun değilse ölçüm YAPILMAZ, gerekçe döner.
 
@@ -362,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
 
     counters = _instrument_effects()
     transport = llm.dispatch
-    observed = {"requests": 0, "responses": 0, "shapes": [], "sources": []}
+    observed = {"requests": 0, "responses": 0, "shapes": [], "sources": [], "message_args": []}
 
     def observe_dispatch(*positional, **named):
         observed["requests"] += 1
@@ -371,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
         raw_text = response.text if hasattr(response, "text") else response
         observed["shapes"].append(response_shape(raw_text))
         observed["sources"].append(_model_source_shapes(raw_text))
+        observed["message_args"].append(_message_argument_shapes(raw_text))
         return response
 
     results = []
@@ -382,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
             before = observed["responses"]
             before_shapes = len(observed["shapes"])
             before_sources = len(observed["sources"])
+            before_message_args = len(observed["message_args"])
             proposal_diagnostic(clear=True)
             try:
                 proposal, deterministic_hint = _ask(owner, row["metin"], index)
@@ -392,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
             result["model_response_received"] = observed["responses"] > before
             result["response_shapes"] = observed["shapes"][before_shapes:]
             result["model_source_shapes"] = observed["sources"][before_sources:]
+            result["model_message_arg_shapes"] = observed["message_args"][before_message_args:]
             diagnostic = proposal_diagnostic()
             result["proposal_diagnostic"] = {
                 key: diagnostic[key] for key in ("status", "reason_code", "operation")
