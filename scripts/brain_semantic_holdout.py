@@ -14,6 +14,7 @@ Kullanım::
     python -X utf8 scripts/brain_semantic_holdout.py            # plan + kota tahmini, çağrı yok
     python -X utf8 scripts/brain_semantic_holdout.py --run      # gerçek ölçüm (N model çağrısı)
     python -X utf8 scripts/brain_semantic_holdout.py --run --json rapor.json
+    python -X utf8 scripts/brain_semantic_holdout.py --run --corpus tests/data/brain_semantic_paraphrases.json
 
 Eşik: niyet doğruluğu >= %95, hedef (slot) doğruluğu >= %95, kritik yanlış etki 0. Uygun
 ücretsiz bulut rotası yoksa ölçüm ÇALIŞMAZ ve dürüstçe "ÖLÇÜLEMEDİ" olarak raporlanır;
@@ -47,6 +48,57 @@ def _fold(value: Any) -> str:
         return ""
     return "".join(ch for ch in value.replace("İ", "i").replace("I", "ı").casefold()
                    if ch.isalnum())
+
+
+def _slot_equal(actual: Any, expected: Any) -> bool:
+    """Evaluate slots by type; a missing numeric slot must never equal zero/empty."""
+    if type(expected) is int:
+        return type(actual) is int and actual == expected
+    if type(expected) is str:
+        return isinstance(actual, str) and _fold(actual) == _fold(expected)
+    if isinstance(expected, dict):
+        return (isinstance(actual, dict) and set(actual) == set(expected)
+                and all(_slot_equal(actual[key], value) for key, value in expected.items()))
+    return type(actual) is type(expected) and actual == expected
+
+
+def _validate_equivalence_corpus(rows: list[dict]) -> None:
+    """Reject incoherent evaluation groups BEFORE making any provider calls."""
+    ids = set()
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str) or row["id"] in ids:
+            raise ValueError("Holdout ids must be unique strings.")
+        ids.add(row["id"])
+        name = row.get("equivalence_group")
+        if name is not None:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Invalid equivalence_group.")
+            expected = row.get("beklenen", {})
+            if expected.get("kind") != "effect" or not expected.get("capability") or not expected.get("slotlar"):
+                raise ValueError("Equivalence groups require an effect, capability and target slots.")
+            groups.setdefault(name, []).append(expected)
+    for name, group in groups.items():
+        if len(group) < 2 or any(item != group[0] for item in group[1:]):
+            raise ValueError(f"Group {name} must have >=2 identical expected intents and slots.")
+
+
+def _equivalence(results: list[dict]) -> dict:
+    groups: dict[str, list[dict]] = {}
+    for row in results:
+        if row.get("equivalence_group"):
+            groups.setdefault(row["equivalence_group"], []).append(row)
+    report = {
+        key: {"cases": len(rows),
+              "passed": all(row["intent_ok"] and row["target_ok"]
+                            and not row["dayanak_ihlali"] and not row["yanlis_etki"]
+                            for row in rows),
+              "failed": [row["id"] for row in rows
+                         if not (row["intent_ok"] and row["target_ok"]
+                                 and not row["dayanak_ihlali"] and not row["yanlis_etki"])]}
+        for key, rows in groups.items()
+    }
+    return {"groups": report, "passed": all(group["passed"] for group in report.values())}
 
 
 def _preflight() -> tuple[str, bool, str]:
@@ -139,7 +191,7 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
 
     declared = beklenen.get("slotlar") or {}
     target_checked = bool(declared)
-    target_ok = all(_fold(arguments.get(field)) == _fold(want)
+    target_ok = all(_slot_equal(arguments.get(field), want)
                     for field, want in declared.items()) if target_checked else True
 
     violations = []
@@ -148,10 +200,11 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
         if isinstance(value, str) and value.strip() and _fold(value) not in spoken:
             violations.append(field)
 
-    false_effect = capability in EFFECT_CAPABILITIES and kind == "no_effect"
+    false_effect = capability is not None and kind == "no_effect"
     return {
         "id": row["id"],
         "sinif": row["sinif"],
+        "equivalence_group": row.get("equivalence_group"),
         "metin": row["metin"],
         "kind": kind,
         "beklenen": expected_capability,
@@ -159,7 +212,7 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
         "capability": capability,
         "deterministik_hint": deterministic_hint,
         "argumanlar": {key: value for key, value in arguments.items()
-                       if key in {"recipient", "body", "operation", "name", "phone"}},
+                       if key in {"recipient", "body", "operation", "name", "phone", "property", "level", "app"}},
         "intent_ok": intent_ok,
         "target_checked": target_checked,
         "target_ok": target_ok,
@@ -180,6 +233,7 @@ def _aggregate(results: list[dict]) -> dict:
         "hedef_dogrulugu": round(target_hits / len(with_target), 4) if with_target else None,
         "hedef_iscab": f"{target_hits}/{len(with_target)}",
         "kritik_yanlis_etki": critical,
+        "equivalence": _equivalence(results),
         "dayanak_ihlali": [row["id"] for row in results if row["dayanak_ihlali"]],
         "yanlis_etki": [row["id"] for row in results if row["yanlis_etki"]],
         "zarf_yok": [row["id"] for row in results if row["zarf"] is None],
@@ -206,12 +260,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--run", action="store_true", help="Gerçek sağlayıcıyla ölç (model çağrısı yapar).")
     parser.add_argument("--json", type=Path, help="Ayrıntılı raporu JSON olarak yaz.")
+    parser.add_argument("--corpus", type=Path, default=CORPUS,
+                        help="İsteğe bağlı bağımsız değerlendirme korpusu; prompt/regex değildir.")
     args = parser.parse_args(argv)
 
-    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
-    rows = corpus["cumleler"]
+    try:
+        corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
+        rows = corpus["cumleler"]
+        _validate_equivalence_corpus(rows)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"ÖLÇÜLEMEDİ: geçersiz korpus ({type(exc).__name__}: {exc})")
+        return 2
     owner, ok, reason = _preflight()
-    print(f"Korpus: {CORPUS.name} ({len(rows)} cümle) — {len(rows)} bounded model çağrısı gerekir.")
+    print(f"Korpus: {args.corpus.name} ({len(rows)} cümle) — {len(rows)} bounded model çağrısı gerekir.")
     if not ok:
         print(f"ÖLÇÜLEMEDİ: {reason}")
         print("Kapı burada gevşetilmez; ölçüm üretimle aynı rotayı kullanır.")
@@ -242,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     passed = (summary["niyet_dogrulugu"] >= INTENT_THRESHOLD
               and (summary["hedef_dogrulugu"] or 0.0) >= TARGET_THRESHOLD
               and summary["kritik_yanlis_etki"] == 0
+              and summary["equivalence"]["passed"]
               and not summary["zarf_yok"])
     summary["esik"] = {"niyet": INTENT_THRESHOLD, "hedef": TARGET_THRESHOLD, "kritik_etki": 0}
     summary["passed"] = passed
