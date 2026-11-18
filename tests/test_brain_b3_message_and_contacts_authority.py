@@ -176,6 +176,25 @@ class MessageCapabilityContractTests(unittest.TestCase):
         # Alıcı henüz bilinmiyorsa oturum kendi sorusunu sorar; boş slot geçerli bir öneridir.
         self.assertEqual(validate({"recipient": "", "body": ""}), {"recipient": "", "body": ""})
 
+    def test_grounded_proper_name_case_is_not_a_core_format_error(self):
+        # Source quoting is still checked by Brain. Core's format validator
+        # must not reject normal Turkish proper-name casing (Ayşe / İpek).
+        message = brain_core_map.CORE_INTENTS["message.send"][1]
+        contact = brain_core_map.CORE_INTENTS["contacts.manage"][1]
+        for supplied, expected in (("ayşe", "Ayşe"), ("Ayşe", "Ayşe"),
+                                   ("AYŞE", "Ayşe"), ("İpek", "İpek"),
+                                   ("IPEK", "Ipek"), ("Işık", "Işık")):
+            with self.subTest(name=supplied):
+                self.assertEqual(message({"recipient": supplied, "body": "selam"}),
+                                 {"recipient": expected, "body": "selam"})
+                self.assertEqual(contact({"operation": "add", "name": supplied,
+                                          "phone": "0532 123 45 67"}),
+                                 {"operation": "add", "name": expected,
+                                  "phone": "905321234567"})
+        for malformed in ("Ayşe'ye", "Ayşe@example.com", "Ayşe 2", "A", "Ali\\nVeli"):
+            with self.subTest(malformed=malformed):
+                self.assertIsNone(message({"recipient": malformed, "body": "selam"}))
+
     def test_core_rejects_malformed_message_slots(self):
         validate = brain_core_map.CORE_INTENTS["message.send"][1]
         for arguments in (
