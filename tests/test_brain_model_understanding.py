@@ -421,15 +421,16 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             direct("files.read", {"operation": "analyze", "path": "C:/secret.txt"}, ["file_0"]),
             text="şu raporu incele", active=active))
 
-    def test_full_model_envelope_accepts_empty_unowned_sources_only(self):
-        # This follows the real response decoder -> _build -> Core mapping.
-        # pc.level.set has no user-owned free-text slots: empty JSON sources
-        # means the same thing as null, not an effect permission. A fabricated
-        # provenance field must still reject the entire proposal.
+    def test_full_model_envelope_ignores_unowned_sources_without_granting_effect(self):
+        # The real response decoder -> _build -> Core argument mapping.
+        # Additional source hints are never copied into action arguments:
+        # the model still cannot invent an approval, path, target, or recipient.
         envelope = json.loads(direct("pc.level.set",
                                      {"property": "volume", "level": 20}))
         observed = current(capability_hint="pc.level.set", arguments={})
-        for sources in (None, {}):
+        for sources in (None, {}, {"level": "yüzde 20", "property": "Sesi"},
+                        {"approval": "grant", "path": "C:/not-an-action"},
+                        {"ignored": {"nested": "object"}}):
             with self.subTest(source=sources):
                 envelope["actions"][0]["argument_sources"] = sources
                 adopted = self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
@@ -437,12 +438,22 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                 self.assertIsNotNone(adopted)
                 self.assertEqual(adopted.actions[0].capability_id, "pc.level.set")
                 self.assertEqual(adopted.actions[0].arguments["level"], 20)
-        envelope["actions"][0]["argument_sources"] = {"level": "20"}
-        rejected = self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
-                            active=observed, args={})
-        self.assertIsNone(rejected)
+                self.assertEqual(adopted.actions[0].arguments["property"], "volume")
+                for forbidden in ("approval", "path", "recipient"):
+                    self.assertNotIn(forbidden, adopted.actions[0].arguments)
+        for source in ([], "20", 20):
+            with self.subTest(invalid_shape=source):
+                envelope["actions"][0]["argument_sources"] = source
+                self.assertIsNone(self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
+                                           active=observed, args={}))
+                self.assertEqual(model.proposal_diagnostic().get("reason_code"),
+                                 "ARGUMENT_SOURCE_INVALID")
+        envelope["actions"][0]["argument_sources"] = {"level": "yüzde 20"}
+        envelope["actions"][0]["arguments"]["level"] = 101
+        self.assertIsNone(self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
+                                   active=observed, args={}))
         self.assertEqual(model.proposal_diagnostic().get("reason_code"),
-                         "ARGUMENT_SOURCE_INVALID")
+                         "CORE_ARGUMENTS_INVALID")
 
     def test_model_can_move_an_established_capability_to_another_domain(self):
         """BRAIN-01: `current.capability_hint` öneri ön koşulu değildir; Core argümanı doğrular."""
