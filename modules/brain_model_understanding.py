@@ -1070,11 +1070,12 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
     """
     owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
     if owned is None:
-        # The advertised response schema accepts null *or object*. Empty JSON
-        # objects carry no provenance claim and mean the same as null when the
-        # capability has NO user-owned free-text slots. Nonempty sources still
-        # fail closed; they cannot add evidence or change an action's authority.
-        return sources is None or (type(sources) is dict and not sources)
+        # No user-owned fields require quotations for this capability. This
+        # auxiliary field cannot grant permission or change typed arguments:
+        # accept the advertised JSON null/object shapes, including a model's
+        # redundant source annotations, and *do not use their contents*.
+        # The typed action still passes the separate Core plan and effect gates.
+        return sources is None or type(sources) is dict
     if sources is None:
         sources = {}
     if not isinstance(sources, Mapping) or any(not isinstance(key, str) or not isinstance(value, str)
