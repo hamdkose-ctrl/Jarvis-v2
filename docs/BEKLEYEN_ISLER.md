@@ -1,3 +1,9 @@
+# Paket 1 (eklenti listelemesi + profil okuma güvenliği) canlı kabul — 18 Kasım 2026
+
+- **Ölçülecek gece:** (1) `~/.jarvis/plugins` içinde gerçek bir `.py` eklentisi varken Ayarlar › eklenti kartı ad/açıklamayı doğru gösterir ve listelemenin hiçbir yanında eklentinin import sırasındaki yan etkisi (dosya yazma, ağ, model çağrısı) oluşmaz; (2) bozuk yazılmış bir profil dosyası açıldığında Jarvis varsayılanlarla çalışmaya devam eder, karantina dosyası oluşur ve sıradan komut sayacı o karantinaya dokunmaz; (3) gerçek bir okuma engeli (yalnız okunabilir/locklu dosya) `profile_unreadable` + `jarvis.profile` uyarısı üretir ve Jarvis o kaydın üzerine yazmayı reddeder. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge ve yerel test tek başına "bitti" değildir. Ayrıntı: `docs/agents/arayuz.md`, `docs/agents/persona.md`.
+
+---
+
 # Karar 3 (tek JARVIS kişiliği) canlı kabul — 18 Kasım 2026
 
 - **Ölçülecek geceler:** (1) sesli sohbette yanıt gerçekten kısa gelir ve `Ayarlar › Hafıza › Yanıt tercihlerin` içindeki `Yanıt uzunluğu` `uzun` seçilince iki cümle tavanı kalkar; (2) telefonda yazılan sorunun yanıtı seslendirildiğinde kısa ve düz cümledir (markdown/emoji yok); (3) günlük brifing `notification=kısa` iken tek cümleye, `normal` iken önem sıralı en fazla altı cümleye iner; (4) ekran fotoğrafı/görsel analizi yanıtları ekranda numaralı adımlarla kalır; (5) Hoca/Çalışma yüzeyinde matematik `\( ... \)` ile render edilir, sohbette düz Unicode yazılır. Kod tarafı tek sahipliği statik taramayla ölçer; bu madde modelin gerçek davranışını ayrıca kanıtlar. exact-SHA Windows CI + aynı SHA PC watcher ve merge tek başına "bitti" değildir. Ayrıntı: `docs/architecture/JARVIS_KARAR3_SINGLE_PERSONA_2026-11-18.md`.
