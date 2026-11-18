@@ -1,3 +1,10 @@
+## 18 Kasım 2026 — Brain boş kaynak nesnesi uyumu (PR #673; canlı kabul bekliyor)
+
+- **Kod bulgusu:** `brain_model_understanding._response_schema` her action için `argument_sources` alanını `null` veya JSON nesnesi olarak ilan ediyor; `_arguments_are_grounded` ise kullanıcıdan birebir alıntı gerektiren slotu olmayan yeteneklerde `{}` nesnesini reddediyordu. Bu kapalı biçim uyumsuzluğu, özellikle `pc.level.set` gibi sayısal/hedefi kapalı eylemleri model doğru seçtiğinde bile `ARGUMENT_SOURCE_INVALID` ile düşürebiliyordu. Eski canlı rapor tam kaynak türünü göstermediğinden bunun Gemini'nin kesin kök nedeni olduğu henüz iddia edilmez.
+- **Dar düzeltme:** Yalnız kullanıcıya ait serbest metin slotu olmayan yeteneklerde `null` ile **boş** `{}` eşdeğer; dolu/yanlış tip kaynak nesneleri reddediliyor. `message.send`, `notes.add` ve diğer kullanıcı-sahibi alanların alıntı dayanağı, Core izni ve etkili eylem onayları değişmedi. Yeni Provider/Router/Scheduler yok.
+- **Kanıt sınırı:** `tests/test_brain_semantic_paraphrases.py` doğrudan kaynak tiplerini; `tests/test_brain_model_understanding.py` gerçek cevap zarfından Core planına giden kabul/red yolunu test eder. Son SHA Windows CI + gerçek aynı SHA PC Watcher PASS ve mevcut 24 Türkçe cümlenin canlı ücretsiz modelde holdout kabulü olmadan **tamamlandı** denmez. Ayrı fiziksel STT/TTS kabulü de bu yamayla doğrulanmış değildir.
+
+---
 # Karar 3 — tek JARVIS kişiliği: sunumun tek sahibi — 18 Kasım 2026
 
 **Karar:** Hamdi'nin "tek kişilik" kararı kodda tek sahipliğe bağlandı: kimlik, dokuz sunum tercihi, teslim kanalı (yazı/web/scheduler, ekran, ses/telefon, bildirim) ve anlatım biçimi (düz Unicode / LaTeX) tek yerden, `persona.prompt` + `persona_contract` sözcük listesinden üretilir. Yüzeyler yalnız kendi içerik sözleşmesini yazar; hiçbir modül sahibin cümlesini yeniden yazmaz. Persona model, Router, yeni store veya yetki sahibi değildir; sunum tercihi hedef/alıcı/izin/onay/gizlilik/risk/tamamlanma yetkisi vermez.
