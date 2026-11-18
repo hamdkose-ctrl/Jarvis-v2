@@ -175,6 +175,17 @@ def _name_title(name: str) -> str:
     return " ".join(_city_title(token) for token in name.split())
 
 
+def _name_shape(name: str) -> str | None:
+    """Case-insensitive *shape* check for proper names, never target inference.
+
+    Model-proposed names can arrive in ordinary proper-name case (Ayşe, İpek).
+    Validate the same closed Turkish letter/length grammar after case folding;
+    preserve the original name's words for the existing title normalizer.
+    """
+    folded = name.replace("İ", "i").replace("I", "ı").casefold()
+    return name if _MESSAGE_RECIPIENT.fullmatch(folded) is not None else None
+
+
 def _message_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """BRAIN-03 dilim 2: alıcı/gövde slotlarını yalnız biçim hükmünden geçirir."""
     if set(arguments) - {"original_text", "recipient", "body"}:
@@ -184,7 +195,7 @@ def _message_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
     recipient, body = recipient.strip(), body.strip()
     if recipient:
-        if _MESSAGE_RECIPIENT.fullmatch(recipient) is None:
+        if _name_shape(recipient) is None:
             return None
         recipient = _name_title(recipient)
     if "\x00" in body or len(body) > MESSAGE_BODY_MAX:
@@ -203,7 +214,7 @@ def _contacts_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         # Listeleme hedef taşımaz; ek alan taşıyan öneri doğrulanmış değildir.
         return {"operation": "list"} if set(arguments) <= {"original_text", "operation"} else None
     name, phone = arguments.get("name"), arguments.get("phone")
-    if not isinstance(name, str) or _MESSAGE_RECIPIENT.fullmatch(name.strip()) is None:
+    if not isinstance(name, str) or _name_shape(name.strip()) is None:
         return None
     if not isinstance(phone, str):
         return None
