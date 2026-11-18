@@ -38,6 +38,32 @@ class ParaphraseScoringTests(unittest.TestCase):
         self.assertTrue(all(len(rows) >= 3 for rows in groups.values()))
         self.assertGreaterEqual(sum(row["beklenen"]["kind"] == "no_effect" for row in self.rows), 8)
 
+    def test_non_owner_source_empty_json_is_not_false_rejected(self):
+        # The response_schema explicitly allows object or null. Empty object
+        # has no grounding assertion for a capability like pc.level.set, but
+        # nonempty object still must not smuggle user-owned fields or evidence.
+        from modules import brain_model_understanding as brain
+        check = brain._arguments_are_grounded
+        args = {"property": "volume", "level": 20}
+        self.assertTrue(check(capability_id="pc.level.set", supplied=args,
+                              sources=None, text="Sesi yüzde 20 yap."))
+        self.assertTrue(check(capability_id="pc.level.set", supplied=args,
+                              sources={}, text="Sesi yüzde 20 yap."))
+        for source in ({"level": "20"}, {"property": "volume"}, [], "20", 20):
+            with self.subTest(source=source):
+                self.assertFalse(check(capability_id="pc.level.set", supplied=args,
+                                       sources=source, text="Sesi yüzde 20 yap."))
+        # With user-owned fields, a source-less populated message remains
+        # prohibited even if an empty JSON object is otherwise well formed.
+        for source in (None, {}):
+            self.assertFalse(check(capability_id="message.send",
+                                   supplied={"recipient": "Ayşe", "body": "Merhaba"},
+                                   sources=source, text="Ayşe'ye Merhaba yaz."))
+        self.assertFalse(check(capability_id="message.send",
+                               supplied={"recipient": "Ayşe", "body": "Merhaba"},
+                               sources={"recipient": "Ayşe", "body": "Yanlış"},
+                               text="Ayşe'ye Merhaba yaz."))
+
     def test_number_must_be_present_and_an_integer(self):
         row = self.rows[0]
         expected = {"property": "volume", "level": 20}
