@@ -26,7 +26,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import time
+from time import sleep as _sleep
 from typing import Any
 from unittest.mock import patch
 
@@ -347,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [{index:02d}] {result['id']:10} {mark:7} beklenen={result['beklenen']} "
                   f"zarf={result['zarf']} yetenek={result['capability']} argüman={result['argumanlar']}")
             if index < len(rows) and args.interval_seconds:
-                time.sleep(args.interval_seconds)
+                _sleep(args.interval_seconds)
 
     summary = _aggregate(results)
     complete = len(results) == len(rows) and all(row["model_response_received"] for row in results)
