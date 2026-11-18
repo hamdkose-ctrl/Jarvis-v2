@@ -204,7 +204,15 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
         if isinstance(value, str) and value.strip() and _fold(value) not in spoken:
             violations.append(field)
 
-    false_effect = bool(actions) and kind == "no_effect"
+    # A wrong target, unexpected capability or extra action is an incorrect
+    # action proposal too, even when the utterance legitimately asks for an effect.
+    # Keep this separate from "intent_ok": the critical safety count must not
+    # misleadingly remain zero when a positive command would do the wrong thing.
+    false_effect = bool(actions) and (
+        kind == "no_effect"
+        or len(actions) != 1
+        or (kind == "effect" and (not intent_ok or (target_checked and not target_ok)))
+    )
     return {
         "id": row["id"],
         "sinif": row["sinif"],
