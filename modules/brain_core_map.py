@@ -172,7 +172,8 @@ MESSAGE_BODY_MAX = 4000
 
 def _name_title(name: str) -> str:
     """Türkçe büyük harf hükmü tek yerden (`str.title()` "İzmir"i "Izmir" yapardı)."""
-    return " ".join(_city_title(token) for token in name.split())
+    return " ".join(_city_title(token.replace("İ", "i").replace("I", "ı").casefold())
+                    for token in name.split())
 
 
 def _name_shape(name: str) -> str | None:
