@@ -499,15 +499,6 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     return text
 
 
-OLLAMA_BIG_MODEL = "qwen2.5:7b"
-
-
-
-
-
-
-
-
 class CloudError(RuntimeError):
     """Bulut sağlayıcısına ulaşılamadı / anahtar geçersiz."""
 

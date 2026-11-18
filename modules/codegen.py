@@ -1,4 +1,4 @@
-"""1) Kod üretimi: iskelet + fonksiyon + dosyaya yazma."""
+"""1) Kod üretimi: kod bloğu + dosyaya yazma."""
 import re
 from pathlib import Path
 from .llm import ask
@@ -20,11 +20,6 @@ def generate(task: str, language: str = "python") -> str:
     if "```" not in text:   # model bloğu unuttuysa sar
         text = f"```{language}\n{text}\n```"
     return text
-
-def scaffold(project_name: str, description: str, language: str = "python") -> str:
-    plan = ask(f"{language} projesi '{project_name}': {description}\n"
-               "Klasör/dosya yapısını ve her dosyanın kısa görevini listele.", SYSTEM)
-    return plan
 
 def save(code: str, path: str) -> Path:
     p = Path(path); p.parent.mkdir(parents=True, exist_ok=True)

@@ -23,7 +23,6 @@ SPEECH_FIRST_CHUNK_CHARS = 200
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
-SPEECH_STAGES = ("accepted", "synthesizing", "audio_ready", "playback_started")
 _ID_CHARS = 128
 _MAX_TTL_SECONDS = 3600.0
 # How many announced results are remembered as delivered. A recency bound keeps

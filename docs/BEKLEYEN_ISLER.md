@@ -1,3 +1,15 @@
+# Paket 5 sonrası kalan caller-zero envanteri — ölçüldü, silinmedi (18 Kasım 2026)
+
+Ölü sembol turunda (`tests/test_dead_symbol_retirement.py`) üretim çağrısı olmayan davranış-nötr yüzeyler fiziksen silindi. Aşağıdakiler **bilinçli olarak bırakıldı**: silmek bir çiti gevşetir, sahibi başka dal olur veya canlı kabul/ürün kararı ister. Kayıt sessiz "temizlendi" iddiası üretmez.
+
+- **`engine_live_brain._live_command`** — metin taramasıyla "çağrısız" görünür ama facade üzerinden bağlıdır: `engine_runtime` isimleri `setattr` ile sarar ve `engine_voice._pc_context` bu adı ayrıca tanır. Yürütme sahibi Brain; kanıt eksik olduğu için silinmedi.
+- **`specialist_orchestrator.run` (+ `validate`, `brain_delegate.plan/run`)** — durable olmayan "legacy convenience path". Üretim çağrısı yok (yalnız `tests/test_brain_delegate.py`), `replay_safe` reddi ve `goal_tools` kapıları yerinde; ayrıca `docs/architecture/JARVIS_HERMES_ADAPTER_BOUNDARY_V1.md` bu yüzeyi **bilinçli sınır** olarak belgeler. Karar: ikinci yürütücü yüzeyini resmen emekli et (testleriyle birlikte) veya sınır olarak koru. **Scheduler tektir** ilkesi açısından okunması gereken madde.
+- **`~/.jarvis/selfcoder/local_changes.json` kaydı** — yazarı `git_publish.protect_local` üretimde çağrılmıyor; okuyucusu `updater._protected_local_changes` **canlı ve testli** bir güncelleme kapısı (`tests/test_architecture_v57.py`, `tests/test_continuity_security.py`). Güncel koruma fiilen içerik kıyasıyla (`verify_sync` `changes_remote` + `source_sync.blob_matches`) yapılıyor. Kaydı komple emekli etmek updater kapısına dokunur → ancak Hamdi kararıyla, tek PR'da.
+- **`news_pipeline.synthesis_input` + `verify_synthesis`** — model-var sentez hattına üretimden çağrı yok (yalnız 4 test). `docs/agents/haber.md` bu davranışı canlıymış gibi anlatıyor; madde ölçümle kapanmadan kod silinmez ve belgedeki canlılık ifadesi "bitti" sayılmaz. Model kotası kararı (Groq/Gemini boyut duvarı) ile birlikte yürür.
+- **`stt_fixes` uygulama yardımcıları** — tanım sahibi ayrı dal; yeni tanıma davranışı gerçek mikrofon kabulü + Hamdi onayı ister.
+
+---
+
 # Karar 3 (tek JARVIS kişiliği) canlı kabul — 18 Kasım 2026
 
 - **Ölçülecek geceler:** (1) sesli sohbette yanıt gerçekten kısa gelir ve `Ayarlar › Hafıza › Yanıt tercihlerin` içindeki `Yanıt uzunluğu` `uzun` seçilince iki cümle tavanı kalkar; (2) telefonda yazılan sorunun yanıtı seslendirildiğinde kısa ve düz cümledir (markdown/emoji yok); (3) günlük brifing `notification=kısa` iken tek cümleye, `normal` iken önem sıralı en fazla altı cümleye iner; (4) ekran fotoğrafı/görsel analizi yanıtları ekranda numaralı adımlarla kalır; (5) Hoca/Çalışma yüzeyinde matematik `\( ... \)` ile render edilir, sohbette düz Unicode yazılır. Kod tarafı tek sahipliği statik taramayla ölçer; bu madde modelin gerçek davranışını ayrıca kanıtlar. exact-SHA Windows CI + aynı SHA PC watcher ve merge tek başına "bitti" değildir. Ayrıntı: `docs/architecture/JARVIS_KARAR3_SINGLE_PERSONA_2026-11-18.md`.
