@@ -35,6 +35,14 @@ class ProfilKarantinaTestleri(unittest.TestCase):
     def _forget(self, slug):
         profiles._SHARED.pop(_shared_key(self.folder / f"{slug}.json"), None)
 
+    def _read_error_name(self):
+        """Bu işletim sisteminde klasör olan yoldan okumanın ürettiği gerçek hata adı."""
+        try:
+            (self.folder / 'hamdi.json').read_text(encoding='utf-8')
+        except OSError as exc:
+            return type(exc).__name__
+        self.fail('okunamayan profil bir OSError üretmedi')
+
     def test_gecerli_profil_yedek_uretmez(self):
         (self.folder / 'hamdi.json').write_text(
             json.dumps({"name": "Hamdi", "facts": ["a"]}, ensure_ascii=False), encoding="utf-8")
@@ -118,6 +126,39 @@ class ProfilKarantinaTestleri(unittest.TestCase):
         profil = profiles.Profile('Hamdi')
         self.assertEqual(profil.data["facts"], [])
         self.assertNotIn("profile_corrupt_backup", profil.data)
+
+    def test_okunamayan_kaydin_hatasi_bayraga_yazilir_ve_gunluge_duser(self):
+        (self.folder / 'hamdi.json').mkdir()
+        with self.assertLogs('jarvis.profile', 'WARNING') as kayit:
+            profil = profiles.Profile('Hamdi')
+        self.assertEqual(profil.data["profile_unreadable"], self._read_error_name())
+        self.assertTrue(any('hamdi.json' in satir for satir in kayit.output), kayit.output)
+
+    def test_okunamayan_kaydin_uzerine_hicbir_kayit_yazilmaz(self):
+        (self.folder / 'hamdi.json').mkdir()
+        with self.assertLogs('jarvis.profile', 'WARNING'):
+            profil = profiles.Profile('Hamdi')
+        with self.assertRaises(OSError):
+            profil.log_command('chat')            # sıradan kayıt denemesi reddedilir
+        with self.assertRaises(OSError):
+            profil.add_goal('yarın toplantı')
+        self.assertEqual(list((self.folder / 'hamdi.json').iterdir()), [])
+
+    def test_engel_ayni_dosyanin_ikinci_profilinde_de_surur(self):
+        (self.folder / 'hamdi.json').mkdir()
+        with self.assertLogs('jarvis.profile', 'WARNING'):
+            profiles.Profile('Hamdi')
+        ikinci = profiles.Profile('Hamdi')        # paylaşılan durum engeli taşır
+        self.assertEqual(ikinci.data["profile_unreadable"], self._read_error_name())
+        with self.assertRaises(OSError):
+            ikinci.save()
+
+    def test_saglam_profil_yazma_engeli_tasimaz(self):
+        profil = profiles.Profile('Hamdi')
+        self.assertNotIn("profile_unreadable", profil.data)
+        profil.log_command('chat')
+        self.assertEqual(json.loads((self.folder / 'hamdi.json').read_text(encoding='utf-8'))
+                         ["command_counts"]["chat"], 1)
 
     def test_rename_user_bozuk_kaynakta_baytlar_karantinaya_alinir(self):
         raw = b"{corrupt"

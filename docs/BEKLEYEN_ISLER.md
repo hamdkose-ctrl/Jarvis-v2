@@ -1,3 +1,9 @@
+# Paket 1 (eklenti listelemesi + profil okuma güvenliği) canlı kabul — 18 Kasım 2026
+
+- **Ölçülecek gece:** (1) `~/.jarvis/plugins` içinde gerçek bir `.py` eklentisi varken Ayarlar › eklenti kartı ad/açıklamayı doğru gösterir ve listelemenin hiçbir yanında eklentinin import sırasındaki yan etkisi (dosya yazma, ağ, model çağrısı) oluşmaz; (2) bozuk yazılmış bir profil dosyası açıldığında Jarvis varsayılanlarla çalışmaya devam eder, karantina dosyası oluşur ve sıradan komut sayacı o karantinaya dokunmaz; (3) gerçek bir okuma engeli (yalnız okunabilir/locklu dosya) `profile_unreadable` + `jarvis.profile` uyarısı üretir ve Jarvis o kaydın üzerine yazmayı reddeder. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge ve yerel test tek başına "bitti" değildir. Ayrıntı: `docs/agents/arayuz.md`, `docs/agents/persona.md`.
+
+---
+
 # Deterministik test kapısı — makine/kota durumundan yalıtım ve kalan iki ortam bağı — 18 Kasım 2026
 
 - **Ölçülen kök neden (CI):** `test_desktop_agent` sahte saati `iter([0, 0, 25, 25, 25])` idi ve `patch.object(uia.time, 'monotonic')` ile `patch.object(uia.os, 'name')` **standart kütüphanenin kendisini** küresel mutasyona uğratıyordu. Yüklü koşucuda başka bir iş parçacığının yaptığı okuma listeyi tüketip `StopIteration` verdi; bu yüzden exact-SHA koşu "kısa kotadan düştü" gibi görünürken gerçekte `Ran 6877 tests` içinde tek ERROR ile kırıldı. Düzeltme: saat `chain((0, 0), repeat(25))` ile tükenmez ve yalnız `desktop_uia` özniteliğine verilir; aynı dosyadaki dört `uia.os` mutasyonu ve `test_navigation_commands` içindeki `system_control.time` mutasyonu da modül-özel sahteye çevrildi. Hiçbir assertion değişmedi (`uia._call` bu yolda yalnız `os.name` ve `time.monotonic` okur). Aynı logdaki `RuntimeError: HTTPError` izi gürültüdür: `test_youtube_key_state` zaten taklit edilmiş HTTPError bekliyor ve tanısal sarmalayıcı yazdırıyor.
