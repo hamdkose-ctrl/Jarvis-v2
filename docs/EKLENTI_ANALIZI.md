@@ -21,7 +21,7 @@ Claude Code/Setup, Claude-Mem, Task Observer, Headroom ve OmniRoute Jarvis'in Py
 
 Task Observer'ın proje `.claude` ve CLAUDE.md dosyaları kullanıcı tarafından silindi; burada yeniden oluşturulmadı. Claude-Mem/Headroom gibi kullanıcı genelindeki ayarların gerçekten durduğu, kaynak dosyasından doğrulanamaz. PATH'te bulunabilen git/node/ollama/claude/omniroute/headroom araçları raporda yalnız var/yok olarak listelenir; PATH dışında kurulmuş araçlar "yok" görünebilir.
 
-`modules/plugins.py` özel Python eklentilerini doğrudan import ediyor; bu bir sandbox değildir. Tek kurulum bu eklentileri otomatik import etmez veya import adlarından rastgele pip paketi kurmaz. Rapordaki import adı her zaman PyPI paket adı değildir.
+`modules/plugins.py` Ayarlar listesinde eklenti kodunu import etmez ve yürütmez: ad, açıklama ve `handle` varlığı AST ile kaynak kodundan okunur. Modül yürütmesi (`exec_module`) yalnız gerçek komut dispatch'indedir; bu bir sandbox değildir. Tek kurulum bu eklentileri otomatik yürütmez veya import adlarından rastgele pip paketi kurmaz. Rapordaki import adı her zaman PyPI paket adı değildir.
 
 ## Tek kurulum
 

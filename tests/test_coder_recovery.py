@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from modules import developer as dev, llm, nxapi, smart_router as router, task_agents as agents, task_results
+from modules import developer as dev, goal_executor, llm, nxapi, resource_leases, smart_router as router, task_agents as agents, task_results
 from provider_fixture import fresh_bundle
 
 
@@ -24,7 +24,9 @@ class CoderRecoveryTests(unittest.TestCase):
         (self.project/'original.py').write_text('untouched = True\n')
         for obj, name, value in [(dev,'PROJECT',self.project),(dev,'STORE',self.root/'dev'),
             (dev,'_AUTH',set()),(agents,'STORE',self.root/'tasks'),(nxapi,'FILES_DIR',self.root/'files'),
-            (router,'_STORE',self.root/'router'),(router,'_HEALTH',{})]:
+            (router,'_STORE',self.root/'router'),(router,'_HEALTH',{}),
+            # Own the provider capacity slot: a lease held by another test must not decide the outcome.
+            (goal_executor,'_RESOURCE_LEASES',resource_leases.LeaseTable())]:
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)
         for obj,name,value in [(router.privacy,'mode','normal'),(llm,'provider','auto'),
              (llm,'current_user','alice'),(llm,'user_key','gem-key'),(llm,'user_groq_key','groq-key')]:

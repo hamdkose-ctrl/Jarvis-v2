@@ -1,4 +1,5 @@
 import unittest
+from itertools import chain, repeat
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -21,9 +22,10 @@ class TypedNavigationCommandsTests(unittest.TestCase):
 
     def test_windows_adapter_does_not_claim_success_without_window(self):
         from modules import system_control
-        clock = iter([0, 0, 11, 11])
+        clock = chain((0, 0), repeat(11))
         windows_os = SimpleNamespace(**vars(system_control.os)); windows_os.name = "nt"; windows_os.startfile = Mock()
-        with patch.object(system_control, "os", windows_os), patch.object(system_control, "_visible_application", return_value=None), patch.object(system_control, "_permission_decision"), patch.object(system_control.time, "monotonic", side_effect=lambda: next(clock)), patch.object(system_control.time, "sleep"):
+        fake_time = SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda *_: None)
+        with patch.object(system_control, "os", windows_os), patch.object(system_control, "_visible_application", return_value=None), patch.object(system_control, "_permission_decision"), patch.object(system_control, "time", fake_time):
             reply = system_control.open_windows_settings("network-wifi")
         self.assertFalse(reply.ok)
         self.assertIn("Açıldı demiyorum", reply)

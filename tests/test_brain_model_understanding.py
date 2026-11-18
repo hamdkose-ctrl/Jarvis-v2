@@ -186,6 +186,15 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertNotIn("document_digest", payload)
         self.assertNotIn("Rapor içeriği", payload)
 
+    def test_export_format_slot_offers_the_spoken_names_and_requires_the_quote(self):
+        from modules import brain_core_map
+        schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
+        export = schema["documents.export"]
+        self.assertEqual(export["format"], sorted(brain_core_map._EXPORT_FORMAT_NAMES))
+        self.assertEqual(export["argument_sources"], ["format"])
+        self.assertEqual(export["target"], "current.current_output")
+        self.assertEqual(schema["system.diagnose"]["arguments"], {})
+
     def test_prompt_advertises_capability_purposes_without_an_answer_table(self):
         schema = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))["allowed"]["argument_schema"]
         for capability in ("documents.export", "notes.write", "files.mutate", "system.diagnose"):
