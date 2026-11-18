@@ -121,6 +121,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "macro.manage": frozenset({"trigger"}),
     "learning.manage": frozenset({"text", "old", "index"}),
     "workbench.followup": frozenset({"format"}),
+    "documents.export": frozenset({"format"}),
     "notes.add": frozenset({"text"}),
     "notes.write": frozenset({"text"}),
     "weather.city.set": frozenset({"location"}),
@@ -469,9 +470,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
             return {"key": ["tr_erkek", "tr_kadin", "ml_erkek", "ml_kadin", "ml_erkek2", "ml_kadin2"],
                     "constraint": "choose one installed catalogue identity explicitly named or unambiguously requested; otherwise clarify"}
         return {"arguments": {}}
-    if capability_id in {"documents.export", "system.diagnose"}:
-        return {"arguments": {}, "target": "current.current_output"
-                if capability_id == "documents.export" else "read-only system checks"}
+    if capability_id == "documents.export":
+        # The model may only name the container the user spoke; document, path and
+        # digest stay Core-bound, and an ungrounded or unknown name drops the proposal.
+        from modules.brain_core_map import _EXPORT_FORMAT_NAMES
+        return {"format": sorted(_EXPORT_FORMAT_NAMES), "argument_sources": ["format"],
+                "target": "current.current_output"}
+    if capability_id == "system.diagnose":
+        return {"arguments": {}, "target": "read-only system checks"}
     if capability_id == "windows.settings.open":
         from modules.system_control import WINDOWS_SETTINGS_PAGES
         return {"page": sorted(WINDOWS_SETTINGS_PAGES)}
@@ -635,7 +641,8 @@ _CAPABILITY_PURPOSES = {
     "documents.export": (
         "saves a produced conversation result only when the user affirmatively requests an export",
         "requires current.current_output.available true and an actual save request; a refusal or "
-        "an absent output is NOT permission to export; Core binds the document, path and format",
+        "an absent output is NOT permission to export; an optional format must quote the user's own "
+        "container word; Core binds the document and path",
     ),
     "notes.write": (
         "changes or deletes one note that already exists",
