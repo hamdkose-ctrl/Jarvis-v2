@@ -284,16 +284,18 @@ class LiveContextParityTests(unittest.TestCase):
         self.assertTrue(re.search(r"learning\.knowledge_prompt\(self,\s*query\)", text))
         self.assertTrue(re.search(r"learning\.rules_prompt\(self,\s*query\)", text))
 
-    def test_pending_prompt_is_read_only_and_the_mark_has_an_owner(self):
+    def test_the_live_era_pending_ask_family_is_physically_gone(self):
+        # Onay-bekleyenleri sorma hatırlatması yalnız canlı oturum talimatına bağlıydı; Live emekli
+        # olunca üretim tetikleyicisi kalmadı. Caller-zero kayıt olarak durmaz: aile silindi, onay
+        # yolu tek canonical sahibinde (learning.pending_facts.select + learning.manage) kaldı.
         text = source("learning")
-        start = text.index("def pending_prompt")
-        body = text[start:text.index("\n\n\n", start)]
-        self.assertNotIn("profile.save()", body)
-        self.assertIn("def pending_ask_due", text)
-        self.assertIn("def mark_pending_ask", text)
-        # Oturum-açılma işareti salt-okunur assembly'de değil, olay sahibinde yazılır.
-        # Live emekli olunca o olayın (live_session_opened) üretim çağrısı kalmadı; bu
-        # borç tests/test_live_retirement.py'da caller-zero olarak açık tutulur.
+        for name in ("pending_prompt", "pending_ask_due", "mark_pending_ask",
+                     "PENDING_ASK_INTERVAL", "pending_asked"):
+            self.assertNotIn(name, text, name)
+        from modules import learning
+        for name in ("pending_prompt", "pending_ask_due", "mark_pending_ask"):
+            self.assertFalse(hasattr(learning, name), name)
+        self.assertTrue(callable(learning.approve) and callable(learning.reject))
 
 
 class LiveToolAuthorityTests(unittest.TestCase):
@@ -344,11 +346,11 @@ QUEUE_DOOR_ALLOWLIST = {
 }
 
 # I: bellek seçicilerinin sahibi yalnız prompt toplama; karar kapıları learning'i hiç okumaz.
-PROMPT_SELECTORS = frozenset({"knowledge_prompt", "rules_prompt", "pending_prompt"})
+PROMPT_SELECTORS = frozenset({"knowledge_prompt", "rules_prompt"})
 PROMPT_SELECTOR_ALLOWLIST = {
     # profile.system_prompt(query): Text/Web/Audio/Phone'un tek soru-bağımlı ilgi seçimi.
-    # pending_prompt yalnız Live talimatına eklenirdi; Live emekli olduğu için üretim
-    # çağrısı kalmadı (borç: tests/test_live_retirement.py).
+    # Onay-bekleyenleri soran Live-era pending_prompt ailesi fiziksel olarak kaldırıldı
+    # (canlı oturum talimatının dışında hiç üretim çağrısı yoktu); listesi burada durmaz.
     "personalization.py": {"knowledge_prompt", "rules_prompt"},
 }
 GATE_MODULES = ("permission_gate", "capability_decision", "capability_manifest", "runtime_execution_gate",
