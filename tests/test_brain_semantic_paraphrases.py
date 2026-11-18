@@ -142,6 +142,27 @@ class ParaphraseScoringTests(unittest.TestCase):
             self.assertEqual(len(report["results"]), 1)
             ask.assert_called_once()
 
+    def test_source_shape_diagnostics_never_publish_quotes_or_values(self):
+        private = "never-expose-this-secret-value"
+        cases = (
+            ({"capability_id": "pc.level.set", "argument_sources": None},
+             {"capability": "pc.level.set", "source_type": "null"}),
+            ({"capability_id": "pc.level.set", "argument_sources": {}},
+             {"capability": "pc.level.set", "source_type": "empty_object"}),
+            ({"capability_id": "message.send",
+              "argument_sources": {"recipient": private}, "arguments": {"recipient": private}},
+             {"capability": "message.send", "source_type": "nonempty_object"}),
+        )
+        raw = json.dumps({"actions": [case for case, _ in cases]})
+        actual = holdout._model_source_shapes(raw)
+        self.assertEqual(actual, [expect for _, expect in cases])
+        self.assertNotIn(private, json.dumps(actual))
+        self.assertEqual(holdout._model_source_shapes("not json"), [])
+        self.assertEqual(holdout._model_source_shapes(json.dumps({"actions": "invalid"})), [])
+        self.assertEqual(holdout._model_source_shapes(json.dumps({
+            "actions": [{"capability_id": private, "argument_sources": private}]})),
+            [{"capability": "unknown", "source_type": "wrong_type"}])
+
     def test_first_invalid_live_response_stops_without_spending_more_calls(self):
         """A provider reply rejected by the Brain contract is FAIL, not unmeasured."""
         from modules import llm
