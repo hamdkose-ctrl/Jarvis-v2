@@ -6,10 +6,13 @@ Bir eklenti dosyası şunları tanımlar:
     def handle(cmd_lower: str, command: str) -> str | None:
         ...                             # komutu işlerse yanıt metni, işlemezse None
 Hatalı bir eklenti diğerlerini ve Jarvis'i bozmaz; hata günlüğe yazılır ve o eklenti atlanır.
+Ayarlar/listeleme eklenti kodunu ÇALIŞTIRMAZ: ad, açıklama ve `handle` varlığı kaynak kodundan okunur.
+Eklenti modülü yalnız gerçek komut dispatch'inde (`handle`) yürütülür.
 """
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
+import ast
 import importlib.util
 import logging
 from types import ModuleType
@@ -42,13 +45,37 @@ def _load(path) -> tuple[ModuleType | None, str]:
     return mod, err
 
 
+def _static_info(path) -> dict:
+    """Ayarlar'ın gösterdiği alanları kaynak kodundan okur; eklenti modülünü import etmez ve yürütmez."""
+    name, description, has_handle, error = path.stem, "", False, ""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        log.warning("Eklenti okunamadı (%s): %s", path.name, error)
+    else:
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "handle":
+                has_handle = True
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in ("NAME", "DESCRIPTION"):
+                        try:
+                            value = ast.literal_eval(node.value)
+                        except (ValueError, SyntaxError):
+                            continue          # sabit olmayan ad yalnız varsayılan dosya adını kullanır
+                        if isinstance(value, str) and target.id == "NAME" and value.strip():
+                            name = value
+                        elif isinstance(value, str) and target.id == "DESCRIPTION":
+                            description = value
+    if not error and not has_handle:
+        error = "handle(cmd_lower, command) işlevi yok"
+    return {"file": path.name, "name": name, "description": description,
+            "ok": has_handle and not error, "error": error}
+
+
 def listing() -> list[dict]:
-    out = []
-    for p in sorted(DIR.glob("*.py")):
-        mod, err = _load(p)
-        out.append({"file": p.name, "name": getattr(mod, "NAME", p.stem) if mod else p.stem,
-                    "description": getattr(mod, "DESCRIPTION", "") if mod else "", "ok": mod is not None, "error": err})
-    return out
+    return [_static_info(p) for p in sorted(DIR.glob("*.py"))]
 
 
 def handle(command: str, cmd_lower: str) -> str | None:

@@ -1,6 +1,7 @@
 """Kişiselleştirme: her kullanıcının ayrı profili (hedefler, notlar, tercihler, geri bildirim)."""
 from modules.diagnostics import record_failure as _record_failure
 import json
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,7 @@ except ImportError:
     ASSISTANT_NAME = "Jarvis"
 
 _ASCII = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+log = logging.getLogger("jarvis.profile")
 
 
 def slugify(name: str) -> str:
@@ -123,6 +125,7 @@ _SHARED = weakref.WeakValueDictionary()
 class _ProfileState:
     def __init__(self):
         self.data = {}
+        self.read_error = ""   # doluysa kaydın baytları hiç okunamadı: üzerine yazılmaz
 
 
 def _assistant_name() -> str:
@@ -193,8 +196,12 @@ class Profile:
                 backup = _quarantine_corrupt(self.path)   # baytlar korunur, varsayılanlarla devam
                 if backup:
                     self.data["profile_corrupt_backup"] = backup
-            except OSError:
-                pass   # okunamayan dosyada varsayılanlarla başla
+            except OSError as exc:
+                # Okunan bayt yok: karantinada korunacak bir şey de yok. Varsayılanlarla
+                # devam edilir, ama görünmeyen kaydın üzerine yazmak veri kaybı olurdu.
+                self._state.read_error = type(exc).__name__
+                self.data["profile_unreadable"] = type(exc).__name__
+                log.warning("Profil okunamadı (%s): %s", self.path.name, exc)
         self.data["name"] = self.data.get("name") or self.name
         _SHARED[key] = self._state
 
@@ -213,6 +220,9 @@ class Profile:
         return self.path.exists()
 
     def save(self):
+        if self._state.read_error:
+            raise OSError(f"Profil kaydı okunamadı ({self._state.read_error}); "
+                          "görünmeyen kaydın üzerine yazılmıyor.")
         with _LOCK:
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
