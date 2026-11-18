@@ -177,14 +177,18 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
     beklenen = row["beklenen"]
     kind = beklenen["kind"]
     expected_capability = beklenen.get("capability")
-    action = proposal.actions[0] if proposal is not None and proposal.actions else None
+    actions = tuple(proposal.actions) if proposal is not None and proposal.actions else ()
+    # A second effect must not hide behind one correctly classified first action.
+    action = actions[0] if len(actions) == 1 else None
     capability = None if action is None else action.capability_id
     arguments = {} if action is None else dict(action.arguments)
     spoken = _fold(row["metin"])
 
-    if capability is None:
+    if len(actions) > 1:
+        intent_ok = False
+    elif capability is None:
         intent_ok = kind in {"no_effect", "either"}
-    elif capability == expected_capability and kind in {"effect", "either"}:
+    elif proposal.operation in {"direct_action", "action_batch"} and capability == expected_capability and kind in {"effect", "either"}:
         intent_ok = True
     else:
         intent_ok = False
@@ -200,7 +204,7 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
         if isinstance(value, str) and value.strip() and _fold(value) not in spoken:
             violations.append(field)
 
-    false_effect = capability is not None and kind == "no_effect"
+    false_effect = bool(actions) and kind == "no_effect"
     return {
         "id": row["id"],
         "sinif": row["sinif"],
@@ -214,6 +218,7 @@ def _judge(row: dict, proposal: Any, deterministic_hint: str | None) -> dict:
         "argumanlar": {key: value for key, value in arguments.items()
                        if key in {"recipient", "body", "operation", "name", "phone", "property", "level", "app"}},
         "intent_ok": intent_ok,
+        "action_count": len(actions),
         "target_checked": target_checked,
         "target_ok": target_ok,
         "dayanak_ihlali": violations,
