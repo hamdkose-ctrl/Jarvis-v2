@@ -401,10 +401,27 @@ class MessageGroundingTests(_ZarfHarness):
                                      {"recipient": "ahmet'e", "query": "ahmet"}))
 
     def test_grounding_is_required_only_for_the_user_owned_fields(self):
-        # Başka bir yetenekte dayanak alanı yok: taşıyan öneri doğrulanmış değildir.
-        proposal = self._ask("yarın izmirde hava nasıl", _envelope(
-            "weather.read", {"location": "izmir"}, {"location": "izmirde"}))
-        self.assertIsNone(proposal)
+        # A non-user-owned capability does not authorize actions by quoting an
+        # optional, nonauthoritative argument_sources object. The Core still
+        # validates its typed arguments; auxiliary sources cannot add any.
+        for sources in (None, {}, {"location": "izmirde"}, {"approval": "invented"}):
+            with self.subTest(sources=sources):
+                proposal = self._ask("yarın izmirde hava nasıl", _envelope(
+                    "weather.read", {"location": "izmir"}, sources))
+                self.assertIsNotNone(proposal)
+                self.assertEqual(proposal.actions[0].capability_id, "weather.read")
+                self.assertEqual(proposal.actions[0].arguments["location"], "izmir")
+                self.assertNotIn("approval", proposal.actions[0].arguments)
+        # The wire schema permits only null or an object, not arbitrary values.
+        for invalid in ("izmirde", [], 20):
+            with self.subTest(invalid_shape=invalid):
+                self.assertIsNone(self._ask("yarın izmirde hava nasıl", _envelope(
+                    "weather.read", {"location": "izmir"}, invalid)))
+        # User-owned message slots stay fail-closed when their real quotations
+        # are missing; a weather-style untrusted hint is never a replacement.
+        self.assertIsNone(self._send(
+            {"recipient": "ahmet", "body": "yarın geleceğim"},
+            {"recipient": "ahmet'e", "approval": "invented"}))
 
     def test_an_invented_phone_number_is_rejected_and_a_spoken_one_is_not(self):
         spoken = "kişi ekle ahmet 0532 123 45 67"
