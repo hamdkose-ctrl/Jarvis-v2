@@ -4,7 +4,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 ## Çalışma kuralları
 
-- `docs/agents/persona.md`: B09/10 (1 bölüm)
+- `docs/agents/persona.md`: B09/10 + Karar 3 (1 bölüm)
 
 - **VOICE:** `docs/agents/ses-video.md`; tek ses sahibi.
 

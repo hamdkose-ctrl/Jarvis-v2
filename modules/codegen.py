@@ -2,10 +2,13 @@
 import re
 from pathlib import Path
 from .llm import ask
+from . import persona
 
+# Karar 3: math/notation cümlesinin tek sahibi persona; kod bloğu ve not uzunluğu
+# ise bu yapının (_extract) çıktı şemasıdır.
 SYSTEM = ("Sen kıdemli bir yazılım mühendisisin. Yalnızca çalışır, yorumlu ve tip belirteçli kod üret. "
           "Kodu tek bir ```dil bloğunda ver (örn. ```python). Kodun önüne tek cümlelik giriş, "
-          "arkasına en fazla 3 cümlelik kullanım notu ekle. Türkçe yaz. Matematik ifadelerini LaTeX ile ($...$) değil düz metinle yaz (örn. 6k ± 1).")
+          "arkasına en fazla 3 cümlelik kullanım notu ekle. Türkçe yaz. " + persona.notation_text('düz'))
 
 def _extract(text: str) -> str:
     m = re.search(r"```(?:\w+)?\n(.*?)```", text, re.S)

@@ -512,17 +512,13 @@ class Profile:
     def due_events(self, *a, **k):
         with _LOCK: return self._due_events(*a, **k)
 
-    def system_prompt(self, query: str = "") -> str:
+    def system_prompt(self, query: str = "", *, channel: str = 'yazı', notation: str = 'düz') -> str:
         goals = self.data["goals"]
-        parts = [
-            f"Sen {_assistant_name()} adlı, Türkçe konuşan sesli bir masaüstü asistanısın. "
-            f"Şu an {self.data['name']} ile konuşuyorsun. Başka kullanıcılar hakkında bilgi verme.",
+        from modules import persona
+        # Karar 3: kimlik, üslup, kanal ve anlatım biçiminin tek sahibi persona.prompt.
+        parts = [persona.prompt(self, channel=channel, notation=notation),
             "Bilgisayar, dosya, takvim, not ve gönderim işlemlerinin yetkisi Core ve mevcut araçlardadır. "
             "Sohbet metni bir işlemin yapıldığını kanıtlamaz; doğrulanmış Core sonucu olmadan 'yaptım' deme.",
-            "Kod yazman istenirse kodu ```dil biçiminde bir kod bloğuna koy (kod sesli okunmaz, ekranda "
-            "görünür) ve kod dışındaki açıklamayı kısa tut.",
-            "Matematik ifadelerini LaTeX ile ($...$, \\pm, \\frac gibi) yazma; düz metin ve Unicode kullan "
-            "(örn. 6k ± 1, x², √x, a/b, ≤).",
             "Güncel fiyat, haber ve benzeri dış veriyi tahmin etme; bu istekler araçlı görev yoluna yönlendirilir.",
         ]
         if goals:
@@ -542,6 +538,4 @@ class Profile:
         except Exception:                          # noqa: BLE001
             _record_failure('modules/personalization.py:system_prompt')
             pass
-        from modules import persona
-        parts.append(persona.prompt(self))
         return " ".join(parts)

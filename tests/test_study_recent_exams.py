@@ -36,7 +36,7 @@ class RecentExamStudyTests(unittest.TestCase):
 
     def test_prompt_distinguishes_exam_from_answer_key(self):
         from modules import study
-        s=study._system('teacher',True)
+        s=study._system('teacher',True,profile=FakeProfile())
         self.assertIn('cevap anahtarı gibi değil',s)
         self.assertIn('%70',s)
 
