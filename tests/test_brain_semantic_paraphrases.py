@@ -66,6 +66,27 @@ class ParaphraseScoringTests(unittest.TestCase):
         result = holdout._judge(row, combined, None)
         self.assertFalse(result["intent_ok"])
         self.assertEqual(result["action_count"], 2)
+        self.assertTrue(result["yanlis_etki"])
+        self.assertEqual(holdout._aggregate([result])["kritik_yanlis_etki"], 1)
+
+    def test_wrong_capability_target_or_operation_is_critical(self):
+        row = self.rows[0]
+        wrong_operation = proposal("pc.level.set", {"property": "volume", "level": 20})
+        wrong_operation.operation = "chat"
+        variants = (
+            proposal("app.open", {"app": "chrome"}),
+            proposal("pc.level.set", {"property": "volume", "level": 19}),
+            proposal("pc.level.set", {"property": "brightness", "level": 20}),
+            wrong_operation,
+        )
+        for candidate in variants:
+            with self.subTest(candidate=(candidate.operation,
+                                         candidate.actions[0].capability_id,
+                                         candidate.actions[0].arguments)):
+                result = holdout._judge(row, candidate, None)
+                self.assertFalse(result["intent_ok"] and result["target_ok"])
+                self.assertTrue(result["yanlis_etki"])
+                self.assertEqual(holdout._aggregate([result])["kritik_yanlis_etki"], 1)
 
     def test_one_bad_paraphrase_fails_its_whole_group(self):
         sample = [next(row for row in self.rows if row["equivalence_group"] == "volume20") for _ in range(20)]
@@ -76,6 +97,7 @@ class ParaphraseScoringTests(unittest.TestCase):
         report = holdout._aggregate([good] * 19 + [bad])
         self.assertEqual(report["hedef_dogrulugu"], .95)
         self.assertFalse(report["equivalence"]["passed"])
+        self.assertEqual(report["kritik_yanlis_etki"], 1)
         self.assertIn(sample[0]["id"], report["equivalence"]["groups"]["volume20"]["failed"])
 
     def test_original_semantic_corpus_still_works_without_groups(self):
