@@ -173,6 +173,69 @@ class ParaphraseScoringTests(unittest.TestCase):
             self.assertEqual(len(report["results"]), 1)
             ask.assert_called_once()
 
+    def test_single_case_diagnosis_never_passes_full_acceptance(self):
+        # A bounded targeted replay avoids spending ten previous provider calls,
+        # but can never establish the 24-case semantic acceptance.
+        from modules import llm
+        candidate = SimpleNamespace(provider="gemini", model="fixture", connection_id=None)
+        asked = []
+        def fake_ask(owner, text, index):
+            asked.append((text, index))
+            llm.dispatch()
+            return proposal("message.send",
+                            {"recipient": "Ayşe", "body": "toplantı saat üçte"}), None
+
+        with TemporaryDirectory() as folder:
+            output = Path(folder) / "targeted.json"
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
+                 patch("modules.smart_router.qualification_candidate", return_value=candidate), \
+                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \
+                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text='{"actions":[]}')), \
+                 patch.object(holdout, "_ask", side_effect=fake_ask), \
+                 patch.object(holdout, "_sleep") as sleep, redirect_stdout(StringIO()):
+                code = holdout.main(["--run", "--case-id", "eq-message_ayse-01",
+                                     "--corpus", str(CORPUS), "--json", str(output)])
+            self.assertEqual(code, 0)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["state"], "diagnostic")
+            self.assertFalse(report["summary"]["passed"])
+            self.assertTrue(report["summary"]["targeted_ok"])
+            self.assertEqual(report["summary"]["completed_cases"], 1)
+            self.assertEqual(report["summary"]["planned_cases"], 1)
+            self.assertEqual(report["summary"]["full_corpus_cases"], 24)
+            self.assertEqual(len(asked), 1)
+            self.assertEqual(asked[0][0], "WhatsApp'tan Ayşe'ye toplantı saat üçte yaz.")
+            sleep.assert_not_called()
+            with patch.object(holdout, "_preflight") as preflight, redirect_stdout(StringIO()):
+                self.assertEqual(holdout.main(["--run", "--case-id", "missing",
+                                               "--corpus", str(CORPUS)]), 2)
+            preflight.assert_not_called()
+
+    def test_single_case_wrong_target_is_still_failure(self):
+        from modules import llm
+        candidate = SimpleNamespace(provider="gemini", model="fixture", connection_id=None)
+        def wrong(owner, text, index):
+            llm.dispatch()
+            return proposal("message.send", {"recipient": "Mehmet",
+                                             "body": "toplantı saat üçte"}), None
+        with TemporaryDirectory() as folder:
+            output = Path(folder) / "wrong.json"
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
+                 patch("modules.smart_router.qualification_candidate", return_value=candidate), \
+                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \
+                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text='{"actions":[]}')), \
+                 patch.object(holdout, "_ask", side_effect=wrong), \
+                 redirect_stdout(StringIO()):
+                code = holdout.main(["--run", "--case-id", "eq-message_ayse-01",
+                                     "--corpus", str(CORPUS), "--json", str(output)])
+            summary = json.loads(output.read_text(encoding="utf-8"))["summary"]
+            self.assertEqual(code, 1)
+            self.assertFalse(summary["targeted_ok"])
+            self.assertEqual(summary["state"], "failed")
+            self.assertFalse(summary["passed"])
+
     def test_source_shape_diagnostics_never_publish_quotes_or_values(self):
         private = "never-expose-this-secret-value"
         cases = (
