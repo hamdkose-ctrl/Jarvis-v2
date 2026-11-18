@@ -38,10 +38,10 @@ class ParaphraseScoringTests(unittest.TestCase):
         self.assertTrue(all(len(rows) >= 3 for rows in groups.values()))
         self.assertGreaterEqual(sum(row["beklenen"]["kind"] == "no_effect" for row in self.rows), 8)
 
-    def test_non_owner_source_empty_json_is_not_false_rejected(self):
-        # The response_schema explicitly allows object or null. Empty object
-        # has no grounding assertion for a capability like pc.level.set, but
-        # nonempty object still must not smuggle user-owned fields or evidence.
+    def test_unowned_source_annotations_are_inert_and_user_fields_stay_grounded(self):
+        # For typed-only capabilities, auxiliary source annotations are
+        # nonauthoritative and discarded: the published wire schema permits
+        # null or any JSON object. The Core still validates typed arguments.
         from modules import brain_model_understanding as brain
         check = brain._arguments_are_grounded
         args = {"property": "volume", "level": 20}
@@ -49,8 +49,13 @@ class ParaphraseScoringTests(unittest.TestCase):
                               sources=None, text="Sesi yüzde 20 yap."))
         self.assertTrue(check(capability_id="pc.level.set", supplied=args,
                               sources={}, text="Sesi yüzde 20 yap."))
-        for source in ({"level": "20"}, {"property": "volume"}, [], "20", 20):
+        for source in ({"level": "yüzde 20"}, {"property": "sesi", "level": 20},
+                       {"approval": "fabricated"}, {"misc": {"ignored": True}}):
             with self.subTest(source=source):
+                self.assertTrue(check(capability_id="pc.level.set", supplied=args,
+                                      sources=source, text="Sesi yüzde 20 yap."))
+        for source in ([], "20", 20, True):
+            with self.subTest(invalid_shape=source):
                 self.assertFalse(check(capability_id="pc.level.set", supplied=args,
                                        sources=source, text="Sesi yüzde 20 yap."))
         # With user-owned fields, a source-less populated message remains
