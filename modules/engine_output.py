@@ -114,6 +114,7 @@ def _finalize(runtime, out: str) -> str:
 def _doc_ready_line(runtime, kind: str, text: str = "") -> str:
     """Uzun analiz/özet ekrana yazılır; sesli olarak bir giriş cümlesi + belgenin özünü anlatan kısa bir kısım söylenir."""
     head = {"ozet": "Özeti ekrana yazdım.", "ceviri": "Çeviri hazır, ekrana yazdım.",
+            "arastirma": "Araştırma raporunu ekrana yazdım.",
             "gorsel_analiz": "Görseli inceledim, sonucu ekrana yazdım."}.get(kind, "Analizi ekrana yazdım.")
     if kind == "ceviri" or not text:
         return head

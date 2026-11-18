@@ -311,6 +311,10 @@ def _validated_file_path(value: Any) -> str | None:
 _FILE_OPS = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_OPEN, FILE_LOCATE, FILE_LIST, FILE_COMPARE, FILE_TRANSLATE, FILE_CONVERT})
 _FILE_FORMATS = frozenset({"xlsx", "docx", "pdf"})
 
+# BRAIN-03: the container words a user actually speaks, mapped to the single
+# save-format identity Core accepts. An unlisted name is not an export Core can honor.
+_EXPORT_FORMAT_NAMES = {"excel": "xlsx", "word": "docx", "pdf": "pdf"}
+
 
 def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core validates exact operation + resolved path(s); no raw-text target selection is allowed here."""
@@ -1265,6 +1269,21 @@ def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {}
 
 
+def _document_export_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # The model may only name the container the user spoke; the document, its path
+    # and its digest are bound by Core from the owner's own session artifact.
+    if set(arguments) - {"original_text", "format"}:
+        return None
+    if "original_text" in arguments and not isinstance(arguments["original_text"], str):
+        return None
+    name = arguments.get("format")
+    if name is None:
+        return {"format": None}
+    if type(name) is not str or name not in _EXPORT_FORMAT_NAMES:
+        return None
+    return {"format": _EXPORT_FORMAT_NAMES[name]}
+
+
 _USER_OPERATIONS = frozenset({"rename", "delete", "create", "list", "identify", "switch",
                               "goals_list", "goals_clear", "goal_add", "fact_add"})
 
@@ -1482,7 +1501,7 @@ def _development_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "development.manage": ("development_manage", _development_args),
-    "documents.export": ("document_export", _empty_action_args),
+    "documents.export": ("document_export", _document_export_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
     # BRAIN-03: typed adapters preserve the existing OCR/clipboard/note,
     # Vision share, voice-rate and personal briefing executors.

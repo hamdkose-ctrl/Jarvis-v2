@@ -123,5 +123,31 @@ class SpokenLengthBound(unittest.TestCase):
         self.assertEqual(self.short("x" * 900), "x" * 400)
 
 
+class SpokenResultHead(unittest.TestCase):
+    """Uzun sohbet çıktısının sesli girişi türünü doğru söyler; araştırma "analiz" değildir."""
+
+    @staticmethod
+    def runtime():
+        import re
+        from types import SimpleNamespace
+        return SimpleNamespace(re=re)
+
+    def test_a_research_report_is_announced_as_research(self):
+        from modules import engine_output
+        line = engine_output._doc_ready_line(
+            self.runtime(), "arastirma",
+            "Bulgu: üç yayıncı tarihli tekil makaleyi doğruladı ve eksik kapsamı raporladı.")
+        self.assertTrue(line.startswith("Araştırma raporunu ekrana yazdım."), line)
+
+    def test_the_existing_result_kinds_keep_their_heads(self):
+        from modules import engine_output
+        runtime = self.runtime()
+        self.assertTrue(engine_output._doc_ready_line(runtime, "ozet", "").startswith("Özeti ekrana yazdım."))
+        self.assertTrue(engine_output._doc_ready_line(runtime, "ceviri", "").startswith("Çeviri hazır"))
+        self.assertTrue(engine_output._doc_ready_line(
+            runtime, "gorsel_analiz", "").startswith("Görseli inceledim"))
+        self.assertEqual(engine_output._doc_ready_line(runtime, "tablo", ""), "Analizi ekrana yazdım.")
+
+
 if __name__ == "__main__":
     unittest.main()
