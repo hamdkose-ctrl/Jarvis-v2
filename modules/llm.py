@@ -32,12 +32,6 @@ def _gemini_http_options() -> dict:
 _client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options()) if API_KEY else None
 
 
-def set_api_key(key: str) -> None:
-    """Çalışırken yeni Gemini anahtarına geçer (yeniden başlatma gerekmez)."""
-    global _client
-    _client = genai.Client(api_key=key.strip(), http_options=_gemini_http_options())
-
-
 # ---------------------------------------------------------------- kişiye özel anahtar (isteğe bağlı)
 # Her kullanıcı kendi Gemini anahtarını kullanır; kullanıcılar arasında ortak/fallback anahtar YOKTUR.
 # main.py o an konuşan kullanıcıyı istek bağlamına yazar. Global istemci yalnız kullanıcı bağlamı olmayan
@@ -497,15 +491,6 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
                        tokens=usage_meter.tokens_from(data))
     _route.model = model
     return text
-
-
-OLLAMA_BIG_MODEL = "qwen2.5:7b"
-
-
-
-
-
-
 
 
 class CloudError(RuntimeError):

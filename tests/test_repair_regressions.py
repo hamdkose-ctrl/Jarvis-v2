@@ -25,12 +25,19 @@ class RepairTests(unittest.TestCase):
             self.assertFalse(developer.status('alice')['enabled'])
 
     def test_file_refresh_really_bypasses_cache(self):
+        # Önbellek boşaltmanın üretim yolu yoktur: arayüz "yenile"yi list_files(force=True)
+        # ile yapar. Test soğuk önbelleği kendi içinde kurar, bitirince önceki kopyayı geri koyar.
         with tempfile.TemporaryDirectory() as td,patch.object(nxapi,'FILES_DIR',Path(td)),patch.object(nxapi,'_scan_files',return_value=[]) as scan:
-            nxapi.reset_file_cache()
+            saved=dict(nxapi._FILE_CACHE)
+            with nxapi._FILE_CACHE_LOCK:
+                nxapi._FILE_CACHE.update(rows=None, ts=0.0)
             try:
-                nxapi.list_files();nxapi.list_files();self.assertEqual(scan.call_count,1)
+                nxapi.list_files();self.assertEqual(scan.call_count,1)
+                nxapi.list_files();self.assertEqual(scan.call_count,1)
                 nxapi.list_files(force=True);self.assertEqual(scan.call_count,2)
-            finally:nxapi.reset_file_cache()
+            finally:
+                with nxapi._FILE_CACHE_LOCK:
+                    nxapi._FILE_CACHE.update(saved)
 
     def test_excel_has_editable_answer_and_no_fabricated_key(self):
         from openpyxl import load_workbook

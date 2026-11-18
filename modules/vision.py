@@ -157,12 +157,6 @@ def _b64(img, size) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def preview_b64(size=(240, 135)) -> str | None:
-    """Arayüz önizlemesi için küçük PNG (base64); tkinter PhotoImage(data=...) ile gösterilir."""
-    img = current_image()
-    return None if img is None else _b64(img, size)
-
-
 def preview_multi(*sizes) -> list[str | None]:
     """Aynı kareyi birden çok boyutta üretir (tek yakalama)."""
     img = current_image()

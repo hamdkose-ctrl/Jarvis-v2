@@ -68,7 +68,6 @@ USERS_DIR.mkdir(exist_ok=True)
 ACTIVE_FILE = DATA_DIR / "active_user.txt"      # son konuşan kullanıcı
 DEFAULT_USER = "Hamdi"                          # ilk açılışta kullanılacak kullanıcı
 KEY_FILE = DATA_DIR / "gemini_key.txt"
-GROQ_KEY_FILE = DATA_DIR / "groq_key.txt"
 WAKE_WORD = _S.get("wake_word") or "Jarvis"          # Ayarlar sayfasından değiştirilebilir
 ASSISTANT_NAME = (_S.get("assistant_name") or "Jarvis").strip() or "Jarvis"   # asistanın adı (ekranda ve konuşurken)
 WAKE_ALIASES = _tuple(_S.get("wake_aliases"), (("jarvis", "hey jarvis", "yarvis") if WAKE_WORD.casefold() == "jarvis" else ("şiri", "seri") if WAKE_WORD.casefold() == "siri" else (WAKE_WORD.casefold(),)))
@@ -165,17 +164,3 @@ def legacy_key_protected() -> bool:
         return False
 
 API_KEY = get_api_key()
-
-
-
-def save_groq_key(key: str) -> None:
-    """Groq API anahtarını korumalı yazar."""
-    GROQ_KEY_FILE.write_text(_privacy().protect(key.strip()), encoding="utf-8")
-
-
-def get_groq_key() -> str:
-    """Sıra: GROQ_API_KEY ortam değişkeni -> kayıtlı dosya. Yoksa boş."""
-    key = os.getenv("GROQ_API_KEY")
-    if not key and GROQ_KEY_FILE.exists():
-        key = _privacy().unprotect(GROQ_KEY_FILE.read_text(encoding="utf-8"))
-    return (key or "").strip()
