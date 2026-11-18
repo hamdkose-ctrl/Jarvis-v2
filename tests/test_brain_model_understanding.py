@@ -421,6 +421,29 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             direct("files.read", {"operation": "analyze", "path": "C:/secret.txt"}, ["file_0"]),
             text="şu raporu incele", active=active))
 
+    def test_full_model_envelope_accepts_empty_unowned_sources_only(self):
+        # This follows the real response decoder -> _build -> Core mapping.
+        # pc.level.set has no user-owned free-text slots: empty JSON sources
+        # means the same thing as null, not an effect permission. A fabricated
+        # provenance field must still reject the entire proposal.
+        envelope = json.loads(direct("pc.level.set",
+                                     {"property": "volume", "level": 20}))
+        observed = current(capability_hint="pc.level.set", arguments={})
+        for sources in (None, {}):
+            with self.subTest(source=sources):
+                envelope["actions"][0]["argument_sources"] = sources
+                adopted = self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
+                                   active=observed, args={})
+                self.assertIsNotNone(adopted)
+                self.assertEqual(adopted.actions[0].capability_id, "pc.level.set")
+                self.assertEqual(adopted.actions[0].arguments["level"], 20)
+        envelope["actions"][0]["argument_sources"] = {"level": "20"}
+        rejected = self.ask(json.dumps(envelope), text="Sesi yüzde 20 yap.",
+                            active=observed, args={})
+        self.assertIsNone(rejected)
+        self.assertEqual(model.proposal_diagnostic().get("reason_code"),
+                         "ARGUMENT_SOURCE_INVALID")
+
     def test_model_can_move_an_established_capability_to_another_domain(self):
         """BRAIN-01: `current.capability_hint` öneri ön koşulu değildir; Core argümanı doğrular."""
         active = current(capability_hint="notes.read", arguments={"original_text": "notları göster"})
