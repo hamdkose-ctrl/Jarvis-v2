@@ -415,8 +415,11 @@ class MessageGroundingTests(_ZarfHarness):
         # The wire schema permits only null or an object, not arbitrary values.
         for invalid in ("izmirde", [], 20):
             with self.subTest(invalid_shape=invalid):
-                self.assertIsNone(self._ask("yarın izmirde hava nasıl", _envelope(
-                    "weather.read", {"location": "izmir"}, invalid)))
+                import json
+                bad = json.loads(_envelope("weather.read", {"location": "izmir"}, {}))
+                bad["actions"][0]["argument_sources"] = invalid
+                self.assertIsNone(self._ask("yarın izmirde hava nasıl",
+                                            json.dumps(bad, ensure_ascii=False)))
         # User-owned message slots stay fail-closed when their real quotations
         # are missing; a weather-style untrusted hint is never a replacement.
         self.assertIsNone(self._send(
