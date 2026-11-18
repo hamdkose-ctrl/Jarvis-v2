@@ -455,6 +455,29 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertEqual(model.proposal_diagnostic().get("reason_code"),
                          "CORE_ARGUMENTS_INVALID")
 
+    def test_full_message_proposal_preserves_ayse_with_grounded_proper_name(self):
+        # One real model-response decoder -> Brain provenance check -> Core
+        # format validation, without sending anything outside this process.
+        text = "WhatsApp'tan Ayşe'ye toplantı saat üçte yaz."
+        raw = json.loads(direct("message.send", {
+            "recipient": "Ayşe", "body": "toplantı saat üçte",
+        }))
+        raw["actions"][0]["argument_sources"] = {
+            "recipient": "Ayşe'ye", "body": "toplantı saat üçte",
+        }
+        active = current(capability_hint="message.send", arguments={})
+        accepted = self.ask(json.dumps(raw, ensure_ascii=False), text=text,
+                            active=active, args={})
+        self.assertIsNotNone(accepted)
+        self.assertEqual(accepted.actions[0].capability_id, "message.send")
+        self.assertEqual(accepted.actions[0].arguments["recipient"], "Ayşe")
+        self.assertEqual(accepted.actions[0].arguments["body"], "toplantı saat üçte")
+        raw["actions"][0]["argument_sources"]["recipient"] = "Mehmet'e"
+        self.assertIsNone(self.ask(json.dumps(raw, ensure_ascii=False), text=text,
+                                   active=active, args={}))
+        self.assertEqual(model.proposal_diagnostic().get("reason_code"),
+                         "ARGUMENT_SOURCE_INVALID")
+
     def test_model_can_move_an_established_capability_to_another_domain(self):
         """BRAIN-01: `current.capability_hint` öneri ön koşulu değildir; Core argümanı doğrular."""
         active = current(capability_hint="notes.read", arguments={"original_text": "notları göster"})
