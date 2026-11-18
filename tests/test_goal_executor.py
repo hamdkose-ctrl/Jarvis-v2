@@ -16,7 +16,9 @@ class GoalTests(unittest.TestCase):
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)
         self.profile=SimpleNamespace(slug='alice',data={'items':[]})
         token=llm._key_context.set('alice');self.addCleanup(llm._key_context.reset,token)
-        self.runtime=SimpleNamespace(profile=self.profile,_cur_source='yazı',pc_profile=lambda:self.profile,emit=Mock())
+        self.session=SimpleNamespace(last_doc=None)
+        self.runtime=SimpleNamespace(profile=self.profile,_cur_source='yazı',pc_profile=lambda:self.profile,emit=Mock(),
+                                     _session=lambda:self.session)
         transport=patch('modules.public_sources.fetch',side_effect=OSError('Taklit kaynak ağı kapalı'));transport.start();self.addCleanup(transport.stop)
         model=patch.object(llm,'ask');self.ask=model.start();self.addCleanup(model.stop)
 
@@ -129,7 +131,53 @@ class GoalTests(unittest.TestCase):
         self.assertIn('https://example.com',Path(job['outputs']['s3']['file']).read_text())
         self.assertIn('Erişilemeyen kaynaklar',Path(job['outputs']['s3']['file']).read_text())
         bridge.note_add.assert_called_once_with(text='Tamamlandı',title='')
+        self.assertIsNone(self.session.last_doc)
         self.assertIsNone(goals.latest('bob'))
+
+    def test_a_chat_research_report_becomes_the_session_output_for_export(self):
+        report=task_results.seal('research',{'state':'done','text':'Kaynağa dayalı araştırma raporu.',
+            'source':'https://example.com','source_chars':500})
+        original=task_agents.worker
+        def work(owner,task,deps):
+            return report if task['agent']=='research' else original(owner,task,deps)
+        self.responses(self.plan('Şirketlerin yapay zekâ kullanımını araştır'),
+            self.tool('research',{'url':'https://example.com','question':'yapay zekâ kullanımı'}),
+            self.done('s1'),self.finish())
+        with patch.object(task_agents,'worker',side_effect=work):
+            result=goals.run(self.runtime,'Şirketlerin yapay zekâ kullanımını araştır')
+        self.assertEqual(goals.latest('alice')['state'],'done',result)
+        self.assertIn('Kaynağa dayalı araştırma raporu',result)
+        self.assertEqual(self.session.last_doc,(result,"","arastirma"))
+        from modules.brain_context import document_fingerprint
+        self.assertEqual(len(document_fingerprint(self.session.last_doc)),64)
+
+    def test_a_research_goal_that_delivered_its_file_keeps_that_path_instead(self):
+        report=task_results.seal('research',{'state':'done','text':'Kaynağa dayalı araştırma raporu.',
+            'source':'https://example.com','source_chars':500})
+        original=task_agents.worker
+        def work(owner,task,deps):
+            return report if task['agent']=='research' else original(owner,task,deps)
+        self.responses(self.plan('Araştır ve raporu dosyaya yaz'),
+            self.tool('research',{'url':'https://example.com','question':'yapay zekâ'}),
+            self.tool('writer',{'instruction':'Kaynağa göre rapor yaz','filename':'rapor.md'},depends=['s1']),
+            'Kaynağa dayalı araştırma raporu metni',
+            self.done('s1','s2'),self.finish())
+        with patch.object(task_agents,'worker',side_effect=work):
+            result=self.run_with_writer_consent('Araştır ve raporu dosyaya yaz')
+        job=goals.latest('alice')
+        self.assertEqual(job['state'],'done',result)
+        self.assertTrue(job['outputs']['s2'].get('file'))
+        self.assertIsNone(self.session.last_doc)
+
+    def test_a_non_research_goal_does_not_claim_a_saved_report(self):
+        bridge=SimpleNamespace(note_add=Mock(return_value={'id':1,'text':'Tamamlandı'}))
+        self.responses(self.plan('Not ekle'),
+            self.tool('action',{'action':'note_add','params':{'text':'Tamamlandı'}}),
+            self.done('s1'),self.finish())
+        with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
+            result=goals.run(self.runtime,'Not ekle')
+        self.assertEqual(goals.latest('alice')['state'],'done',result)
+        self.assertIsNone(self.session.last_doc)
 
     def test_all_goals_and_actual_successful_evidence_are_required(self):
         self.responses(self.plan('İş bir','İş iki'),self.finish(),self.done('invented'),RuntimeError('models unavailable'))

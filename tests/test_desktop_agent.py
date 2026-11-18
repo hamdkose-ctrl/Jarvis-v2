@@ -1,6 +1,7 @@
 """Desktop action evidence, interruption and approval ownership; native OS is simulated."""
 import copy
 import json
+from itertools import chain, repeat
 from pathlib import Path
 import tempfile
 import time
@@ -637,7 +638,7 @@ class DesktopValidationTests(unittest.TestCase):
     def test_native_bridge_keeps_model_text_in_json_stdin(self):
         payload = {'op': 'fill', 'value': '$(not-a-command); "ö"\nikinci satır', 'hwnd': 10}
         worker = self.fake_worker([b'{"ok":true,"sent":true}\n'])
-        with patch.object(uia.os, 'name', 'nt'), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker):
+        with patch.object(uia, 'os', types.SimpleNamespace(name='nt')), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker):
             self.assertTrue(uia._call(payload)['ok'])
         sent = worker.process.stdin.write.call_args.args[0]
         self.assertEqual(sent.count(b'\n'), 1)   # tek satır: model metnindeki satır sonu kaçırılır
@@ -646,7 +647,7 @@ class DesktopValidationTests(unittest.TestCase):
 
     def test_native_worker_is_reused_between_calls(self):
         worker = self.fake_worker([b'{"ok":true}\n', b'{"ok":true}\n'])
-        with patch.object(uia.os, 'name', 'nt'), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker) as make:
+        with patch.object(uia, 'os', types.SimpleNamespace(name='nt')), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker) as make:
             uia._call({'op': 'observe', 'hwnd': 10}); uia._call({'op': 'observe', 'hwnd': 10})
         make.assert_called_once()
         worker.kill.assert_not_called()
@@ -654,20 +655,24 @@ class DesktopValidationTests(unittest.TestCase):
     def test_native_worker_is_restarted_after_it_died(self):
         dead = self.fake_worker([]); dead.alive.return_value = False
         fresh = self.fake_worker([b'{"ok":true}\n'])
-        with patch.object(uia.os, 'name', 'nt'), patch.object(uia, '_worker', dead), patch.object(uia, '_Worker', return_value=fresh) as make:
+        with patch.object(uia, 'os', types.SimpleNamespace(name='nt')), patch.object(uia, '_worker', dead), patch.object(uia, '_Worker', return_value=fresh) as make:
             uia._call({'op': 'observe', 'hwnd': 10})
         make.assert_called_once()
 
     def test_native_worker_is_terminated_when_cancelled(self):
         worker = self.fake_worker([])
-        with patch.object(uia.os, 'name', 'nt'), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker),              patch.object(requests_state, 'check', side_effect=[None, requests_state.Cancelled('dur')]):
+        with patch.object(uia, 'os', types.SimpleNamespace(name='nt')), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker),              patch.object(requests_state, 'check', side_effect=[None, requests_state.Cancelled('dur')]):
             with self.assertRaises(requests_state.Cancelled): uia._call({'op': 'observe', 'hwnd': 10})
         worker.kill.assert_called_once()
 
     def test_native_worker_with_unknown_result_is_not_reused_after_timeout(self):
         worker = self.fake_worker([])
-        clock = iter([0, 0, 25, 25, 25])
-        with patch.object(uia.os, 'name', 'nt'), patch.object(uia, '_worker', None), patch.object(uia, '_Worker', return_value=worker),              patch.object(uia.time, 'monotonic', side_effect=lambda: next(clock)):
+        # A loaded runner may read the clock again: the fake is module-private and never exhausts.
+        clock = chain((0, 0), repeat(25))
+        with patch.object(uia, 'os', types.SimpleNamespace(name='nt')), \
+                patch.object(uia, '_worker', None), \
+                patch.object(uia, '_Worker', return_value=worker), \
+                patch.object(uia, 'time', types.SimpleNamespace(monotonic=lambda: next(clock))):
             with self.assertRaisesRegex(ValueError, 'süre sınırını'): uia._call({'op': 'observe', 'hwnd': 10})
         worker.kill.assert_called_once()
         self.assertIsNone(uia._worker)

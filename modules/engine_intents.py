@@ -112,7 +112,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return "Kaydedilecek çıktı değişti; önce güncel çıktıyı seçelim."
             # Capture the validated tuple; the dialog cannot switch to a different result.
             text, source, label = document
-            saved = runtime.output.save_text_result(text, source, label)
+            saved = runtime.output.save_text_result(text, source, label, preferred=a.get("format"))
             if not saved:
                 return "Kaydetme iptal edildi."
             if not Path(saved).is_file() or Path(saved).stat().st_size == 0:
