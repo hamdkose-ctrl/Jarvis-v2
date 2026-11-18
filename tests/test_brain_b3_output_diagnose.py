@@ -38,29 +38,32 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
         ):
             p = patch(target, value); p.start(); self.addCleanup(p.stop)
 
-    def prepared(self):
+    def prepared(self, text='Az önce hazırladığını bilgisayarımda tutmak istiyorum.'):
         from modules import requests_state
         rid = 'export-test-' + uuid.uuid4().hex
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
             return brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
-                text='Az önce hazırladığını bilgisayarımda tutmak istiyorum.', source='yazı', model_understanding=True)
+                text=text, source='yazı', model_understanding=True)
 
-    def proposal(self, capability, arguments=None):
-        self.model.return_value = _model_envelope('direct_action', arguments, capability=capability)
+    def proposal(self, capability, arguments=None, sources=None):
+        envelope = json.loads(_model_envelope('direct_action', arguments, capability=capability))
+        if sources is not None:
+            envelope['actions'][0]['argument_sources'] = sources
+        self.model.return_value = json.dumps(envelope)
 
     def test_model_can_export_without_a_deterministic_hint(self):
         self.proposal('documents.export')
         entry, out, *_ = self.turn_real('Az önce hazırladığını bilgisayarımda tutmak istiyorum.', model_understanding=True)
         self.assertEqual(entry.understanding.capability_hint, 'documents.export')
-        self.save.assert_called_once_with(*self.doc)
+        self.save.assert_called_once_with(*self.doc, preferred=None)
         self.assertIn(str(self.saved), out)
         self.model.assert_called_once()
 
     def test_a_short_contextual_request_does_not_need_a_keyword_hint(self):
         self.proposal('documents.export')
         _, out, *_ = self.turn_real('bunu kaydet', model_understanding=True)
-        self.save.assert_called_once_with(*self.doc)
+        self.save.assert_called_once_with(*self.doc, preferred=None)
         self.assertIn(str(self.saved), out)
 
     def test_model_chat_overrides_the_save_guess_in_the_real_handoff(self):
@@ -93,7 +96,7 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
             return dataclasses.replace(real(**kwargs), confidence=Confidence.LOW)
         with patch.object(brain_entry, 'understand', side_effect=low_guess):
             self.turn_real('Hazırladığın sonucu sakla.', model_understanding=True)
-        self.save.assert_called_once_with(*self.doc)
+        self.save.assert_called_once_with(*self.doc, preferred=None)
 
     def test_model_sees_only_output_metadata_not_document_content(self):
         self.proposal('documents.export')
@@ -211,3 +214,52 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
         for capability in ('documents.export', 'system.diagnose'):
             self.assertIsNotNone(brain_core_map.core_plan(capability, {}))
             self.assertIsNone(brain_core_map.core_plan(capability, {'unexpected':1}))
+
+    def test_the_spoken_container_reaches_the_real_save_owner(self):
+        from modules import output
+        self.ctx.output.save_text_result = output.save_text_result
+        self.saved.unlink()
+        self.saved = Path(self.temp.name) / 'rapor.pdf'
+        self.proposal('documents.export', {'format': 'pdf'}, {'format': 'PDF'})
+        with patch.object(output, '_save_path', side_effect=lambda *a, **k: str(self.saved)) as dialog:
+            _, out, *_ = self.turn_real('Çıktıyı PDF olarak kaydet.', model_understanding=True)
+        self.assertEqual(dialog.call_args.kwargs['preferred'], 'pdf')
+        self.assertTrue(self.saved.is_file() and self.saved.stat().st_size)
+        self.assertIn(str(self.saved), out)
+
+    def test_a_spoken_container_reaches_the_save_dialog_as_the_core_format(self):
+        for spoken, fmt in (('PDF', 'pdf'), ('Word', 'docx'), ('Excel', 'xlsx')):
+            with self.subTest(spoken=spoken):
+                self.proposal('documents.export', {'format': spoken.casefold()},
+                              {'format': spoken})
+                self.save.reset_mock()
+                _, out, *_ = self.turn_real(f'Çıktıyı {spoken} olarak kaydet.', model_understanding=True)
+                self.save.assert_called_once_with(*self.doc, preferred=fmt)
+                self.assertIn(str(self.saved), out)
+
+    def test_a_container_the_user_did_not_speak_drops_the_whole_proposal(self):
+        self.proposal('documents.export', {'format': 'pdf'}, {'format': 'Word'})
+        _, out, *_ = self.turn_real('Çıktıyı Word olarak kaydet.', model_understanding=True)
+        self.save.assert_not_called()
+        self.assertNotIn('kaydettim', out.casefold())
+
+    def test_a_container_outside_the_closed_vocabulary_is_not_an_export(self):
+        for arguments in ({'format': 'zip'}, {'format': '.pdf'}, {'format': 1},
+                          {'format': {'name': 'pdf'}}):
+            with self.subTest(arguments=arguments):
+                self.assertIsNone(brain_core_map.core_plan('documents.export', arguments))
+
+    def test_the_export_format_lands_on_the_one_save_format_table(self):
+        # The spoken-name table may grow, but never into a container the writers cannot produce.
+        self.assertEqual(set(brain_core_map._EXPORT_FORMAT_NAMES.values()),
+                         set(brain_core_map._FILE_FORMATS))
+
+    def test_core_binds_owner_and_digest_alongside_the_spoken_container(self):
+        self.proposal('documents.export', {'format': 'pdf'}, {'format': 'PDF'})
+        entry = self.prepared('Çıktıyı PDF olarak kaydet.')
+        plan = brain_entry.core_plan(entry)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan[0], 'document_export')
+        self.assertEqual(plan[1]['format'], 'pdf')
+        self.assertEqual(plan[1]['document_owner'], self.owner)
+        self.assertEqual(len(plan[1]['document_digest']), 64)

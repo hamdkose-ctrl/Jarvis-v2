@@ -1014,6 +1014,27 @@ def _quota_wait():
         return 0
 
 
+def _research_report_delivered(job):
+    """Sohbetten teslim edilmiş bir araştırma raporu var mı: tamamlanmış hedefin kanıtında gerçek research adımı, dosya teslimi yok."""
+    steps = {step['id']: step for step in job.get('steps') or [] if isinstance(step, dict) and step.get('id')}
+    outputs = job.get('outputs') or {}
+    evidence = [ident for goal in job.get('goals') or [] if isinstance(goal, dict) and goal.get('state') == 'done'
+                for ident in goal.get('evidence') or []]
+    if not evidence or not any(steps.get(ident, {}).get('tool') == 'research' for ident in evidence):
+        return False
+    return not any((outputs.get(ident) or {}).get('file') or (outputs.get(ident) or {}).get('files')
+                   for ident in evidence)
+
+
+def _publish_report_output(runtime, owner, job, result):
+    # Paket 3: sohbetten teslim edilen araştırma raporu artık oturum çıktısıdır; "çıktıyı PDF olarak
+    # kaydet" ancak böyle bir şeyi bulabilir. Dosyaya yazılmış teslimat kendi yolunu taşır, kopyalanmaz.
+    if (runtime.profile.slug != owner or not isinstance(result, str) or not result.strip()
+            or not isinstance(job, dict) or not _research_report_delivered(job)):
+        return
+    runtime._session().last_doc = (result, "", "arastirma")
+
+
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None,initial_legacy_call=None):
     owner=runtime.profile.slug
     from modules import research_evidence
@@ -1029,6 +1050,7 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
         raise
     job=latest(owner)
     if not job or completion_policy.job_decision(job)!=completion_policy.COMPLETE:llm.discard_success_routes()
+    _publish_report_output(runtime,owner,job,result)
     return result
 
 

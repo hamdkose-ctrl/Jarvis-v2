@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 from modules import browser_agent as browser, task_agents as agents, docs, study, nxapi
-from modules import personalization, smart_router as router, llm
+from modules import personalization, smart_router as router, llm, goal_executor, resource_leases
 
 
 class DurableWorkTests(unittest.TestCase):
@@ -93,9 +93,26 @@ class DurableWorkTests(unittest.TestCase):
             self.assertEqual(post.call_count,2)
 
     def test_image_connection_or_quota_error_still_cools_provider(self):
+        # Exercise a *real attempted* adapter failure, not a preflight rejection
+        # from another test's quota database or scheduler/provider lease. A
+        # preflight rejection never calls the provider and must not cool it.
         for error in (llm.LocalModelError('connection failed'),llm.CloudError('quota')):
-            with self.subTest(error=type(error).__name__),patch.object(llm, '_ollama_effective_model', return_value='local-test'), patch.object(router,'_HEALTH',{}), \
-                 patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'gemini_scopes':[],'free_tier_evidence':{},'application_limits':router._APPLICATION_DEFAULTS,'account_scopes':{}}), \
-                 patch.object(router.privacy,'mode',return_value='normal'):
-                with self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=error):callback(spec.provider)).text
-                self.assertNotIn('ollama',router.candidates('alice','chat'))
+            adapter = Mock(side_effect=error)
+            with self.subTest(error=type(error).__name__), \
+                 patch.object(llm, '_ollama_effective_model', return_value='local-test'), \
+                 patch.object(router, '_HEALTH', {}), \
+                 patch.object(router, '_STORE', self.root / 'router'), \
+                 patch.object(goal_executor, '_RESOURCE_LEASES', resource_leases.LeaseTable()), \
+                 patch.object(router, 'settings', return_value={
+                     'cloud_free_confirmed': False, 'gemini_scopes': [],
+                     'free_tier_evidence': {}, 'application_limits': router._APPLICATION_DEFAULTS,
+                     'account_scopes': {}}), \
+                 patch.object(router.privacy, 'mode', return_value='normal'):
+                request = router.ModelRequest(owner='alice', profile='conversation',
+                                              max_network_attempts=1)
+                with self.assertRaises(RuntimeError):
+                    router.run_request(request, adapter)
+                adapter.assert_called_once()
+                self.assertEqual(adapter.call_args.args[0].provider, 'ollama')
+                self.assertGreater(router._health_wait('alice', 'ollama', 'local-test'), 0)
+                self.assertNotIn('ollama', router.candidates('alice', 'chat'))
