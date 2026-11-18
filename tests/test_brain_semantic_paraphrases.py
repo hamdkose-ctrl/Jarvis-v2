@@ -124,12 +124,12 @@ class ParaphraseScoringTests(unittest.TestCase):
         fake_candidate = SimpleNamespace(provider="groq", model="test-model", connection_id=None)
         with TemporaryDirectory() as folder:
             output = Path(folder) / "report.json"
-            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \\
-                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \\
-                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \\
-                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \\
-                 patch.object(holdout, "_ask", side_effect=fake_ask) as ask, \\
-                 patch.object(holdout.time, "sleep"), \\
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
+                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \
+                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \
+                 patch.object(holdout, "_ask", side_effect=fake_ask) as ask, \
+                 patch.object(holdout.time, "sleep"), \
                  redirect_stdout(StringIO()):
                 code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
             self.assertEqual(code, 2)
@@ -158,12 +158,12 @@ class ParaphraseScoringTests(unittest.TestCase):
 
         with TemporaryDirectory() as folder:
             output = Path(folder) / "report.json"
-            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \\
-                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \\
-                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \\
-                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text="fixture")), \\
-                 patch.object(holdout, "_ask", side_effect=fake_ask), \\
-                 patch.object(holdout.time, "sleep"), \\
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
+                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \
+                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text="fixture")), \
+                 patch.object(holdout, "_ask", side_effect=fake_ask), \
+                 patch.object(holdout.time, "sleep"), \
                  redirect_stdout(StringIO()):
                 code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
             self.assertEqual(code, 0)
