@@ -129,7 +129,7 @@ class ParaphraseScoringTests(unittest.TestCase):
                  patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \
                  patch("modules.smart_router.qualification_session", return_value=nullcontext()), \
                  patch.object(holdout, "_ask", side_effect=fake_ask) as ask, \
-                 patch.object(holdout.time, "sleep"), \
+                 patch.object(holdout, "_sleep"), \
                  redirect_stdout(StringIO()):
                 code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
             self.assertEqual(code, 2)
@@ -163,7 +163,7 @@ class ParaphraseScoringTests(unittest.TestCase):
                  patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \
                  patch.object(llm, "dispatch", return_value=SimpleNamespace(text="fixture")), \
                  patch.object(holdout, "_ask", side_effect=fake_ask), \
-                 patch.object(holdout.time, "sleep"), \
+                 patch.object(holdout, "_sleep"), \
                  redirect_stdout(StringIO()):
                 code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
             self.assertEqual(code, 0)
