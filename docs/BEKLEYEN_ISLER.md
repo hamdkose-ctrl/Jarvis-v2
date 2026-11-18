@@ -1,3 +1,15 @@
+# Paket 5 sonrası kalan caller-zero envanteri — ölçüldü, silinmedi (18 Kasım 2026)
+
+Ölü sembol turunda (`tests/test_dead_symbol_retirement.py`) üretim çağrısı olmayan davranış-nötr yüzeyler fiziksen silindi. Aşağıdakiler **bilinçli olarak bırakıldı**: silmek bir çiti gevşetir, sahibi başka dal olur veya canlı kabul/ürün kararı ister. Kayıt sessiz "temizlendi" iddiası üretmez.
+
+- **`engine_live_brain._live_command`** — metin taramasıyla "çağrısız" görünür ama facade üzerinden bağlıdır: `engine_runtime` isimleri `setattr` ile sarar ve `engine_voice._pc_context` bu adı ayrıca tanır. Yürütme sahibi Brain; kanıt eksik olduğu için silinmedi.
+- **`specialist_orchestrator.run` (+ `validate`, `brain_delegate.plan/run`)** — durable olmayan "legacy convenience path". Üretim çağrısı yok (yalnız `tests/test_brain_delegate.py`), `replay_safe` reddi ve `goal_tools` kapıları yerinde; ayrıca `docs/architecture/JARVIS_HERMES_ADAPTER_BOUNDARY_V1.md` bu yüzeyi **bilinçli sınır** olarak belgeler. Karar: ikinci yürütücü yüzeyini resmen emekli et (testleriyle birlikte) veya sınır olarak koru. **Scheduler tektir** ilkesi açısından okunması gereken madde.
+- **`~/.jarvis/selfcoder/local_changes.json` kaydı** — yazarı `git_publish.protect_local` üretimde çağrılmıyor; okuyucusu `updater._protected_local_changes` **canlı ve testli** bir güncelleme kapısı (`tests/test_architecture_v57.py`, `tests/test_continuity_security.py`). Güncel koruma fiilen içerik kıyasıyla (`verify_sync` `changes_remote` + `source_sync.blob_matches`) yapılıyor. Kaydı komple emekli etmek updater kapısına dokunur → ancak Hamdi kararıyla, tek PR'da.
+- **`news_pipeline.synthesis_input` + `verify_synthesis`** — model-var sentez hattına üretimden çağrı yok (yalnız 4 test). `docs/agents/haber.md` bu davranışı canlıymış gibi anlatıyor; madde ölçümle kapanmadan kod silinmez ve belgedeki canlılık ifadesi "bitti" sayılmaz. Model kotası kararı (Groq/Gemini boyut duvarı) ile birlikte yürür.
+- **`stt_fixes` uygulama yardımcıları** — tanım sahibi ayrı dal; yeni tanıma davranışı gerçek mikrofon kabulü + Hamdi onayı ister.
+
+---
+
 # Paket 1 (eklenti listelemesi + profil okuma güvenliği) canlı kabul — 18 Kasım 2026
 
 - **Ölçülecek gece:** (1) `~/.jarvis/plugins` içinde gerçek bir `.py` eklentisi varken Ayarlar › eklenti kartı ad/açıklamayı doğru gösterir ve listelemenin hiçbir yanında eklentinin import sırasındaki yan etkisi (dosya yazma, ağ, model çağrısı) oluşmaz; (2) bozuk yazılmış bir profil dosyası açıldığında Jarvis varsayılanlarla çalışmaya devam eder, karantina dosyası oluşur ve sıradan komut sayacı o karantinaya dokunmaz; (3) gerçek bir okuma engeli (yalnız okunabilir/locklu dosya) `profile_unreadable` + `jarvis.profile` uyarısı üretir ve Jarvis o kaydın üzerine yazmayı reddeder. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge ve yerel test tek başına "bitti" değildir. Ayrıntı: `docs/agents/arayuz.md`, `docs/agents/persona.md`.

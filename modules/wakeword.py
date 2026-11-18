@@ -24,7 +24,6 @@ from config import load_settings
 
 RATE = 16000
 FRAME = 1280                 # 80 ms: openWakeWord'ün beklediği parça
-THRESHOLD = 0.5              # algılama eşiği (0-1); yükseldikçe yanlış uyanma azalır, kaçırma artar
 MODES = ("auto", "offline", "google")
 
 _model = None
