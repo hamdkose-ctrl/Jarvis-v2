@@ -4,6 +4,21 @@
 
 ---
 
+# Sohbetten teslim edilen araştırma raporunun kaydının canlı kabulü — 18 Kasım 2026
+
+- **Ölçülecek gece (fiziksel Windows, gerçek model):** (1) `hedef: … araştır` raporu sohbette teslim olduğunda ekranda `Araştırma raporunu ekrana yazdım.` anonsu gelir; (2) ardından `çıktıyı PDF olarak kaydet` gerçek kayıt diyaloğunu `.pdf` öncülüyle açar ve dosya oluşur; (3) `Çıktıyı Word olarak kaydet` `docx`, `Excel olarak kaydet` `xlsx` üretir; (4) kullanıcının söylemediği bir kapsayıcı (`zip`, `metin`) işlem yapmadan reddedilir; (5) raporu dosyaya yazmış bir hedef ikinci bir kopyayı oturum çıktısı olarak sunmaz. exact-SHA Windows CI + aynı SHA PC watcher ve merge tek başına "bitti" değildir; mock yeşili semantik kabul sayılmaz. Kod tarafı ve kanıt: `docs/agents/dosya-belge.md` (Paket 3) ve `docs/agents/gorev-cekirdegi.md` (aynı başlıklar).
+
+---
+
+# Groq ücretsiz katmanda Brain rol zarfı — ölçülmüş duvar ve açık ürün kararı — 18 Kasım 2026
+
+- **Ölçülen gerçek (bu PC, kota trace kaydı `dilim4-holdout-0`, 17 Kasım 14:16 TSİ):** Groq `openai/gpt-oss-120b` tek bir Brain isteğinde HTTP 413 ve `limit_kind=tokens_per_minute` verdi; sağlayıcının bildirdiği sınır **8000 token/dk**, istenen **10486 token**. Aynı istek tekrar gönderilmedi (iz: `PROVIDER_REQUEST_TOO_LARGE`, `recovery_class=request_change_required`).
+- **Kod tarafı kapalıdır:** 413 sınıflandırıcısı `llm._groq` içindedir ve yalnız sağlayıcının kendi mesajındaki sınır/istenen sayılarını taşır; `smart_router.run_request` aynı isteği o model için yeniden denemez; `scripts/brain_output_diagnose_holdout.py` bu nedeni `provider_request_too_large` ile `unmeasured` yazar ve kalan kotayı harcamaz. Bu yolda istisna listesi, "ölçülemiyor ama toleranslı" satırı veya ölü dal yoktur; kanıt: `tests/test_groq_request_capacity.py` (`test_native_413_retains_capacity_status_and_safe_provider_counts`, `test_unchanged_request_is_not_retried_and_smaller_request_stays_eligible`, `test_full_holdout_reports_capacity_and_stops_without_a_model_response`) ve `tests/test_role_qualification.py`.
+- **Açık olan koddan değil üründen karardır (sahibi Hamdi):** (A) Brain zarfı ücretsiz Groq TPM'inin (8000) altına indirilir; o zaman Groq'ta ilk kez gerçek rol ölçümü koşabilir — yetenek/kalite ölçümü gerektiren bir değişimdir. (B) Groq ücretsiz hesap Brain rolü için aday dışı tutulur ve kullanıcıya tek cümlelik boyut nedeni görünür — çalışan bir hesabın adaylığını kapatan politika değişimidir. (C) Mevcut davranış sürer: istek başına bir deneme yapılır, tek 413 ile düşer, diğer adaya geçer (maliyet: başarısız bir çağrı + tek tur gecikmesi).
+- **Neden kendiliğinden kapatılmadı:** A semantik kaliteyi, B erişilebilir bağlantıyı değiştirdiği için "onay/kapsam kararı kendiliğinden genişletilemez" ilkesinin kapsamındadır. Bu maddede omurgada göç etmeyi bekleyen kod yoktur; kalan tek şey üç seçenekten birinin seçilmesidir.
+
+---
+
 # Karar 2 Aşama C sonrası açık kabul ve Aşama D — 18 Kasım 2026
 
 - **Canlı kabul (Aşama C'yi kapatan tek ölçüm):** fiziksel Windows gecesinde (1) `PC görevi: Hesap Makinesi | 12 ile 7 topla` typed ve sözlü biçimleri canonical hedef + prepare kartı + `hedef onayla` ile gerçekten çalışır, (2) motor duraklamasında (approval/consent/pending_effect) ikinci Core kartı çıkar ve Scheduler sürdürür, (3) `origin=scheduler` kayıtta `PC onayla`/`PC görevi devam` reddi ile pointer görünür, iptal (`PC görevi iptal`/`hedef iptal`) görevi kapatır, (4) interaktif tarayıcı planı tek başına duraklar, karttan uygulanır ve receipt'li done verir. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge tek başına "bitti" değildir.

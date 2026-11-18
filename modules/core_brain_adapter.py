@@ -94,7 +94,8 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         digest = artifacts[0].provenance.get("document_digest")
         if not isinstance(digest, str) or len(digest) != 64:
             return None
-        plan = (plan[0], {"document_owner": entry.owner, "document_digest": digest})
+        plan = (plan[0], {"document_owner": entry.owner, "document_digest": digest,
+                          "format": plan[1].get("format")})
     if plan is not None and plan[0] == "workbench_followup":
         references = [ref for ref in entry.active_context.active_artifacts
                       if ref.owner == entry.owner and ref.id == "last_workbench"
