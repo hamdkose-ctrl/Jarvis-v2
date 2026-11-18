@@ -1,7 +1,7 @@
 """Offline scoring checks for the existing live semantic holdout; no model or effects."""
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from io import StringIO
 import json
 from pathlib import Path
@@ -48,6 +48,13 @@ class ParaphraseScoringTests(unittest.TestCase):
                                 ({"property": "brightness", "level": 20}, False)):
             result = holdout._judge(row, proposal("pc.level.set", fields), None)
             self.assertEqual(result["target_ok"], correct)
+
+    def test_missing_proposal_is_not_successful_no_effect(self):
+        row = next(row for row in self.rows if row["id"] == "neg-volume_not")
+        self.assertFalse(holdout._judge(row, None, None)["intent_ok"])
+        unexpected_envelope = proposal()
+        unexpected_envelope.operation = "direct_action"
+        self.assertFalse(holdout._judge(row, unexpected_envelope, None)["intent_ok"])
 
     def test_action_on_negation_is_critical_even_for_pc_or_apps(self):
         row = next(row for row in self.rows if row["id"] == "neg-volume_not")
@@ -105,26 +112,67 @@ class ParaphraseScoringTests(unittest.TestCase):
         holdout._validate_equivalence_corpus(rows)
         self.assertEqual(holdout._equivalence([]), {"groups": {}, "passed": True})
 
-    def test_full_corpus_scoring_with_simulated_provider_never_counts_as_live(self):
-        """Exercise the real CLI/scorer, but fake only the provider; not a product PASS."""
+    def test_simulated_scoring_without_actual_provider_responses_is_unmeasured(self):
+        """A fake _ask cannot produce a live acceptance PASS or 8 false negative wins."""
         def fake_ask(owner, text, index):
             row = self.rows[index - 1]
             expected = row["beklenen"]
             if expected["kind"] == "no_effect":
                 return proposal(), None
             return proposal(expected["capability"], expected["slotlar"]), None
+
+        fake_candidate = SimpleNamespace(provider="groq", model="test-model", connection_id=None)
         with TemporaryDirectory() as folder:
             output = Path(folder) / "report.json"
-            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \
-                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \
-                 patch.object(holdout, "_ask", side_effect=fake_ask), \
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \\
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \\
+                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \\
+                 patch("modules.smart_router.qualification_session", return_value=nullcontext()), \\
+                 patch.object(holdout, "_ask", side_effect=fake_ask) as ask, \\
+                 patch.object(holdout.time, "sleep"), \\
+                 redirect_stdout(StringIO()):
+                code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
+            self.assertEqual(code, 2)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["state"], "unmeasured")
+            self.assertIsNone(report["summary"]["niyet_dogrulugu"])
+            self.assertFalse(report["summary"]["equivalence"]["passed"])
+            self.assertEqual(report["summary"]["provider_responses"], 0)
+            self.assertEqual(report["summary"]["completed_cases"], 0)
+            self.assertEqual(len(report["results"]), 1)
+            ask.assert_called_once()
+
+    def test_mocked_transport_observation_and_qualification_scope(self):
+        """Only fixture responses permit offline scoring; this is not real model evidence."""
+        from modules import llm, smart_router
+        fake_candidate = SimpleNamespace(provider="groq", model="test-model", connection_id=None)
+        def fake_ask(owner, text, index):
+            self.assertEqual(smart_router._ROLE_EVALUATION.get(),
+                             (owner, "groq", "test-model", None))
+            llm.dispatch()  # patched fixture transport, observed by the real runner
+            row = self.rows[index - 1]
+            expected = row["beklenen"]
+            if expected["kind"] == "no_effect":
+                return proposal(), None
+            return proposal(expected["capability"], expected["slotlar"]), None
+
+        with TemporaryDirectory() as folder:
+            output = Path(folder) / "report.json"
+            with patch.object(holdout, "_preflight", return_value=("test", True, "hazır")), \\
+                 patch.object(holdout, "_instrument_effects", return_value={"send_whatsapp": 0, "dispatch": 0}), \\
+                 patch("modules.smart_router.qualification_candidate", return_value=fake_candidate), \\
+                 patch.object(llm, "dispatch", return_value=SimpleNamespace(text="fixture")), \\
+                 patch.object(holdout, "_ask", side_effect=fake_ask), \\
+                 patch.object(holdout.time, "sleep"), \\
                  redirect_stdout(StringIO()):
                 code = holdout.main(["--run", "--corpus", str(CORPUS), "--json", str(output)])
             self.assertEqual(code, 0)
             report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["state"], "passed")
             self.assertTrue(report["summary"]["equivalence"]["passed"])
-            self.assertEqual(report["summary"]["kritik_yanlis_etki"], 0)
+            self.assertEqual(report["summary"]["provider_responses"], len(self.rows))
             self.assertEqual(len(report["results"]), len(self.rows))
+        self.assertIsNone(smart_router._ROLE_EVALUATION.get())
 
     def test_malformed_groups_rejected_before_preflight(self):
         with TemporaryDirectory() as folder:
