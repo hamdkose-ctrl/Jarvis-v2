@@ -23,6 +23,11 @@ class ArchitectureV57Tests(unittest.TestCase):
         self.assertIn('f"{slug}.groq.txt"', src)
         self.assertIn("user_groq_key(current_user())", src)
         self.assertNotIn("key = config.get_groq_key()", src)
+        # Genel (kullanıcısız) Groq anahtar yüzeyi kaldırıldı: tek sahip kullanıcı
+        # profilindeki llm.user_groq_key/set_user_groq_key'dir (MIMARI_KURALLAR v5.7).
+        conf = Path("config.py").read_text(encoding="utf-8")
+        for retired in ("GROQ_KEY_FILE", "def save_groq_key", "def get_groq_key", "GROQ_API_KEY"):
+            self.assertNotIn(retired, conf)
 
     def test_update_refuses_unpublished_local_changes(self):
         import updater

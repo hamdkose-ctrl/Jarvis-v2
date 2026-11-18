@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 
 KINDS = frozenset({"risk", "opportunity"})
-PRIORITIES = frozenset({"low", "normal"})
 
 
 @dataclass(frozen=True)

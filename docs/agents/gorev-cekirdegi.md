@@ -379,3 +379,5 @@ Bu yalnız kaynak kod adayıdır; final Windows CI ve aynı SHA PC watcher PASS 
 
 
 
+
+- **Çağrısız uzman-yürütücü yardımcıları silindi (18 Kasım 2026, ölü sembol göçü):** `brain_delegate.try_run` ve yalnız ona hizmet eden `_safe`/`_render` (artık gereksiz olan `goal_tools` importuyla birlikte) üretimde hiç çağrılmıyordu; hedef yürütmenin tek sahibi durable `goal_executor` → `specialist_orchestrator.execute_step` hattıdır ve `replay_safe` denetimi orada kalır. `brain_delegate.plan/run` ile `specialist_orchestrator.run` durable-olmayan convenience yolu **bilinçli sınır** olarak durur (`docs/architecture/JARVIS_HERMES_ADAPTER_BOUNDARY_V1.md`); emekliliği "Scheduler tektir" açısından ayrıca karar ister ve `docs/BEKLEYEN_ISLER.md`'de kayıtlandı. Kanıt: `tests/test_dead_symbol_retirement.py` (fiziksel-yokluk + `catalog`/`assign`/`execute_step` sahiplerinin canlılığı) ve mevcut `tests/test_brain_delegate.py`.
