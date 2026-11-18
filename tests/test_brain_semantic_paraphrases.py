@@ -257,6 +257,32 @@ class ParaphraseScoringTests(unittest.TestCase):
             "actions": [{"capability_id": private, "argument_sources": private}]})),
             [{"capability": "unknown", "source_type": "wrong_type"}])
 
+    def test_message_core_shape_diagnostics_expose_no_recipient_or_body(self):
+        secret = "private-message-never-print"
+        cases = [
+            {"capability_id": "message.send", "arguments": {
+                "recipient": "Ayşe", "body": secret}},
+            {"capability_id": "message.send", "arguments": {
+                "recipient": "Ayşe'ye", "body": secret}},
+            {"capability_id": "message.send", "arguments": {
+                "recipient": "Ayşe", "body": secret, "path": secret}},
+        ]
+        report = holdout._message_argument_shapes(
+            json.dumps({"actions": cases}, ensure_ascii=False))
+        self.assertEqual([row["recipient_shape"] for row in report],
+                         ["proper_case", "invalid", "proper_case"])
+        self.assertEqual([row["core_format_valid"] for row in report],
+                         [True, False, False])
+        self.assertEqual([row["extra_keys"] for row in report],
+                         [False, False, True])
+        self.assertNotIn("Ayşe", json.dumps(report, ensure_ascii=False))
+        self.assertNotIn(secret, json.dumps(report, ensure_ascii=False))
+        self.assertEqual(holdout._message_argument_shapes("not json"), [])
+        self.assertEqual(holdout._message_argument_shapes(
+            json.dumps({"actions": [{"capability_id": "message.send",
+                                      "arguments": []}]})),
+            [{"capability": "message.send", "args_shape": "not_object"}])
+
     def test_first_invalid_live_response_stops_without_spending_more_calls(self):
         """A provider reply rejected by the Brain contract is FAIL, not unmeasured."""
         from modules import llm
