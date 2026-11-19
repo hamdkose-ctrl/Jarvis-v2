@@ -553,6 +553,7 @@ class VoiceLane:
             from config import load_settings as _fast_load
             fast_start = bool(_fast_load().get("fast_speech_start", True))
         except Exception:                       # noqa: BLE001  ayar okunamazsa varsayılan açık davranış
+            _record_failure('modules/voice_runtime.py:say:fast_speech_start')
             fast_start = True
         request = SpeechRequest(owner=owner, request_id=request_id,
                                 voice_id=voice_id, text=text,
