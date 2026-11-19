@@ -284,7 +284,8 @@ class ParaphraseScoringTests(unittest.TestCase):
         self.assertTrue(fake_number["phone_quote_is_numeric"])
         self.assertFalse(fake_number["phone_digit_match"])
         self.assertFalse(fake_number["sources_valid"])
-        out_of_utterance = inspect({"name": "Esra", "phone": "999 999 99 99"})
+        out_of_utterance = inspect({"name": "Esra", "phone": "999 999 99 99"},
+                                   {**args, "phone": "999 999 99 99"})
         self.assertFalse(out_of_utterance["phone_quote_in_utterance"])
         self.assertTrue(out_of_utterance["phone_digit_match"])
         self.assertFalse(out_of_utterance["phone_grounded"])
