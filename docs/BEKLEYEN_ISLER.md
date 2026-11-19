@@ -1,3 +1,15 @@
+# Genel tarama envanteri — kayıtsız caller-zero yüzeyler (19 Kasım 2026)
+
+Genel tarama (3 tur: architecture guard + AST import analizi + ham metin) `docs/BEKLEYEN_ISLER.md` Paket 5/6 kayıtlarında bulunmayan üretim çağrısı olmayan yüzeyler buldu; kural gereği kayıt tamamlandı. Üçü de **bağlamayı bekleyen sözleşme/özellik** olarak korundu, silinmedi:
+
+- **`modules/file_inventory.py`** — "salt-okunur klasör envanteri + öneri raporu" (yol haritası maddesi). Üretim çağrısı sıfır; tek tüketicisi `tests/test_file_inventory.py` (11 test). Kullanıcı akışına bağlanacak (web/engine komutu) ya da Hamdi kararıyla emekli edilecek.
+- **`modules/finance_watchlist.py`** — kullanıcıya özel finans takip listesi depolaması. Üretim çağrısı sıfır; finans bağlama fazı (Faz 4B/#646) ile bağlanması bekleniyor.
+- **`modules/finance_trade_intent.py`** — finans plan onay sözleşme adaptörü. Üretim çağrısı sıfır; `finance_readonly` PASS kararını taşıyan yüzey, aynı fazın parçası.
+- **Depo hijyeni:** `kurulum.log` (kişisel makine kurulum günlüğü) ve `tmp/branch-marker` (içerik "x", hiçbir kod referansı yok) repodan çıkarıldı; `tmp/` ignore'a alındı.
+- **Yanlış alarm olarak çözülenler:** `shell_hooks` (Faz 6'ya kadar bilinçli fail-closed stub, Yol Haritası kayıtlı), `task_summary` (webui/nx.js `taskSummary*` yardımcılarının Python parite referansı), `tool_*` ailesi (`tool_contract.load_all` dinamik yükler), `jarvis_bench`, `acceptance_checks`, `pc_guide_ui` (subprocess), `goalstate_cutover_runner` (manuel operatör aracı), `engine_*` omurgası (facade/setattr bağlantılı).
+
+---
+
 # Paket 5 sonrası kalan caller-zero envanteri — ölçüldü, silinmedi (18 Kasım 2026)
 
 Ölü sembol turunda (`tests/test_dead_symbol_retirement.py`) üretim çağrısı olmayan davranış-nötr yüzeyler fiziksen silindi. Aşağıdakiler **bilinçli olarak bırakıldı**: silmek bir çiti gevşetir, sahibi başka dal olur veya canlı kabul/ürün kararı ister. Kayıt sessiz "temizlendi" iddiası üretmez.
