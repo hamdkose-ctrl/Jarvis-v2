@@ -31,8 +31,10 @@ def _day(value: str) -> float:
     return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
 
 
-_VERIFIED_AT = _day("2026-10-31")
-_EXPIRES_AT = _day("2026-11-30")
+# Verified findings from 2026-11-19 (official pages re-checked, not re-researched);
+# claims unchanged from the 2026-10-31 card. source_url is the official page for each claim.
+_VERIFIED_AT = _day("2026-11-19")
+_EXPIRES_AT = _day("2026-12-19")
 
 # Verified findings from 2026-10-31 (not re-researched); source_url is the official page for each claim.
 PROVIDER_BUNDLE: dict[str, dict] = {

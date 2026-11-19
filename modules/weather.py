@@ -64,12 +64,18 @@ def geocode(name: str) -> tuple[str, float, float] | None:
 
 
 def forecast(lat: float, lon: float) -> dict:
-    return requests.get(
-        "https://api.open-meteo.com/v1/forecast",
-        params={"latitude": lat, "longitude": lon, "timezone": "auto", "forecast_days": 1,
-                "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m",
-                "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"},
-        timeout=TIMEOUT).json()
+    params = {"latitude": lat, "longitude": lon, "timezone": "auto", "forecast_days": 1,
+              "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m",
+              "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"}
+    try:
+        return requests.get("https://api.open-meteo.com/v1/forecast",
+                            params=params, timeout=TIMEOUT).json()
+    except requests.RequestException:
+        # Dalgalı ağda ilk deneme SSL yeniden müzakere döngüsüne takılabiliyor;
+        # tek tekrar genelde 1-2 sn'de açılıyor (2026-11-19 ölçümü). İkincisi de
+        # düşerse report() kendi istisna sınırına düşer, sessiz başarı yok.
+        return requests.get("https://api.open-meteo.com/v1/forecast",
+                            params=params, timeout=TIMEOUT).json()
 
 
 def report(location: str | None = None) -> str | None:
