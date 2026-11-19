@@ -3,7 +3,7 @@ import fnmatch
 from pathlib import Path
 
 ALLOWED_EXTENSIONS = {".py", ".js", ".html", ".css", ".md", ".txt", ".json", ".bat", ".toml", ".yaml", ".yml", ".java", ".gradle", ".properties", ".xml", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2", ".ico", ".jar"}
-SKIP_PARTS = {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"}
+SKIP_PARTS = {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea", "tmp"}
 SKIP_NAMES = {".env", "settings.json", "gemini_key.txt", "groq_key.txt", "github_token.txt", "phone_token.txt", "local.properties", "chat_sessions.json", "requests.json"}
 LOCAL_ONLY_PARTS = {".v2_kontrol_gecici", ".ruff_cache", ".claude-mem", "JarvisAndroid"}
 LOCAL_ONLY_NAMES = ("v2_kabul_sonucu*.json", "*.yeni")
