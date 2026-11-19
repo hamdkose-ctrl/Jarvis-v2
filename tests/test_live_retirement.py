@@ -149,10 +149,14 @@ class LivingAuthorityKeptTests(unittest.TestCase):
 class CallerZeroResidueTests(unittest.TestCase):
     """Emeklilikle üretim çağrısı kesilen, sahibi bu dalda olmayan yüzeyler.
 
-    Kod duruyor ama kimse çağırmıyor: bu "temizlendi" demek değildir. Kayıt bu testte ve
-    docs/agents/ses-video.md + docs/architecture/JARVIS_VOICE_COMM_V3_DEVIR.md içinde; sahibi
-    Brain ve learning. Test, yüzey sessizce "yaşıyor" gibi kalmasın diye caller-zero
-    durumunu açıkça kanıtlar.
+    Kod duruyor ama kimse çağırmıyor: bu "temizlendi" demek değildir; bu kayıt yüzeylerin
+    sessizce "yaşıyor" gibi kalmasını engeller. Sahibi bu spine'da olanlar kayıtta bırakılmaz —
+    onay-bekleyenleri sorma hatırlatma ailesi (`learning.pending_prompt`/`pending_ask_due`/
+    `mark_pending_ask` + `pending_asked`) bu paketle fiziksel olarak silindi ve aşağıda negatif
+    olarak kilitlendi. Kalan iki satır sahibi başka dalda olanlardır: `engine_live_brain._live_command`
+    (BRAIN-MIG-079 `KEEP_EXECUTION`, sahibi Brain) ve `stt_fixes` uygulayıcıları (yeni tanıma
+    davranışıdır, Hamdi kararı). Kaydın okunduğu yer: `docs/agents/ses-video.md` +
+    `docs/architecture/JARVIS_VOICE_COMM_V3_DEVIR.md`.
     """
 
     def _call_sites(self, pattern: str):
@@ -166,9 +170,20 @@ class CallerZeroResidueTests(unittest.TestCase):
         # ama Live araç yürütücüsü gidince üretim çağrısı da kalmadı.
         self.assertEqual(self._call_sites(r'(?:runtime|self|engine_live_brain)\._live_command\s*\('), [])
 
-    def test_the_pending_fact_reminder_has_no_production_trigger(self):
-        # Onay bekleyen bilgileri soran not yalnız canlı oturum talimatına eklenirdi.
-        self.assertEqual(self._call_sites(r'learning\.pending_prompt\s*\('), [])
+    def test_the_pending_fact_reminder_is_deleted_not_dormant(self):
+        # Onay bekleyen bilgileri soran not yalnız canlı oturum talimatına ve live_session_opened
+        # olayına bağlıydı. Tetikleyici gidince aile caller-zero kayıt olarak bırakılmadı:
+        # learning.pending_prompt/pending_ask_due/mark_pending_ask ve pending_asked anahtarı silindi;
+        # onay yolu tek canonical sahibinde (learning.pending_facts.select + learning.manage) kaldı.
+        self.assertEqual(
+            self._call_sites(r'learning\.(?:pending_prompt|pending_ask_due|mark_pending_ask)\s*\('), [])
+        learner = (ROOT / 'modules' / 'learning.py').read_text(encoding='utf-8')
+        for name in ('pending_prompt', 'pending_ask_due', 'mark_pending_ask',
+                    'PENDING_ASK_INTERVAL', 'pending_asked'):
+            self.assertNotIn(name, learner, name)
+        from modules import learning
+        for name in ('pending_prompt', 'pending_ask_due', 'mark_pending_ask'):
+            self.assertFalse(hasattr(learning, name), name)
 
     def test_the_raw_microphone_save_opt_in_cannot_come_back(self):
         # Ham mikrofon sesi varsayılan ve istemle diske yazılmaz: kayıt yardımcısı da anahtarı da yok.

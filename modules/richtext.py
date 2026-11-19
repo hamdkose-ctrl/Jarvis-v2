@@ -46,25 +46,6 @@ def extension(lang: str) -> str:
     return EXTENSIONS.get((lang or "").lower(), ".txt")
 
 
-# satır içi biçim: **kalın** ve `kod`
-INLINE = re.compile(r"(\*\*[^*\n]+\*\*|`[^`\n]+`)")
-
-
-def inline_parts(line: str) -> list[tuple[str, str]]:
-    """[(metin, etiket)] — etiket: '', 'bold' ya da 'mono'."""
-    out = []
-    for piece in INLINE.split(line):
-        if not piece:
-            continue
-        if piece.startswith("**") and piece.endswith("**") and len(piece) > 4:
-            out.append((piece[2:-2], "bold"))
-        elif piece.startswith("`") and piece.endswith("`") and len(piece) > 2:
-            out.append((piece[1:-1], "mono"))
-        else:
-            out.append((piece, ""))
-    return out
-
-
 # ---- LaTeX → düz metin / Unicode (kod blokları hariç) ----
 _SYMBOLS = {r"\pm": "±", r"\mp": "∓", r"\times": "×", r"\cdot": "·", r"\div": "÷", r"\leq": "≤", r"\le": "≤",
             r"\geq": "≥", r"\ge": "≥", r"\neq": "≠", r"\ne": "≠", r"\approx": "≈", r"\equiv": "≡",

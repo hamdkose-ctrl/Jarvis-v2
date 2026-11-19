@@ -6,7 +6,6 @@ MONTHS = ("ocak", "şubat", "mart", "nisan", "mayıs", "haziran", "temmuz", "ağ
           "aralık")
 WEEKDAYS = ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar")
 MONTHS_TITLE = tuple(m.capitalize() if m != "ağustos" else "Ağustos" for m in MONTHS)
-WEEKDAYS_TITLE = tuple(d.capitalize() for d in WEEKDAYS)
 
 
 def _lower(text: str) -> str:

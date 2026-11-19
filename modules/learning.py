@@ -182,7 +182,6 @@ def propose(profile, facts: list[str]) -> list[str]:
             known.add(_low(f))
     if added:
         profile.data["pending_facts"] = (pending(profile) + added)[-PENDING_MAX:]
-        profile.data["pending_asked"] = ""
         profile.save()
         log.info("Onay bekleyen yeni bilgi sayısı: %d", len(added))
     return added
@@ -205,40 +204,6 @@ def reject(profile, idx: int | None = None) -> int:
     profile.data["pending_facts"] = [] if idx is None else [x for i, x in enumerate(pf) if i != idx]
     profile.save()
     return n
-
-
-PENDING_ASK_INTERVAL = timedelta(hours=12)
-
-
-def pending_ask_due(profile) -> bool:
-    """Onay sorusu bu oturumda sorulacak mı? Salt okunur: işaretlemeyi oturum açma olayı yapar."""
-    if not pending(profile):
-        return False
-    last = profile.data.get("pending_asked") or ""
-    if last:
-        try:
-            if datetime.now() - datetime.fromisoformat(last) < PENDING_ASK_INTERVAL:
-                return False
-        except ValueError:
-            pass
-    return True
-
-
-def mark_pending_ask(profile) -> None:
-    profile.data["pending_asked"] = datetime.now().isoformat(timespec="minutes")
-    profile.save()
-
-
-def pending_prompt(profile) -> str:
-    """Onay bekleyenler varsa canlı konuşma talimatına eklenecek not (12 saatte bir sorulur, her oturumda değil)."""
-    if not pending_ask_due(profile):
-        return ""
-    return ("Önceki konuşmalardan öğrendiğin ama kullanıcının henüz onaylamadığı bilgiler: "
-            + " ".join(f"{i}) {f}" for i, f in enumerate(pending(profile), 1))
-            + ". Kullanıcı bir işini bitirip sohbet ederken (asla bir işin ortasında değil) BİR KEZ kısaca sor: "
-              "'Geçen konuşmalarda birkaç şey öğrendim, hatırlamamı ister misin?' ve bunları kısaca oku. Cevaba göre "
-              "`komut` aracına 'öğrendiklerini kaydet', 'öğrendiklerini kaydetme' ya da 'öğrendiğin 2. bilgiyi kaydet' yaz. "
-              "Kullanıcı istemezse ısrar etme.")
 
 
 _EXTRACT = (

@@ -1,5 +1,6 @@
 """Gemini router physical-attempt contract; no live provider traffic or secrets."""
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -8,11 +9,16 @@ from modules import llm
 
 class RouterPhysicalAttemptTests(unittest.TestCase):
     def test_global_and_runtime_gemini_clients_disable_sdk_retries(self):
-        with patch.object(llm, "_client", None), patch.object(llm.genai, "Client") as ctor:
-            llm.set_api_key("example-key")
-            opts = ctor.call_args.kwargs["http_options"]
-            self.assertEqual(opts["timeout"], 45000)
-            self.assertEqual(opts["retry_options"]["attempts"], 1)
+        # Tek sahip _gemini_http_options(): global istemci modül yüklenirken, kullanıcı
+        # istemcisi _cli() içinde bu seçeneklerle kurulur. Çalışma zamanı anahtar değişimi
+        # kişiye özel anahtar sahipliğine taşındığı için ayrı bir kurucu yoktur.
+        opts = llm._gemini_http_options()
+        self.assertEqual(opts["timeout"], 45000)
+        self.assertEqual(opts["retry_options"]["attempts"], 1)
+        self.assertIsNot(opts, llm._gemini_http_options())
+        src = Path(llm.__file__).read_text(encoding="utf-8")
+        self.assertIn("_client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options())", src)
+        self.assertNotIn("def set_api_key(", src)
         with patch.object(llm, "_user_clients", {}), \
              patch.object(llm, "user_key", return_value="alice-key"), \
              patch.object(llm.genai, "Client") as ctor:

@@ -1,3 +1,15 @@
+# Paket 5 sonrası kalan caller-zero envanteri — ölçüldü, silinmedi (18 Kasım 2026)
+
+Ölü sembol turunda (`tests/test_dead_symbol_retirement.py`) üretim çağrısı olmayan davranış-nötr yüzeyler fiziksen silindi. Aşağıdakiler **bilinçli olarak bırakıldı**: silmek bir çiti gevşetir, sahibi başka dal olur veya canlı kabul/ürün kararı ister. Kayıt sessiz "temizlendi" iddiası üretmez.
+
+- **`engine_live_brain._live_command`** — metin taramasıyla "çağrısız" görünür ama facade üzerinden bağlıdır: `engine_runtime` isimleri `setattr` ile sarar ve `engine_voice._pc_context` bu adı ayrıca tanır. Yürütme sahibi Brain; kanıt eksik olduğu için silinmedi.
+- **`specialist_orchestrator.run` (+ `validate`, `brain_delegate.plan/run`)** — durable olmayan "legacy convenience path". Üretim çağrısı yok (yalnız `tests/test_brain_delegate.py`), `replay_safe` reddi ve `goal_tools` kapıları yerinde; ayrıca `docs/architecture/JARVIS_HERMES_ADAPTER_BOUNDARY_V1.md` bu yüzeyi **bilinçli sınır** olarak belgeler. Karar: ikinci yürütücü yüzeyini resmen emekli et (testleriyle birlikte) veya sınır olarak koru. **Scheduler tektir** ilkesi açısından okunması gereken madde.
+- **`~/.jarvis/selfcoder/local_changes.json` kaydı** — yazarı `git_publish.protect_local` üretimde çağrılmıyor; okuyucusu `updater._protected_local_changes` **canlı ve testli** bir güncelleme kapısı (`tests/test_architecture_v57.py`, `tests/test_continuity_security.py`). Güncel koruma fiilen içerik kıyasıyla (`verify_sync` `changes_remote` + `source_sync.blob_matches`) yapılıyor. Kaydı komple emekli etmek updater kapısına dokunur → ancak Hamdi kararıyla, tek PR'da.
+- **`news_pipeline.synthesis_input` + `verify_synthesis`** — model-var sentez hattına üretimden çağrı yok (yalnız 4 test). `docs/agents/haber.md` bu davranışı canlıymış gibi anlatıyor; madde ölçümle kapanmadan kod silinmez ve belgedeki canlılık ifadesi "bitti" sayılmaz. Model kotası kararı (Groq/Gemini boyut duvarı) ile birlikte yürür.
+- **`stt_fixes` uygulama yardımcıları** — tanım sahibi ayrı dal; yeni tanıma davranışı gerçek mikrofon kabulü + Hamdi onayı ister.
+
+---
+
 # Paket 1 (eklenti listelemesi + profil okuma güvenliği) canlı kabul — 18 Kasım 2026
 
 - **Ölçülecek gece:** (1) `~/.jarvis/plugins` içinde gerçek bir `.py` eklentisi varken Ayarlar › eklenti kartı ad/açıklamayı doğru gösterir ve listelemenin hiçbir yanında eklentinin import sırasındaki yan etkisi (dosya yazma, ağ, model çağrısı) oluşmaz; (2) bozuk yazılmış bir profil dosyası açıldığında Jarvis varsayılanlarla çalışmaya devam eder, karantina dosyası oluşur ve sıradan komut sayacı o karantinaya dokunmaz; (3) gerçek bir okuma engeli (yalnız okunabilir/locklu dosya) `profile_unreadable` + `jarvis.profile` uyarısı üretir ve Jarvis o kaydın üzerine yazmayı reddeder. Bunlar ayrıca exact-SHA Windows CI + aynı SHA PC watcher "passed" ile birlikte ölçülür; merge ve yerel test tek başına "bitti" değildir. Ayrıntı: `docs/agents/arayuz.md`, `docs/agents/persona.md`.
@@ -152,3 +164,13 @@ Tek Router V2 kod göçü için uygulama/emeklilik kaydı `docs/architecture/JAR
 
 
 - 15 Kasım Router ölçüm takibi: Groq413 tek isteğin kapasiteye sığmaması olarak tanılanır; aynı input/exact aday tekrar gönderilmez ve sonraki küçük çağrı sağlık beklemesiyle engellenmez. Brain/Core/Full nedeni taşır, kapasite reddi semantik geçiş sayılmaz. Yeni exact-source Windows/PC kabulü gerekir. Gemini kapsamı yanında kendi ücretsiz hesap kanıtı, paylaşılan ayarı geri yazan eski süreçlerin güncel kurulumdan çalışması ve standart üretim bütçeleriyle canlı rol ölçümü açık kalır. 120 token gibi özel harness sınırından kesilen cevaplar veya çit soyulmuş iki kod örneği tek başına genel rol kabulü değildir.
+
+
+---
+
+# Paket 6 sonrası kalan caller-zero envanteri — ölçüldü, silinmedi (18 Kasım 2026)
+
+- **`browser_readonly.download_receipt` / `observe_dialog` / `two_factor_handoff`** — üçü de yalnız `tests/test_browser_readonly.py` üzerinden çağrılıyor; üretim bu sözleşme sözlüğünü henüz hiç kullanmıyor. Canlı tarayıcı yolunun gerçek sahipleri başka: salt-okunur olay denetimi `browser_readonly.assert_readonly_action` ve makbuzu `task_workers.py:44` → `task_results.browser_readonly_receipt`; interaktif akışta `browser_agent.py:262` `accept_downloads=False` ile indirme baştan reddedilir ve diyaloğa bağlanmış bir handler yoktur. Bu üç ad kullanıma açmak yeni kullanıcı davranışı demektir (duraklama kartı, 2FA devri, indirme gözlemi) → önce plan ve Hamdi onayı; sırf liste temizlensin diye silinmedi, sahibi olmayan sözleşme bildirimi olarak kayıtlıdır.
+- **`filesend.set_target`** — okuyucusu `filesend.phone_target` (`send_target` ayarı) canlıdır ve ayar yoksa Tailscale'deki telefonu otomatik bulur; yazıcısı üretimden hiç çağrılmaz, arayüzde karşılığı yoktur. Silmek "elle hedef sabitleme" yeteneğini düşürür, bağlamak yeni bir ayar/istek akışı demektir → ürün kararı bekliyor.
+- **Bu turda silinenler (göç tamamlandı, tek sahip kaldı):** `publisher_news.multiple_publishers` → iki-yayıncı eşeğinin tek sözleşmesi `news_pipeline.enough_evidence` (`news_policy.check_completion` çağırır); `llm.set_api_key` → fiziksel-deneme seçeneğinin tek sahibi `llm._gemini_http_options`, çalışma zamanı anahtar değişiminin tek sahibi kişiye özel `llm.set_user_key` (`web_models.Bridge.api_key_save`); `nxapi.reset_file_cache` → tek yenileme yolu `nxapi.list_files(force=True)`. Üçünün de üretim çağrısı sözdizimi sınırında taranarak sıfır ölçüldü; negatif kilit `tests/test_dead_symbol_retirement_phase2.py` içindedir.
+- **Bu turda ayrıca silinen tümüyle yetim modül:** `modules/widget_styles.py` (77 satır, `FAMILIES`/`validate`/`draw`). Deposun tamamında (Python, JS, arayüz, belge, test, yapılandırma) adını anan tek satır yoktu; "son doğrulanmış ZIP" aktarımında (`8d46466d`) gelmiş, hiçbir zaman bir kullanıcı akışına bağlanmamıştı. Küçük Jarvis şeridinin gerçek çizim sahibi `modules/widget.py` (kendi `COLORS`/halka çizimi) olup davranış değişmedi. Kilit: `OrphanModuleIsGoneTests`.
