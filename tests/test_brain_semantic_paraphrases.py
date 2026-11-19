@@ -272,6 +272,10 @@ class ParaphraseScoringTests(unittest.TestCase):
                               {**args, "phone": "532 123 45 68"})
         self.assertFalse(fake_number["phone_grounded"])
         self.assertFalse(fake_number["sources_valid"])
+        malformed_operation = inspect({"name": "Esra", "phone": "532 123 45 67"},
+                                      {**args, "operation": []})
+        self.assertEqual(malformed_operation["operation_shape"], "invalid")
+        self.assertFalse(malformed_operation["core_format_valid"])
         self.assertEqual(holdout._contact_grounding_shapes("not json", spoken), [])
         self.assertEqual(holdout._contact_grounding_shapes(json.dumps({
             "actions": [{"capability_id": "contacts.manage", "arguments": []}]}), spoken),

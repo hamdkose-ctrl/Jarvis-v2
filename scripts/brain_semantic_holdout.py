@@ -249,7 +249,8 @@ def _contact_grounding_shapes(raw: str, utterance: str) -> list[dict[str, Any]]:
             "sources_valid": brain._arguments_are_grounded(
                 capability_id="contacts.manage", supplied=args,
                 sources=raw_sources, text=utterance),
-            "core_format_valid": brain_core_map._contacts_args(args) is not None,
+            "core_format_valid": (operation in ("add", "list")
+                                  and brain_core_map._contacts_args(args) is not None),
         })
     return report
 
