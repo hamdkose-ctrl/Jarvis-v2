@@ -236,6 +236,60 @@ class ParaphraseScoringTests(unittest.TestCase):
             self.assertEqual(summary["state"], "failed")
             self.assertFalse(summary["passed"])
 
+
+    def test_contact_grounding_diagnostics_report_rejection_without_private_values(self):
+        # These are reports about policy outcomes, not a parallel decision path.
+        spoken = "Kişi ekle Esra 532 123 45 67 numarasıyla"
+        args = {"operation": "add", "name": "Esra", "phone": "532 123 45 67"}
+
+        def inspect(sources, supplied=None):
+            raw = json.dumps({"actions": [{
+                "capability_id": "contacts.manage",
+                "arguments": args if supplied is None else supplied,
+                "argument_sources": sources,
+            }]}, ensure_ascii=False)
+            return holdout._contact_grounding_shapes(raw, spoken)[0]
+
+        good = inspect({"name": "Esra", "phone": "532 123 45 67"})
+        self.assertTrue(good["name_grounded"])
+        self.assertTrue(good["phone_grounded"])
+        self.assertTrue(good["sources_valid"])
+        self.assertTrue(good["core_format_valid"])
+        self.assertFalse(good["source_extra_keys"])
+
+        with_label = inspect({"name": "Esra", "phone": "532 123 45 67 numarasıyla"})
+        self.assertTrue(with_label["name_grounded"])
+        self.assertFalse(with_label["phone_grounded"])
+        self.assertFalse(with_label["sources_valid"])
+        self.assertTrue(with_label["core_format_valid"])
+
+        extra = inspect({"name": "Esra", "phone": "532 123 45 67", "operation": "ekle"})
+        self.assertTrue(extra["name_grounded"] and extra["phone_grounded"])
+        self.assertTrue(extra["source_extra_keys"])
+        self.assertFalse(extra["sources_valid"])
+
+        fake_number = inspect({"name": "Esra", "phone": "532 123 45 67"},
+                              {**args, "phone": "532 123 45 68"})
+        self.assertFalse(fake_number["phone_grounded"])
+        self.assertFalse(fake_number["sources_valid"])
+        self.assertEqual(holdout._contact_grounding_shapes("not json", spoken), [])
+        self.assertEqual(holdout._contact_grounding_shapes(json.dumps({
+            "actions": [{"capability_id": "contacts.manage", "arguments": []}]}), spoken),
+            [{"capability": "contacts.manage", "args_shape": "not_object"}])
+        for output in (good, with_label, extra, fake_number):
+            redacted = json.dumps(output, ensure_ascii=False)
+            self.assertNotIn("Esra", redacted)
+            self.assertNotIn("532", redacted)
+            self.assertNotIn("numarasıyla", redacted)
+
+    def test_contact_quote_instruction_matches_existing_source_gate(self):
+        from modules import brain_model_understanding as brain
+        schema = brain._BASE_ARGUMENT_SHAPES["contacts.manage"]
+        self.assertEqual(schema["argument_sources"], ["name", "phone"])
+        self.assertIn("digit span", schema["constraint"])
+        self.assertIn("never operation", schema["constraint"])
+        self.assertIn("country code", schema["phone"])
+
     def test_source_shape_diagnostics_never_publish_quotes_or_values(self):
         private = "never-expose-this-secret-value"
         cases = (

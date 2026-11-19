@@ -194,6 +194,65 @@ def _message_argument_shapes(raw: str) -> list[dict[str, Any]]:
     return report
 
 
+
+def _contact_grounding_shapes(raw: str, utterance: str) -> list[dict[str, Any]]:
+    """Privacy-safe diagnosis of rejected contact proposals; never echo values.
+
+    Read the EXISTING Brain quotation check and Core format check: this is
+    observation only, not an alternative validator or a production fallback.
+    """
+    from modules import brain_core_map, brain_model_understanding as brain
+
+    try:
+        envelope = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("actions"), list):
+        return []
+    spoken = brain._span_tokens(utterance)
+    report = []
+    for action in envelope["actions"][:5]:
+        if not isinstance(action, dict) or action.get("capability_id") != "contacts.manage":
+            continue
+        args = action.get("arguments")
+        if not isinstance(args, dict):
+            report.append({"capability": "contacts.manage", "args_shape": "not_object"})
+            continue
+        raw_sources = action.get("argument_sources")
+        sources = raw_sources if type(raw_sources) is dict else {}
+
+        def grounded(field: str) -> bool:
+            value, quote = args.get(field), sources.get(field)
+            return (isinstance(value, str) and isinstance(quote, str)
+                    and brain._field_is_grounded(field, value, quote, spoken))
+
+        operation = args.get("operation")
+        if "argument_sources" not in action:
+            source_type = "missing"
+        elif raw_sources is None:
+            source_type = "null"
+        elif type(raw_sources) is dict:
+            source_type = "object"
+        else:
+            source_type = "wrong_type"
+        report.append({
+            "capability": "contacts.manage",
+            "args_shape": "object",
+            "operation_shape": operation if operation in ("add", "list") else "invalid",
+            "argument_extra_keys": bool(set(args) - {"operation", "name", "phone"}),
+            "source_type": source_type,
+            "source_extra_keys": bool(set(sources) - {"name", "phone"}),
+            "name_source_present": "name" in sources,
+            "phone_source_present": "phone" in sources,
+            "name_grounded": grounded("name"),
+            "phone_grounded": grounded("phone"),
+            "sources_valid": brain._arguments_are_grounded(
+                capability_id="contacts.manage", supplied=args,
+                sources=raw_sources, text=utterance),
+            "core_format_valid": brain_core_map._contacts_args(args) is not None,
+        })
+    return report
+
 def _preflight() -> tuple[str, bool, str]:
     """Gerçek ücretsiz rota gerçekten uygun mu? Uygun değilse ölçüm YAPILMAZ, gerekçe döner.
 
@@ -418,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
 
     counters = _instrument_effects()
     transport = llm.dispatch
-    observed = {"requests": 0, "responses": 0, "shapes": [], "sources": [], "message_args": []}
+    observed = {"requests": 0, "responses": 0, "shapes": [], "sources": [], "message_args": [], "contact_args": []}
 
     def observe_dispatch(*positional, **named):
         observed["requests"] += 1
@@ -428,10 +487,12 @@ def main(argv: list[str] | None = None) -> int:
         observed["shapes"].append(response_shape(raw_text))
         observed["sources"].append(_model_source_shapes(raw_text))
         observed["message_args"].append(_message_argument_shapes(raw_text))
+        observed["contact_args"].append(_contact_grounding_shapes(raw_text, current_utterance[0]))
         return response
 
     results = []
     stop_reason = None
+    current_utterance = [""]
     with (smart_router.qualification_session(owner, candidate.provider, candidate.model,
                                              candidate.connection_id),
           patch.object(llm, "dispatch", side_effect=observe_dispatch)):
@@ -440,6 +501,8 @@ def main(argv: list[str] | None = None) -> int:
             before_shapes = len(observed["shapes"])
             before_sources = len(observed["sources"])
             before_message_args = len(observed["message_args"])
+            before_contact_args = len(observed["contact_args"])
+            current_utterance[0] = row["metin"]
             proposal_diagnostic(clear=True)
             try:
                 proposal, deterministic_hint = _ask(owner, row["metin"], index)
@@ -451,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
             result["response_shapes"] = observed["shapes"][before_shapes:]
             result["model_source_shapes"] = observed["sources"][before_sources:]
             result["model_message_arg_shapes"] = observed["message_args"][before_message_args:]
+            result["model_contact_arg_shapes"] = observed["contact_args"][before_contact_args:]
             diagnostic = proposal_diagnostic()
             result["proposal_diagnostic"] = {
                 key: diagnostic[key] for key in ("status", "reason_code", "operation")

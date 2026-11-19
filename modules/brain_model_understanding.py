@@ -283,7 +283,13 @@ _BASE_ARGUMENT_SHAPES = {
     "weather.city.set": {"location": "lowercase city name explicitly supplied as the user's new preference", "argument_sources": ["location"]},
     "weather.city.reset": {"arguments": {}, "constraint": "only an explicit request to remove the saved city preference; never infer a reset from weather chat"},
     "message.send": {"recipient": "verbatim recipient name, or empty if missing", "body": "verbatim message, or empty if missing", "argument_sources": ["recipient", "body"]},
-    "contacts.manage": {"operation": ["add", "list"], "name": "verbatim contact name for add", "phone": "verbatim phone number for add", "argument_sources": ["name", "phone"]},
+    "contacts.manage": {
+        "operation": ["add", "list"],
+        "name": "verbatim contact name for add; do not add possessive suffixes to the name argument",
+        "phone": "verbatim phone number as supplied; never infer a country code or extra digits",
+        "argument_sources": ["name", "phone"],
+        "constraint": "For add, quote only the spoken name span and the complete contiguous phone digit span; the phone quotation contains only digits and separators, no surrounding words. argument_sources contains only filled name/phone fields, never operation or extra keys. For list, omit name and phone.",
+    },
     "files.read": {"operation": list(_FILE_OPERATIONS), "target": "language only for translate", "format": ["xlsx", "docx", "pdf"], "constraint": "use file_N reference_slots, never a path; one slot except compare=2..10 and list=0; target only for translate, format only for convert or requested summary/analyze export"},
     "files.mutate": {"operation": ["rename", "move", "create", "undo"], "folder": ["masaüstü", "indirilenler", "belgeler", "resimler"], "name": "verbatim new filename for rename/create", "content": "verbatim content for create, empty for an empty file", "argument_sources": ["name", "content"], "constraint": "rename/move selects one file_N slot; create/undo selects none; never provide path or mutation object; create only desktop/downloads/documents"},
     "watcher.manage": {"watcher": {"operation": ["list", "run_pending", "stop", "add"], "folder": ["jarvis", "downloads", "desktop", "documents", "pictures"], "extensions": [".pdf", ".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".png", ".jpg", ".jpeg", ".webp"], "action": ["notify", "summary", "workbench"], "instruction": "user-requested instruction, required for summary/workbench"}, "constraint": "list/run_pending only operation; stop optional folder; add requires all five fields"},
@@ -1588,7 +1594,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "failed precondition as a reason to clarify, never as a reason to pick another capability. "
             "For capabilities whose allowed.argument_schema lists argument_sources, use an object "
             "mapping each filled named field to the exact words the user said; otherwise set it "
-            "to null. For macro.teach every action must itself quote a contiguous part of the "
+            "to null. For contact additions, quote only the user-spoken contact name and the "
+            "complete digit sequence of the phone number (no surrounding labels or inferred "
+            "country prefix); never include operation in argument_sources. "
+            "For macro.teach every action must itself quote a contiguous part of the "
             "utterance. Use goal=null when no goal card is proposed. "
             "goal_candidates contains this owner's own Core-observed open goals, with id, title, state, progress and priority. "
             "GOAL OUTPUT CONTRACT: For continue_goal, revise_goal, add_task, pause_goal, "
