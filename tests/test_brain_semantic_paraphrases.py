@@ -253,6 +253,10 @@ class ParaphraseScoringTests(unittest.TestCase):
         good = inspect({"name": "Esra", "phone": "532 123 45 67"})
         self.assertTrue(good["name_grounded"])
         self.assertTrue(good["phone_grounded"])
+        self.assertTrue(good["phone_quote_in_utterance"])
+        self.assertTrue(good["phone_value_is_numeric"])
+        self.assertTrue(good["phone_quote_is_numeric"])
+        self.assertTrue(good["phone_digit_match"])
         self.assertTrue(good["sources_valid"])
         self.assertTrue(good["core_format_valid"])
         self.assertFalse(good["source_extra_keys"])
@@ -260,6 +264,10 @@ class ParaphraseScoringTests(unittest.TestCase):
         with_label = inspect({"name": "Esra", "phone": "532 123 45 67 numarasıyla"})
         self.assertTrue(with_label["name_grounded"])
         self.assertFalse(with_label["phone_grounded"])
+        self.assertTrue(with_label["phone_quote_in_utterance"])
+        self.assertTrue(with_label["phone_value_is_numeric"])
+        self.assertFalse(with_label["phone_quote_is_numeric"])
+        self.assertFalse(with_label["phone_digit_match"])
         self.assertFalse(with_label["sources_valid"])
         self.assertTrue(with_label["core_format_valid"])
 
@@ -271,7 +279,15 @@ class ParaphraseScoringTests(unittest.TestCase):
         fake_number = inspect({"name": "Esra", "phone": "532 123 45 67"},
                               {**args, "phone": "532 123 45 68"})
         self.assertFalse(fake_number["phone_grounded"])
+        self.assertTrue(fake_number["phone_quote_in_utterance"])
+        self.assertTrue(fake_number["phone_value_is_numeric"])
+        self.assertTrue(fake_number["phone_quote_is_numeric"])
+        self.assertFalse(fake_number["phone_digit_match"])
         self.assertFalse(fake_number["sources_valid"])
+        out_of_utterance = inspect({"name": "Esra", "phone": "999 999 99 99"})
+        self.assertFalse(out_of_utterance["phone_quote_in_utterance"])
+        self.assertTrue(out_of_utterance["phone_digit_match"])
+        self.assertFalse(out_of_utterance["phone_grounded"])
         malformed_operation = inspect({"name": "Esra", "phone": "532 123 45 67"},
                                       {**args, "operation": []})
         self.assertEqual(malformed_operation["operation_shape"], "invalid")
@@ -280,7 +296,7 @@ class ParaphraseScoringTests(unittest.TestCase):
         self.assertEqual(holdout._contact_grounding_shapes(json.dumps({
             "actions": [{"capability_id": "contacts.manage", "arguments": []}]}), spoken),
             [{"capability": "contacts.manage", "args_shape": "not_object"}])
-        for output in (good, with_label, extra, fake_number):
+        for output in (good, with_label, extra, fake_number, out_of_utterance):
             redacted = json.dumps(output, ensure_ascii=False)
             self.assertNotIn("Esra", redacted)
             self.assertNotIn("532", redacted)

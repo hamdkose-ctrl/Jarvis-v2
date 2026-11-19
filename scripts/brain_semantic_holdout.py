@@ -226,6 +226,20 @@ def _contact_grounding_shapes(raw: str, utterance: str) -> list[dict[str, Any]]:
             return (isinstance(value, str) and isinstance(quote, str)
                     and brain._field_is_grounded(field, value, quote, spoken))
 
+        # Each value is a boolean/closed category, never a source quote or a
+        # phone-number fragment. This diagnoses the *existing* validation rule.
+        phone_value, phone_quote = args.get("phone"), sources.get("phone")
+        value_tokens = brain._span_tokens(phone_value) if isinstance(phone_value, str) else ()
+        quote_tokens = brain._span_tokens(phone_quote) if isinstance(phone_quote, str) else ()
+        quote_in_utterance = bool(quote_tokens and brain._is_contiguous_run(
+            quote_tokens, spoken))
+        value_numeric = bool(value_tokens and all(
+            brain._DIGITS_ONLY.fullmatch(token) for token in value_tokens))
+        quote_numeric = bool(quote_tokens and all(
+            brain._DIGITS_ONLY.fullmatch(token) for token in quote_tokens))
+        phone_digit_match = bool(
+            value_numeric and quote_numeric
+            and "".join(value_tokens) == "".join(quote_tokens))
         operation = args.get("operation")
         if "argument_sources" not in action:
             source_type = "missing"
@@ -246,6 +260,10 @@ def _contact_grounding_shapes(raw: str, utterance: str) -> list[dict[str, Any]]:
             "phone_source_present": "phone" in sources,
             "name_grounded": grounded("name"),
             "phone_grounded": grounded("phone"),
+            "phone_quote_in_utterance": quote_in_utterance,
+            "phone_value_is_numeric": value_numeric,
+            "phone_quote_is_numeric": quote_numeric,
+            "phone_digit_match": phone_digit_match,
             "sources_valid": brain._arguments_are_grounded(
                 capability_id="contacts.manage", supplied=args,
                 sources=raw_sources, text=utterance),
