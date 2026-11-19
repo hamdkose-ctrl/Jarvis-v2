@@ -20,7 +20,8 @@ import time
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import (
-    SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec, speech_pace_note,
+    SPEECH_EARLY_OPEN_CHARS, SpeechRequest, VoiceCatalog, VoiceCoordinator,
+    VoiceSpec, speech_pace_note,
 )
 from modules.voice_edge import EdgePlayer, EdgeSynthesizer
 from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer
@@ -548,13 +549,19 @@ class VoiceLane:
         voice_id = voice_id if isinstance(voice_id, str) else ""
         self.catalog.require(voice_id)  # explicit exact voice; no implicit fallback
         request_id = self.runtime.secrets.token_hex(16)
+        try:
+            from config import load_settings as _fast_load
+            fast_start = bool(_fast_load().get("fast_speech_start", True))
+        except Exception:                       # noqa: BLE001  ayar okunamazsa varsayılan açık davranış
+            fast_start = True
         request = SpeechRequest(owner=owner, request_id=request_id,
                                 voice_id=voice_id, text=text,
                                 lane="background" if background else "foreground",
                                 rate=rate, kind=kind, turn_id=turn_id, event_id=event_id,
                                 goal_id=goal_id, state_version=state_version,
                                 artifact_id=artifact_id,
-                                approval_id=approval_id, ttl_seconds=ttl_seconds)
+                                approval_id=approval_id, ttl_seconds=ttl_seconds,
+                                open_early_at=SPEECH_EARLY_OPEN_CHARS if fast_start else 0)
         done = threading.Event()
         with self._lock:
             if self._closed:

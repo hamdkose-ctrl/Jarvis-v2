@@ -313,6 +313,39 @@ class ChunkedSpeechTests(unittest.TestCase):
         self.assertEqual([voice for voice, _ in calls], ["tr_erkek", "tr_kadin"])
         self.assertEqual(played, [b"audio"])
 
+    def test_open_early_at_opens_a_normal_shortened_reply_at_its_first_sentence(self):
+        text = ("Bugün hava güzel görünüyor, gökyüzü az bulutlu. "
+                "Öğleden sonra rüzgar biraz sert esecek gibi duruyor. "
+                "Akşam saatlerinde yağmur olasılığı düşük ama ihtimal dışı değil.")
+        self.assertGreater(len(text), 120)
+        self.assertLess(len(text), SPEECH_CHUNK_CHARS)
+        parts = split_speech_text(text, open_early_at=120)
+        self.assertEqual(len(parts), 2)
+        self.assertLessEqual(len(parts[0]), SPEECH_FIRST_CHUNK_CHARS)
+        self.assertTrue(parts[0].rstrip().endswith("."))
+        self.assertEqual("".join(parts), text)
+
+    def test_open_early_at_zero_keeps_the_single_call_economy(self):
+        text = ("Bugün hava güzel görünüyor, gökyüzü az bulutlu. "
+                "Öğleden sonra rüzgar biraz sert esecek gibi duruyor. "
+                "Akşam saatlerinde yağmur olasılığı düşük ama ihtimal dışı değil.")
+        self.assertEqual(split_speech_text(text), (text,))
+        self.assertEqual(split_speech_text(text, open_early_at=0), (text,))
+
+    def test_open_early_at_invalid_bounds_are_rejected(self):
+        with self.assertRaises(ValueError):
+            split_speech_text("Merhaba dünya.", open_early_at=31)
+        with self.assertRaises(ValueError):
+            split_speech_text("Merhaba dünya.", open_early_at=12001)
+
+    def test_speech_request_open_early_at_bounds(self):
+        with self.assertRaises(ValueError):
+            SpeechRequest("a", "r1", "tr_kadin", "merhaba", open_early_at=31)
+        with self.assertRaises(ValueError):
+            SpeechRequest("a", "r2", "tr_kadin", "merhaba", open_early_at=True)
+        ok = SpeechRequest("a", "r3", "tr_kadin", "merhaba", open_early_at=120)
+        self.assertEqual(ok.open_early_at, 120)
+
 
 if __name__ == "__main__":
     unittest.main()

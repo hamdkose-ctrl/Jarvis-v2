@@ -20,6 +20,12 @@ SPEECH_CHUNK_CHARS = 600
 # bound. Text that fits one chunk is never re-cut, so a normal reply keeps
 # exactly one provider call.
 SPEECH_FIRST_CHUNK_CHARS = 200
+# Fast speech start (setting fast_speech_start, owner default on): any spoken
+# reply longer than this opens at its first sentence, so the first audio waits
+# for one short sentence instead of the whole shortened reply. The shortened
+# spoken text is capped below SPEECH_CHUNK_CHARS, so without this the ordinary
+# max_chars gate never opens a normal reply early.
+SPEECH_EARLY_OPEN_CHARS = 120
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -74,7 +80,8 @@ def _first_sentence_end(text: str, limit: int) -> int:
 
 
 def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS,
-                      first_max_chars: int = SPEECH_FIRST_CHUNK_CHARS) -> tuple[str, ...]:
+                      first_max_chars: int = SPEECH_FIRST_CHUNK_CHARS,
+                      open_early_at: int = 0) -> tuple[str, ...]:
     """Split a bounded utterance without dropping or rewriting any characters.
 
     Prefer complete sentence ends, then word boundaries, and hard-cut only when
@@ -86,15 +93,24 @@ def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS,
     speaker starts after one short sentence instead of after the whole ordinary
     window has been synthesized. Text that fits one chunk is returned untouched —
     a normal reply still costs exactly one provider call.
+
+    `open_early_at` overrides that single-chunk economy on request: when the
+    text exceeds it (and a worthwhile sentence end exists inside
+    `first_max_chars`), the first sentence opens the utterance early even though
+    the whole text would fit one chunk. The remainder still travels as its own
+    chunk, so joining always reproduces the text exactly.
     """
     if not isinstance(text, str) or not text.strip() or len(text) > 12000:
         raise ValueError("Speech text invalid or too long.")
     for name, value in (("chunk", max_chars), ("first chunk", first_max_chars)):
         if type(value) is not int or not 32 <= value <= 12000:
             raise ValueError(f"Speech {name} size outside supported bounds.")
+    if (type(open_early_at) is not int or not 0 <= open_early_at <= 12000
+            or (0 < open_early_at < 32)):
+        raise ValueError("Speech early-open size outside supported bounds.")
     parts: list[str] = []
     cursor = 0
-    if len(text) > max_chars:
+    if len(text) > max_chars or (open_early_at and len(text) > open_early_at):
         opening = _first_sentence_end(text, min(first_max_chars, max_chars))
         if opening:
             parts.append(text[:opening])
@@ -215,6 +231,7 @@ class SpeechRequest:
     artifact_id: str = ""
     approval_id: str = ""
     ttl_seconds: float = 0.0  # 0 = no expiry; expires audio only, never the written result
+    open_early_at: int = 0  # 0 = one-chunk economy; else open at first sentence above this size
     schema: str = SPEECH_REQUEST_SCHEMA
 
     def __post_init__(self):
@@ -235,6 +252,11 @@ class SpeechRequest:
                 or not isinstance(self.ttl_seconds, (int, float))
                 or not 0 <= self.ttl_seconds <= _MAX_TTL_SECONDS):
             raise ValueError("Speech TTL is outside supported bounds.")
+        if (isinstance(self.open_early_at, bool)
+                or not isinstance(self.open_early_at, int)
+                or not 0 <= self.open_early_at <= 12000
+                or 0 < self.open_early_at < 32):
+            raise ValueError("Speech early-open size is outside supported bounds.")
 
 
 @dataclass(frozen=True)
@@ -584,7 +606,8 @@ class VoiceCoordinator:
 
                 try:
                     self._stage(request, "synthesizing")
-                    for chunk in split_speech_text(request.text):
+                    for chunk in split_speech_text(request.text,
+                                                   open_early_at=request.open_early_at):
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
