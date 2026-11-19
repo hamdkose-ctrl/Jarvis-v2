@@ -1,7 +1,9 @@
 """Actual draft files, Python tests and delivery; only provider/network and full suite are substituted."""
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from modules import developer as dev, goal_executor, llm, nxapi, resource_leases, smart_router as router, task_agents as agents, task_results
@@ -19,7 +21,20 @@ class AdditionTests(unittest.TestCase):
 class CoderRecoveryTests(unittest.TestCase):
     def setUp(self):
         fresh_bundle(self)
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.tmp=tempfile.TemporaryDirectory()
+        # A Windows scanner/process can hold an OS provider-claim file briefly
+        # after the owning context has closed. Keep this cleanup bounded and
+        # strict: only WinError 32 is retried; a persistent leak still FAILS.
+        def cleanup_temp():
+            for attempt in range(20):
+                try:
+                    self.tmp.cleanup()
+                    return
+                except PermissionError as exc:
+                    if os.name != 'nt' or getattr(exc, 'winerror', None) != 32 or attempt == 19:
+                        raise
+                    time.sleep(0.1)
+        self.addCleanup(cleanup_temp)
         self.root=Path(self.tmp.name);self.project=self.root/'project';self.project.mkdir()
         (self.project/'original.py').write_text('untouched = True\n')
         for obj, name, value in [(dev,'PROJECT',self.project),(dev,'STORE',self.root/'dev'),
