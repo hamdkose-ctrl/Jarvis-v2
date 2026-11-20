@@ -12,9 +12,12 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 from modules.diagnostics import record_failure as _record_failure
@@ -44,6 +47,55 @@ _SILENT_MODES = frozenset({"stopped", "paused", "notplaying"})
 
 def _mci_send():
     return ctypes.windll.winmm.mciSendStringW
+
+
+def _ffmpeg_exe():
+    """The decoder used to turn Edge MP3 into plain PCM before playback.
+
+    MCI's ``mpegvideo`` path re-decodes while it plays: measured on this PC, a
+    7.08 s clip took 9.0 s on the speaker (+1.9 s) and the user heard the voice
+    stutter. The same clip as PCM through the existing device writer took 7.48 s
+    (+0.4 s). Returns None when no decoder is installed; the caller then keeps
+    the old MCI player instead of failing or changing the voice.
+    """
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    fallback = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet"
+    if fallback.is_dir():
+        for candidate in sorted(fallback.glob("**/bin/ffmpeg.exe")):
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
+    """Decode one MP3 to a self-contained PCM WAV; any failure keeps MCI."""
+    folder = tempfile.mkdtemp(prefix="jarvis_edge_")
+    source = os.path.join(folder, "speech.mp3")
+    target = os.path.join(folder, "speech.wav")
+    try:
+        with open(source, "wb") as handle:
+            handle.write(audio)
+        completed = subprocess.run(
+            [decoder, "-v", "error", "-nostdin", "-y", "-i", source,
+             "-ac", "1", "-ar", "24000", "-f", "wav", target],
+            capture_output=True, timeout=timeout, check=False,
+        )
+        if completed.returncode or not os.path.isfile(target):
+            return b""
+        with open(target, "rb") as handle:
+            return handle.read()
+    finally:
+        for path in (source, target):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
 
 
 class EdgeSynthesizer:
@@ -153,6 +205,22 @@ class EdgePlayer:
             return
         if not isinstance(audio, bytes) or not audio:
             raise OSError("Edge audio is empty.")
+        # Gapless path first: decode to PCM once, then let the existing device
+        # writer stream it. MCI re-decodes during playback and audibly stutters.
+        decoder = _ffmpeg_exe()
+        if decoder:
+            wave_bytes = _mp3_to_wave(audio, decoder)
+            if wave_bytes:
+                from modules.voice_offline import WavePlayer
+                try:
+                    WavePlayer()(wave_bytes, cancel, on_start)
+                    return
+                except ValueError:
+                    # An unusable decode is not silent success; fall through to MCI
+                    # so the same voice still plays instead of failing the turn.
+                    _record_failure("modules/voice_edge.py:pcm_decode")
+                    if cancel.is_set():
+                        return
         mci = _mci_send()
         path = None
         opened = False
