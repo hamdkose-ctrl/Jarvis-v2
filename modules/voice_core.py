@@ -6,12 +6,15 @@ Ollama, cloud provider, model installer, or OS audio dependency belongs here.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import logging
 import queue
 import threading
 import time
 from typing import Callable
 
 from modules.diagnostics import record_failure as _record_failure
+
+voice_log = logging.getLogger("jarvis")
 
 
 SPEECH_CHUNK_CHARS = 600
@@ -26,6 +29,10 @@ SPEECH_FIRST_CHUNK_CHARS = 200
 # spoken text is capped below SPEECH_CHUNK_CHARS, so without this the ordinary
 # max_chars gate never opens a normal reply early.
 SPEECH_EARLY_OPEN_CHARS = 120
+# A tail shorter than this is not worth a second synthesis and a second player
+# start: the speaker would fall silent to prepare one short leftover word. Keep
+# the answer in ONE chunk instead, so its audio never breaks.
+SPEECH_MIN_TAIL_CHARS = 80
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -111,7 +118,12 @@ def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS,
     cursor = 0
     if len(text) > max_chars or (open_early_at and len(text) > open_early_at):
         opening = _first_sentence_end(text, min(first_max_chars, max_chars))
-        if opening:
+        # Opening a short reply early only pays off when what remains is worth a
+        # second synthesis and a second play. A 128-character answer split at 120
+        # produced an 8-character tail: the speaker went silent to synthesize and
+        # start a whole new chunk for one word. Below the tail floor the answer
+        # stays one chunk, so its audio is continuous.
+        if opening and len(text) - opening >= SPEECH_MIN_TAIL_CHARS:
             parts.append(text[:opening])
             cursor = opening
     while len(text) - cursor > max_chars:
@@ -513,6 +525,21 @@ class VoiceCoordinator:
             return ""
         return reason if isinstance(reason, str) and reason.strip() else "VOICE_VALIDITY_UNKNOWN"
 
+    def _await_prefetch(self, worker: threading.Thread, cancel: threading.Event,
+                        limit: float = 120.0) -> bool:
+        """Wait for the next chunk without ignoring a stop signal or a hung provider.
+
+        A prefetched synthesis runs on its own thread; joining it blindly would
+        make an interruption (or a stuck provider) wait for audio the user already
+        stopped caring about. Returns False when it must not be awaited further.
+        """
+        deadline = time.monotonic() + limit
+        while worker.is_alive():
+            if cancel.is_set() or time.monotonic() >= deadline:
+                return False
+            worker.join(timeout=0.05)
+        return True
+
     def _expired(self, request: SpeechRequest, enqueued_at: float) -> bool:
         return bool(request.ttl_seconds) and self._clock() - enqueued_at >= request.ttl_seconds
 
@@ -605,20 +632,57 @@ class VoiceCoordinator:
 
                 try:
                     self._stage(request, "synthesizing")
-                    for chunk in split_speech_text(request.text,
-                                                   open_early_at=request.open_early_at):
+                    chunks = [chunk for chunk in split_speech_text(
+                        request.text, open_early_at=request.open_early_at) if chunk.strip()]
+                    # Prepare the NEXT chunk while the current one is still on the
+                    # speaker. Synthesizing strictly after each playback ended made
+                    # the voice stop between chunks: the user hears the answer as
+                    # stuttering even though every chunk played completely.
+                    prefetched: dict[int, tuple[threading.Thread, dict]] = {}
+
+                    def synthesize_chunk(chunk: str) -> bytes:
+                        if self._resource_scope is None:
+                            return self._synthesize(spec, chunk, cancel)
+                        with self._resource_scope(request, "tts"):
+                            return self._synthesize(spec, chunk, cancel)
+
+                    def prefetch(index: int) -> None:
+                        if index >= len(chunks) or index in prefetched:
+                            return
+                        box: dict = {}
+
+                        def work() -> None:
+                            try:
+                                box["audio"] = synthesize_chunk(chunks[index])
+                            except BaseException as exc:   # noqa: BLE001 - re-raised below
+                                box["error"] = exc
+
+                        worker = threading.Thread(target=work, daemon=True,
+                                                  name="jarvis-tts-prefetch")
+                        prefetched[index] = (worker, box)
+                        worker.start()
+
+                    prefetch(0)
+                    for position, chunk in enumerate(chunks):
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
-                        if not chunk.strip():
-                            # Pure whitespace is a non-audio separator, never
-                            # an extra Piper invocation or a fake failure.
-                            continue
-                        if self._resource_scope is None:
-                            audio = self._synthesize(spec, chunk, cancel)
+                        pending = prefetched.pop(position, None)
+                        if pending is None:
+                            audio = synthesize_chunk(chunk)
                         else:
-                            with self._resource_scope(request, "tts"):
-                                audio = self._synthesize(spec, chunk, cancel)
+                            worker, box = pending
+                            if not self._await_prefetch(worker, cancel):
+                                if cancel.is_set():
+                                    status, reason = "cancelled", self._cancelled_reason()
+                                    break
+                                # Never claim audio that is still being produced; the
+                                # existing adapter failure path reports it honestly.
+                                status, reason = "failed", "VOICE_PREFETCH_TIMEOUT"
+                                break
+                            if "error" in box:
+                                raise box["error"]
+                            audio = box.get("audio")
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
@@ -640,14 +704,24 @@ class VoiceCoordinator:
                         if invalid:
                             status, reason = "cancelled", invalid
                             break
+                        prefetch(position + 1)
+                        started_at = time.monotonic()
                         if self._resource_scope is None:
                             self._play(audio, cancel, start_notifier(chunk))
                         else:
                             with self._resource_scope(request, "output_device"):
                                 self._play(audio, cancel, start_notifier(chunk))
+                        # Chunk timing is the evidence for a stuttering answer: a
+                        # long play next to its own audio length is a device stall,
+                        # a long prepare is a pipeline gap.
+                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f",
+                                       position + 1, len(chunks), len(chunk),
+                                       (time.monotonic() - started_at) * 1000)
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
+                    for worker, _box in prefetched.values():
+                        worker.join(timeout=0.5)
                     self._notify(request, status, reason, played=announced_start)
                 except Exception as exc:
                     _record_failure('modules/voice_core.py:adapter')

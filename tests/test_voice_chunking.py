@@ -338,6 +338,23 @@ class ChunkedSpeechTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             split_speech_text("Merhaba dünya.", open_early_at=12001)
 
+    def test_a_short_leftover_is_not_split_into_its_own_chunk(self):
+        # 128 karakterlik cevap 120'de bölününce 8 karakterlik kuyruk kalıyordu:
+        # konuşma tek kelime için susup yeniden sentezliyordu.
+        text = ("İstanbul için hava durumu bugün parçalı bulutlu ve 18 derece, akşam "
+                "saatlerinde hafif yağmur bekleniyor efendim. Şemsiyeni al.")
+        self.assertGreater(len(text), 120)
+        self.assertEqual(split_speech_text(text, open_early_at=120), (text,))
+
+    def test_a_worthwhile_tail_still_opens_the_first_sentence_early(self):
+        text = ("İstanbul için hava bugün parçalı bulutlu ve 18 derece. "
+                "Akşam saatlerinde hafif yağmur bekleniyor, yanına şemsiye alman iyi olur "
+                "efendim, çünkü sağanak gece boyunca sürecek gibi görünüyor.")
+        parts = split_speech_text(text, open_early_at=120)
+        self.assertEqual(len(parts), 2)
+        self.assertEqual("".join(parts), text)
+        self.assertGreaterEqual(len(parts[1]), 80)
+
     def test_speech_request_open_early_at_bounds(self):
         with self.assertRaises(ValueError):
             SpeechRequest("a", "r1", "tr_kadin", "merhaba", open_early_at=31)
