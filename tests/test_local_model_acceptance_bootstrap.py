@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -52,6 +53,8 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertNotIn("page.wait_for_timeout(800)", src)
 
 
+    @unittest.skipUnless(importlib.util.find_spec('playwright') is not None,
+                         'Playwright (tarayıcı ajanı) bu kurulumda yok; çekirdek ses/PC kurulumu onsuz çalışır')
     def test_browser_probe_does_not_start_a_second_loop_for_server_owned_by_web(self):
         import runpy
         from types import SimpleNamespace

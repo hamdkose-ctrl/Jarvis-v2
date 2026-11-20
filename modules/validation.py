@@ -28,10 +28,35 @@ def python_timeout():
         return 900
 
 
+def _record_failure(location):
+    """This module's broad catches are recovery paths; each must leave a trace."""
+    from modules import diagnostics
+    diagnostics.record_failure(location)
+
+
 def run_checks(root=None, *, python=None):
     root = Path(root or Path(__file__).resolve().parents[1])
     executable = str(python or sys.executable)
     logs = []
+    # TWO callers reach this suite on one PC: the updater installing a version and
+    # the PC acceptance watcher testing an open PR. Both used to run at once and
+    # fight over the speaker, microphone, resource claims and CPU, so a healthy
+    # tree came back as a failure (issue 679). One machine-wide claim plus a
+    # remembered PASS for the identical tree keeps the suite honest:
+    #   * a tree that already passed does not sit the same exam again;
+    #   * a second caller waits, and when it still cannot own the machine it says
+    #     that no verdict exists instead of publishing a wrong one.
+    # Failures are never remembered, so a red result is always re-earned.
+    from modules import validation_lock
+    key = None
+    try:
+        key = validation_lock.tree_digest(root, executable)
+        remembered = validation_lock.cached_verdict(key)
+    except Exception:            # noqa: BLE001 - cache is never a precondition to test
+        _record_failure('modules/validation.py:cache_lookup')
+        remembered = None
+    if remembered is not None:
+        return True, remembered + '\nAynı kaynak ağacı bu bilgisayarda daha önce doğrulandı; sınav tekrarlanmadı.'
     node = shutil.which('node')
     if not node:
         candidate = Path(os.environ.get('CODEX_PRIMARY_RUNTIME_NODE') or Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe')
@@ -53,12 +78,23 @@ def run_checks(root=None, *, python=None):
         commands += [(str(f.relative_to(root)), [node, '--check', str(f)]) for f in sorted((root / 'webui').rglob('*.js'))]
         commands += [(n, [node, 'tests/' + n + '.js']) for n in JS_GROUPS]
         commands += [(n, [executable, '-X', 'utf8', 'tests/' + n + '.py']) for n in SMOKE_GROUPS]
+        with validation_lock.only_one_run('release-suite', wait_seconds=900) as owned:
+            if not owned:
+                return False, ('Bu bilgisayarda başka bir doğrulama koşumu sürüyor; bu koşum için sonuç '
+                               'üretilmedi (INCONCLUSIVE). Kod kusuru değildir.')
+            return _run_commands(root, commands, executable, logs, key, bool(python))
+    except (OSError, SyntaxError, subprocess.TimeoutExpired) as exc:
+        return False, '\n'.join(logs)[-12000:] + '\nDoğrulama tamamlanmadı: ' + str(exc)
+
+
+def _run_commands(root, commands, executable, logs, key, drop_pythonpath):
+    try:
         with guard.temporary_workspace('jarvis-validation-') as scratch:
             for index, (name, cmd) in enumerate(commands):
                 env = os.environ.copy()
                 env.pop('JARVIS_BOOT_MARKERS', None)
                 env.pop('JARVIS_BOOT_ID', None)
-                if python: env.pop('PYTHONPATH', None)
+                if drop_pythonpath: env.pop('PYTHONPATH', None)
                 env['PYTHONUTF8'] = '1'
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['JARVIS_DATA_DIR'] = str(Path(scratch) / str(index))
@@ -110,7 +146,15 @@ def run_checks(root=None, *, python=None):
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
                         return False, 'Python testleri çalışmadı; doğrulama tamamlanmadı.\n' + output
-        return True, '\n'.join(logs)[-16000:]
+        passed = '\n'.join(logs)[-16000:]
+        if key is not None:
+            # Only a real PASS is remembered; an identical tree cannot contain a new
+            # regression, so re-running the same exam on this PC adds no evidence.
+            try:
+                validation_lock.remember_verdict(key, True, passed)
+            except Exception:     # noqa: BLE001 - caching never decides the verdict
+                _record_failure('modules/validation.py:cache_store')
+        return True, passed
     except subprocess.TimeoutExpired as exc:
         # The old -q + discarded captured output concealed the offending test:
         # CI showed only "timed out after 600 seconds". Verbose unittest names

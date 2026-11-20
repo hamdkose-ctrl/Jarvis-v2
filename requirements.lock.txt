@@ -70,6 +70,7 @@ PyRect==0.2.0
 PyScreeze==1.0.1
 pystray==0.19.5
 python-docx==1.2.0
+python-pptx==1.0.2
 pyttsx3==2.99
 pytweening==1.2.0
 pywin32==312
