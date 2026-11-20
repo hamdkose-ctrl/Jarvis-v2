@@ -388,7 +388,10 @@ class EdgePlayerTests(unittest.TestCase):
         voice_edge.EdgePlayer(poll_seconds=0, grace_seconds=0.05, wait_seconds=1.0)(
             b"mp3", threading.Event(), lambda: started.append(True))   # no raise
         self.assertEqual(started, [True])
-        self.assertEqual(recorded, ["modules/voice_edge.py:mci_close"])
+        # The fake payload is not real MP3, so the optional decode step reports its
+        # own fallback. The seal is about the close outcome, not about that step.
+        self.assertEqual([tag for tag in recorded if not tag.endswith(":decode")],
+                         ["modules/voice_edge.py:mci_close"])
 
     def test_cut_verification_wait_is_bounded_by_accepted_limits(self):
         for bad in (-0.1, 11.0):
