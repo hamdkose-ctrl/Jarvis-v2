@@ -47,6 +47,38 @@ class WebFiles:
                 _INDEXING.clear()
         threading.Thread(target=work, daemon=True, name="belge-dizin").start()
 
+    def file_inventory_run(self, folder: str) -> dict:
+        """Salt-okunur klasör envanteri özeti (Dosyalar › Envanter raporu).
+
+        İzinli kökler file_worker.allowed_roots ile aynıdır; rapor hiçbir dosyaya
+        dokunmaz. Arayüzde köklü yeniden tasarım beklenirken API sözleşmesi
+        sabittir: düğme taşınırsa bu yöntem adları korunur.
+        """
+        from modules import file_inventory
+        report = file_inventory.build_report(str(folder))
+        def row(item: dict) -> dict:
+            return {'name': item.get('name', ''), 'path': item.get('path', ''),
+                    'size': item.get('size', 0), 'ext': item.get('ext', '')}
+        return {'folder': report.folder, 'total_files': report.total_files,
+                'truncated': report.truncated, 'by_extension': dict(report.by_extension),
+                'duplicate_groups': [[row(x) for x in g] for g in report.duplicate_groups],
+                'similar_groups': [[row(x) for x in g] for g in report.similar_name_groups],
+                'empty': [row(x) for x in report.empty_file_candidates],
+                'old': [row(x) for x in report.old_file_candidates],
+                'temp': [row(x) for x in report.temp_name_candidates]}
+
+    def file_inventory_excel(self, folder: str) -> dict:
+        """Envanter raporunu kaynak klasöre yeni bir .xlsx olarak yazar (üzerine yazmaz)."""
+        from modules import file_inventory
+        report = file_inventory.build_report(str(folder))
+        path = file_inventory.export_xlsx(report)
+        return {'path': path, 'total_files': report.total_files,
+                'duplicates': len(report.duplicate_groups),
+                'similar': len(report.similar_name_groups),
+                'empty': len(report.empty_file_candidates),
+                'old': len(report.old_file_candidates),
+                'temp': len(report.temp_name_candidates)}
+
     def file_do(self, path: str, action: str) -> str:
         runtime = self._runtime
         from modules import nxapi
