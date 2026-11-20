@@ -720,6 +720,15 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
     started_steps=len(job['steps'])
+    # A long job used to run silently until its final answer. The user asked to be
+    # spoken to WHILE work happens; the voice lane already accepts a line without
+    # blocking Core, so one honest sentence at the start is enough to prove the
+    # path. Tool-derived step lines follow from the same gate.
+    try:
+        from modules import voice_progress
+        voice_progress.narrate(runtime, job, 'Başlıyorum, üzerinde çalışıyorum.')
+    except Exception:
+        _record_failure('modules/goal_executor.py:narration')
     rejected_plans=0
     rejected_finishes=0
     rejected_sources=0
