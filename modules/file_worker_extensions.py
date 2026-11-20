@@ -127,7 +127,13 @@ def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
                 # PPTX output uses the complete-temp + no-replace path below.
                 writer(payload)
             else:
-                from pptx import Presentation
+                try:
+                    from pptx import Presentation
+                except ImportError as exc:
+                    # A core-only install may lack the optional PowerPoint writer; say
+                    # so in the user's language instead of leaking an ImportError.
+                    raise FileWorkerExtensionError(
+                        "PowerPoint yazıcısı kurulu değil; sunum dosyası oluşturulamadı.") from exc
                 presentation = Presentation()
                 for slide in payload["slides"]:
                     page = presentation.slides.add_slide(presentation.slide_layouts[1])
