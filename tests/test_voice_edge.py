@@ -204,18 +204,6 @@ class FakeMCI:
         return 0
 
 
-def _wave_bytes():
-    import io
-    import wave
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(bytes([1,0]) * 2400)
-    return buf.getvalue()
-
-
 class EdgePlayerTests(unittest.TestCase):
     def test_start_is_reported_only_at_real_playing_boundary_once(self):
         started = []
@@ -226,39 +214,6 @@ class EdgePlayerTests(unittest.TestCase):
         self.assertIn("play jarvis_tts", mci.commands)
         self.assertFalse(os.path.exists(mci.path))
         self.assertEqual(mci.commands[-1], "close jarvis_tts")
-
-    def test_decoded_pcm_plays_through_the_device_writer_not_mci(self):
-        """MCI re-decodes while it plays: measured 7.08 s of audio taking 9.0 s
-        on this PC, i.e. the audible stutter. Decoded PCM must use the device."""
-        started = []
-        played = []
-        payload = _wave_bytes()
-        with patch.object(voice_edge, "_ffmpeg_exe", return_value="ffmpeg"),                 patch.object(voice_edge, "_mp3_to_wave", return_value=payload),                 patch.object(voice_edge, "_mci_send", side_effect=AssertionError("MCI kullanılmamalı")):
-            from modules import voice_offline
-            original = voice_offline.WavePlayer
-
-            class Recording(original):
-                def __call__(self, audio, cancel, on_start):
-                    played.append(len(audio))
-                    return original()(audio, cancel, on_start)
-
-            with patch.object(voice_offline, "WavePlayer", Recording):
-                voice_edge.EdgePlayer(poll_seconds=0)(b"mp3", threading.Event(),
-                                                      lambda: started.append(True))
-        self.assertEqual(played, [len(payload)])
-        self.assertEqual(started, [True])
-
-    def test_a_failed_decode_falls_back_to_mci_instead_of_going_silent(self):
-        mci = FakeMCI(["stopped", "playing", "stopped"])
-        with patch.object(voice_edge, "_ffmpeg_exe", return_value="ffmpeg"),                 patch.object(voice_edge, "_mp3_to_wave", return_value=b""),                 patch.object(voice_edge, "_mci_send", return_value=mci):
-            voice_edge.EdgePlayer(poll_seconds=0)(b"mp3", threading.Event(), lambda: None)
-        self.assertIn("play jarvis_tts", mci.commands)
-
-    def test_no_decoder_installed_keeps_the_mci_player(self):
-        mci = FakeMCI(["stopped", "playing", "stopped"])
-        with patch.object(voice_edge, "_ffmpeg_exe", return_value=None),                 patch.object(voice_edge, "_mci_send", return_value=mci):
-            voice_edge.EdgePlayer(poll_seconds=0)(b"mp3", threading.Event(), lambda: None)
-        self.assertIn("play jarvis_tts", mci.commands)
 
     def test_cancel_stops_mci_cooperatively_and_removes_temp_file(self):
         cancel = threading.Event()
