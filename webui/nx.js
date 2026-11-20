@@ -1594,7 +1594,7 @@ PAGES.files=pg=>{
      <div class="search">${ic('search')}<input id="fq" placeholder="Dosya adında ve belge içinde ara…" value="${esc(S.fq)}"></div><button class="btn" data-act="frefresh" title="Yenile">${ic('refresh')}</button><button class="btn" data-act="fhelp" title="Bu bölüm ne işe yarar, nasıl çalışır">${ic('help')} Nasıl çalışır?</button></div>
     <div class="chips" id="fchips"></div>
     <div class="fgrid"><section class="card" style="padding:14px"><div class="ct" style="margin-bottom:12px">Yapay Zekâ Araçları</div>
-      ${[['green','scan','Kapsamlı Dosya Analizi','İçeriği analiz et, özetle, içgörü çıkar','analiz'],['red','file','PDF → Excel','Tablo verilerini Excel’e dönüştür','excel'],['blue','file','PDF → Word','PDF’i düzenlenebilir Word’e çevir','word'],['purple','chart','Rapor Oluştur','Dosyadan profesyonel rapor hazırla','pdf'],['orange','folder','Klasör Analizi','Klasördeki dosyaları özetle','#folder'],['purple','image','Görselden Metin','Resim ve taramaları metne çevir','metin']]
+      ${[['green','scan','Kapsamlı Dosya Analizi','İçeriği analiz et, özetle, içgörü çıkar','analiz'],['red','file','PDF → Excel','Tablo verilerini Excel’e dönüştür','excel'],['blue','file','PDF → Word','PDF’i düzenlenebilir Word’e çevir','word'],['purple','chart','Rapor Oluştur','Dosyadan profesyonel rapor hazırla','pdf'],['orange','folder','Klasör Analizi','Klasördeki dosyaları özetle','#folder'],['cyan','chart','Klasör Envanteri','Çift/eski/boş dosyaları Excel raporuna yazar','envanter'],['purple','image','Görselden Metin','Resim ve taramaları metne çevir','metin']]
         .map(([c,i,t,s,a])=>`<button class="tool" data-act="ftool" data-a="${a}"><span class="ib ${c}">${ic(i)}</span><span><b>${t}</b><small>${s}</small></span><span class="chev">${ic('chev')}</span></button>`).join('')}</section>
      <section class="card filelist"><div class="fpager" id="fpg"></div><div class="filelist-scroll"><table class="ft"><thead><tr><th>Ad</th><th>Tür</th><th>Boyut</th><th>Tarih</th><th>Yapay Zekâ İşlemleri</th><th></th></tr></thead><tbody id="ftb"><tr><td colspan="6" class="empty">Dosyalar taranıyor…</td></tr></tbody></table></div></section>
      <section class="card detail" id="fdet"></section></div></section>`;
@@ -1672,7 +1672,12 @@ ACT.fhelp=()=>{
 };
 ACT.fmenu=(el,e)=>{e.stopPropagation();const p=el.dataset.p,r=el.getBoundingClientRect();menu(r.left-170,r.bottom+4,[['eye','Aç',()=>api('file_open',p,false)],['folder','Klasörde göster',()=>api('file_open',p,true)],['phone','Telefona gönder',()=>doFile(p,'telefon')],'-',['spark','Özetle',()=>doFile(p,'ozet')],['lang','İngilizceye çevir',()=>doFile(p,'cevir')]])};
 ACT.ftool=el=>{const a=el.dataset.a;if(a==='#folder'){say('İndirilenler klasöründeki dosyaları listele ve kısaca özetle');return}
+  if(a==='envanter')return ACT.finv();
   const f=((S.files&&S.files.files)||[]).find(x=>x.path===S.fsel);if(!f){toast('Önce listeden bir dosya seç.');return}doFile(f.path,a)};
+// SADE: Klasör Envanteri — köklü arayüz yenilemesinde bu düğme/akış taşınabilir;
+// kalıcı sözleşme API adlarıdır: folder_pick + file_inventory_excel (web_files.py).
+ACT.finv=async()=>{const owner=((S.snap||{}).user||{}).slug||((S.snap||{}).user||{}).name;toast('Klasör seçme penceresi açılıyor…');let r=await tryApi('folder_pick');if(r&&r.job){while(r&&r.job){await new Promise(resolve=>setTimeout(resolve,350));const status=await tryApi('ui_job_status',r.job);if(!status)return;if(owner!==(((S.snap||{}).user||{}).slug||((S.snap||{}).user||{}).name))return;if(status.state==='error')return toast(status.error,'bad');if(status.state==='done'){r=status.data;break}}}if(!r||!r.path)return;
+  try{const inv=await tryApi('file_inventory_excel',r.path);if(!inv||!inv.path)return;toast(`Envanter raporu yazıldı: ${inv.path} (çift ${inv.duplicates}, benzer ${inv.similar}, boş ${inv.empty}, eski ${inv.old})`);}catch(e){toast(e.message,'bad')}};
 
 // ======================================================================= GÖRSEL ANALİZ
 PAGES.vision=pg=>{

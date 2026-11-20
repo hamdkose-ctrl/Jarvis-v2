@@ -1,5 +1,7 @@
 # Genel tarama envanteri — kayıtsız caller-zero yüzeyler (19 Kasım 2026)
 
+**Güncelleme (19 Kasım 2026, PR #675 sonrası):** `file_inventory` bağlandı — `web_files.file_inventory_run` / `file_inventory_excel` API sözleşmesi + Dosyalar panelinde "Klasör Envanteri" düğmesi (`webui/nx.js` `ACT.finv`). Kanıt: `tests/test_file_inventory_bridge.py`. Arayüzde köklü yeniden tasarım bekleniyor: düğme taşınabilir, API adları sabit kalır. `finance_watchlist` bağlaması motor komutları (Brain sözleşmesi) istediği için ayrı iş olarak bekliyor; `finance_trade_intent` Hamdi kararıyla mühür sözleşmesi olarak korunuyor (3-b).
+
 Genel tarama (3 tur: architecture guard + AST import analizi + ham metin) `docs/BEKLEYEN_ISLER.md` Paket 5/6 kayıtlarında bulunmayan üretim çağrısı olmayan yüzeyler buldu; kural gereği kayıt tamamlandı. Üçü de **bağlamayı bekleyen sözleşme/özellik** olarak korundu, silinmedi:
 
 - **`modules/file_inventory.py`** — "salt-okunur klasör envanteri + öneri raporu" (yol haritası maddesi). Üretim çağrısı sıfır; tek tüketicisi `tests/test_file_inventory.py` (11 test). Kullanıcı akışına bağlanacak (web/engine komutu) ya da Hamdi kararıyla emekli edilecek.
