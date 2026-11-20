@@ -13,7 +13,11 @@ class MicHardOffTests(unittest.TestCase):
         assert 'mic_cancel = threading.Event()' in MAIN
         assert 'engine.mic_cancel.set()' in WEB
         assert 'engine.mic_cancel.clear()' in WEB
-        assert 'abort=mic_cancel' in MAIN
+        # mic_cancel artık _AnyAbort listelerinde de taşınır: konuşma kabulü (busy)
+        # bekleyen yakalamayı kesmelidir, ama anahtar kapanışı yine en öncelikli iptal
+        # sinyali olarak mic_cancel ile birlikte geçer.
+        assert '_AnyAbort(' in MAIN
+        assert MAIN.count('mic_cancel') >= 5  # Event tanımı + 3 yakalama abort listesi + tanım kullanımları
         assert 'if kind == "listen" and not flags.get("mic", True)' in MAIN
         assert 'if not engine.flags.get("mic", True)' in WEB or "if not engine.flags.get('mic', True)" in WEB
 
