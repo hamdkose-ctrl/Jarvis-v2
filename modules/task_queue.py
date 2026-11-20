@@ -58,10 +58,13 @@ _LAST_TICK_MONOTONIC=0.0
 # re-check per second loses nothing; an explicit wake (a new job) still pulls
 # the next pass forward through _SCHEDULER_WAKE.
 _OWNER_MIN_SECONDS=1.0
+_FORCED_WAKE_AT=0.0
 _DONE_REPORTED=set()
 
 
 def wake_scheduler():
+    global _FORCED_WAKE_AT
+    _FORCED_WAKE_AT=time.monotonic()
     """Request a prompt rescan of the one Scheduler after journal commit."""
     _SCHEDULER_WAKE.set()
 
@@ -501,7 +504,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
             # queue's own due-time granularity; otherwise the pool turns into a
             # thread-per-millisecond spinner (see _OWNER_MIN_SECONDS).
             if (time.monotonic()-_LAST_ADMITTED.get(owner, 0.0) < _OWNER_MIN_SECONDS
-                    and not _SCHEDULER_WAKE.is_set()):
+                    and time.monotonic()-_FORCED_WAKE_AT >= _OWNER_MIN_SECONDS):
                 return False
 
             def work():

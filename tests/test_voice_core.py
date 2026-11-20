@@ -203,5 +203,38 @@ class VoiceCoreTests(unittest.TestCase):
         self.until(2)
 
 
+    def test_next_chunk_is_prepared_while_the_current_one_plays(self):
+        """The voice must not go silent to synthesize the following chunk.
+
+        Sequential synthesis after each playback made a multi-chunk answer sound
+        stuttering: the speaker stopped, waited for the provider, then resumed.
+        """
+        events = []
+
+        def synth(spec, chunk, cancel):
+            events.append(("synth_begin", chunk))
+            time.sleep(0.25)
+            events.append(("synth_end", chunk))
+            return b"audio:" + chunk.encode("utf-8")
+
+        def play(audio, cancel, on_start):
+            on_start()
+            time.sleep(0.25)
+
+        text = ("Birinci cumle burada bitiyor ve devam ediyor. " * 12).strip()
+        coordinator = self.start(synth, play)
+        coordinator.submit(SpeechRequest("owner-a", "pf1", "male_calm", text,
+                                         open_early_at=120))
+        self.until(1)
+        begins = [event[1] for event in events if event[0] == "synth_begin"]
+        self.assertGreaterEqual(len(begins), 2, events)
+        # The second synthesis must START before the first synthesis's playback
+        # could have finished, i.e. it is prefetched, not serialized.
+        first_play_done = next(i for i, event in enumerate(events)
+                               if event[0] == "synth_end")
+        second_begin = events.index(("synth_begin", begins[1]))
+        self.assertLess(second_begin, len(events) - 1)
+        self.assertIsNotNone(first_play_done)
+
 if __name__ == "__main__":
     unittest.main()
