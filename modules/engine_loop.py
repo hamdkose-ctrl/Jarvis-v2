@@ -98,12 +98,11 @@ def _capture_manual_voice(runtime, voice_session):
         if _speech_blocks_mic(voice_session):
             raise ValueError("Jarvis konuşurken mikrofon açılmadı; sesi tekrar durdur.")
         runtime.emit("state", "listening")
-        _lane = getattr(voice_session, "voice_lane", None)
+        # Foreground push-to-talk is not a background listener: a queued notice waits
+        # for this capture instead of cutting the user's own recording. Only the real
+        # cancel signals abort it, so the one-physical-lock seal stays intact.
         return runtime.voice.capture(
-            timeout=6, verbose=True, abort=runtime._AnyAbort(
-                runtime.mic_cancel,
-                *((_lane.busy_event,) if _lane is not None else ()),
-            ),
+            timeout=6, verbose=True, abort=runtime.mic_cancel,
             on_captured=(lambda: runtime.emit("state", "thinking"))
             if voice_session.manual_local_stt else None,
         )
