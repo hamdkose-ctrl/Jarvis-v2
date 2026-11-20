@@ -17,6 +17,24 @@ from modules.diagnostics import record_failure as _record_failure
 voice_log = logging.getLogger("jarvis")
 
 
+def _device_timing(player) -> str:
+    """The adapter's own boundary durations, when it reports any.
+
+    Splitting play time into device open and player wait is what tells a real
+    device stall apart from a pipeline gap; without it every latency fix is a
+    guess that can make the sound worse.
+    """
+    timing = getattr(player, "last_timing", None)
+    if not isinstance(timing, dict):
+        return ""
+    parts = []
+    for name in ("open_ms", "wait_ms"):
+        value = timing.get(name)
+        if isinstance(value, (int, float)):
+            parts.append(f"{name}={value:.0f}")
+    return " ".join(parts)
+
+
 SPEECH_CHUNK_CHARS = 600
 # A long answer must not wait for 600 characters to be synthesized before the
 # first sound: its opening chunk stops at the first sentence end inside this
@@ -714,9 +732,10 @@ class VoiceCoordinator:
                         # Chunk timing is the evidence for a stuttering answer: a
                         # long play next to its own audio length is a device stall,
                         # a long prepare is a pipeline gap.
-                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f",
+                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s",
                                        position + 1, len(chunks), len(chunk),
-                                       (time.monotonic() - started_at) * 1000)
+                                       (time.monotonic() - started_at) * 1000,
+                                       _device_timing(self._play))
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break

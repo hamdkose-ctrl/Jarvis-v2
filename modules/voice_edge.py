@@ -147,6 +147,10 @@ class EdgePlayer:
         self._grace = grace_seconds
         self._wait_seconds = wait_seconds
         self._stop_verify = stop_verify_seconds
+        # The last real playback boundary durations, for the caller's receipt.
+        # Without them a "stuttering voice" cannot be split into device open,
+        # player wait or synthesis, so every fix is a guess.
+        self.last_timing: dict[str, float] = {}
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         if cancel.is_set():
@@ -161,14 +165,19 @@ class EdgePlayer:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(audio)
             mci("close jarvis_tts", None, 0, 0)  # best-effort stale alias cleanup
+            opened_at = time.monotonic()
             code = mci(f'open "{path}" type mpegvideo alias jarvis_tts', None, 0, 0)
             if code:
                 raise OSError(f"Windows ses çalma başlatılamadı (MCI hata kodu: {code}).")
             opened = True
+            open_ms = (time.monotonic() - opened_at) * 1000
             code = mci("play jarvis_tts", None, 0, 0)
             if code:
                 raise OSError(f"Windows ses oynatma başarısız (MCI hata kodu: {code}).")
+            wait_at = time.monotonic()
             self._wait(mci, cancel, on_start)
+            self.last_timing = {"open_ms": open_ms,
+                                "wait_ms": (time.monotonic() - wait_at) * 1000}
         finally:
             if opened:
                 # A refused close leaves the alias allocated; the next open's
