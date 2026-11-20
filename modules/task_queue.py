@@ -41,6 +41,24 @@ _DAILY_NOTIFY_THREAD=None
 # bypasses per-owner Core leases, request cancellation or planner fences.
 _SCHEDULER_WAKE=threading.Event()
 _SCHEDULER_TICK_SECONDS=5.0
+# A finished worker must pull the next tick forward, but never into a spin. The
+# registry keeps a dead worker until the next loop pass pops it, and that same
+# pass admits a fresh worker; without a floor those two facts re-trigger each
+# other hundreds of times per second. Measured on the live PC: the scheduler
+# thread burned ~50% CPU while idle, every scan globbing the store and polling
+# outbox/sources, which starved the model call and the speech synthesis
+# (issue 679 follow-up: 'en basit işlem 10 sn'). One floor bounds the loop rate
+# to <= 5 passes/second and changes no admission decision.
+_LOOP_FLOOR_SECONDS=0.2
+_LAST_TICK_MONOTONIC=0.0
+# An owner tick that finds nothing finishes in milliseconds. Re-admitting that
+# owner immediately spawns the next OS thread, which dies just as fast, so the
+# 5 s scan decays into a 4-passes-per-second scan: measured ~50% CPU while idle
+# and 50+ threads alive. Queue rows carry second-granularity due times, so one
+# re-check per second loses nothing; an explicit wake (a new job) still pulls
+# the next pass forward through _SCHEDULER_WAKE.
+_OWNER_MIN_SECONDS=1.0
+_DONE_REPORTED=set()
 
 
 def wake_scheduler():
@@ -56,6 +74,15 @@ def _wait_for_scheduler_tick(stop_event):
     wait for another tick; probing only up to seven OS thread states is cheap
     and never releases the in-flight claim of a still-running provider.
     """
+    global _LAST_TICK_MONOTONIC
+    now=time.monotonic()
+    gap=now-_LAST_TICK_MONOTONIC
+    if 0<=gap<_LOOP_FLOOR_SECONDS:
+        # The previous pass just finished; a dead worker in the registry is not
+        # permission to run the whole scan again immediately.
+        if stop_event.wait(_LOOP_FLOOR_SECONDS-gap):
+            return False
+    _LAST_TICK_MONOTONIC=time.monotonic()
     deadline=time.monotonic()+_SCHEDULER_TICK_SECONDS
     while not stop_event.is_set():
         left=deadline-time.monotonic()
@@ -64,10 +91,29 @@ def _wait_for_scheduler_tick(stop_event):
         if _SCHEDULER_WAKE.wait(timeout=min(0.25,left)):
             _SCHEDULER_WAKE.clear()
             return not stop_event.is_set()
-        if (any(not worker.is_alive() for worker in tuple(_CANONICAL_WORKERS.values()))
-                or any(not worker.is_alive() for worker in tuple(_OWNER_TICKS.values()))):
+        if _reap_finished_workers():
             return not stop_event.is_set()
     return False
+
+
+def _reap_finished_workers():
+    """Return True only for a worker finishing for the FIRST time.
+
+    A dead entry stays in its registry until the next pass pops it, so a bare
+    ``is_alive()`` test reports the same finished worker over and over and
+    collapses the 5 s scan into a spin. Marking each finished worker once keeps
+    the prompt slot release the docstring promises without the repetition.
+    """
+    fresh=False
+    for registry in (_CANONICAL_WORKERS, _OWNER_TICKS):
+        for key, worker in tuple(registry.items()):
+            ident=id(worker)
+            if worker.is_alive():
+                _DONE_REPORTED.discard(ident)
+            elif ident not in _DONE_REPORTED:
+                _DONE_REPORTED.add(ident)
+                fresh=True
+    return fresh
 
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
 RUN_NOW_STATES=frozenset({'queued','paused'})
@@ -450,6 +496,12 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 if not worker.is_alive():
                     _OWNER_TICKS.pop(name, None)
             if owner in _OWNER_TICKS or len(_OWNER_TICKS) >= _MAX_OWNER_WORKERS:
+                return False
+            # A tick that found nothing must not be restarted faster than the
+            # queue's own due-time granularity; otherwise the pool turns into a
+            # thread-per-millisecond spinner (see _OWNER_MIN_SECONDS).
+            if (time.monotonic()-_LAST_ADMITTED.get(owner, 0.0) < _OWNER_MIN_SECONDS
+                    and not _SCHEDULER_WAKE.is_set()):
                 return False
 
             def work():
