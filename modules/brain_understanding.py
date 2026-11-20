@@ -1914,6 +1914,10 @@ def _looks_like_location_answer(text: str) -> bool:
     raw = text.strip()
     if not raw or any(mark in raw for mark in "?!,;:"):
         return False
+    # Bir şehir adı büyük harfle başlamak zorunda değildir: yazılı cevap ve ses
+    # tanıma küçük harfli tekil belirtir ("istanbul"). Ayrımcı harf case'i değil
+    # kapanmış sohbet/soru sözcüğü kümesidir; sıradan kısa sohbet cümlesi
+    # ("merhaba nasılsın") konum cevabı sayılmaz.
     words = raw.split()
     if not 1 <= len(words) <= 2:
         return False
@@ -1921,9 +1925,21 @@ def _looks_like_location_answer(text: str) -> bool:
         pieces = re.split(r"[-']", word)
         if not pieces:
             return False
-        for piece in pieces:
-            if not piece or not piece.isalpha() or not piece[0].isupper():
+        for index, piece in enumerate(pieces):
+            piece = piece.strip(" .,;:!?'\"")
+            if not piece or not piece.isalpha():
                 return False
+            low = _norm(piece)
+            if index == 0:
+                if not 3 <= len(low) <= 30:
+                    return False
+                if (low in _ANSWER_CONTROL or low in _CITY_FUNCTION_WORDS
+                        or low in _CITY_INTERROGATIVE):
+                    return False
+                if low.startswith(_CITY_QUESTION_STEMS):
+                    return False
+                if low.endswith(_CITY_NON_NAME_SUFFIXES):
+                    return False
     return True
 
 

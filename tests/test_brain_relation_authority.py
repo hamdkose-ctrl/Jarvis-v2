@@ -1031,6 +1031,24 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         self.assertEqual(out, "HAVA")
         self.assertIs(session.pending_weather_location, False)
 
+    def test_lowercase_typed_city_answer_reaches_the_weather_owner(self):
+        # Yazılı ve sesli cevap küçük harfli tekil belirtir ("istanbul");
+        # konum adı büyük/küçük harfe duyarlı değildir.
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("istanbul")
+        self.assertFalse(entry.fast_gate is not None and entry.fast_gate.matched)
+        self.ctx._weather.assert_called_once_with("istanbul")
+        self.assertEqual(out, "HAVA")
+        self.assertIs(session.pending_weather_location, False)
+
+    def test_bounded_chat_words_are_not_location_answers(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("evet")
+        self.ctx._weather.assert_not_called()
+        self.assertIs(session.pending_weather_location, True)
+
 
 class PlanEligibilityTests(_CanonicalTurnHarness):
     """Pending slot varlığı relation authority değildir.
