@@ -443,7 +443,15 @@ class VoiceSession:
                 # the follow-up microphone over Jarvis's own unconfirmed audio.
                 if should_stop():
                     return True
-                raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel))
+                _lane = getattr(self, "voice_lane", None)
+                # The speech lane's busy signal must cut this capture mid-wait
+                # (same rule as the in-session capture below): otherwise the
+                # capture holds audio_lock for its full timeout and the speech
+                # admission's before_play waits out every silent second.
+                raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(
+                    runtime.pause_listening, runtime.mic_cancel,
+                    *((_lane.busy_event,) if _lane is not None else ()),
+                ))
             again = runtime.voice.recognize(raw or b"", announce_fail=False)
             cmd = runtime._strip_wake(again or "")
             audio = audio or (b"x" if again else b"")
@@ -595,7 +603,11 @@ class VoiceSession:
                         if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
                                 or self.speech_blocks_mic():
                             continue
-                        raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime.mic_cancel)
+                        _lane = getattr(self, "voice_lane", None)
+                        raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime._AnyAbort(
+                            runtime.mic_cancel,
+                            *((_lane.busy_event,) if _lane is not None else ()),
+                        ))
                     cmd = runtime.voice.recognize(raw or b"", announce_fail=True)
                 except Exception:
                     runtime._record_failure('main.py:listen_for_wake_word')
