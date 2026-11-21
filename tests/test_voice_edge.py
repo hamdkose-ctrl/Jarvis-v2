@@ -451,3 +451,17 @@ class PcmSinkTests(unittest.TestCase):
         self.assertGreater(sonuc[0]["underruns"], 0)            # cihaz tükendi, ölçüldü
         self.assertEqual(ikinci["open_ms"], 0)                  # ikinci cümle beklemez
         sink.close()
+
+
+class PcmSinkIdleTests(unittest.TestCase):
+    """Boşta kapatma çalma sürerken devreye giremez (canlıda sesi kesti)."""
+
+    def test_idle_timer_never_closes_an_active_playback(self):
+        sink = voice_edge.PcmSink(idle_seconds=0.01)
+        sink._playing = True
+        sink._touch()
+        self.assertIsNone(sink._timer)          # çalarken zamanlayıcı kurulmaz
+        sink._playing = False
+        sink._touch()
+        self.assertIsNotNone(sink._timer)       # bitince kurulur
+        sink.close()

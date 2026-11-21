@@ -325,6 +325,15 @@ class PcmSink:
         audio_ms = len(pcm) / (channels * 2) / max(rate, 1) * 1000
         tamam = self._finished.wait(timeout=audio_ms / 1000 + 3.0)
         gecen = (time.monotonic() - basladi) * 1000
+        with self._lock:
+            if not tamam:
+                # Akış beklenmedik şekilde durdu: cihazı bırak, sonraki cümle
+                # yeniden açsın. Sessiz kalmaktansa yeniden açmak doğrudur.
+                _record_failure("modules/voice_edge.py:sink_timeout")
+                self._playing = False
+                self.close()
+            else:
+                self._touch()
         timing = {"open_ms": open_ms, "wait_ms": gecen, "audio_ms": audio_ms,
                   "underruns": self._underflows}
         if tamam and audio_ms:
@@ -332,11 +341,23 @@ class PcmSink:
         return timing
 
     def _touch(self) -> None:
+        # Boşta kapatma yalnız çalma BİTMİŞSE kurulur. Canlı hata: zamanlayıcı
+        # 4 sn'de bir çalma sürerken akışı kapatıyordu; ses ortada kesiliyor ve
+        # çalma süresi ses + 3.000 ms (zaman aşımı) olarak görünüyordu.
         if self._timer is not None:
             self._timer.cancel()
-        self._timer = threading.Timer(self.idle_seconds, self.close)
+            self._timer = None
+        if self._playing:
+            return
+        self._timer = threading.Timer(self.idle_seconds, self._idle_close)
         self._timer.daemon = True
         self._timer.start()
+
+    def _idle_close(self) -> None:
+        with self._lock:
+            if self._playing:
+                return
+            self.close()
 
     def close(self) -> None:
         if self._timer is not None:
