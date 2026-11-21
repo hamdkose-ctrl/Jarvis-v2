@@ -146,6 +146,13 @@ def _sys_prompt(runtime, command: str = "") -> str:
         base += (" " + advisory_router.prompt_for(command, load_settings())).strip()
     except Exception:
         runtime._record_failure("modules/engine_tools.py:_sys_prompt")
+    # Saat/tarih sorusu araca bağlı değil: model anlık zamanı bilmezse "araç
+    # sonucu yok, onay verir misin" diye cevap veriyordu (canlı, 22 Kasım).
+    import datetime
+    simdi = datetime.datetime.now()
+    gunler = ('Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar')
+    base += (f' Şu anki tarih ve saat: {simdi:%d.%m.%Y %H:%M}, {gunler[simdi.weekday()]}. '
+             'Saat veya tarih sorulursa bu bilgiyi doğrudan söyle; izin isteme, araç sonucu bekleme.')
     base += (' Bu yanıt yalnızca sohbet metnidir; bu yolda bilgisayar işlemi, dosya değişikliği veya arka plan görevi çalıştırılmaz. '
              'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Desteklenmeyen eylemde sınırı açıkla; '
              'belirsiz hedefte tek net soru sor. Yalnızca gerçekten ürettiğin metni/kodu hazır olarak sunabilirsin.')
