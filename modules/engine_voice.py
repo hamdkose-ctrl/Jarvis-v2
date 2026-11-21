@@ -325,21 +325,27 @@ class VoiceSession:
         # engine owns it under audio_lock. Opening this second stream outside that
         # lock let a background notice start capturing while a push-to-talk or web
         # recording was already running: two PortAudio streams on one device, with
-        # the speaker feeding Jarvis's own wake model. Listening in short slices
-        # keeps the handover bounded — wait returns within one frame of the stop
-        # signal, the recorder wins the lock between slices, and the watch resumes.
+        # the speaker feeding Jarvis's own wake model.
+        #
+        # This watch opens the device ONCE for the whole utterance. It used to open
+        # and close it in 2-second slices so a recorder could win the lock between
+        # slices, but no recorder may open the microphone while the speaker is
+        # carrying audio (`_capture_manual_voice` refuses it), so those slices
+        # bought nothing and cost the user fluency: measured 21 Kasım on this PC,
+        # the same answer played 1.03x with one open stream and 1.16x when the
+        # stream was closed and reopened every 2 seconds — the user heard it as
+        # "mikrofon devreye girince kesiliyor". A single open keeps the wake model
+        # running (same 0.65 threshold) and the stop signal is still honoured
+        # within one frame by `wakeword.wait`.
         deadline = runtime.time.time() + 600
         hit = None
         try:
-            while not stopped() and runtime.time.time() < deadline:
-                with runtime.audio_lock:
-                    if stopped():
-                        break
+            with runtime.audio_lock:
+                if not stopped():
                     with _physical_mic_claim():
-                        hit = wakeword.wait(stopped, capture=False, max_seconds=2.0,
+                        hit = wakeword.wait(stopped, capture=False,
+                                            max_seconds=max(0.1, deadline - runtime.time.time()),
                                             min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
-                if hit is not None:
-                    break
         except Exception:
             runtime._record_failure('main.py:_barge_watch')
             return

@@ -125,6 +125,8 @@ def _output_endpoint() -> str:
         import sounddevice as sd
         name = str(sd.query_devices(kind="output").get("name") or "")[:48]
     except Exception:
+        # Aygıt adı yalnız kanıt alanıdır; okunamazsa cevap yine çalınır.
+        _record_failure("modules/voice_edge.py:endpoint")
         name = ""
     _endpoint = (now, name)
     return name
