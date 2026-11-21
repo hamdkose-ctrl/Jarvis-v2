@@ -35,6 +35,46 @@ def _device_timing(player) -> str:
     return " ".join(parts)
 
 
+def _cpu_window():
+    """Snapshot who is burning this process's CPU for the next chunk.
+
+    The voice plays smoothly in an isolated harness but stutters inside the live
+    app, and the user sees CPU reach 100% exactly then. Wall time alone cannot
+    say whether the player is starved by this process or by the provider, so the
+    chunk records real CPU time and the busiest threads of the same window.
+    """
+    snapshot = {"cpu": time.process_time(), "threads": {}, "names": {}}
+    try:
+        import psutil
+        process = psutil.Process()
+        snapshot["threads"] = {t.id: t.user_time + t.system_time for t in process.threads()}
+        snapshot["names"] = {t.native_id: t.name for t in threading.enumerate() if t.native_id}
+    except ImportError:
+        snapshot["threads"] = {}
+    return snapshot
+
+
+def _cpu_report(before: dict, started_at: float) -> str:
+    """CPU time and the busiest threads consumed by the chunk that just ended."""
+    wall_ms = (time.monotonic() - started_at) * 1000
+    cpu_ms = (time.process_time() - before.get("cpu", 0.0)) * 1000
+    parts = [f"cpu_ms={cpu_ms:.0f}", f"wall_ms={wall_ms:.0f}"]
+    try:
+        import psutil
+        now = {t.id: t.user_time + t.system_time for t in psutil.Process().threads()}
+    except ImportError:
+        now = {}
+    previous = before.get("threads") or {}
+    names = before.get("names") or {}
+    if now and previous:
+        hot = sorted(((now[tid] - previous.get(tid, 0.0)) / max(wall_ms / 1000, 0.001) * 100, tid)
+                     for tid in now)
+        top = [f"{names.get(tid, 'tid' + str(tid))} %{pct:.0f}" for pct, tid in reversed(hot[-2:]) if pct >= 1]
+        if top:
+            parts.append("en çok: " + ", ".join(top))
+    return " ".join(parts)
+
+
 SPEECH_CHUNK_CHARS = 600
 # A long answer must not wait for 600 characters to be synthesized before the
 # first sound: its opening chunk stops at the first sentence end inside this
@@ -724,6 +764,7 @@ class VoiceCoordinator:
                             break
                         prefetch(position + 1)
                         started_at = time.monotonic()
+                        cpu_before = _cpu_window()
                         if self._resource_scope is None:
                             self._play(audio, cancel, start_notifier(chunk))
                         else:
@@ -731,11 +772,13 @@ class VoiceCoordinator:
                                 self._play(audio, cancel, start_notifier(chunk))
                         # Chunk timing is the evidence for a stuttering answer: a
                         # long play next to its own audio length is a device stall,
-                        # a long prepare is a pipeline gap.
-                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s",
+                        # a long prepare is a pipeline gap, and a chunk that burns
+                        # a whole core of CPU time explains why the device starves.
+                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s %s",
                                        position + 1, len(chunks), len(chunk),
                                        (time.monotonic() - started_at) * 1000,
-                                       _device_timing(self._play))
+                                       _device_timing(self._play),
+                                       _cpu_report(cpu_before, started_at))
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
