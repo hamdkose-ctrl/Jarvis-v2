@@ -421,7 +421,7 @@ class ModularEngineTests(unittest.TestCase):
             seen.append(value)
             return value
 
-        session.voice_lane = SimpleNamespace(is_busy=is_busy,
+        session.voice_lane = SimpleNamespace(audible=is_busy,
                                             receipt_is_current=lambda done: True,
                                             outstanding_receipts=lambda owner: ())
 
