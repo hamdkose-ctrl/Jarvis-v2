@@ -27,6 +27,23 @@ def report_path() -> Path:
     return config.DATA_DIR / 'router' / 'qualify_report.json'
 
 
+def _explain(report: dict, code: str) -> str:
+    """Adı değil nedeni yaz: "route_unavailable" tek başına kullanıcıya hiçbir şey söylemez.
+
+    Metin yalnız kapalı sözlükten gelir (sağlayıcı adı, reason_code, sabit cümle);
+    sağlayıcı yanıtı, anahtar veya dosya yolu yazılmaz.
+    """
+    raw = ' '.join(str(report.get('reason') or '').split())
+    if 'PROVIDER_FREE_ACCOUNT_UNCONFIRMED' in raw:
+        return ('Ayarlar → Yapay Zekâ ekranındaki "Hazır bulut hesaplarım ücretsiz planda; '
+                'ücretli faturalama kapalı" beyanı kayıtlı değil, bu yüzden ücretsiz havuza '
+                'hiçbir sağlayıcı girmiyor. Beyanı işaretleyip Tercihi Kaydet’e bas, sonra '
+                'doğrulamayı yeniden başlat')
+    if raw:
+        return f'{raw[:240]} ({code})' if code else raw[:240]
+    return code or 'neden bildirilmedi'
+
+
 def _qualified() -> bool:
     """Same evidence gate the runtime uses; any error means not qualified, never assume."""
     try:
@@ -86,9 +103,9 @@ def prepare() -> dict:
                 else:
                     _state['last_state'] = str(report.get('state') or 'unmeasured')
                     if _state['last_state'] != 'passed':
-                        reason = (report.get('stop_reason') or report.get('reason_code')
-                                  or report.get('reason') or '')
-                        _state['error'] = ('Doğrulama tamamlanamadı' + (f': {reason}.' if reason else '.'))
+                        code = str(report.get('stop_reason') or report.get('reason_code') or '')
+                        _state['error'] = ('Doğrulama tamamlanamadı: '
+                                           + _explain(report, code) + '.')
                         _state['done'] = int(report.get('cases') or _state['done'])
         except Exception as exc:
             # Type name only: never surface provider text, paths of keys or tracebacks to the UI.
