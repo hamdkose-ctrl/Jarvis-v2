@@ -191,6 +191,26 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(is_sequenced(text),
                              sequence_steps(text) != () or text.startswith("önce"), text)
 
+    def test_lowercase_city_answer_completes_the_weather_question_without_a_provider(self):
+        """Sağlayıcı düşse bile şehir cevabı bitmeli.
+
+        Canlı kanıt (21 Kasım 09:48): Gemini sözleşmeden, Groq 413'ten döndü; tur
+        'güvenli biçimde doğrulayamadım' ile bitti. Oysa slot kapalı sözlükle
+        ayrılabiliyor: 'istanbul' konumdur, 'hava nasıl'/'merhaba' değildir.
+        """
+        self.state.pending_weather_location = True
+        with patch("modules.engine_intents.dispatch", return_value="İstanbul: parçalı bulutlu") as dispatch:
+            answered = core_brain_adapter._pending_weather_answer(self.runtime, "istanbul")
+        self.assertEqual(answered, "İstanbul: parçalı bulutlu")
+        self.assertEqual(dispatch.call_args.args[1:3], ("weather", {"location": "İstanbul"}))
+        self.assertFalse(self.state.pending_weather_location)
+        # Şehir olmayan cevap bu yolu kullanmaz: açık soru açık kalır.
+        self.state.pending_weather_location = True
+        with patch("modules.engine_intents.dispatch") as dispatch2:
+            self.assertIsNone(core_brain_adapter._pending_weather_answer(self.runtime, "hava nasıl"))
+        dispatch2.assert_not_called()
+        self.assertIs(self.state.pending_weather_location, True)
+
     def test_weather_request_is_not_captured_by_an_open_location_question(self):
         self.state.pending_weather_location = True
         entry, output, feedback, handler, dispatch = self.run_turn("hava nasıl")
