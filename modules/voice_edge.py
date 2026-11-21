@@ -100,6 +100,20 @@ def _winsound():
     return winsound
 
 
+# Edge TTS kendi cevabına uzun sessizlikler koyuyor: aynı cevapta ölçüldü
+# (21 Kasım) başta 0.42 sn, cümleler arasında 1.33 sn, sonda 1.08 sn — 11.42 sn'lik
+# sesin 2.8 sn'si sessizlik. Kullanıcı bunu "aralarda fazla duruyor" diye duyuyor.
+# Kırpma konuşmayı değiştirmez: yalnız -40 dB altındaki boşluklar, iç boşluk en çok
+# 0.30 sn kalacak şekilde kısaltılır (baş/son tamamen alınır).
+_SILENCE_TRIM = (
+    "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB:detection=peak,"
+    "silenceremove=stop_periods=-1:stop_duration=0.30:stop_threshold=-40dB:detection=peak,"
+    "areverse,"
+    "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB:detection=peak,"
+    "areverse"
+)
+
+
 def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
     """Decode one MP3 to a self-contained PCM WAV; any failure keeps the MP3 path."""
     folder = tempfile.mkdtemp(prefix="jarvis_edge_")
@@ -108,16 +122,19 @@ def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
     try:
         with open(source, "wb") as handle:
             handle.write(audio)
-        completed = subprocess.run(
-            [decoder, "-v", "error", "-nostdin", "-y", "-i", source,
-             "-ac", "1", "-ar", "24000", "-f", "wav", target],
-            capture_output=True, timeout=timeout, check=False,
-        )
-        if completed.returncode or not os.path.isfile(target):
-            _record_failure("modules/voice_edge.py:decode")
-            return b""
-        with open(target, "rb") as handle:
-            return handle.read()
+        for chain in (_SILENCE_TRIM, None):
+            args = [decoder, "-v", "error", "-nostdin", "-y", "-i", source]
+            if chain:
+                args += ["-af", chain]
+            args += ["-ac", "1", "-ar", "24000", "-f", "wav", target]
+            completed = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+            if not completed.returncode and os.path.isfile(target) and os.path.getsize(target) > 44:
+                with open(target, "rb") as handle:
+                    return handle.read()
+        # Kırpma da düz çözme de başarısızsa MP3 yolu korunur; sessizlik kırpılamadı
+        # diye cevabı kaybetmek yanlış olur.
+        _record_failure("modules/voice_edge.py:decode")
+        return b""
     except (OSError, subprocess.SubprocessError):
         _record_failure("modules/voice_edge.py:decode_error")
         return b""
