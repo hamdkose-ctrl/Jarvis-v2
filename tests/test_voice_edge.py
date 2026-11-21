@@ -458,10 +458,10 @@ class PcmSinkIdleTests(unittest.TestCase):
 
     def test_idle_timer_never_closes_an_active_playback(self):
         sink = voice_edge.PcmSink(idle_seconds=0.01)
-        sink._playing = True
+        sink._job = {"pcm": b"", "pos": 0, "cancel": None, "on_start": None}
         sink._touch()
         self.assertIsNone(sink._timer)          # çalarken zamanlayıcı kurulmaz
-        sink._playing = False
+        sink._job = None
         sink._touch()
         self.assertIsNotNone(sink._timer)       # bitince kurulur
         sink.close()

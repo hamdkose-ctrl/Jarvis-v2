@@ -262,38 +262,42 @@ class PcmSink:
         self._stream = None
         self._rate = 0
         self._channels = 0
-        self._pcm = b""
-        self._pos = 0
-        self._playing = False
-        self._cancel = None
-        self._on_start = None
+        self._job: dict | None = None
         self._finished = threading.Event()
         self._underflows = 0
         self._timer = None
 
     def _callback(self, outdata, frames, time_info, status) -> None:
-        if status is not None and getattr(status, "output_underflow", False) and self._playing:
-            self._underflows += 1
-        step = frames * self._channels * 2
-        if not self._playing:
+        # Tek atomik iş referansı: play() yeni işi tek atamayla yayınlar, callback
+        # yalnız o işin içindeki sözlüğü günceller. Canlı hata (01:41): callback
+        # ile play() aynı alanlara yarım yazdı, cevabın başı bozuk çıktı.
+        job = self._job
+        if job is None:
             outdata[:] = bytes(len(outdata))
             return
-        if self._cancel is not None and self._cancel.is_set():
-            self._playing = False
+        if status is not None and getattr(status, "output_underflow", False):
+            self._underflows += 1
+        cancel = job.get("cancel")
+        if cancel is not None and cancel.is_set():
+            self._job = None
             self._finished.set()
             outdata[:] = bytes(len(outdata))
             return
-        chunk = self._pcm[self._pos:self._pos + step]
+        step = max(frames, 1) * self._channels * 2
+        pos = job["pos"]
+        pcm = job["pcm"]
+        chunk = pcm[pos:pos + step]
         if chunk:
             outdata[:len(chunk)] = chunk
-            self._pos += len(chunk)
+            job["pos"] = pos + len(chunk)
         if len(chunk) < step:
             outdata[len(chunk):] = bytes(step - len(chunk))
-            self._playing = False
+            self._job = None
             self._finished.set()
-        if self._on_start is not None:
-            started, self._on_start = self._on_start, None
-            threading.Thread(target=started, name="jarvis-voice-start", daemon=True).start()
+        baslatan = job.get("on_start")
+        if baslatan is not None:
+            job["on_start"] = None
+            threading.Thread(target=baslatan, name="jarvis-voice-start", daemon=True).start()
 
     def _open(self, rate: int, channels: int) -> float:
         import sounddevice as sd
@@ -314,12 +318,9 @@ class PcmSink:
             open_ms = 0.0
             if self._stream is None or (rate, channels) != (self._rate, self._channels):
                 open_ms = self._open(rate, channels)
-            self._pcm, self._pos = pcm, 0
             self._underflows = 0
-            self._cancel = cancel
-            self._on_start = on_start
-            self._playing = True
             self._finished.clear()
+            self._job = {"pcm": pcm, "pos": 0, "cancel": cancel, "on_start": on_start}
             self._touch()
         basladi = time.monotonic()
         audio_ms = len(pcm) / (channels * 2) / max(rate, 1) * 1000
@@ -330,7 +331,7 @@ class PcmSink:
                 # Akış beklenmedik şekilde durdu: cihazı bırak, sonraki cümle
                 # yeniden açsın. Sessiz kalmaktansa yeniden açmak doğrudur.
                 _record_failure("modules/voice_edge.py:sink_timeout")
-                self._playing = False
+                self._job = None
                 self.close()
             else:
                 self._touch()
@@ -347,7 +348,7 @@ class PcmSink:
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
-        if self._playing:
+        if self._job is not None:
             return
         self._timer = threading.Timer(self.idle_seconds, self._idle_close)
         self._timer.daemon = True
@@ -355,7 +356,7 @@ class PcmSink:
 
     def _idle_close(self) -> None:
         with self._lock:
-            if self._playing:
+            if self._job is not None:
                 return
             self.close()
 
