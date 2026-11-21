@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import io
 import os
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
+import wave
 from pathlib import Path
 from typing import Callable
 
@@ -73,6 +75,19 @@ def _ffmpeg_exe():
             if candidate.is_file():
                 return str(candidate)
     return None
+
+
+def _wave_length_ms(payload: bytes) -> float:
+    """Duration of a PCM WAV payload in milliseconds; 0 for anything else."""
+    try:
+        with wave.open(io.BytesIO(payload), "rb") as handle:
+            rate = handle.getframerate()
+            frames = handle.getnframes()
+            if rate > 0 and frames > 0:
+                return frames / rate * 1000
+    except (wave.Error, EOFError, OSError):
+        return 0.0
+    return 0.0
 
 
 def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
@@ -250,6 +265,12 @@ class EdgePlayer:
             self._wait(mci, cancel, on_start)
             self.last_timing = {"open_ms": open_ms,
                                 "wait_ms": (time.monotonic() - wait_at) * 1000}
+            length_ms = _wave_length_ms(payload)
+            if length_ms:
+                # The file's own length is the only honest denominator: without it
+                # "slow playback" is a guess about how long this answer should last.
+                self.last_timing["audio_ms"] = length_ms
+                self.last_timing["ratio"] = self.last_timing["wait_ms"] / length_ms
         finally:
             if opened:
                 # A refused close leaves the alias allocated; the next open's
