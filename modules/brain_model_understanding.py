@@ -1652,7 +1652,12 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                               photo_path=photo_path, turn_candidates=turn_candidates,
                                offered_capabilities=tuple(offered_capabilities))
             if proposal is None:
-                raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
+                # Naming the closed rejection code is what turns "sözleşmeyi
+                # karşılamıyor" from a dead end into evidence; only protocol
+                # enums are recorded, never user fields.
+                diagnostic = proposal_diagnostic()
+                code = diagnostic.get('reason_code') or diagnostic.get('status') or 'shape'
+                raise ValueError(f"Model yanıtı Brain sözleşmesini karşılamıyor ({code}).")
 
         with requests_state.budget(_MODEL_BUDGET_SECONDS):
             # Primary understanding uses the typed smart_router.run_request entry.
