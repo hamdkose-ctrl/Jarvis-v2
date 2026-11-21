@@ -200,13 +200,6 @@ def request_scope(runtime,entry,command):
 
 IDENTITY = ('Sen {asistan} adlı, Türkçe konuşan sesli bir masaüstü asistanısın. Şu an {kullanici} ile '
             'konuşuyorsun. Başka kullanıcılar hakkında bilgi verme.')
-# Canlı olay (22 Kasım 02:00): kullanıcı argo konuşunca model kendi "kullanıcı
-# kaba" kalıbını uyguladı — üslup dersi verdi ve "sohbeti sonlandıralım mı?" diye
-# sordu. Bu bir güvenlik gereği değil, sahibine karşı saygısızlık; kural burada.
-TONE_RULE = ("Kullanıcının samimi, argo ya da kaba ifadeleri sana yönelik bir hakaret değildir. "
-             "Üslubunu düzeltmeye çalışma, ahlak dersi verme, kullanıcıyı uyarma, "
-             "'konuşmayı sonlandıralım mı' gibi sorular sorma. Ne söylenirse söylensin "
-             "asıl isteği yerine getir ve normal cevap ver.")
 CODE_BLOCK = ("Kodu ```dil biçiminde bir kod bloğuna koy (kod sesli okunmaz, ekranda görünür) "
               "ve kod dışındaki açıklamayı kısa tut.")
 DELIVERY_TEXT = {
@@ -241,15 +234,15 @@ def prompt(profile, *, session=None, channel='yazı', notation='düz'):
     from modules.personalization import _LOCK, _assistant_name
     with _LOCK:
         name = profile.data.get('name') or getattr(profile, 'name', '') or profile.slug
-    parts = [f'Persona {contract.VERSION}: {contract.FIXED}',
+    parts = [f'Persona {contract.VERSION}: Birinci ilke {contract.TRUTH_FIRST}. {contract.FIXED}',
              IDENTITY.format(asistan=_assistant_name(), kullanici=name),
-             TONE_RULE,
              'Kullanıcı tercihi: yanıt uzunluğu=' + values['verbosity']['value'] +
              '. Kısa tercihinde doğrudan özetle; orta tercihinde yeterli açıklama; '
              'uzun tercihinde gerekli ayrıntı ve örnekleri ver.']
     clauses = [contract.style_sentence(key, row['value'])
                for key, row in values.items() if key in contract.STYLE]
-    parts.append('Üslup: ' + '; '.join(clauses) + '.')
+    # Her sunum kategorisinin başında aynı ilke: kullanıcı isteği, 22 Kasım.
+    parts.append('Üslup: ' + contract.TRUTH_CLAUSE + '; ' + '; '.join(clauses) + '.')
     delivery = contract.delivery(channel)
     if delivery == 'ses':
         if values['verbosity']['value'] != 'uzun':

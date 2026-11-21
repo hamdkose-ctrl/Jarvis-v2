@@ -261,12 +261,25 @@ def prosody_ssml(rate: int, pitch: int) -> tuple[str, str]:
 
 
 def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
-    """Sıcak bağlantıdan üretim; aksaklıkta b"" (bugünkü yol kullanılır)."""
+    """Sıcak bağlantıdan üretim; bayatsa bir kez tazeleyip yeniden dener.
+
+    Canlı ölçüm: sıcak bağlantı bayatladığında cevap doğrudan soğuk yola
+    düşüyordu (sentez 2.200-3.200 ms, kullanıcı "bazen geç başlıyor" diyor).
+    Yeni bağlantı açmak soğuk yoldan hızlı: ~1.3 sn'ye karşı ~2.2 sn.
+    """
+    import logging as _lg
     try:
         from modules import voice_edge_warm
         out = voice_edge_warm.synthesize(text, name, rate, pitch)
-        import logging as _lg
-        _lg.getLogger("jarvis").info("voice_warm %s chars=%d", "hit" if out else "miss", len(text))
+        if not out:
+            try:
+                voice_edge_warm.prewarm()
+                out = voice_edge_warm.synthesize(text, name, rate, pitch)
+            except Exception:
+                _record_failure("modules/voice_edge.py:warm_retry")
+                out = b""
+        _lg.getLogger("jarvis").info(
+            "voice_warm %s chars=%d", "hit" if out else "miss", len(text))
         return out or b""
     except Exception:
         _record_failure("modules/voice_edge.py:warm")
