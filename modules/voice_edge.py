@@ -154,7 +154,7 @@ def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
             args = [decoder, "-v", "error", "-nostdin", "-y", "-i", source]
             if chain:
                 args += ["-af", chain]
-            args += ["-ac", "1", "-ar", "24000", "-f", "wav", target]
+            args += ["-ac", "1", "-ar", "48000", "-f", "wav", target]
             completed = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
             if not completed.returncode and os.path.isfile(target) and os.path.getsize(target) > 44:
                 with open(target, "rb") as handle:
@@ -236,6 +236,120 @@ def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
     except Exception:
         _record_failure("modules/voice_edge.py:warm")
         return b""
+
+
+def _wave_pcm(wav: bytes) -> tuple[int, int, bytes]:
+    """WAV'dan (rate, kanal, PCM) çıkar."""
+    with wave.open(io.BytesIO(wav), "rb") as reader:
+        return reader.getframerate(), reader.getnchannels(), reader.readframes(reader.getnframes())
+
+
+class PcmSink:
+    """Cevap boyunca açık kalan tek çıkış akışı.
+
+    Canlı ölçüm (22 Kasım): winsound parça başına cihazı yeniden açıyordu;
+    kısa cümlede çalma/ses oranı 1.27'ye çıkıyor, cümle ekleri duyulur boşluk
+    bırakıyordu. Tek akışta cümleler kesintisiz birleşir ve cihazın sesi
+    tükettiği an PortAudio'nun kendi bayrağıyla ölçülür.
+    """
+
+    def __init__(self, *, latency: float = 0.35, frames_per_write: int = 1024,
+                 idle_seconds: float = 4.0):
+        self.latency = latency
+        self.frames_per_write = frames_per_write
+        self.idle_seconds = idle_seconds
+        self._lock = threading.Lock()
+        self._stream = None
+        self._rate = 0
+        self._channels = 0
+        self._pcm = b""
+        self._pos = 0
+        self._playing = False
+        self._cancel = None
+        self._on_start = None
+        self._finished = threading.Event()
+        self._underflows = 0
+        self._timer = None
+
+    def _callback(self, outdata, frames, time_info, status) -> None:
+        if status is not None and getattr(status, "output_underflow", False) and self._playing:
+            self._underflows += 1
+        step = frames * self._channels * 2
+        if not self._playing:
+            outdata[:] = bytes(len(outdata))
+            return
+        if self._cancel is not None and self._cancel.is_set():
+            self._playing = False
+            self._finished.set()
+            outdata[:] = bytes(len(outdata))
+            return
+        chunk = self._pcm[self._pos:self._pos + step]
+        if chunk:
+            outdata[:len(chunk)] = chunk
+            self._pos += len(chunk)
+        if len(chunk) < step:
+            outdata[len(chunk):] = bytes(step - len(chunk))
+            self._playing = False
+            self._finished.set()
+        if self._on_start is not None:
+            started, self._on_start = self._on_start, None
+            threading.Thread(target=started, name="jarvis-voice-start", daemon=True).start()
+
+    def _open(self, rate: int, channels: int) -> float:
+        import sounddevice as sd
+        self.close()
+        basladi = time.monotonic()
+        self._stream = sd.RawOutputStream(samplerate=rate, channels=channels, dtype="int16",
+                                          latency=self.latency, blocksize=self.frames_per_write,
+                                          callback=self._callback)
+        self._stream.start()
+        self._rate, self._channels = rate, channels
+        return (time.monotonic() - basladi) * 1000
+
+    def play(self, wav: bytes, cancel: threading.Event, on_start) -> dict:
+        rate, channels, pcm = _wave_pcm(wav)
+        if not pcm or not any(pcm):
+            raise OSError("Edge audio is empty.")
+        with self._lock:
+            open_ms = 0.0
+            if self._stream is None or (rate, channels) != (self._rate, self._channels):
+                open_ms = self._open(rate, channels)
+            self._pcm, self._pos = pcm, 0
+            self._underflows = 0
+            self._cancel = cancel
+            self._on_start = on_start
+            self._playing = True
+            self._finished.clear()
+            self._touch()
+        basladi = time.monotonic()
+        audio_ms = len(pcm) / (channels * 2) / max(rate, 1) * 1000
+        tamam = self._finished.wait(timeout=audio_ms / 1000 + 3.0)
+        gecen = (time.monotonic() - basladi) * 1000
+        timing = {"open_ms": open_ms, "wait_ms": gecen, "audio_ms": audio_ms,
+                  "underruns": self._underflows}
+        if tamam and audio_ms:
+            timing["ratio"] = gecen / audio_ms
+        return timing
+
+    def _touch(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer = threading.Timer(self.idle_seconds, self.close)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def close(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        stream, self._stream = self._stream, None
+        self._rate = self._channels = 0
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                _record_failure("modules/voice_edge.py:sink_close")
 
 
 class EdgeSynthesizer:
@@ -348,6 +462,24 @@ class EdgePlayer:
         # Without them a "stuttering voice" cannot be split into device open,
         # player wait or synthesis, so every fix is a guess.
         self.last_timing: dict[str, object] = {}
+        self._pcm_sink = None
+
+    def _sink(self) -> PcmSink:
+        if self._pcm_sink is None:
+            self._pcm_sink = PcmSink()
+        return self._pcm_sink
+
+    def _sink_enabled(self) -> bool:
+        try:
+            import sounddevice  # noqa: F401
+        except Exception:
+            return False
+        return True
+
+    def close(self) -> None:
+        sink, self._pcm_sink = self._pcm_sink, None
+        if sink is not None:
+            sink.close()
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         if cancel.is_set():
@@ -367,6 +499,13 @@ class EdgePlayer:
                 payload = wave_bytes
                 suffix = ".wav"
                 device_type = "waveaudio"
+        # Tek akış: cümle başına cihaz açılmaz (canlı: kısa cümlede ratio 1.27).
+        if suffix == ".wav" and self._sink_enabled():
+            sink = self._sink()
+            timing = sink.play(payload, cancel, on_start)
+            timing["out"] = _output_endpoint()
+            self.last_timing = timing
+            return
         # waveOut is clocked by the device, so CPU load cannot stretch it the way it
         # stretches MCI's sequencer: live turns measured 1.6-2.0x while an isolated
         # harness on the same WAV measured 1.02x (21 Kasım 09:57-10:06).

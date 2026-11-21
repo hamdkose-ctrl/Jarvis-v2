@@ -404,3 +404,50 @@ class EdgePlayerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PcmSinkTests(unittest.TestCase):
+    """Tek akış: cümle başına cihaz açılmaz; tükenme cihazın kendi bayrağıyla."""
+
+    def wav(self):
+        import io, wave as w
+        buf = io.BytesIO()
+        with w.open(buf, "wb") as writer:
+            writer.setnchannels(1); writer.setsampwidth(2); writer.setframerate(16000)
+            writer.writeframes(bytes([1, 0]) * 800)
+        return buf.getvalue()
+
+    def test_second_sentence_reuses_the_open_device_and_reports_underrun(self):
+        opened = []
+        class Stream:
+            def __init__(self, callback): self.callback = callback
+            def start(self): pass
+            def stop(self): pass
+            def close(self): pass
+        fake = types.SimpleNamespace(
+            RawOutputStream=lambda **kwargs: opened.append(kwargs) or Stream(kwargs["callback"]))
+        sink = voice_edge.PcmSink(idle_seconds=30)
+        ses = self.wav()
+
+        def oynat():
+            return sink.play(ses, threading.Event(), lambda: None)
+
+        sonuc = []
+        with patch.dict(sys.modules, {"sounddevice": fake}):
+            import time
+            worker = threading.Thread(target=lambda: sonuc.append(oynat()))
+            worker.start()
+            for _ in range(200):
+                try:
+                    sink._callback(bytearray(1024), 512, None,
+                                   types.SimpleNamespace(output_underflow=True))
+                except Exception:
+                    pass
+                if sonuc:
+                    break
+                time.sleep(0.01)
+            worker.join(timeout=3)
+            ikinci = oynat()
+        self.assertEqual(len(opened), 1)                       # tek cihaz açılışı
+        self.assertGreater(sonuc[0]["underruns"], 0)            # cihaz tükendi, ölçüldü
+        self.assertEqual(ikinci["open_ms"], 0)                  # ikinci cümle beklemez
+        sink.close()

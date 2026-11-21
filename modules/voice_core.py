@@ -890,6 +890,9 @@ class VoiceCoordinator:
                             if cancel.is_set():
                                 status, reason = "cancelled", self._cancelled_reason()
                                 break
+                            # Cümle sonundaki duyulan boşluk: ses mi beklendi,
+                            # cihaz mı geç açıldı? Tahmin yerine ölçüm.
+                            beklemeye_giris = time.monotonic()
                             pending = prefetched.pop(position, None)
                             if pending is None:
                                 audio = synthesize_chunk(chunk)
@@ -912,6 +915,7 @@ class VoiceCoordinator:
                             if not isinstance(audio, bytes) or not audio:
                                 status, reason = "failed", "VOICE_EMPTY_AUDIO"
                                 break
+                            ses_hazir = time.monotonic()
                             if not announced_ready:
                                 announced_ready = True
                                 self._stage(request, "audio_ready")
@@ -927,6 +931,11 @@ class VoiceCoordinator:
                             if invalid:
                                 status, reason = "cancelled", invalid
                                 break
+                            if position:
+                                voice_log.info("speech_join index=%s audio_wait_ms=%.0f pre_ms=%.0f",
+                                               position + 1,
+                                               (ses_hazir - beklemeye_giris) * 1000,
+                                               (time.monotonic() - ses_hazir) * 1000)
                             prefetch(position + 1, SPEECH_PARALLEL_SYNTH)
                             started_at = time.monotonic()
                             cpu_before = _cpu_window()
