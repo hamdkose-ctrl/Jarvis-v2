@@ -31,8 +31,9 @@ class EdgeSynthesizerTests(unittest.TestCase):
         seen = {}
 
         class Communicate:
-            def __init__(self, text, voice, rate=None):
+            def __init__(self, text, voice, rate=None, pitch=None):
                 seen["text"], seen["voice"], seen["rate"] = text, voice, rate
+                seen["pitch"] = pitch
 
             def stream(self):
                 async def gen():
@@ -44,14 +45,16 @@ class EdgeSynthesizerTests(unittest.TestCase):
         with patch.dict(sys.modules, {"edge_tts": fake_edge_module(Communicate)}):
             audio = voice_edge.EdgeSynthesizer()(edge_spec(rate=-12), "Merhaba", threading.Event())
         self.assertEqual(audio, b"mp3-amp3-b")
-        self.assertEqual(seen, {"text": "Merhaba", "voice": "tr-TR-EmelNeural", "rate": "-12%"})
+        # Düz kelime: ton eklenmez, kullanıcının hızı aynen kalır.
+        self.assertEqual(seen, {"text": "Merhaba", "voice": "tr-TR-EmelNeural",
+                                "rate": "-12%", "pitch": "+0Hz"})
 
     def test_cancel_mid_stream_returns_empty_without_finishing_download(self):
         cancel = threading.Event()
         reached = []
 
         class Communicate:
-            def __init__(self, text, voice, rate=None):
+            def __init__(self, text, voice, rate=None, pitch=None):
                 pass
 
             def stream(self):
@@ -86,7 +89,7 @@ class EdgeSynthesizerTests(unittest.TestCase):
 
     def test_service_error_raises_without_selecting_another_voice(self):
         class Communicate:
-            def __init__(self, text, voice, rate=None):
+            def __init__(self, text, voice, rate=None, pitch=None):
                 pass
 
             def stream(self):
@@ -106,7 +109,7 @@ class EdgeSynthesizerTests(unittest.TestCase):
         import asyncio
 
         class Communicate:
-            def __init__(self, text, voice, rate=None):
+            def __init__(self, text, voice, rate=None, pitch=None):
                 pass
 
             def stream(self):
@@ -132,7 +135,7 @@ class EdgeSynthesizerTests(unittest.TestCase):
         cancel = threading.Event()
 
         class Communicate:
-            def __init__(self, text, voice, rate=None):
+            def __init__(self, text, voice, rate=None, pitch=None):
                 pass
 
             def stream(self):

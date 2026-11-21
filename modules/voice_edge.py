@@ -177,6 +177,53 @@ def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
             pass
 
 
+# --- Cümle tonu -----------------------------------------------------------
+# Ölçüm (21 Kasım): aynı cevabın perde hareketi 4.6 yarım ton, buna rağmen
+# kullanıcı "ses robot gibi, duyguyu vermiyor" diyor; sebep düzlük değil,
+# her cümlenin aynı melodiyle okunması. Edge'in duygu stili yok (özel SSML
+# reddediliyor), Gemini'nin ücretsiz sesi günde 10 istek. Kalan ücretsiz ve
+# kotasız yol: cümlenin kendi noktalamasından gelen ölçülü ton.
+#
+# Kural saftır — ağ, saat, rastgelelik yok. Aynı metin her zaman aynı çifti
+# verir; yoksa "ton" adı altında tahmin dağıtılmış olurdu.
+_PITCH_LIMIT = 50      # Hz; Edge'in kabul ettiği aralığın güvenli içi
+_RATE_LIMIT = 40       # %, VoiceSpec'in sözleşme sınırı
+_LONG_SENTENCE = 120   # karakter; bundan uzunu bir nefeste bitmiyor
+
+
+def _clamp(value: int, low: int, high: int) -> int:
+    return low if value < low else high if value > high else value
+
+
+def prosody(text: str, speaking_rate: int = 0) -> tuple[int, int]:
+    """Cümlenin tonu: (hız %, perde Hz). Kullanıcının hız tercihi tabandır.
+
+    Perde BİLEREK hiç oynatılmıyor. Ölçüldü ve dinlendi (21 Kasım): erkek sesini
+    yukarı çekmek (+12/+16 Hz) konuşmayı canlandırmıyor, tınıyı bozuyor —
+    kullanıcı "gay gibi konuşuyor" dedi. Ayrıca cümle bazında perde oynatmak aynı
+    cevabın içinde sesin değişmesi gibi duyuluyor (ilk cümle düz, sonrakiler
+    yüksek). Canlılık tempodan gelir: ünlem biraz hızlı, soru hafif oturur, uzun
+    cümle acele etmez. Tempo tınıyı değiştirmez, bu yüzden kimlik sabit kalır.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 0, 0
+    body = text.strip()
+    rate = 0
+    if body.endswith("?"):
+        rate = -2                     # soru sonunda hafifçe oturur
+    elif body.endswith("!"):
+        rate = 8                      # ünlem daha canlı
+    elif len(body) > _LONG_SENTENCE:
+        rate = -3                     # uzun cümle acele etmez
+    base = speaking_rate if isinstance(speaking_rate, int) else 0
+    return (_clamp(base + rate, -_RATE_LIMIT, _RATE_LIMIT), 0)
+
+
+def prosody_ssml(rate: int, pitch: int) -> tuple[str, str]:
+    """Edge'in beklediği metin biçimi: '+6%', '+8Hz'."""
+    return f"{_clamp(rate, -_RATE_LIMIT, _RATE_LIMIT):+d}%", f"{_clamp(pitch, -_PITCH_LIMIT, _PITCH_LIMIT):+d}Hz"
+
+
 class EdgeSynthesizer:
     """Produce MP3 bytes for one exact Edge voice, never changing the identity.
 
@@ -198,10 +245,10 @@ class EdgeSynthesizer:
         name = voice.asset_id
         if not isinstance(name, str) or not name.strip():
             raise EdgeVoiceUnavailable("Edge voice asset id is missing.")
-        rate = f"{voice.speaking_rate:+d}%"
+        rate, pitch = prosody_ssml(*prosody(text, voice.speaking_rate))
         try:
             return asyncio.run(asyncio.wait_for(
-                self._stream(name, text, rate, cancel), timeout=self.timeout_seconds))
+                self._stream(name, text, rate, pitch, cancel), timeout=self.timeout_seconds))
         except EdgeVoiceUnavailable:
             raise
         except asyncio.TimeoutError as exc:
@@ -211,7 +258,8 @@ class EdgeSynthesizer:
             _record_failure("modules/voice_edge.py:synthesize")
             raise EdgeVoiceUnavailable("Edge speech service unavailable.") from exc
 
-    async def _stream(self, name: str, text: str, rate: str, cancel: threading.Event) -> bytes:
+    async def _stream(self, name: str, text: str, rate: str, pitch: str,
+                      cancel: threading.Event) -> bytes:
         """Collect one exact Edge voice's MP3, cancellable even while awaiting data.
 
         The provider coroutine is raced against a cheap cooperative poller for
@@ -226,7 +274,7 @@ class EdgeSynthesizer:
         """
         import edge_tts
 
-        stream = edge_tts.Communicate(text, name, rate=rate).stream()
+        stream = edge_tts.Communicate(text, name, rate=rate, pitch=pitch).stream()
         chunks: list[bytes] = []
         while True:
             next_part = asyncio.ensure_future(stream.__anext__())

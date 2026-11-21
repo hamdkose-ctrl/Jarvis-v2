@@ -31,8 +31,8 @@ class VoiceCoreTests(unittest.TestCase):
         self.receipts.append(receipt)
         self.output_event.set()
 
-    def until(self, expected):
-        deadline = time.monotonic() + 2
+    def until(self, expected, timeout=2):
+        deadline = time.monotonic() + timeout
         while len(self.receipts) < expected and time.monotonic() < deadline:
             self.output_event.wait(0.03)
             self.output_event.clear()
@@ -225,7 +225,9 @@ class VoiceCoreTests(unittest.TestCase):
         coordinator = self.start(synth, play)
         coordinator.submit(SpeechRequest("owner-a", "pf1", "male_calm", text,
                                          open_early_at=120))
-        self.until(1)
+        # Cümle bazlı üretim daha çok parça ve daha çok paralel iş demek; bu test
+        # hazırlık sırasını ölçüyor, duvar saati hızını değil.
+        self.until(1, timeout=10)
         begins = [event[1] for event in events if event[0] == "synth_begin"]
         self.assertGreaterEqual(len(begins), 2, events)
         # The second synthesis must START before the first synthesis's playback
