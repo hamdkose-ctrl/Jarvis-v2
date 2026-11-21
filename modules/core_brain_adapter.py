@@ -491,6 +491,16 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             and (_core_rejected_proposal(entry)
                  or (semantic is not None and "MODEL_DECIDED" in semantic.reason_codes
                      and semantic.request_kind is RequestKind.CAPABILITY))):
+        # Canlı kanıt (21 Kasım 10:43/10:45): model cevap verdi, Core reddetti ve turlar
+        # burada düştü; model-düştü dalındaki kurtarma bu yüzden hiç çalışmadı. Açık şehir
+        # sorusuna verilen tipli cevap model/Core kaprisine bırakılmaz: okuma yapan tek
+        # sahibi (Core weather) doğrudan çalışır. Etki yok, gizlilik kapısı aynı.
+        answered = _pending_weather_answer(runtime, command)
+        if answered is not None:
+            handled = feedback(entry, result_status="handled",
+                               reason_code="PENDING_WEATHER_LOCATION_ANSWERED")
+            _LAST_FEEDBACK.set(handled)
+            return answered, handled, None
         # Core'un reddettiği tam tipli öneri ham cepheden ikinci kez yürütülemez: ne etki ne
         # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
         # Ret sessiz kalırsa her tahmin bir kullanıcı turu kaybettirir. Kapalı protokol
