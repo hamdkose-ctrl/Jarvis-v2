@@ -142,6 +142,40 @@ _SILENCE_TRIM = (
 )
 
 
+def _soft_tail(wav: bytes, fade_ms: float = 15.0, pad_ms: float = 50.0) -> bytes:
+    """Son örneği sıfıra indir ve kısa kuyruk ekle.
+
+    Kırpma sınırı konuşmanın ortasına denk gelirse dalga sıfırdan kopuyor ve
+    hoparlörde tık duyuluyor (ölçüm: son örnek 186, son 50 ms rms 311). 15 ms
+    yumuşak iniş + 50 ms sessizlik bunu duyulmaz kılar.
+    """
+    import array
+    with wave.open(io.BytesIO(wav), "rb") as reader:
+        rate, channels, width = reader.getframerate(), reader.getnchannels(), reader.getsampwidth()
+        if width != 2:
+            return wav
+        pcm = array.array("h")
+        pcm.frombytes(reader.readframes(reader.getnframes()))
+    if not pcm:
+        return wav
+    kare = max(channels, 1)
+    fade = min(len(pcm) // kare, int(rate * fade_ms / 1000)) * kare
+    for step in range(fade // kare):
+        olcek = 1.0 - (step + 1) / (fade // kare)
+        son = len(pcm) - fade + step * kare
+        for kanal in range(kare):
+            pcm[son + kanal] = int(pcm[son + kanal] * olcek)
+    pad = int(rate * pad_ms / 1000) * kare
+    pcm.extend(array.array("h", bytes(pad * 2)))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(channels)
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes(pcm.tobytes())
+    return buffer.getvalue()
+
+
 def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
     """Decode one MP3 to a self-contained PCM WAV; any failure keeps the MP3 path."""
     folder = tempfile.mkdtemp(prefix="jarvis_edge_")
@@ -158,7 +192,8 @@ def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
             completed = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
             if not completed.returncode and os.path.isfile(target) and os.path.getsize(target) > 44:
                 with open(target, "rb") as handle:
-                    return handle.read()
+                    ham = handle.read()
+                return _soft_tail(ham) if chain else ham
         # Kırpma da düz çözme de başarısızsa MP3 yolu korunur; sessizlik kırpılamadı
         # diye cevabı kaybetmek yanlış olur.
         _record_failure("modules/voice_edge.py:decode")
