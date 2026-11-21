@@ -754,5 +754,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                             pass
             raw = runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
             from config import load_settings
-            from modules import advisory_router
-            return advisory_router.finalize(command, raw, settings=load_settings())
+            from modules import advisory_router, tone_guard
+            # Bu yol işlem çalıştıramaz; cevap "onay verir misin" diye biterse
+            # kullanıcı yapılacağını sanıyor. Kalıp atılır, cevap korunur.
+            return tone_guard.strip_permission_bait(
+                advisory_router.finalize(command, raw, settings=load_settings()))

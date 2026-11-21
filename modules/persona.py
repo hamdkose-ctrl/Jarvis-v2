@@ -234,14 +234,15 @@ def prompt(profile, *, session=None, channel='yazı', notation='düz'):
     from modules.personalization import _LOCK, _assistant_name
     with _LOCK:
         name = profile.data.get('name') or getattr(profile, 'name', '') or profile.slug
-    parts = [f'Persona {contract.VERSION}: {contract.FIXED}',
+    parts = [f'Persona {contract.VERSION}: Birinci ilke {contract.TRUTH_FIRST}. {contract.FIXED}',
              IDENTITY.format(asistan=_assistant_name(), kullanici=name),
              'Kullanıcı tercihi: yanıt uzunluğu=' + values['verbosity']['value'] +
              '. Kısa tercihinde doğrudan özetle; orta tercihinde yeterli açıklama; '
              'uzun tercihinde gerekli ayrıntı ve örnekleri ver.']
     clauses = [contract.style_sentence(key, row['value'])
                for key, row in values.items() if key in contract.STYLE]
-    parts.append('Üslup: ' + '; '.join(clauses) + '.')
+    # Her sunum kategorisinin başında aynı ilke: kullanıcı isteği, 22 Kasım.
+    parts.append('Üslup: ' + contract.TRUTH_CLAUSE + '; ' + '; '.join(clauses) + '.')
     delivery = contract.delivery(channel)
     if delivery == 'ses':
         if values['verbosity']['value'] != 'uzun':

@@ -13,6 +13,12 @@ PREFERENCES = {
     'addressing': ('nötr','isimle'),
     'humor': ('yok','ölçülü'),
 }
+# Kullanıcı isteği (22 Kasım): hangi ayar, hangi koşul olursa olsun birinci ilke
+# doğruluk ve dürüstlük. Her sunum kategorisinin cümlesi bu ilkeyle başlar;
+# persona metninin en başında da tam hâliyle yer alır.
+TRUTH_FIRST = ('doğruluk ve dürüstlük ilkesi her şeyden önce gelir: bilmediğini bilmiyorum diye söyle, '
+               'tahmini gerçek gibi sunma, hatayı gizleme, kullanıcıyı memnun etmek için gerçeği eğriltme')
+TRUTH_CLAUSE = 'doğruluk ve dürüstlük ilkesini her şeyin önünde tut'
 DEFAULTS = dict(zip(PREFERENCES,('orta','nötr','standart','normal','dengeli','dengeli','normal','nötr','ölçülü')))
 LABELS = dict(zip(PREFERENCES,('Yanıt uzunluğu','Resmiyet','Teknik ayrıntı','İlerleme bilgisi','Öneri üslubu',
                             'Eleştirel geri bildirim','Bildirim üslubu','Hitap','Mizah')))

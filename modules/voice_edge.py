@@ -142,6 +142,40 @@ _SILENCE_TRIM = (
 )
 
 
+def _soft_tail(wav: bytes, fade_ms: float = 15.0, pad_ms: float = 50.0) -> bytes:
+    """Son örneği sıfıra indir ve kısa kuyruk ekle.
+
+    Kırpma sınırı konuşmanın ortasına denk gelirse dalga sıfırdan kopuyor ve
+    hoparlörde tık duyuluyor (ölçüm: son örnek 186, son 50 ms rms 311). 15 ms
+    yumuşak iniş + 50 ms sessizlik bunu duyulmaz kılar.
+    """
+    import array
+    with wave.open(io.BytesIO(wav), "rb") as reader:
+        rate, channels, width = reader.getframerate(), reader.getnchannels(), reader.getsampwidth()
+        if width != 2:
+            return wav
+        pcm = array.array("h")
+        pcm.frombytes(reader.readframes(reader.getnframes()))
+    if not pcm:
+        return wav
+    kare = max(channels, 1)
+    fade = min(len(pcm) // kare, int(rate * fade_ms / 1000)) * kare
+    for step in range(fade // kare):
+        olcek = 1.0 - (step + 1) / (fade // kare)
+        son = len(pcm) - fade + step * kare
+        for kanal in range(kare):
+            pcm[son + kanal] = int(pcm[son + kanal] * olcek)
+    pad = int(rate * pad_ms / 1000) * kare
+    pcm.extend(array.array("h", bytes(pad * 2)))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(channels)
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes(pcm.tobytes())
+    return buffer.getvalue()
+
+
 def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
     """Decode one MP3 to a self-contained PCM WAV; any failure keeps the MP3 path."""
     folder = tempfile.mkdtemp(prefix="jarvis_edge_")
@@ -158,7 +192,8 @@ def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
             completed = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
             if not completed.returncode and os.path.isfile(target) and os.path.getsize(target) > 44:
                 with open(target, "rb") as handle:
-                    return handle.read()
+                    ham = handle.read()
+                return _soft_tail(ham) if chain else ham
         # Kırpma da düz çözme de başarısızsa MP3 yolu korunur; sessizlik kırpılamadı
         # diye cevabı kaybetmek yanlış olur.
         _record_failure("modules/voice_edge.py:decode")
@@ -226,12 +261,25 @@ def prosody_ssml(rate: int, pitch: int) -> tuple[str, str]:
 
 
 def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
-    """Sıcak bağlantıdan üretim; aksaklıkta b"" (bugünkü yol kullanılır)."""
+    """Sıcak bağlantıdan üretim; bayatsa bir kez tazeleyip yeniden dener.
+
+    Canlı ölçüm: sıcak bağlantı bayatladığında cevap doğrudan soğuk yola
+    düşüyordu (sentez 2.200-3.200 ms, kullanıcı "bazen geç başlıyor" diyor).
+    Yeni bağlantı açmak soğuk yoldan hızlı: ~1.3 sn'ye karşı ~2.2 sn.
+    """
+    import logging as _lg
     try:
         from modules import voice_edge_warm
         out = voice_edge_warm.synthesize(text, name, rate, pitch)
-        import logging as _lg
-        _lg.getLogger("jarvis").info("voice_warm %s chars=%d", "hit" if out else "miss", len(text))
+        if not out:
+            try:
+                voice_edge_warm.prewarm()
+                out = voice_edge_warm.synthesize(text, name, rate, pitch)
+            except Exception:
+                _record_failure("modules/voice_edge.py:warm_retry")
+                out = b""
+        _lg.getLogger("jarvis").info(
+            "voice_warm %s chars=%d", "hit" if out else "miss", len(text))
         return out or b""
     except Exception:
         _record_failure("modules/voice_edge.py:warm")
@@ -254,10 +302,15 @@ class PcmSink:
     """
 
     def __init__(self, *, latency: float = 0.35, frames_per_write: int = 1024,
-                 idle_seconds: float = 4.0):
+                 idle_seconds: float = 25.0, join_silence_ms: float = 120.0):
         self.latency = latency
         self.frames_per_write = frames_per_write
         self.idle_seconds = idle_seconds
+        # Cümle sonundaki sessizlik kırpıldığı için iki cümle sıfır boşlukla
+        # birleşiyordu; kullanıcı bunu 'çok ufak takılma' olarak duydu. Doğal
+        # nefes payı: 120 ms.
+        self.join_silence_ms = max(0.0, join_silence_ms)
+        self._last_end = 0.0
         self._lock = threading.Lock()
         self._stream = None
         self._rate = 0
@@ -314,6 +367,12 @@ class PcmSink:
         rate, channels, pcm = _wave_pcm(wav)
         if not pcm or not any(pcm):
             raise OSError("Edge audio is empty.")
+        # Nefes payı yalnız AYNI cevabın cümleleri arasına girer: yeni cevabın
+        # ilk kelimesi 120 ms gecikmesin (canlı: tur başında oran 1.07-1.08).
+        devam = self._last_end and (time.monotonic() - self._last_end) < 2.0
+        if devam and self.join_silence_ms:
+            sessiz_kare = int(rate * self.join_silence_ms / 1000)
+            pcm = bytes(sessiz_kare * channels * 2) + pcm
         with self._lock:
             open_ms = 0.0
             if self._stream is None or (rate, channels) != (self._rate, self._channels):
@@ -334,6 +393,7 @@ class PcmSink:
                 self._job = None
                 self.close()
             else:
+                self._last_end = time.monotonic()
                 self._touch()
         timing = {"open_ms": open_ms, "wait_ms": gecen, "audio_ms": audio_ms,
                   "underruns": self._underflows}

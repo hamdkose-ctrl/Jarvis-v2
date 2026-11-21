@@ -123,7 +123,7 @@ SPEECH_MIN_TAIL_CHARS = 80
 # ardından TEK bir kapanış cümlesi söylenir; yazı ekranda tam kalır.
 SPEECH_LONG_ANSWER_CHARS = 400
 SPEECH_SPOKEN_LEAD_CHARS = 350
-SPEECH_REMAINDER_NOTE = "Devamı ekranda; istersen okurum."
+SPEECH_REMAINDER_NOTE = "Devamı ekranda, istersen okurum."
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -252,10 +252,18 @@ def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
     # cümleler, parça en az SPEECH_MIN_CHUNK olana kadar birleştirilir.
     merged: list[str] = []
     for sentence in sentences:
-        if merged and len(merged[-1]) < SPEECH_MIN_CHUNK and                 len(merged[-1]) + len(sentence) <= SPEECH_SENTENCE_CHARS:
+        # Kısa cümle HER ZAMAN bir öncekine yapıştırılır (sığıyorsa): ayrı
+        # sentezlenen kısa parça sesin kendisinden pahalıya geliyor ve kulağa
+        # ek gibi geliyor. Canlı: 43 karakterlik ve 32 karakterlik parçalar.
+        if len(sentence) < SPEECH_MIN_CHUNK and merged and                 len(merged[-1]) + len(sentence) <= SPEECH_SENTENCE_CHARS:
             merged[-1] += sentence
-        else:
-            merged.append(sentence)
+            continue
+        merged.append(sentence)
+    # Kapanış notu en sonda kalırsa sığmasa da yapıştır: tek başına okununca
+    # tonu düşük kalıyor ve cevabın sonunu bozuk gösteriyor.
+    if len(merged) > 1 and len(merged[-1]) < SPEECH_MIN_CHUNK and             len(merged[-2]) + len(merged[-1]) <= SPEECH_SENTENCE_CHARS * 1.6:
+        merged[-2] += merged[-1]
+        merged.pop()
     sentences = merged
     parts: list[str] = []
     for sentence in sentences:
@@ -264,6 +272,11 @@ def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
         else:
             parts.extend(split_speech_text(sentence, max_chars=SPEECH_SENTENCE_CHARS,
                                           first_max_chars=SPEECH_SENTENCE_CHARS))
+    # Bölme sonrası kısa kuyruk kalabilir (kapanış notu): başka cümleye
+    # yapıştırılamıyorsa fazla uzunluk göze alınır, ayrı kısa parça duyulmasın.
+    if len(parts) > 1 and len(parts[-1]) < SPEECH_MIN_CHUNK:
+        parts[-2] = parts[-2] + parts[-1]
+        parts.pop()
     _ = open_early_at   # cümle bazında açılış zaten ilk cümleyle sınırlı
     return tuple(parts)
 
