@@ -116,6 +116,12 @@ SPEECH_MAX_CHUNKS = 8
 # start: the speaker would fall silent to prepare one short leftover word. Keep
 # the answer in ONE chunk instead, so its audio never breaks.
 SPEECH_MIN_TAIL_CHARS = 80
+# Çok uzun cevabı baştan sona okumak dinlenemiyor (ölçüm: 300 karakter ≈ 28 sn,
+# 600 karakter ≈ 60 sn). 400 karakteri geçen cevapta ilk cümleler seslendirilir,
+# ardından TEK bir kapanış cümlesi söylenir; yazı ekranda tam kalır.
+SPEECH_LONG_ANSWER_CHARS = 400
+SPEECH_SPOKEN_LEAD_CHARS = 350
+SPEECH_REMAINDER_NOTE = "Devamı ekranda; istersen okurum."
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -185,6 +191,38 @@ def _sentences(text: str) -> list[str]:
     if start < len(text):
         parts.append(text[start:])
     return [part for part in parts if part.strip()]
+
+
+def speech_summary(text: str) -> tuple[str, str]:
+    """Uzun cevabı seslendirilecek baş kısım + okunmayan devam olarak ayırır.
+
+    Kurallar (kullanıcı isteği, 21 Kasım):
+    - Cümle ORTASINDA asla durmaz: seslendirilen kısım tam cümlelerden oluşur.
+    - Kısa cevap (<= SPEECH_LONG_ANSWER_CHARS) hiç kırpılmaz: ("", "") döner.
+    - Kalan kısım 1-2 kelimeyse hiç kırpılmaz (saçma kırpma olmasın).
+    """
+    if not isinstance(text, str) or len(text) <= SPEECH_LONG_ANSWER_CHARS:
+        return "", ""
+    sentences = _sentences(text)
+    if len(sentences) < 2:
+        return "", ""
+    spoken: list[str] = []
+    used = 0
+    for sentence in sentences:
+        if spoken and used + len(sentence) > SPEECH_SPOKEN_LEAD_CHARS:
+            break
+        spoken.append(sentence)
+        used += len(sentence)
+    if not spoken or len(spoken) == len(sentences):
+        return "", ""
+    head = "".join(spoken).strip()
+    # Kalan kısım metnin TAM devamı olmalı: cümleleri yeniden birleştirmek
+    # aralarındaki boşluğu düşürüyordu ("olacak.Rüzgar"). Metinden kesiyoruz.
+    remainder = text[len(head):].strip() if text.startswith(head) else "".join(
+        sentences[len(spoken):]).strip()
+    if len(remainder.split()) <= 2:
+        return "", ""
+    return head, remainder
 
 
 def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
@@ -807,6 +845,7 @@ class VoiceCoordinator:
                     self._stage(request, "synthesizing")
                     chunks = [chunk for chunk in speech_chunks(
                         request.text, request.open_early_at) if chunk.strip()]
+
                     # Prepare the NEXT chunk while the current one is still on the
                     # speaker. Synthesizing strictly after each playback ended made
                     # the voice stop between chunks: the user hears the answer as
