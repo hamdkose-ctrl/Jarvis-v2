@@ -354,7 +354,15 @@ class EdgeSynthesizer:
             # Ön tampon: cihaz ilk yazmada hemen çalsın ve çalma başlarken oluşan
             # kaynak gecikmesi (barge mikrofonu açılışı vb.) sesi kesmesin.
             # Kaynak ~25x gerçek zamanda geldiği için maliyeti ~20 ms.
-            preroll_need = 12000          # 250 ms @48 kHz mono 16-bit
+            # 500 ms hedef: Edge ilk parçaları gönderdikten sonra ~400 ms susuyor
+            # (canlı ölçüm 23:36: max_gap 323 ms at_ms 325; 23:39: 395 ms at_ms 405
+            # — tavan erken devreye girince tampon dolmadan başladık). Tavan 1,2 sn:
+            # kaynak hiç gelmezse yine başlarız, ama normalde tampon dolar.
+            # Edge "toplu sonra sus" teslim ediyor: 500 ms yetmedi (canlı 23:39).
+            # 1 saniyelik tampon hem o suskunluğu hem de mikrofon açılışını örter;
+            # kaynak hızlıysa maliyeti yalnız ~40 ms.
+            preroll_need = 48000          # 1 s @48 kHz mono 16-bit
+            preroll_deadline = time.monotonic() + 2.0
             preroll: list[bytes] = []
             while True:
                 if cancel.is_set():
@@ -378,9 +386,10 @@ class EdgeSynthesizer:
                         player.write(held)
                         played += len(held)
                     pending.clear()
-                if not started and len(b"".join(preroll)) + len(block) < preroll_need:
+                if not started and time.monotonic() < preroll_deadline:
                     preroll.append(block)
-                    continue
+                    if sum(len(part) for part in preroll) < preroll_need:
+                        continue
                 if not started:
                     started = True
                     if preroll:
