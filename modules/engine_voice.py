@@ -345,17 +345,25 @@ class VoiceSession:
         # lane's real busy boundary costs nothing when the speaker is already
         # playing and keeps barge-in exactly as it was.
         lane = getattr(self, 'voice_lane', None)
-        busy = getattr(lane, 'is_busy', None)
-        if callable(busy):
+        audible = getattr(lane, 'audible', None)
+        if callable(audible):
             give_up = runtime.time.time() + 3.0
+            started = False
             while not stopped() and runtime.time.time() < give_up:
                 try:
-                    if busy():
+                    if audible():
+                        started = True
                         break
                 except Exception:
-                    runtime._record_failure('modules/engine_voice.py:barge_busy')
-                    break
+                    runtime._record_failure('modules/engine_voice.py:barge_audible')
+                    return
                 runtime.time.sleep(0.02)
+            if not started:
+                # Ses hiç başlamadıysa mikrofonu açmak zarar verir: dinleyici
+                # audio_lock'ı tutar ve çalmanın başlaması için gereken kilidi
+                # kendi elinde tuttuğu için cevap sonsuza kadar sessiz kalır
+                # (21 Kasım: audio_ready var, playback_started yok).
+                return
         deadline = runtime.time.time() + 600
         hit = None
         try:

@@ -336,6 +336,12 @@ class VoiceLane:
         # speaker; the mic handoff and the UI idle claim both consult it.
         self._stop_unconfirmed = False
         self.busy_event = threading.Event()
+        # `busy_event` kuyruğa kabul anında kurulur (admission), sesin çıktığını
+        # söylemez. Mikrofonu açacak olan barge dinleyicisi bu ayrımı bilmek
+        # zorunda: kabul anını "konuşma başladı" sanıp mikrofonu erken açtığında
+        # çalma mikrofon kilidini bekliyor ve cevap hiç seslenmiyordu (21 Kasım:
+        # audio_ready var, playback_started yok, kullanıcı "ses yok" dedi).
+        self._audible = threading.Event()
         self._closed = False
         def wait_for_capture(request, cancel):
             # Admission already set busy_event, so a new normal capture will
@@ -343,12 +349,16 @@ class VoiceLane:
             # audio_lock; release before playback so barge-in can still listen.
             lock=getattr(runtime,'audio_lock',None)
             if lock is not None:
-                while not cancel.is_set():
+                # Bounded on purpose: an answer must never stay silent because some
+                # holder forgot to release the microphone lock. 2 s covers a capture
+                # that is already closing; after that the speaker wins, because a
+                # lost answer is worse than a recording that caught some speech
+                # (and recording during speech is already refused).
+                grace = time.monotonic() + 2.0
+                while not cancel.is_set() and time.monotonic() < grace:
                     if lock.acquire(timeout=0.05):
                         lock.release()
                         break
-                if cancel.is_set():
-                    return
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
@@ -449,6 +459,8 @@ class VoiceLane:
             return
         self._pace_mark(request, stage)
         if stage == "playback_started":
+            with self._lock:
+                self._audible.set()
             # Remember whose speech the speaker last carried: "sus" may only mute
             # the turn the user actually heard, never a job that never spoke.
             if request.turn_id:
@@ -655,6 +667,7 @@ class VoiceLane:
         # erase that proof — which is exactly how the microphone used to be handed
         # over over live audio again.
         with self._lock:
+            self._audible.clear()
             if receipt.reason_code == "VOICE_STOP_UNCONFIRMED":
                 self._stop_unconfirmed = True
             elif receipt.played and receipt.status in {"played", "cancelled"}:
@@ -672,6 +685,10 @@ class VoiceLane:
                     self.runtime.emit("state", "idle")
         except Exception:
             _record_failure("modules/voice_runtime.py:receipt")
+
+    def audible(self) -> bool:
+        """True yalnız oynatıcı sesi gerçekten hoparlöre verdikten sonra."""
+        return self._audible.is_set()
 
     def stop_unconfirmed(self) -> bool:
         """True while the newest cut of this output owner was never device-confirmed."""
