@@ -8,7 +8,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 - **VOICE:** `docs/agents/ses-video.md`; tek ses sahibi.
 
-- **Brain/Core:** anlam Brain; yürütme/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`; nonce/plan/target onayı effect öncesi tüketilir; unknown replay yok.
+- **Brain/Core:** anlam Brain, etki/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`. nonce/plan/target onayı önce tüketilir, unknown replay yok. Slot çıkışta açılır.
 
 - **Ponytail yaklaşımı:** Önce mevcut kodu oku. Küçük, kararlı ve geri alınabilir değişiklik yap. Gereksiz katman veya bağımlılık ekleme.
 - **Önce plan:** Yeni özellikte önce yapılacakları ve en az iki seçeneği Hamdi'ye sun. Hamdi "Tamam" demeden kod yazma.

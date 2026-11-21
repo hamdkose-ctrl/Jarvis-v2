@@ -382,10 +382,24 @@ class MessageGroundingTests(_ZarfHarness):
                                      {"recipient": "ahmet'e", "query": "ahmet"}))
 
     def test_grounding_is_required_only_for_the_user_owned_fields(self):
-        # Başka bir yetenekte dayanak alanı yok: taşıyan öneri doğrulanmış değildir.
-        proposal = self._ask("yarın izmirde hava nasıl", _envelope(
-            "weather.read", {"location": "izmir"}, {"location": "izmirde"}))
-        self.assertIsNone(proposal)
+        text = "yarın izmirde hava nasıl"
+        arguments = {"location": "izmir"}
+        for sources in (None, {}, {"location": "izmirde"}, {"approval": "invented"}):
+            with self.subTest(sources=sources):
+                proposal = self._ask(text, _envelope("weather.read", arguments, sources))
+                self.assertIsNotNone(proposal)
+                self.assertEqual(proposal.actions[0].capability_id, "weather.read")
+                self.assertEqual(dict(proposal.actions[0].arguments),
+                                 {"original_text": text, **arguments})
+        import json
+        for sources in ("izmirde", [], 20):
+            with self.subTest(sources=sources):
+                row = json.loads(_envelope("weather.read", arguments))
+                row["actions"][0]["argument_sources"] = sources
+                self.assertIsNone(self._ask(text, json.dumps(row, ensure_ascii=False)))
+        self.assertIsNone(self._send(
+            {"recipient": "ahmet", "body": "yarın geleceğim"},
+            {"recipient": "ahmet'e", "approval": "invented"}))
 
     def test_an_invented_phone_number_is_rejected_and_a_spoken_one_is_not(self):
         spoken = "kişi ekle ahmet 0532 123 45 67"

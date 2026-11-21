@@ -187,6 +187,40 @@ class SchedulerWakeTests(unittest.TestCase):
                 worker.join(2)
                 waiter.join(2)
 
+    def test_each_exited_replacement_is_reaped_once(self):
+        key = ("alice", "job", "node", 1)
+        workers = {}
+        live = SimpleNamespace(is_alive=lambda: True)
+        with patch.object(task_queue, "_CANONICAL_WORKERS", workers), \
+             patch.object(task_queue, "_OWNER_TICKS", {"bob": live}):
+            for _ in range(2):
+                workers[key] = SimpleNamespace(is_alive=lambda: False)
+                self.assertTrue(task_queue._reap_finished_workers())
+                self.assertEqual(workers, {})
+                self.assertFalse(task_queue._reap_finished_workers())
+            self.assertEqual(task_queue._OWNER_TICKS, {"bob": live})
+
+    def test_recent_canonical_admission_keeps_normal_poll_interval(self):
+        for canonical_admission, expected in ((99.0, 5.0), (1.0, 30.0)):
+            with self.subTest(canonical_admission=canonical_admission):
+                now = 100.0
+
+                def advance(timeout):
+                    nonlocal now
+                    now += timeout
+                    return False
+
+                with patch.object(task_queue, "time", SimpleNamespace(monotonic=lambda: now)), \
+                     patch.object(task_queue, "_LAST_TICK_MONOTONIC", 0.0), \
+                     patch.object(task_queue, "_LAST_ADMITTED", {}), \
+                     patch.object(task_queue, "_LAST_CANONICAL_ADMITTED",
+                                  {"alice": canonical_admission}), \
+                     patch.object(task_queue, "_CANONICAL_WORKERS", {}), \
+                     patch.object(task_queue, "_OWNER_TICKS", {}), \
+                     patch.object(self.wake_event, "wait", side_effect=advance):
+                    self.assertTrue(task_queue._wait_for_scheduler_tick(threading.Event()))
+                self.assertEqual(now, 100.0 + expected)
+
     def test_stop_remains_responsive_without_busy_db_poller(self):
         stop = threading.Event()
         result = []

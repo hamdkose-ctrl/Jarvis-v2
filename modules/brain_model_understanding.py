@@ -1104,11 +1104,9 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
     """
     owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
     if owned is None:
-        # Bu yetenekte kullanıcı-sahibi alan yok: alıntı nesnesi taşınırsa
-        # doğrulanacak bir alan da yok. Fazladan boş bir nesne yüzünden doğru
-        # cevabı düşürmek, havuzu boşaltıp turu 'doğrulayamadım' ile bitiriyordu
-        # (canlı kanıt 21 Kasım 09:48: weather.read + arguments).
-        return True
+        # Typed-only capabilities ignore this auxiliary object. Its
+        # wire type still must match the envelope schema (object or null).
+        return sources is None or isinstance(sources, Mapping)
     if sources is None:
         sources = {}
     if not isinstance(sources, Mapping) or any(not isinstance(key, str) or not isinstance(value, str)
@@ -1600,6 +1598,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "Each actions entry carries only action_id, capability_id, arguments, reference_slots, "
             "depends_on, argument_sources with action_id a1, a2 in order; chat, clarify and goal "
             "operations carry no action, direct_action exactly one, action_batch two to five. "
+            "Represent every explicitly requested action. For several immediate actions use action_batch "
+            "in the requested order. Clarify before any effect if the requested sequence cannot be represented safely. "
             "capability_id must be one of allowed.capability_id. Never supply a file path, "
             "account, token, credential, approval id or permission claim. Closed folder keys "
             "are allowed only where argument_schema explicitly lists them. For files.read use "
