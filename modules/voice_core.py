@@ -116,6 +116,12 @@ SPEECH_MAX_CHUNKS = 8
 # start: the speaker would fall silent to prepare one short leftover word. Keep
 # the answer in ONE chunk instead, so its audio never breaks.
 SPEECH_MIN_TAIL_CHARS = 80
+# Çok uzun cevabı baştan sona okumak dinlenemiyor (ölçüm: 300 karakter ≈ 28 sn,
+# 600 karakter ≈ 60 sn). 400 karakteri geçen cevapta ilk cümleler seslendirilir,
+# ardından TEK bir kapanış cümlesi söylenir; yazı ekranda tam kalır.
+SPEECH_LONG_ANSWER_CHARS = 400
+SPEECH_SPOKEN_LEAD_CHARS = 350
+SPEECH_REMAINDER_NOTE = "Devamı ekranda; istersen okurum."
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -185,6 +191,38 @@ def _sentences(text: str) -> list[str]:
     if start < len(text):
         parts.append(text[start:])
     return [part for part in parts if part.strip()]
+
+
+def speech_summary(text: str) -> tuple[str, str]:
+    """Uzun cevabı seslendirilecek baş kısım + okunmayan devam olarak ayırır.
+
+    Kurallar (kullanıcı isteği, 21 Kasım):
+    - Cümle ORTASINDA asla durmaz: seslendirilen kısım tam cümlelerden oluşur.
+    - Kısa cevap (<= SPEECH_LONG_ANSWER_CHARS) hiç kırpılmaz: ("", "") döner.
+    - Kalan kısım 1-2 kelimeyse hiç kırpılmaz (saçma kırpma olmasın).
+    """
+    if not isinstance(text, str) or len(text) <= SPEECH_LONG_ANSWER_CHARS:
+        return "", ""
+    sentences = _sentences(text)
+    if len(sentences) < 2:
+        return "", ""
+    spoken: list[str] = []
+    used = 0
+    for sentence in sentences:
+        if spoken and used + len(sentence) > SPEECH_SPOKEN_LEAD_CHARS:
+            break
+        spoken.append(sentence)
+        used += len(sentence)
+    if not spoken or len(spoken) == len(sentences):
+        return "", ""
+    head = "".join(spoken).strip()
+    # Kalan kısım metnin TAM devamı olmalı: cümleleri yeniden birleştirmek
+    # aralarındaki boşluğu düşürüyordu ("olacak.Rüzgar"). Metinden kesiyoruz.
+    remainder = text[len(head):].strip() if text.startswith(head) else "".join(
+        sentences[len(spoken):]).strip()
+    if len(remainder.split()) <= 2:
+        return "", ""
+    return head, remainder
 
 
 def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
@@ -479,6 +517,7 @@ class VoiceCoordinator:
         echo_note: Callable[[SpeechRequest, str], None] | None = None,
         resource_scope: Callable[[SpeechRequest, str], object] | None = None,
         before_play: Callable[[SpeechRequest, threading.Event], None] | None = None,
+        play_stream: Callable[..., int] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         if max_pending < 1:
@@ -494,6 +533,10 @@ class VoiceCoordinator:
         # VoiceCoordinator unit tests and the single output owner stay intact.
         self._resource_scope = resource_scope
         self._before_play = before_play
+        # Varsa ilk parça ses inerken çalınır: tam dosyayı beklemek uzun cevapta
+        # ilk sesi 2,8 sn'ye çıkarıyordu (ölçüm 21 Kasım). Başarısız olursa
+        # aşağıdaki normal yol (üret → çal) aynen kullanılır.
+        self._play_stream = play_stream
         self._clock = clock
         self._pending: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_pending)
         self._lock = threading.Lock()
@@ -802,6 +845,7 @@ class VoiceCoordinator:
                     self._stage(request, "synthesizing")
                     chunks = [chunk for chunk in speech_chunks(
                         request.text, request.open_early_at) if chunk.strip()]
+
                     # Prepare the NEXT chunk while the current one is still on the
                     # speaker. Synthesizing strictly after each playback ended made
                     # the voice stop between chunks: the user hears the answer as
@@ -843,12 +887,50 @@ class VoiceCoordinator:
                     # sağlayıcıyı kullanır, ikinci bir kilit talebi reddedilirdi.
                     _tts_scope = (nullcontext() if self._resource_scope is None
                                   else self._resource_scope(request, "tts"))
+                    stream_first = callable(self._play_stream)
                     with _tts_scope:
-                        prefetch(0, SPEECH_PARALLEL_SYNTH)
+                        # Akış yolunda ilk parça çalarken üretilir, önceden üretilmez.
+                        prefetch(1 if stream_first else 0, SPEECH_PARALLEL_SYNTH)
                         for position, chunk in enumerate(chunks):
                             if cancel.is_set():
                                 status, reason = "cancelled", self._cancelled_reason()
                                 break
+                            if position == 0 and stream_first:
+                                if self._before_play is not None:
+                                    self._before_play(request, cancel)
+                                if cancel.is_set():
+                                    status, reason = "cancelled", self._cancelled_reason()
+                                    break
+                                if self._expired(request, enqueued_at):
+                                    status, reason = "cancelled", "VOICE_TTL_EXPIRED"
+                                    break
+                                invalid = self._validity(request)
+                                if invalid:
+                                    status, reason = "cancelled", invalid
+                                    break
+                                started_at = time.monotonic()
+                                cpu_before = _cpu_window()
+                                played_bytes = 0
+                                try:
+                                    played_bytes = self._play_stream(
+                                        spec, chunk, cancel, start_notifier(chunk)) or 0
+                                except Exception:
+                                    _record_failure("modules/voice_core.py:play_stream")
+                                    played_bytes = 0
+                                if played_bytes:
+                                    if not announced_ready:
+                                        announced_ready = True
+                                        self._stage(request, "audio_ready")
+                                    voice_log.info(
+                                        "speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s %s akis=1",
+                                        position + 1, len(chunks), len(chunk),
+                                        (time.monotonic() - started_at) * 1000,
+                                        _device_timing(self._play),
+                                        _cpu_report(cpu_before, started_at))
+                                    if cancel.is_set():
+                                        status, reason = "cancelled", self._cancelled_reason()
+                                        break
+                                    continue
                             pending = prefetched.pop(position, None)
                             if pending is None:
                                 audio = synthesize_chunk(chunk)

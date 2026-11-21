@@ -289,6 +289,98 @@ def start_keeper(interval: float = 4.0) -> None:
     _KEEPER.start()
 
 
+async def _iter_frames(text: str, voice: str, rate: str, pitch: str):
+    """MP3 parçalarını geldikçe verir: önce sıcak soket, olmazsa edge_tts.
+
+    Ölçüm (21 Kasım): sıcak sokette ilk parça 235-286 ms, aynı metnin 17,5 saniyelik
+    sesi 0,62 saniyede geliyor. edge_tts'in kendi bağlantısında ilk parça 2105 ms —
+    yani akışın kazancı tamamen sıcak soketten geliyor.
+    """
+    sep = chr(13) + chr(10)
+    import aiohttp
+    try:
+        if _WARM.is_warm() and await _WARM._ensure_open():
+            request_id = uuid.uuid4().hex
+            stamp = time.strftime("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)",
+                                  time.gmtime())
+            config = {"context": {"synthesis": {"audio": {
+                "metadataoptions": {"sentenceBoundaryEnabled": "false",
+                                    "wordBoundaryEnabled": "false"},
+                "outputFormat": _AUDIO_FORMAT}}}}
+            await _WARM._ws.send_str(
+                f"X-Timestamp:{stamp}" + sep + "Content-Type:application/json; charset=utf-8" + sep
+                + "Path:speech.config" + sep + sep + json.dumps(config))
+            await _WARM._ws.send_str(
+                f"X-RequestId:{request_id}" + sep + "Content-Type:application/ssml+xml" + sep
+                + f"X-Timestamp:{stamp}Z" + sep + "Path:ssml" + sep + sep
+                + ssml(text, voice, rate, pitch))
+            while True:
+                message = await asyncio.wait_for(_WARM._ws.receive(), timeout=_TURN_TIMEOUT)
+                if message.type is aiohttp.WSMsgType.BINARY:
+                    headers, data = split_binary(message.data)
+                    if headers.get(b"Path") == b"audio" and data:
+                        _WARM._used_at = time.monotonic()
+                        yield data
+                elif message.type is aiohttp.WSMsgType.TEXT:
+                    if "Path:turn.end" in message.data:
+                        _WARM._used_at = time.monotonic()
+                        return
+                else:
+                    # Soket düştü: bu tur edge_tts ile tamamlanır (ses kaybolmaz).
+                    _record_failure("modules/voice_edge_warm.py:stream_socket")
+                    break
+    except Exception:
+        _record_failure("modules/voice_edge_warm.py:stream_warm")
+    import edge_tts
+    async for chunk in edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).stream():
+        if chunk["type"] == "audio":
+            yield chunk["data"]
+
+
+def frames(text: str, voice: str, rate: str, pitch: str, cancel, timeout: float = 120.0):
+    """`_iter_frames`i iş parçacığı sınırından geçirir: kuyruğa yazan üretici."""
+    import queue
+
+    box: queue.Queue = queue.Queue()
+
+    async def run() -> None:
+        try:
+            if _WARM._turn_lock is None:
+                _WARM._turn_lock = asyncio.Lock()
+            async with _WARM._turn_lock:      # aynı sokette eşzamanlı tur olmaz
+                async for data in _iter_frames(text, voice, rate, pitch):
+                    if cancel is not None and cancel.is_set():
+                        return
+                    box.put(data)
+        except Exception:
+            _record_failure("modules/voice_edge_warm.py:stream")
+        finally:
+            box.put(None)
+
+    try:
+        loop = _WARM._ensure_loop()
+        if loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(run(), loop)
+    except Exception:
+        _record_failure("modules/voice_edge_warm.py:stream_start")
+        return
+    end_at = time.monotonic() + timeout
+    while time.monotonic() < end_at:
+        if cancel is not None and cancel.is_set():
+            return
+        try:
+            item = box.get(timeout=0.05)
+        except queue.Empty:
+            continue
+        except Exception:
+            _record_failure("modules/voice_edge_warm.py:stream_take")
+            return
+        if item is None:
+            return
+        yield item
+
+
 def prewarm() -> bool:
     """Konuşma hattı dışından çağrılır: sonraki cevabın bağlantısı hazır olsun."""
     return _WARM.warm()

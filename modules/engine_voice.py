@@ -114,6 +114,21 @@ def list_input_devices(runtime) -> None:
             print(f"{i:3d}  {d['name']}  [{host}]")
     print("\nconfig.py içinde INPUT_DEVICE = \"ad parçası\" ya da cihaz numarası yazarak seçebilirsin.")
 
+def spoken_answer(text: str) -> tuple[str, str]:
+    """Uzun cevabın seslendirilecek hâli: baş kısım + kapanış cümlesi, kalan.
+
+    Uzun cevabı baştan sona okumak dinlenemiyordu (ölçüm: 300 karakter ≈ 28 sn,
+    600 karakter ≈ 60 sn konuşma). Seslendirme TAM cümlede kesilir ve ardından
+    tek bir kapanış cümlesi söylenir; yazı ekranda tam kalır, "devamını oku" ile
+    kaldığı yerden okunur. Kısa cevap hiç değişmez.
+    """
+    from modules.voice_core import SPEECH_REMAINDER_NOTE, speech_summary
+    spoken, remainder = speech_summary(text)
+    if not remainder:
+        return text, ""
+    return (spoken + " " + SPEECH_REMAINDER_NOTE).strip(), remainder
+
+
 class VoiceSession:
     """Own the listening/playback lifecycle and its wake continuation state."""
     def __init__(self, runtime):
@@ -255,6 +270,12 @@ class VoiceSession:
             if not accepted:
                 runtime.pause_listening.clear()
                 self._idle_if_silent()
+
+    def take_remainder(self) -> str:
+        """Uzun cevabın seslendirilmeyen kısmını bir kez verir ("devamını oku")."""
+        text = getattr(self, "voice_remainder", "") or ""
+        self.voice_remainder = ""
+        return text
 
     def speech_blocks_mic(self) -> bool:
         """True while this machine's speaker may still be carrying audio.
@@ -423,6 +444,11 @@ class VoiceSession:
         carried = dict(identity or {})
         kind = carried.pop("kind", "notice" if shown else "reply")
         turn_id = carried.pop("turn_id", None) or (getattr(runtime, "_cur_rid", None) or "")
+        # Uzun cevap: ses yalnız baş kısmı okur, tam cümlede durur ve kapanış
+        # cümlesini söyler. Yazı ekranda tam kalır; "devamını oku" kalanı okur.
+        if not shown and kind in ("reply", "progress"):
+            text, remainder = spoken_answer(text)
+            self.voice_remainder = remainder
         try:
             done = lane.say(runtime.profile.slug, voice_key, text,
                             background=shown, rate=rate, kind=kind,
