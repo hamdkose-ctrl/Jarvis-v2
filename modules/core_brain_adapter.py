@@ -493,6 +493,14 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                      and semantic.request_kind is RequestKind.CAPABILITY))):
         # Core'un reddettiği tam tipli öneri ham cepheden ikinci kez yürütülemez: ne etki ne
         # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
+        # Ret sessiz kalırsa her tahmin bir kullanıcı turu kaybettirir. Kapalı protokol
+        # değerleri (capability + argüman anahtarları) yazılır; kullanıcı sözü yazılmaz.
+        if semantic is not None:
+            keys = ",".join(sorted(dict(getattr(semantic, "arguments", {}) or {})))[:120]
+            _record_failure(f"modules/core_brain_adapter.py:core_rejected:"
+                            f"{getattr(semantic, 'capability_hint', None)}:{keys}")
+        else:
+            _record_failure("modules/core_brain_adapter.py:core_rejected:no_semantic")
         message = "Bu isteği güvenli biçimde doğrulayamadım; işlem başlatılmadı."
         row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")
         _LAST_FEEDBACK.set(row)
