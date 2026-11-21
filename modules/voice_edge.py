@@ -90,6 +90,16 @@ def _wave_length_ms(payload: bytes) -> float:
     return 0.0
 
 
+def _winsound():
+    """waveOut tabanlı oynatıcı (yalnız Windows); yoksa None."""
+    try:
+        import winsound
+    except ImportError:
+        _record_failure("modules/voice_edge.py:winsound_import")
+        return None
+    return winsound
+
+
 def _mp3_to_wave(audio: bytes, decoder: str, timeout: float = 20.0) -> bytes:
     """Decode one MP3 to a self-contained PCM WAV; any failure keeps the MP3 path."""
     folder = tempfile.mkdtemp(prefix="jarvis_edge_")
@@ -247,6 +257,25 @@ class EdgePlayer:
                 payload = wave_bytes
                 suffix = ".wav"
                 device_type = "waveaudio"
+        # waveOut is clocked by the device, so CPU load cannot stretch it the way it
+        # stretches MCI's sequencer: live turns measured 1.6-2.0x while an isolated
+        # harness on the same WAV measured 1.02x (21 Kasım 09:57-10:06).
+        if suffix == ".wav" and _winsound() is not None:
+            fd, path = tempfile.mkstemp(suffix=".wav", prefix="jarvis_voice_")
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+            try:
+                self._play_wave(path, cancel, on_start)
+                length_ms = _wave_length_ms(payload)
+                if length_ms:
+                    self.last_timing["audio_ms"] = length_ms
+                    self.last_timing["ratio"] = self.last_timing["wait_ms"] / length_ms
+            finally:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            return
         try:
             fd, path = tempfile.mkstemp(suffix=suffix, prefix="jarvis_voice_")
             with os.fdopen(fd, "wb") as handle:
@@ -283,6 +312,44 @@ class EdgePlayer:
                     os.remove(path)
                 except OSError:
                     pass
+
+    def _play_wave(self, path: str, cancel: threading.Event, on_start: Callable[[], None]) -> None:
+        """Play one WAV on the device clock; a stop request must really stop it.
+
+        The same truth rules as the MCI path: "finished" only after the player
+        reported the end, and a stop that cannot be confirmed raises instead of
+        claiming a clean interruption.
+        """
+        winsound = _winsound()
+        if winsound is None:
+            raise OSError("Windows ses oynatıcısı bulunamadı.")
+        done = threading.Event()
+        error: list[BaseException] = []
+
+        def runner() -> None:
+            try:
+                winsound.PlaySound(path, winsound.SND_FILENAME)
+            except BaseException as exc:          # noqa: BLE001 - player boundary
+                error.append(exc)
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=runner, name="jarvis-wav-out", daemon=True)
+        opened_at = time.monotonic()
+        thread.start()
+        on_start()
+        while not done.wait(self._poll):
+            if cancel.is_set():
+                winsound.PlaySound(None, winsound.SND_PURGE)
+                if not done.wait(2.0):
+                    _record_failure("modules/voice_edge.py:wave_stop")
+                    raise EdgePlaybackStopUnconfirmed("Windows ses kesintisi doğrulanamadı.")
+                break
+        self.last_timing = {"open_ms": (time.monotonic() - opened_at) * 1000,
+                            "wait_ms": (time.monotonic() - opened_at) * 1000}
+        if error:
+            _record_failure("modules/voice_edge.py:wave_play")
+            raise OSError(f"Windows ses oynatma başarısız: {type(error[0]).__name__}.")
 
     def _wait(self, mci, cancel: threading.Event, on_start: Callable[[], None]) -> str:
         """Return only a real outcome; anything else raises instead of claiming speech.
