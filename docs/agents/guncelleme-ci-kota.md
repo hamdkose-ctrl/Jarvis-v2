@@ -183,6 +183,8 @@ Windows CI'da canlı Brain semantik ölçümü hiç çalışmaz: `testler-window
 
 ## Router V2 —14 Kasım2026 güncel sözleşme
 
+21 Kasım hazır bağlantı kararı. Kodda tanımlı sağlayıcı gizlilik kayıtları ve tam model kimliğine bağlı yetenek kartları son kullanma tarihi olmadan uygulanır. Gemini veri izinleri, yerel/gizli mod ve özellik eşleşmesi geçerlidir. Yerel runtime gözlemleri ve özel ücretsiz hesap kanıtları kendi geçerlilik sürelerine bağlıdır.
+
 Önceki public-only Gemini, sabit paid vendor ve adapter model-rotation anlatımları tarihsel olarak kaldı; güncel karar `docs/architecture/JARVIS_ROUTER_ARCHITECTURE_V2.md`, kod/göç/kabul kaydı `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`dir. Tek typed Router exact modeli seçer; repair dahil en çok2 fiziksel üretim çağrısı, native SDK retry1 ve continuation kapalıdır. Çağıran kapalı profili/veri kapsamını/iş sınıfını getirir; regex veya ek LLM classifier yoktur. Owner ContextVar tokenı her plan/taşıma sonunda geri yüklenir.
 
 Gemini konuşma/seçilmiş içerik için owner kurulum izniyle kullanılabilir; training gerçeği ve PRIVATE provenansı korunur. Yerel/gizli mod daha dar kalır. Ücretsiz hesap beyanı resmî süreli model koşullarıyla ilişkilendirilir; gerçek account API kontrolü/kalan kota sayılmaz. Cloudflare eski FP8 kapanış takviminden dolayı incelenmiş Gemma4 metin adayı kullanır; exact modelin Brain/vision kalite kabulü ayrıca ölçülür.

@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from modules import cloudflare_chat, llm, privacy_sources as ps, smart_router as router
-from provider_fixture import fresh_bundle
 
 PUB, PRIV = 'PUBLIC_RESEARCH', 'PRIVATE_GENERAL'
 
@@ -28,7 +27,6 @@ class RoutingPolicyTests(unittest.TestCase):
         for name, fn in [('protect', lambda s: 'enc:' + s), ('unprotect', lambda s: s.removeprefix('enc:'))]:
             p = patch.object(router.privacy, name, side_effect=fn); p.start(); self.addCleanup(p.stop)
         p = patch.object(router.time, 'time', return_value=self.now); p.start(); self.addCleanup(p.stop)
-        fresh_bundle(self)
         # The CI/test owner is synthetic; never read a real account's stored
         # provider-limit observations in routing policy unit tests.
         p = patch('modules.usage_meter.observed_exhaustion', return_value=None)

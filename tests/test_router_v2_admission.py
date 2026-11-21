@@ -390,6 +390,8 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(
                 router.plan(request).candidates[0].connection_id, row["id"]
             )
+            with patch.object(time, "time", return_value=facts["expires_at"] + 1):
+                self.assertFalse(router.plan(request).candidates)
         self.assertFalse(connections.free_pool_eligible("bob", row))
 
     def test_role_gate_requires_full_corpus_and_is_invalidated_by_source_or_binding(

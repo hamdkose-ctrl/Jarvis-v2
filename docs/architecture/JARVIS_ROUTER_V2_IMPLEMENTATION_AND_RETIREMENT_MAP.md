@@ -47,7 +47,7 @@ Bağlantı denemesi seçilen modelin o çağrıya gerçek yanıt verdiğini öl�
 - Eski Cloudflare Llama3.1 FP8 için20 Kasım kapanış takvimi: https://developers.cloudflare.com/changelog/post/2026-11-05-planned-model-deprecations/ . Güncel incelenmiş metin adayı `@cf/google/gemma-4-26b-a4b-it`: https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/ . Taşıyıcımız yalnız metin; kartta vision olması Cloudflare adapter'a vision kazandırmaz.
 - Cloudflare Workers Free günlük10000 neuron ve Paid plan farkı: https://developers.cloudflare.com/workers-ai/platform/pricing/ . Bu sayı uygulamada uydurma token bakiyesine çevrilmez. Ücretsiz plan beyanı gerçek hesap API doğrulaması değildir.
 
-Bu kaynaklara bağlı kanıtlar zaman sınırlıdır. Model kimlikleri runtime rol kabulünden önce kesin kalite tercihi sayılmaz; yeni/popüler model otomatik ana model yapılmaz. NVIDIA/Nemotron normal havuzda dışarıdadır; deney başlatılmadı.
+Hazır sağlayıcı kayıtları ve katalogdaki tam model kimliklerine ait yetenekler takvimle kapanmaz. Gemini veri izinleri ve doğrulanmış model yetenekleri uygulanır. Özel ücretsiz hesap kanıtları ve yerel runtime gözlemleri kendi sürelerine bağlıdır. Model kimlikleri runtime rol kabulünden önce kesin kalite tercihi sayılmaz. NVIDIA/Nemotron normal havuzda dışarıdadır.
 
 ## Doğrulama ve açık kabul
 

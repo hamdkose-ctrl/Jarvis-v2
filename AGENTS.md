@@ -28,7 +28,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
-- **Router V2:** `ModelRequest` → exact adapter, repair ≤2. Hazır roller sabit, gerçek API sonucu. Özel API isteğe bağlı limit. Groq413 tekrarlanmaz. Göç: `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
+- **Router V2:** `ModelRequest` → exact adapter, repair ≤2. Hazır roller sabit, bağlantı durumu gerçek API sonucuna dayanır. Hazır sağlayıcı politikası ve model kartları takvimle kapanmaz. Özel API isteğe bağlı limit. Groq413 tekrarlanmaz. Göç `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
 
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.

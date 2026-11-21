@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 from modules import smart_router as router, llm, requests_state
-from provider_fixture import fresh_bundle
 
 
 class SmartRouterTests(unittest.TestCase):
@@ -12,7 +11,6 @@ class SmartRouterTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)
-        fresh_bundle(self)
         p=patch.object(llm,'local_label',return_value='Ollama');p.start();self.addCleanup(p.stop)
         self.local_model_patch=patch.object(llm,'_ollama_effective_model',return_value='local-test');self.local_model_patch.start();self.addCleanup(self.local_model_patch.stop)
         p=patch.object(router.privacy,'mode',return_value='normal');p.start();self.addCleanup(p.stop)

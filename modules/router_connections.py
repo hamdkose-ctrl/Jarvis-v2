@@ -434,7 +434,7 @@ def free_pool_eligible(owner, row):
         row.get("free_pool") is True
         and row["billing"] == "free"
         and isinstance(facts, dict)
-        and model_capabilities._valid_entry(facts, now=time.time())
+        and model_capabilities.valid_custom_free_evidence(facts, now=time.time())
         and facts.get("no_paid_billing") is True
         and facts.get("account_eligible") is True
         and set(row["data_scopes"]) <= set(facts.get("data_scopes", ()))

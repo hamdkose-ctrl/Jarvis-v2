@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 
 import test_engine_modular  # noqa: F401
 from modules import llm, model_capabilities, provider_privacy, smart_router as router
-from provider_fixture import fresh_bundle
 
 
 class RouterV2Tests(unittest.TestCase):
@@ -30,7 +29,6 @@ class RouterV2Tests(unittest.TestCase):
             p = patch.object(target, name, return_value=value)
             p.start()
             self.addCleanup(p.stop)
-        fresh_bundle(self)
         p = patch("modules.usage_meter.observed_exhaustion", return_value=None)
         p.start()
         self.addCleanup(p.stop)

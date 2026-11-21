@@ -6,7 +6,6 @@ from unittest.mock import patch
 from modules import cloudflare_chat, provider_privacy as pp
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INSIDE = pp._VERIFIED_AT + 3600
 PUB, PRIV = pp.ROUTE_PUBLIC_RESEARCH, pp.ROUTE_PRIVATE_GENERAL
 
 
@@ -14,76 +13,69 @@ class BundleTests(unittest.TestCase):
     def test_groq_and_cloudflare_serve_both_routes(self):
         for provider in ("groq", "cloudflare"):
             for route in (PUB, PRIV, None):
-                self.assertTrue(pp.privacy_gate(provider, route, now=INSIDE)["ok"], (provider, route))
+                self.assertTrue(pp.privacy_gate(provider, route)["ok"], (provider, route))
 
     def test_gemini_is_public_research_only(self):
-        self.assertTrue(pp.privacy_gate("gemini", PUB, now=INSIDE)["ok"])
-        denied = pp.privacy_gate("gemini", PRIV, now=INSIDE)
+        self.assertTrue(pp.privacy_gate("gemini", PUB)["ok"])
+        denied = pp.privacy_gate("gemini", PRIV)
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_NOT_ALLOWED")
 
     def test_training_provider_requires_an_explicit_route(self):
-        denied = pp.privacy_gate("gemini", None, now=INSIDE)
+        denied = pp.privacy_gate("gemini", None)
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_REQUIRED")
         forged = {"nvidia_like": dict(pp.PROVIDER_BUNDLE["gemini"])}
-        self.assertEqual(pp.privacy_gate("nvidia_like", None, now=INSIDE, bundle=forged)["reason_code"],
+        self.assertEqual(pp.privacy_gate("nvidia_like", None, bundle=forged)["reason_code"],
                          "PROVIDER_ROUTE_REQUIRED")
-        self.assertTrue(pp.privacy_gate("gemini", PUB, now=INSIDE)["ok"])
+        self.assertTrue(pp.privacy_gate("gemini", PUB)["ok"])
 
     def test_training_provider_never_serves_private_even_if_listed(self):
         bundle = {"x": dict(pp.PROVIDER_BUNDLE["gemini"], allowed_routes=(PUB, PRIV))}
-        self.assertFalse(pp.privacy_gate("x", PRIV, now=INSIDE, bundle=bundle)["ok"])
-        self.assertTrue(pp.privacy_gate("x", PUB, now=INSIDE, bundle=bundle)["ok"])
+        self.assertFalse(pp.privacy_gate("x", PRIV, bundle=bundle)["ok"])
+        self.assertTrue(pp.privacy_gate("x", PUB, bundle=bundle)["ok"])
 
     def test_nvidia_is_excluded_everywhere_even_with_a_forged_bundle_entry(self):
         forged = {"nvidia": dict(pp.PROVIDER_BUNDLE["groq"]), "nvidia_nim": dict(pp.PROVIDER_BUNDLE["groq"])}
         for name in ("nvidia", "nvidia_nim"):
             for route in (PUB, PRIV, None):
-                result = pp.privacy_gate(name, route, now=INSIDE, bundle=forged)
+                result = pp.privacy_gate(name, route, bundle=forged)
                 self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EXCLUDED", (name, route))
         for chain in pp.CHAINS.values():
             self.assertFalse(set(chain) & pp.EXCLUDED_PROVIDERS)
 
     def test_unknown_and_malformed_providers_are_not_eligible(self):
         for name in ("openrouter", "openai", "", "GROQ", None, 5, ("groq",)):
-            self.assertFalse(pp.privacy_gate(name, PUB, now=INSIDE)["ok"], repr(name))
-
-    def test_stale_evidence_is_not_eligible(self):
-        late = pp._EXPIRES_AT + 1
-        for provider in ("groq", "cloudflare", "gemini"):
-            result = pp.privacy_gate(provider, PUB, now=late)
-            self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EVIDENCE_STALE", provider)
+            self.assertFalse(pp.privacy_gate(name, PUB)["ok"], repr(name))
 
     def test_missing_source_url_or_ref_is_not_eligible(self):
         for field, value in (("source_url", ""), ("source_url", None), ("source_url", "http://insecure"),
                              ("source_url", 7), ("evidence_ref", "")):
             bundle = {"x": dict(pp.PROVIDER_BUNDLE["groq"], **{field: value})}
-            result = pp.privacy_gate("x", PUB, now=INSIDE, bundle=bundle)
+            result = pp.privacy_gate("x", PUB, bundle=bundle)
             self.assertFalse(result["ok"], (field, value))
             self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EVIDENCE_MISSING")
 
     def test_unknown_training_status_is_not_eligible(self):
         for value in (None, "false", 0, "unknown"):
             bundle = {"x": dict(pp.PROVIDER_BUNDLE["groq"], trains_on_data=value)}
-            result = pp.privacy_gate("x", PUB, now=INSIDE, bundle=bundle)
+            result = pp.privacy_gate("x", PUB, bundle=bundle)
             self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_TRAINING_UNKNOWN", repr(value))
 
-    def test_missing_timestamps_and_bad_route_lists_are_not_eligible(self):
+    def test_bad_route_lists_are_not_eligible(self):
         base = pp.PROVIDER_BUNDLE["groq"]
-        for change in ({"expires_at": None}, {"verified_at": "x"}, {"allowed_routes": None},
+        for change in ({"allowed_routes": None},
                        {"allowed_routes": ("PUBLIC",)}, {"allowed_routes": ("ANYTHING",)}):
             bundle = {"x": dict(base, **change)}
-            self.assertFalse(pp.privacy_gate("x", PUB, now=INSIDE, bundle=bundle)["ok"], change)
+            self.assertFalse(pp.privacy_gate("x", PUB, bundle=bundle)["ok"], change)
 
     def test_unknown_route_is_denied(self):
         for route in ("PUBLIC", "private", "", 3):
-            self.assertFalse(pp.privacy_gate("groq", route, now=INSIDE)["ok"], repr(route))
+            self.assertFalse(pp.privacy_gate("groq", route)["ok"], repr(route))
 
     def test_bundle_content_is_sound(self):
         for name, facts in pp.PROVIDER_BUNDLE.items():
             self.assertTrue(facts["source_url"].startswith("https://"), name)
-            self.assertGreater(facts["expires_at"], facts["verified_at"], name)
             self.assertIs(type(facts["trains_on_data"]), bool, name)
             self.assertTrue(facts["free_no_card"], name)
 

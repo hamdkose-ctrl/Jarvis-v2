@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 import requests
 
 from modules import cloudflare_chat, llm, provider_privacy, router_quota, smart_router, usage_meter
-from provider_fixture import fresh_bundle
 
 
 class ReadyProviderRoutingTests(unittest.TestCase):
@@ -19,7 +18,6 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.enterContext(patch.object(llm, 'user_groq_key', return_value='groq-test-key'))
         self.enterContext(patch.object(cloudflare_chat, 'configured', return_value=True))
         self.enterContext(patch.object(llm, '_ollama_effective_model', return_value='local-test'))
-        fresh_bundle(self)
 
     def request(self, **kwargs):
         return smart_router.ModelRequest(owner='alice', profile='conversation', **kwargs)
@@ -37,6 +35,23 @@ class ReadyProviderRoutingTests(unittest.TestCase):
             result = smart_router.run_request(self.request(), lambda spec: spec.provider)
         self.assertEqual(result.text, 'gemini')
         self.assertEqual(self.ready('gemini')['state'], 'ok')
+
+    def test_ready_connections_and_gemini_vision_work_past_old_review_dates(self):
+        with patch('time.time', return_value=1_893_456_000), \
+             patch.object(llm, 'active_model', return_value='gemini-3.5-flash-lite'), \
+             patch.object(llm, 'dispatch', return_value='OK') as send:
+            for provider in ('gemini', 'groq', 'cloudflare'):
+                with self.subTest(provider=provider):
+                    self.assertTrue(smart_router.check_ready_connection('alice', provider)['ok'])
+                    self.assertEqual(send.call_args.args[1].provider, provider)
+                    self.assertEqual(self.ready(provider)['state'], 'ok')
+            self.assertEqual(send.call_count, 3)
+
+            request = smart_router.ModelRequest(owner='alice', profile='vision',
+                data_scope='selected_content', features=frozenset({'vision'}))
+            self.assertFalse(smart_router.plan(request).candidates)
+            smart_router.configure('alice', gemini_scopes=['selected_content'])
+            self.assertEqual([spec.provider for spec in smart_router.plan(request).candidates], ['gemini'])
 
     def test_provider_quota_is_visible_and_fallback_keeps_the_answering_model(self):
         smart_router.configure('alice', gemini_scopes=['conversation'])
