@@ -55,6 +55,19 @@ class WeatherCoreMapTests(unittest.TestCase):
             self.assertEqual(brain_core_map.core_plan(hint, {"location": "ısparta"}), ("weather", {"location": "Isparta"}))
             self.assertEqual(brain_core_map.core_plan(hint, {}), ("weather", {}))
 
+    def test_capitalized_city_from_the_model_is_accepted(self):
+        """Model şehri büyük harfle önerir; biçim hükmü harf büyüklüğüne takılmamalı.
+
+        Canlı kanıt (21 Kasım 10:35): kullanıcı "istanbul" dedi, Gemini "İstanbul"
+        önerdi, Core `_CITY` (küçük harf) yüzünden reddetti ve tur
+        "güvenli biçimde doğrulayamadım" ile bitti.
+        """
+        for spelling in ("istanbul", "İstanbul", "Ankara", "ANKARA", "İZMİR"):
+            plan = brain_core_map.core_plan("weather.read", {"location": spelling})
+            self.assertIsNotNone(plan, spelling)
+            self.assertEqual(plan[0], "weather")
+            self.assertNotIn(";", plan[1]["location"])
+
     def test_invalid_location_is_not_executed(self):
         for location in ("ab", "x" * 40, "izmir; rm -rf", 5, "", "izmir hava"):
             self.assertIsNone(brain_core_map.core_plan("weather.read", {"location": location}), location)

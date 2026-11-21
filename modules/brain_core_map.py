@@ -127,11 +127,25 @@ def _city_title(token: str) -> str:
     return token[:1].replace("i", "İ").replace("ı", "I").upper() + token[1:]
 
 
+def _lower_city(location: str) -> str:
+    """Türkçe küçük harf: model "İstanbul"/"ISTANBUL" yazar, biçim hükmü küçük harf ister.
+
+    Canlı kanıt (21 Kasım 10:35): kullanıcı "istanbul" dedi, model "İstanbul" önerdi ve
+    `_CITY` (küçük harf) eşleşmediği için öneri Core'da reddedildi; tur
+    "güvenli biçimde doğrulayamadım" ile bitti. Büyük harf yazımı şehir adını
+    geçersiz kılmaz; biçim hükmü harf büyüklüğünden bağımsızdır.
+    """
+    return location.replace("İ", "i").replace("I", "ı").lower()
+
+
 def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     location = arguments.get("location")
     if location is None:
         return {}
-    if not isinstance(location, str) or _CITY.fullmatch(location) is None:
+    if not isinstance(location, str):
+        return None
+    location = _lower_city(location.strip())
+    if _CITY.fullmatch(location) is None:
         return None
     # Same Turkish-aware capitalization the legacy city parser used.
     return {"location": _city_title(location)}
@@ -148,7 +162,7 @@ def _city_set_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     location = arguments.get("location")
     if not isinstance(location, str):
         return None
-    tokens = location.split(" ")
+    tokens = _lower_city(location.strip()).split(" ")
     if not 1 <= len(tokens) <= _CITY_MAX_NAME_WORDS \
             or any(_CITY.fullmatch(token) is None for token in tokens):
         return None
