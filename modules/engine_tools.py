@@ -154,7 +154,7 @@ def _sys_prompt(runtime, command: str = "") -> str:
     base += (f' Şu anki tarih ve saat: {simdi:%d.%m.%Y %H:%M}, {gunler[simdi.weekday()]}. '
              'Saat veya tarih sorulursa bu bilgiyi doğrudan söyle; izin isteme, araç sonucu bekleme.')
     base += (' Bu yanıt yalnızca sohbet metnidir; bu yolda bilgisayar işlemi, dosya değişikliği veya arka plan görevi çalıştırılmaz. '
-             'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Desteklenmeyen eylemde sınırı açıkla; '
+             'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Bu yolda izin verilse bile işlem, araç veya kod çalıştıramazsın: kullanıcıdan onay/izin isteme, "çalıştırayım mı", "onay verir misin" gibi sorular sorma. Gereken işlem varsa tek cümleyle sınırı söyle ve komutu yaz. Desteklenmeyen eylemde sınırı açıkla; '
              'belirsiz hedefte tek net soru sor. Yalnızca gerçekten ürettiğin metni/kodu hazır olarak sunabilirsin.')
     return base
 
