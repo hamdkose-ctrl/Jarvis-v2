@@ -1226,4 +1226,4 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 
 ### Masaüstü arayüzü — 21 Kasım 2026
 
-Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş/kanıt ayrıntısı ve mevcut araç sayfaları tek arayüzde birleşir. Hologram, eski sahne, arka plan dosyaları ve dekoratif görünüm komutları kaldırılır. Teslim indirme aynı kullanıcı ve doğrulanmış iş/adım kanıtına bağlıdır. CI, PC ve fiziksel ses kabulü kaynak sürümüne göre ayrıca izlenir.
+Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç sayfaları koyu lacivert temada birleşir. Ana ekranda cam halkalar görünür. Dosyalar sayfası seçili PDF’nin ilk sayfasını ve desteklenen görselleri yerelde önizler. Hologram, eski sahne, arka plan dosyaları ve dekoratif görünüm komutları kaldırılır. Teslim indirme aynı kullanıcı ve doğrulanmış iş/adım kanıtına bağlıdır. CI, PC ve fiziksel ses kabulü kaynak sürümüne göre ayrıca izlenir.

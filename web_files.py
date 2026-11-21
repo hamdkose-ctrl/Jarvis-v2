@@ -93,6 +93,51 @@ class WebFiles:
         from modules import nxapi
         return nxapi.open_path(str(path), bool(reveal))
 
+    def file_preview(self, path: str, expected_owner: str) -> dict:
+        """Build a local raster preview of the selected PDF or image."""
+        import base64
+        import io
+        from PIL import Image, ImageOps
+        from modules import nxapi, study_preview
+
+        owner = self._runtime._p().slug
+        if owner != expected_owner:
+            raise ValueError('Etkin kullanıcı değişti.')
+        file = nxapi.allowed(path) if isinstance(path, str) else None
+        if file is None or not file.is_file():
+            raise ValueError('Dosya önizleme için erişilebilir değil.')
+
+        suffix = file.suffix.lower()
+        formats = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG',
+                   '.webp': 'WEBP', '.gif': 'GIF', '.bmp': 'BMP'}
+        if suffix != '.pdf' and suffix not in formats:
+            raise ValueError('Bu türün önizlemesi yok. Dosyayı Aç düğmesiyle inceleyebilirsin.')
+
+        limit = 20 * 1024 * 1024
+        if file.stat().st_size > limit:
+            raise ValueError('Önizleme 20 MB’ye kadar desteklenir.')
+        with file.open('rb') as source:
+            content = source.read(limit + 1)
+        if len(content) > limit:
+            raise ValueError('Önizleme 20 MB’ye kadar desteklenir.')
+
+        if suffix == '.pdf':
+            image, _ = study_preview.pdf_page(content)
+        else:
+            try:
+                with Image.open(io.BytesIO(content), formats=[formats[suffix]]) as source:
+                    if source.width * source.height > 24_000_000:
+                        raise ValueError('Görsel önizleme için çok büyük.')
+                    image = ImageOps.exif_transpose(source).convert('RGBA')
+            except (OSError, Image.DecompressionBombError) as exc:
+                raise ValueError('Görsel önizlemesi açılamadı.') from exc
+
+        image.thumbnail((840, 1120), Image.Resampling.LANCZOS)
+        with io.BytesIO() as stream:
+            image.save(stream, 'WEBP', quality=86)
+            encoded = base64.b64encode(stream.getvalue()).decode('ascii')
+        return {'owner': owner, 'image': 'data:image/webp;base64,' + encoded}
+
     def folder_pick(self) -> dict:
         runtime = self._runtime
         from modules import nxapi

@@ -34,4 +34,14 @@ test.go('menu');assert.equal(test.S.page,'home');
 const hero=slice('PAGES.home=','ACT.goset=');
 assert(hero.includes('id="dockhost"')&&hero.includes('id="home-jobs"')&&hero.includes('id="home-calendar"'));
 assert(entry.includes('/team-center.js'));
+assert(entry.includes('data-theme="dark"'));
+assert.match(slice('async function drawSettings()', 'function connectionHelpProvider'), /srow\('eye','Görünüm',[^\n]+,theme\)/);
+test.document={documentElement:{dataset:{}}};
+test.matchMedia=()=>({matches:true});
+vm.runInContext(slice('function applyTheme()', '// ======================================================================= veri ve olaylar'),test);
+for(const [preference,theme] of [[undefined,'dark'],['dark','dark'],['light','light'],['system','dark']]){
+  test.S.ui={nx_theme:preference};
+  test.applyTheme();
+  assert.equal(test.document.documentElement.dataset.theme,theme);
+}
 console.log('Masaüstü gezintisi, profil çıktısı ve eski çizimlerin emekliliği geçti.');

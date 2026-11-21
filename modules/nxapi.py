@@ -496,7 +496,7 @@ def autostart_set(on: bool) -> bool:
 
 
 # ------------------------------------------------------------------ arayüz ayarları
-DEFAULTS = {"nx_theme": "light", "nx_notify": True, "ai_mode": "auto"}
+DEFAULTS = {"nx_theme": "dark", "nx_notify": True, "ai_mode": "auto"}
 
 
 def ui_settings() -> dict:
