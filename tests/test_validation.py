@@ -6,6 +6,10 @@ from unittest.mock import patch
 from modules import validation, developer, git_publish
 
 class ValidationTests(unittest.TestCase):
+    def setUp(self):
+        data_dir = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(patch.dict(validation.os.environ, {'JARVIS_DATA_DIR': data_dir}))
+
     def test_developer_and_github_use_same_runner_and_fail_closed(self):
         with patch.object(validation, 'run_checks', return_value=(False, 'missing JS')) as run:
             self.assertEqual(developer._test(), (False, 'missing JS'))
@@ -34,6 +38,9 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(len(environments), 2 + len(validation.JS_GROUPS) + len(validation.SMOKE_GROUPS))
             self.assertEqual(len(environments), len(set(environments)))
             self.assertTrue(all(not Path(p).exists() for p in environments))
+            # Exercise a different source tree instead of replaying its saved PASS.
+            (root / 'modules').mkdir()
+            (root / 'modules' / 'changed.py').write_text('VALUE = 1\n', encoding='utf-8')
             with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='', stderr='failure')):
                 self.assertFalse(validation.run_checks(root)[0])
 
