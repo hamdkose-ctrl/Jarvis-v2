@@ -58,6 +58,11 @@ _LAST_TICK_MONOTONIC=0.0
 # re-check per second loses nothing; an explicit wake (a new job) still pulls
 # the next pass forward through _SCHEDULER_WAKE.
 _OWNER_MIN_SECONDS=1.0
+# Boşta ölçüm (21 Kasım): scheduler tek başına CPU'nun %12'sini yiyordu; beş saniyelik
+# her tarama SQLite keşiflerini yeniden yapıyor. Son bir dakikada hiçbir sahip kabul
+# edilmediyse tarama seyrekleşir; yeni iş `wake_scheduler()` ile yine hemen uyanır.
+_IDLE_AFTER_SECONDS=60.0
+_IDLE_TICK_SECONDS=30.0
 _FORCED_WAKE_AT=0.0
 _DONE_REPORTED=set()
 
@@ -86,7 +91,9 @@ def _wait_for_scheduler_tick(stop_event):
         if stop_event.wait(_LOOP_FLOOR_SECONDS-gap):
             return False
     _LAST_TICK_MONOTONIC=time.monotonic()
-    deadline=time.monotonic()+_SCHEDULER_TICK_SECONDS
+    quiet=time.monotonic()-max(_LAST_ADMITTED.values(), default=0.0)
+    deadline=time.monotonic()+(_IDLE_TICK_SECONDS if quiet>_IDLE_AFTER_SECONDS
+                               else _SCHEDULER_TICK_SECONDS)
     while not stop_event.is_set():
         left=deadline-time.monotonic()
         if left<=0:

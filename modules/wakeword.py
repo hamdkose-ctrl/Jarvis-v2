@@ -114,6 +114,13 @@ def _rms(x) -> float:
 # art arda iki "yakın skor" da kabul edilir (aşağıda soft_hits); kullanıcı 1-5 ayarlayabilir.
 SENSITIVITY = {1: 0.55, 2: 0.36, 3: 0.18, 4: 0.14, 5: 0.10}   # 1: zor uyanır … 5: çok kolay uyanır
 
+# Canlı ölçüm (21 Kasım, boşta): uyandırma dinleyicisi tek başına CPU'nun %5'ini
+# yiyordu, çünkü her 80 ms'lik karede model çalışıyordu. Sessiz odada ortalama
+# genlik 50-150 (int16) aralığında; söz 1000'in üzerinde. Bu eşiğin altında model
+# atlanır, ama en geç her 4. karede yine çalışır: pek sessiz söylenen ad kaçmaz.
+_SILENT_LEVEL = 250.0
+_FORCE_EVERY = 4
+
 
 def sensitivity_threshold() -> float:
     try:
@@ -152,6 +159,7 @@ def wait(should_stop, on_wake=None, max_seconds: float = 20.0, capture: bool = T
     threshold = max(sensitivity_threshold(), min_threshold)
     soft_threshold = max(0.08, threshold * 0.68)
     soft_hits = 0
+    skipped = 0
     end = time.time() + max_seconds
     with sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=FRAME,
                         device=voice._input_device()) as stream:
@@ -160,8 +168,14 @@ def wait(should_stop, on_wake=None, max_seconds: float = 20.0, capture: bool = T
                 return None
             data, _ = stream.read(FRAME)
             x = np.asarray(data).reshape(-1)
-            levels.append(_rms(x))
+            level = _rms(x)
+            levels.append(level)
             voice.last_noise = min(levels)        # sessiz mikrofon uyarısı için (main.py)
+            floor = max(_SILENT_LEVEL, min(levels) * 2.5)   # ortam gürültüsüne uy
+            if level < floor and skipped < _FORCE_EVERY - 1:
+                skipped += 1
+                continue
+            skipped = 0
             scores = _model.predict(x)
             sc = max(scores.values(), default=0.0)
             soft_hits = soft_hits + 1 if sc >= soft_threshold else 0
