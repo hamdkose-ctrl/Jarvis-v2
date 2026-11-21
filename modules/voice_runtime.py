@@ -361,10 +361,23 @@ class VoiceLane:
         # audio_ready var, playback_started yok, kullanıcı "ses yok" dedi).
         self._audible = threading.Event()
         self._closed = False
+        # Cevap başına bir kez: canlı ölçümde her cümle bu kapıyı 2 sn'ye kadar
+        # bekliyordu ve cümle sonunda duyulan boşluk tam olarak buydu (2.049 sn).
+        # busy_event zaten tüm cevap boyunca set; sonraki cümlelerin bekleyecek
+        # bir çekimi yok, beklemeleri sadece konuşmayı kesiyor.
+        capture_waited: set = set()
+
         def wait_for_capture(request, cancel):
             # Admission already set busy_event, so a new normal capture will
             # fail its existing gate. Wait out only a capture already inside
             # audio_lock; release before playback so barge-in can still listen.
+            key = getattr(request, "request_id", None) or id(request)
+            if key in capture_waited:
+                return
+            capture_waited.add(key)
+            while len(capture_waited) > 8:
+                capture_waited.pop()
+            basladi = time.monotonic()
             lock=getattr(runtime,'audio_lock',None)
             if lock is not None:
                 # Bounded on purpose: an answer must never stay silent because some
@@ -377,6 +390,9 @@ class VoiceLane:
                     if lock.acquire(timeout=0.05):
                         lock.release()
                         break
+                bekleme = (time.monotonic() - basladi) * 1000
+                if bekleme >= 100:
+                    logging.getLogger("voice").info("speech_capture_wait_ms=%.0f", bekleme)
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,

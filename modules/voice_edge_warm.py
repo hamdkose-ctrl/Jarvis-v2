@@ -205,8 +205,14 @@ class _Warm:
         return self._run(self._warm_once(), _OPEN_TIMEOUT) is True
 
     async def _warm_once(self) -> bool:
+        # Tazeleyici, süren bir sentezin soketini ayağının altından değiştiremez.
+        # Canlı hata (01:41): paralel 4 cümle sentezlenirken keeper yeni soket
+        # açtı; dört parça da RuntimeError verip soğuk yola düştü.
+        if self._turn_lock is None:
+            self._turn_lock = asyncio.Lock()
         try:
-            return await self._ensure_open()
+            async with self._turn_lock:
+                return await self._ensure_open()
         except Exception:
             _record_failure("modules/voice_edge_warm.py:connect")
             await self._drop()
