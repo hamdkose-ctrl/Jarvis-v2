@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -70,6 +70,19 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         send.assert_called_once()
         self.assertFalse(response['ok'])
         self.assertEqual(response['status']['ready_connections']['groq']['state'], 'error')
+
+    def test_cloudflare_http_429_is_reported_without_a_guess_at_the_daily_limit(self):
+        response = Mock(status_code=429, text='Too many requests')
+        with patch.object(cloudflare_chat, 'user_cloudflare_account', return_value='a' * 32), \
+             patch.object(cloudflare_chat, 'user_cloudflare_token', return_value='cf-test-key'), \
+             patch.object(requests, 'post', return_value=response) as send:
+            result = smart_router.check_ready_connection('alice', 'cloudflare')
+        send.assert_called_once()
+        self.assertFalse(result['ok'])
+        row = result['status']['ready_connections']['cloudflare']
+        self.assertEqual(row['state'], 'quota')
+        self.assertIn('hız sınırı', row['message'])
+        self.assertNotIn('kotanın dolduğunu', row['message'])
 
     def test_key_rotation_drops_previous_connection_status(self):
         with patch.object(llm, 'dispatch', return_value='OK'):
