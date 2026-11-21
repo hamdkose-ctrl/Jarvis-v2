@@ -611,14 +611,16 @@ let HOME_HOLOGRAM=null,HOLOGRAM_TONE=store.get('hologram-tone','blue'),HOLOGRAM_
 function hologramTone(){return ['blue','turquoise','yellow'].includes(HOLOGRAM_TONE)?HOLOGRAM_TONE:'blue'}
 function hologramBackground(){return ['mountains','lava'].includes(HOLOGRAM_BACKGROUND)?HOLOGRAM_BACKGROUND:'mountains'}
 function mountBust(stage){
-  if(!stage)return;if(HOME_HOLOGRAM)HOME_HOLOGRAM.destroy();
-  HOME_HOLOGRAM=window.JarvisHologram.mount(stage,{
-    getState:()=>((S.snap||{}).flags||{}).sleep?'sleep':S.orb,
-    getTone:hologramTone,getBackground:hologramBackground,
-    getElapsed:()=>BUST.holoElapsed||0,saveElapsed:t=>{BUST.holoElapsed=t},
-    isStill:()=>S.ui?.nx_bust===false||matchMedia('(prefers-reduced-motion: reduce)').matches,
-    isCalm:UI_CALM,onMic:()=>ACT.mic(),onRestore:mountBust
-  });
+  // KALDIRILDI (21 Kasım): canlı hologram (WebGL + sürekli kare döngüsü) boşta
+  // Edge GPU %205, sekme %129 CPU yakıyordu; Jarvis'in kendisi %19'du. Yerine tek
+  // seferlik durağan görsel konur: çizim bir kez, sonra hiç. Mikrofon alt çubukta.
+  if(!stage)return;
+  if(HOME_HOLOGRAM){try{HOME_HOLOGRAM.destroy()}catch(e){}HOME_HOLOGRAM=null}
+  if(stage.dataset.staticBust==='1')return;
+  stage.dataset.staticBust='1';
+  stage.innerHTML='<div class="jarvis-hologram" style="position:absolute;inset:0;overflow:hidden">'
+    + '<img src="/hologram-bust.jpg" alt="" style="position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);height:116%;object-fit:contain;opacity:.5">'
+    + '</div>';
 }
 ACT.hologramtone=el=>{const name=el.dataset.v;if(!['blue','turquoise','yellow'].includes(name))return;HOLOGRAM_TONE=name;store.set('hologram-tone',name);if(settingsOpen())drawSettings();updateHologramChoices()};
 ACT.hologrambg=el=>{const name=el.dataset.v;if(!['mountains','lava'].includes(name))return;HOLOGRAM_BACKGROUND=name;store.set('hologram-background',name);if(settingsOpen())drawSettings();updateHologramChoices()};
