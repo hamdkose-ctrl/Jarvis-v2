@@ -1304,18 +1304,31 @@ PAGES.settings=pg=>renderSettingsPage(pg);
 async function loadUi(){S.ui=await tryApi('nx_settings')||{};applyTheme()}
 const SX={};          // sayfa içi geçici durum (mesajlar)
 // Yapay zekâ sayfası: her sağlayıcı bir kart; karta basınca yalnız onun bağlantısı açılır, durum kart renginde görünür.
+const READY_LABELS={gemini:'Gemini',groq:'Groq',cloudflare:'Cloudflare',ollama:'Yerel model',custom:'Özel API'};
+function readyConnection(sn,provider){
+  return SX.routerOwner===sn.user?.slug?SX.router?.ready_connections?.[provider]:null;
+}
+function readyBadge(sn,provider){
+  const status=readyConnection(sn,provider);
+  if(!status)return ['warn','Durum alınamadı'];
+  if(status.state==='ok')return ['ok','Yanıt verdi'];
+  if(status.state==='quota')return ['warn','Kota sınırı'];
+  if(status.state==='unchecked')return ['warn','Anahtar kayıtlı'];
+  if(status.state==='disabled')return ['warn','Kullanılamıyor'];
+  return ['bad',status.configured?'Bağlantı sorunu':'API bilgisi eksik'];
+}
 const AI_CARDS=[['auto','Otomatik Model Seçimi','Jarvis seçer · anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],
   ['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],
   ['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],
-  ['cloudflare','Cloudflare','İlave ücretsiz metin yedeği','<span class="lg">☁</span>'],
+  ['cloudflare','Cloudflare','Hazır metin yedeği','<span class="lg">☁</span>'],
   ['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],
   ['custom','Özel API','İlave bağlantı ve kullanım rolü','<span class="lg">＋</span>'],
   ['google','Gmail ve Takvim','Google hesabın · salt okuma','<span class="lg">✉</span>'],
   ['youtube','YouTube','Çalışma videoları · isteğe bağlı','<span class="lg">▶</span>']];
 function aiStates(sn){
-  const l=sn.llm||{},q=l.groq||{},g=sn.google||{},y=sn.youtube||{},r=SX.router||{};
+  const l=sn.llm||{},g=sn.google||{},y=sn.youtube||{},r=SX.routerOwner===(sn.user||{}).slug?(SX.router||{}):{};
   const on=(v,t='Bağlı')=>v?['ok',t]:['bad','Bağlı değil'];
-  return {auto:['ok','Hazır'],gemini:on(l.key),groq:on(q.key),cloudflare:on((SX.routerOwner===(sn.user||{}).slug?r.connection_states?.cloudflare:false)),ollama:on(l.ollama_up,'Çalışıyor'),
+  return {auto:['ok','Hazır'],gemini:readyBadge(sn,'gemini'),groq:readyBadge(sn,'groq'),cloudflare:readyBadge(sn,'cloudflare'),ollama:on(l.ollama_up,'Çalışıyor'),
     custom:(r.custom_connections||l.custom_connections||[]).some(c=>c.enabled)?['ok','Etkin']:['warn','İsteğe bağlı'],google:g.token?['ok','Bağlı']:g.cred?['warn','İzin bekliyor']:['bad','Bağlı değil'],
     youtube:!y.key?['bad','Bağlı değil']:y.ok===false?['bad','Hata']:y.ok===true?['ok','Bağlı']:['warn','Deneniyor']};
 }
@@ -1456,14 +1469,17 @@ async function drawSettings(){
       field('Yeni hedef',inp('goal','örn. İngilizce öğreniyorum'),'Hedefin varsa Jarvis ona göre yardımcı olur. Enter’a bas.'))}
   else if(k==='github'){let up={},dep={};try{[up,dep]=await Promise.all([api('update_status'),api('dependency_lock_status')])}catch(e){}
     h+=githubBoxes(up,dep)}
-  else if(k==='baglanti'||k==='ai'){let up={},ho={},goa={},dep={},gsu={},rq={};try{[up,ho,goa,dep,gsu,rq]=await Promise.all([api('update_status'),api('handoff_status'),api('google_oauth_status'),api('dependency_lock_status'),api('google_setup_status').catch(()=>({})),api('role_qualification_status').catch(()=>({}))])}catch(e){}const g=sn.google||{},q=l.groq||{};
+  else if(k==='baglanti'||k==='ai'){
+    const owner=sn.user?.slug;
+    const [up,ho,goa,dep,gsu,router]=await Promise.all(
+      ['update_status','handoff_status','google_oauth_status','dependency_lock_status','google_setup_status','router_ready_status']
+        .map(name=>api(name).catch(()=>({}))));
+    if(owner!==S.snap?.user?.slug)return;
+    SX.routerOwner=owner;SX.router=router?.owner===owner?router:null;
+    const g=sn.google||{};
     const learnBox=sbox('db','Öğrenme','Jarvis seninle konuşurken.',
       srow('db','Konuşmalardan öğren','Öğrendiklerini önce onayına sunar',sw('learn_from_chat',sn.learn_on)));
-    const pGem=sbox('key','Gemini · '+esc((sn.user||{}).name||'Kullanıcı'),'Bu anahtar yalnız aktif kullanıcıya aittir. Anahtar: aistudio.google.com/apikey',
-        srow('key','Durum',l.key?'Kayıtlı'+(l.key_tail?' …'+esc(l.key_tail):''):'Anahtar yok',`<span class="pill ${l.key?'good':'bad'}">${l.key?'Aktif':'Yok'}</span>`)+
-        srow('spark','Model kontrolü',esc((sn.model_validation||{}).message||'Henüz doğrulanmadı'),'<button class="btn sm" data-act="modelcheck">Kontrol et</button>')+
-        srow('spark','Bu sürümü doğrula',esc(roleQualText(rq)),`<button class="btn sm" data-act="rolequal"${rq.running?' disabled':''}>Doğrula</button> <button class="btn sm" data-act="rolequalrefresh">Durumu yenile</button>`)+
-        field('Yeni anahtar',inp('gk','AIza…','','password'),'Boş bırakırsan mevcut anahtar korunur.')+pad18(`<button class="btn sm pri" data-act="gksave">${ic('check')} Kaydet ve dene</button> <span class="mut">${esc(SX.gk||'')}</span>`));
+    const pGem=readyProviderBox(sn,'gemini');
     const gsDone=(id)=>({json:gsu.cred==='hazir',baglan:!!gsu.token}[id]);
     const gsBox=(gsu.steps&&!g.token)?sbox('list','Google kurulum sihirbazı','Her kullanıcı kendi Google Cloud projesini açar (yaklaşık 10 dakika). Adımları sırayla yap; “Aç” ilgili Google sayfasını açar.',
         gsu.steps.map((st,i)=>{const d=gsDone(st.id);const cur=gsu.next===st.id;return srow(d?'check':'file',(i+1)+'. '+esc(st.title),esc(st.text)+(st.id==='json'&&gsu.cred_msg?' · '+esc(gsu.cred_msg):''),
@@ -1483,12 +1499,12 @@ async function drawSettings(){
       field('Uç nokta',inp('lburl',LB_URL[lb],lbSame?l.ollama_url:''))+
       pad18(`<button class="btn sm pri" data-act="lbsave">Sunucuyu kaydet ve dene</button> <span class="mut">${esc(SX.lbm||'')}</span>`)+
       field('Yerel model · '+esc((sn.user||{}).name||'Kullanıcı'),inp('om','llama3.2',l.local_model),'Yalnız bu kullanıcı için. Ollama’da indirdiğin model adını yaz (ör. llama3.2, qwen2.5:7b); LM Studio/llama.cpp’de boş bırakırsan sunucudaki ilk model kullanılır.')+
-      pad18(`<button class="btn sm pri" data-act="omsave">Modeli kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>`));
-    const pGroq=sbox('bolt','Groq · '+esc((sn.user||{}).name||'Kullanıcı')+' (isteğe bağlı)','Bu anahtar yalnız aktif kullanıcıya aittir. Anahtar: console.groq.com/keys',
-        srow('bolt','Groq',q.key?'Kayıtlı …'+esc(q.tail||''):'Yok','')+field('Groq anahtarı',inp('qk','gsk_…','','password'))+field('Groq modeli',inp('qm','openai/gpt-oss-120b',q.model))+pad18(`<button class="btn sm pri" data-act="qsave">Kaydet ve dene</button> <span class="mut">${esc(SX.q||'')}</span>`));
+      pad18(`<button class="btn sm pri" data-act="omsave">Modeli kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>`)+
+      pad18(`<button class="btn sm" data-act="routerlocalcaps">Görüntü desteğini kontrol et</button> <span class="mut">${esc(SX.localCapsMsg||'')}</span>`));
+    const pGroq=readyProviderBox(sn,'groq');
     const pYt=sbox('play','YouTube · Çalışma videoları (isteğe bağlı)','Çalışma ekranında anlatılan konunun videoları yanda listelensin. Anahtar: console.cloud.google.com › YouTube Data API v3 › Kimlik Bilgileri › API anahtarı',
         srow('play','YouTube',(()=>{const y=sn.youtube||{};return !y.key?'Yok — yalnız “YouTube’da ara” bağlantısı':y.ok===true?'Kayıtlı · çalışıyor':y.ok===false?'Kayıtlı · HATA: '+esc(y.msg||''):'Kayıtlı · deneniyor…'})(),'')+field('YouTube API anahtarı',inp('ytk','AIza…','','password'))+pad18(`<button class="btn sm pri" data-act="ytsave">Kaydet</button>${sn.youtube_key?' <button class="btn sm" data-act="ytdel">Sil</button>':''}`));
-    h=aiPage(sn,{auto:routerBox('policy'),gemini:pGem,groq:pGroq,ollama:pOll,custom:routerConnectionsBox(sn),cloudflare:cloudflareBox(sn),google:gsBox+pGoogle,youtube:pYt},learnBox)}
+    h=aiPage(sn,{auto:routerBox(),gemini:pGem,groq:pGroq,ollama:pOll,custom:routerConnectionsBox(sn),cloudflare:readyProviderBox(sn,'cloudflare'),google:gsBox+pGoogle,youtube:pYt},learnBox)}
   else if(k==='ses'){let st={},vo={voices:[]},devs=[],ls={};try{[st,vo,devs,ls]=await Promise.all([api('settings'),api('voice_options'),api('input_devices'),api('local_stt_status')])}catch(e){}
     const sel=(id,opts,cur)=>`<select class="sel" id="${id}" style="width:100%">${opts.map(([v,t])=>`<option value="${esc(v)}" ${String(cur)===String(v)?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
     h+=sesBoxes({st,vo,devs,ls,sel,f,u,sn})}
@@ -1555,24 +1571,65 @@ ACT.connecthelp=el=>{
   overlay.addEventListener('click',e=>{if(e.target===overlay)close()});
   document.body.appendChild(overlay);document.addEventListener('keydown',keydown,true);overlay.querySelector('.guide-close').focus();
 };const sAfter=async p=>{try{await p}catch(e){toast(e.message,'bad')}await refresh();drawSettings()};
-function routerBox(mode){   // Otomatik Model Seçimi kartı
-  const owner=((S.snap||{}).user||{}).slug;if(SX.routerOwner!==owner){SX.router=null;SX.routerOwner=owner}const r=SX.router||{};
-  if(!SX.routerLoading&&!SX.router){SX.routerLoading=true;api('smart_router_status').then(v=>{if(SX.routerOwner!==owner){SX.routerLoading=false;return}SX.router=v;SX.routerLoading=false;if(S.sset==='baglanti'||S.sset==='ai')drawSettings()}).catch(()=>{SX.routerLoading=false})}
-  const limits=r.application_limits||{daily_requests:200,max_parallel:2,interactive_reserved:1,interactive_daily_reserve:20};
-  const maintenance=['gemini','groq','cloudflare'].map(provider=>field(provider+' proje/kota grubu',inp('router-project-'+provider,'Aynı projeyi paylaşan hesaplarda aynı ad',(r.account_scopes||{})[provider]||''))+pad18(`<button class="btn sm" data-act="routerfree" data-provider="${provider}">${provider} ücretsiz plan beyanını güncelle</button>`)).join('');
-  const traces=(r.traces||[]).map(t=>`<details><summary>${esc(t.request_id)} · ${esc(t.profile)} · ${esc(t.state)}</summary><p>${esc(t.policy_version)} · ${esc(t.provider||'—')} / ${esc(t.model||'—')} · ${t.duration_ms??'—'} ms</p><p>Ana / yedek: ${(t.planned||[]).map(x=>esc(x.provider+' / '+x.model)).join(' → ')||'Uygun aday yok'}</p><p>Rezervasyon üst sınırı: ${t.reservation?.token_upper_bound??'bilinmiyor'} token; parasal sınır ${t.reservation?.cost_upper_bound_microusd??'bilinmiyor'} µUSD. Gerçek kullanım: giriş ${t.usage?.input_tokens??'bilinmiyor'}, çıkış ${t.usage?.output_tokens??'bilinmiyor'}, reasoning ${t.usage?.reasoning_tokens??'bilinmiyor'}, cache ${t.usage?.cached_tokens??'bilinmiyor'}. İlk token: ${t.first_token_ms??'ölçülmedi'}. ${esc(t.finish_reason||'')}</p><p>${(t.attempts||[]).map(x=>esc(x.model+' · '+(x.kind||x.state))).join('; ')}</p><p>${(t.skipped||[]).map(x=>esc(x.provider+': '+x.reason)).join('; ')}</p></details>`).join('');
-  if(mode==='policy'||(!mode&&S.sset==='ai'))return sbox('bolt','Otomatik Model Seçimi','Jarvis işe göre bağlı sağlayıcılar arasından seçim yapar. Bu özellik için ayrı API anahtarı gerekmez.',
-    pad18(`<label class="router-confirm"><input type="checkbox" id="rfree" ${r.cloud_free_confirmed?'checked':''}><span>Hazır bulut hesaplarım ücretsiz planda; ücretli faturalama kapalı.</span></label><label class="router-confirm"><input type="checkbox" id="rgchat" ${(r.gemini_scopes||[]).includes('conversation')?'checked':''}><span>Gemini konuşma ve anlamlandırma için gerekli bağlamı kullanabilir.</span></label><label class="router-confirm"><input type="checkbox" id="rgselected" ${(r.gemini_scopes||[]).includes('selected_content')?'checked':''}><span>Gemini iş için seçtiğim dosya ve görüntüleri analiz edebilir.</span></label><p class="mut">Google ücretsiz hizmete gönderilen içeriği ürün geliştirme/eğitim için kullanabilir. Bu kapsam yalnız senin hesabına aittir ve geri alınabilir; yerel/gizli mod daha dar kalır.</p><div class="connection-actions"><button class="btn sm pri" data-act="routerpolicy">Tercihi Kaydet</button><button class="btn sm" data-act="routerstatus">Model Yetenekleri</button></div><p class="mut">Hazır havuz Gemini, uygun Groq/Cloudflare ve isteğe bağlı yerel modellerdir. Diğer sağlayıcıları Özel API alanından rol seçerek ekle. Ücretsiz kota ve model uygunluğu ayrıca doğrulanır. Kalan kota bilinmiyorsa bilinmiyor kalır; uygulama tavanları sağlayıcının gerçek limiti değildir.</p>`)+
-    field('Günlük uygulama çağrı tavanı',inp('router-daily','200',limits.daily_requests))+field('En fazla eşzamanlı bulut çağrısı',inp('router-parallel','2',limits.max_parallel))+field('Sohbet için ayrılan eşzamanlı pay',inp('router-reserved','1',limits.interactive_reserved))+field('Sohbete ayrılan günlük çağrı payı',inp('router-daily-reserve','20',limits.interactive_daily_reserve??20))+maintenance+pad18(`<button class="btn sm" data-act="routerlocalcaps">Yerel modelin görüntü yeteneğini kontrol et</button> <span class="mut">${esc(SX.localCapsMsg||'Model indirilmez veya inference yapılmaz. Ollama runtime bilgisi 5 dakika geçerlidir; diğer backend desteği doğrulanmadan açılmaz.')}</span>`)+pad18(traces||'Bu kullanıcı için kayıtlı model çağrısı yok.'));
-  return '';
+function routerBox(){
+  const last=SX.routerOwner===S.snap?.user?.slug?SX.router?.last_reply:null;
+  const reply=last?`${esc(READY_LABELS[last.provider]||last.provider)} · ${esc(last.model)}`:'Henüz kayıtlı sohbet yanıtı yok.';
+  return sbox('bolt','Otomatik model seçimi','Hazır bağlantılar kullanılabildiğinde Jarvis işe uygun modeli seçer.',
+    pad18(`<p><b>Son sohbeti yanıtlayan model</b><br>${reply}</p>`));
 }
-ACT.routerpolicy=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save',$('#rfree').checked,[['conversation','rgchat'],['selected_content','rgselected']].filter(([,id])=>$('#'+id).checked).map(([scope])=>scope),owner,{daily_requests:Number($('#router-daily').value),max_parallel:Number($('#router-parallel').value),interactive_reserved:Number($('#router-reserved').value),interactive_daily_reserve:Number($('#router-daily-reserve').value)},Object.fromEntries(['gemini','groq','cloudflare'].map(p=>[p,$('#router-project-'+p).value.trim()]).filter(([,v])=>v)));if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
-ACT.routerstatus=()=>say('router durumu');
-ACT.routerfree=async el=>{const owner=((S.snap||{}).user||{}).slug;if(!$('#rfree').checked)return toast('Önce ücretsiz plan ve ücretli faturalamanın kapalı olduğu beyanını seç.','bad');try{const r=await api('router_free_account_confirm',el.dataset.provider,true,true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
+function readyProviderBox(sn,provider){
+  const status=readyConnection(sn,provider),label=READY_LABELS[provider];
+  const router=SX.routerOwner===sn.user?.slug?SX.router:null;
+  const scopes=router?.gemini_scopes||[];
+  const permissions=provider==='gemini'?`<div class="ready-permissions">
+    <label class="router-confirm"><input type="checkbox" id="rgchat" ${scopes.includes('conversation')?'checked':''} ${router?'':'disabled'}> Konuşma ve istek bağlamını Gemini’ye gönder</label>
+    <label class="router-confirm"><input type="checkbox" id="rgselected" ${scopes.includes('selected_content')?'checked':''} ${router?'':'disabled'}> Seçtiğim dosya ve görüntüleri Gemini’ye gönder</label>
+    <p class="mut">Google, ücretsiz kullanımda gönderilen içeriği hizmetlerini geliştirmek için kullanabilir.</p></div>`:'';
+  return sbox('key',label,'',
+    srow('spark',readyBadge(sn,provider)[1],esc(status?.message||'Bağlantı durumu alınamadı.'),'')+
+    (status?.configured&&status.model?pad18(`<p class="mut">Model ${esc(status.model)}</p>`):'')+
+    (provider==='cloudflare'?field('Account ID',inp('cf-account','Cloudflare hesap kimliği','')):'')+
+    field('API anahtarı',inp('ready-key',status?.configured?'Kayıtlı · değiştirmek için yeni anahtarı gir':'API anahtarını gir','','password'))+
+    (permissions?pad18(permissions):'')+
+    pad18(`<div class="connection-actions"><button class="btn sm pri" data-act="readySave" data-provider="${provider}">Kaydet</button>
+      <button class="btn sm" data-act="readyCheck" data-provider="${provider}" ${status?.configured?'':'disabled'}>Bağlantıyı dene</button>
+      ${provider==='cloudflare'&&status?.configured?'<button class="btn sm" data-act="routercfdelete">Kaldır</button>':''}</div>`));
+}
+ACT.readySave=async el=>{
+  const owner=S.snap?.user?.slug,provider=el.dataset.provider,key=$('#ready-key').value.trim();
+  const account=$('#cf-account')?.value.trim()||'';
+  el.disabled=true;
+  try{
+    if(provider==='gemini'&&SX.routerOwner===owner&&SX.router){
+      const scopes=[['conversation','rgchat'],['selected_content','rgselected']].filter(([,id])=>$('#'+id).checked).map(([name])=>name);
+      await api('smart_router_save',scopes,owner);
+    }
+    if(owner!==S.snap?.user?.slug)return;
+    if(provider==='cloudflare')await api('router_cloudflare_save',account,key,false,owner);
+    else if(key)await api('router_ready_key_save',provider,key,owner);
+    else if(provider!=='gemini')throw new Error('API anahtarını gir.');
+    if(owner!==S.snap?.user?.slug)return;
+    toast('Kaydedildi.');
+    await refresh();
+    if(owner===S.snap?.user?.slug&&settingsOpen())drawSettings();
+  }catch(error){if(owner===S.snap?.user?.slug)toast(error.message,'bad')}
+  finally{el.disabled=false}
+};
+ACT.readyCheck=async el=>{
+  const owner=S.snap?.user?.slug;
+  el.disabled=true;
+  try{
+    const result=await api('router_ready_check',el.dataset.provider,owner);
+    if(owner!==S.snap?.user?.slug)return;
+    toast(result.msg,result.ok?'good':'bad');
+    if(settingsOpen())drawSettings();
+  }catch(error){if(owner===S.snap?.user?.slug)toast(error.message,'bad')}
+  finally{el.disabled=false}
+};
 ACT.routerlocalcaps=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('router_local_capabilities',owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.localCapsMsg=r.ok?(r.vision?'Görüntü destekli runtime doğrulandı: ':'Runtime görüntü desteği bildirmiyor: ')+r.model:r.reason;drawSettings()}catch(e){toast(e.message,'bad')}};
 function modes(){
   const m=(((S.snap||{}).llm||{}).provider||'auto')==='ollama'?'ollama':'auto';
-  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Hazır ücretsiz havuz ve seçilmiş özel roller'],['ollama','Yalnız yerel','Ollama, LM Studio veya llama.cpp']].map(([v,t,s])=>`<button class="mode ${m===v?'on':''}" data-act="sval" data-k="ai_mode" data-v="${v}"><span><b>${t}</b><small>${s}</small></span><span class="rd"></span></button>`).join('')}</div>`}
+  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Hazır bağlantılar ve seçilmiş özel roller'],['ollama','Yalnız yerel','Ollama, LM Studio veya llama.cpp']].map(([v,t,s])=>`<button class="mode ${m===v?'on':''}" data-act="sval" data-k="ai_mode" data-v="${v}"><span><b>${t}</b><small>${s}</small></span><span class="rd"></span></button>`).join('')}</div>`}
 
 async function setUi(k,v){const r=await tryApi('nx_set',k,v);if(r){S.ui=r;await refresh();applyTheme();drawSettings();toast('Kaydedildi.')}}
 ACT.smenu=el=>{S.sset=el.dataset.k;S.sq='';render()};
@@ -1591,14 +1648,6 @@ ACT.fdel=el=>sAfter(api('fact_delete',+el.dataset.i));
 ACT.rdel=el=>sAfter(api('rule_delete',+el.dataset.i));
 ACT.pfok=el=>sAfter(api('pending_approve',+el.dataset.i));
 ACT.pfno=el=>sAfter(api('pending_reject',+el.dataset.i));
-function cloudflareBox(sn){
-  const owner=(sn.user||{}).slug,ready=SX.routerOwner===owner&&SX.router?.connection_states?.cloudflare;
-  return sbox('cloud','Cloudflare · '+esc((sn.user||{}).name||'Kullanıcı'),'Workers AI için bu kullanıcıya ait Account ID ve API token. Kaydetmek model çağırmaz.',
-    field('Account ID',inp('cf-account','32 karakter; kayıtlı değeri korumak için boş bırak',''))+
-    field('API token',inp('cf-token','Kayıtlı anahtarı korumak için boş bırak','','password'))+
-    pad18(`<button class="btn sm pri" data-act="routercfsave">Kaydet</button> ${ready?'<button class="btn sm" data-act="routercfdelete">Kaldır</button>':''}<p class="mut">${esc(ready?'Bu kullanıcı için bağlantı kayıtlı; ücretsiz plan ve rol uygunluğu ayrı doğrulanır.':'Bu kullanıcı için bağlantı eksik.')} Workers Free planı ve ücretli faturalamanın kapalı olması ayrıca Otomatik Model Seçimi alanından beyan edilir.</p>`));
-}
-ACT.routercfsave=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('router_cloudflare_save',$('#cf-account').value,$('#cf-token').value,false,owner);if(owner!==((S.snap||{}).user||{}).slug)return;$('#cf-token').value='';SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.routercfdelete=async()=>{const owner=((S.snap||{}).user||{}).slug;if(!await ask('Bu kullanıcının Cloudflare bağlantısı kaldırılsın mı?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;try{const r=await api('router_cloudflare_save','','',true,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=null;toast(r.msg);drawSettings()}catch(e){toast(e.message,'bad')}};
 const ROUTER_ROLES=[['brain_understanding','Ana model / Brain'],['conversation','Sohbet'],['public_research','Araştırma'],['long_worker','Uzun işler'],['vision','Görüntü analizi']];
 function routerConnectionsBox(sn){
@@ -1646,8 +1695,6 @@ ACT.customvisiontest=async()=>{const owner=((S.snap||{}).user||{}).slug,id=SX.cu
 ACT.customdelete=async el=>{const owner=((S.snap||{}).user||{}).slug,id=el.dataset.id;if(!await ask('Bu özel bağlantı kaldırılsın mı?'))return;if(owner!==((S.snap||{}).user||{}).slug)return;await api('router_connection_delete',id,owner);if(owner!==((S.snap||{}).user||{}).slug)return;SX.customId='';SX.router=null;await refresh();drawSettings()};
 
 const msgOf=r=>(r&&r.ok?'✓ ':'✗ ')+((r&&r.msg)||'');
-ACT.gksave=async el=>{const v=$('#gk').value.trim();if(!v){SX.gk='Anahtarı yaz.';return drawSettings()}SX.gk='Deneniyor…';el.disabled=true;
-  try{const r=await api('api_key_save',v,'','');const bad=Object.values(r||{}).filter(x=>!x.ok);SX.gk=bad.length?'✗ '+bad.map(x=>x.error).join(' | '):'✓ Kaydedildi. Model denemesi yapılmadı.'}catch(e){SX.gk='✗ '+e.message}sAfter(0)};
 ACT.ghsave=async el=>{const v=$('#ghk').value.trim();if(!v)return;el.disabled=true;SX.gh='Deneniyor…';try{SX.gh=msgOf(await api('update_token_save',v))}catch(e){SX.gh='✗ '+e.message}sAfter(0)};
 ACT.ghverify=async()=>{SX.gh='GitHub main ile gerçek dosya karşılaştırması yapılıyor…';drawSettings();const r=await tryApi('github_verify');SX.gh=msgOf(r)+ghFiles(r);await refresh();drawSettings()};
 const ghFiles=r=>{const f=(r&&r.local_changes)||[];if(String((r&&r.msg)||'').includes('Engelleyen dosyalar'))return '';return f.length?'\nGitHub’dan farklı dosyalar: '+f.join(', ')+(r.local_change_count>f.length?' …':''):''};
@@ -1663,7 +1710,6 @@ ACT.upd=async()=>{const r=await tryApi('update_now');if(r){SX.gh=msgOf(r);toast(
 ACT.lbpick=el=>{SX.lb=el.dataset.v;SX.lbm='';drawSettings()};
 ACT.lbsave=async el=>{el.disabled=true;SX.lbm='Deneniyor…';try{SX.lbm=msgOf(await api('local_backend_set',SX.lb||((S.snap||{}).llm||{}).local_backend||'ollama',$('#lburl').value,''));SX.lb=''}catch(e){SX.lbm='✗ '+e.message}sAfter(0)};
 ACT.omsave=async el=>{el.disabled=true;try{SX.om=msgOf(await api('model_choice_save','ollama',$('#om').value))}catch(e){SX.om='✗ '+e.message}sAfter(0)};
-ACT.qsave=async el=>{el.disabled=true;SX.q='Deneniyor…';try{SX.q=msgOf(await api('groq_key_save',$('#qk').value,$('#qm').value,false))}catch(e){SX.q='✗ '+e.message}sAfter(0)};
 ACT.gsopen=async el=>{const r=await tryApi('google_setup_open',el.dataset.v);SX.g=msgOf(r);drawSettings()};
 ACT.gpick=()=>{const i=$('#upl');i.accept='.json,application/json';i.onchange=async()=>{const f=i.files[0];i.value='';if(!f)return;try{SX.g=await api('google_upload',await f.text())}catch(e){SX.g='✗ '+e.message}sAfter(0)};i.click()};
 ACT.gconn=async()=>{SX.g='Bağlanılıyor… Tarayıcıda Google izin ekranı açılabilir.';drawSettings();const r=await tryApi('google_connect');SX.g=msgOf(r);sAfter(0)};
@@ -1742,11 +1788,6 @@ function connect(){
   loadFiles().then(()=>{if(['files','vision'].includes(S.page))render()});
 })();
 
-ACT.modelcheck=async()=>{try{const r=await api('llm_validate',true);SX.gk=r.message||r.state}catch(e){SX.gk='Model kontrolü tamamlanamadı: '+e.message}sAfter(0)};
-
 function localSttText(s){return !s.installed?'Önce faster-whisper paketini kur (docs/YEREL_SES.md).':s.preparing?'Model indiriliyor; biraz sonra durumu yenile.':s.error|| (s.ready?'Model hazır. Gizli/Yerel modda ses buluta gitmez.':'Model henüz indirilmedi. İndirme internet kullanır; ses kaydı göndermez.')}
-function roleQualText(s){return s.running?`Doğrulama sürüyor: ${s.done||0}/${s.total||20} vaka bitti; Jarvis'yi kapatman sürmeyi durdurmaz.`:s.qualified?'Bu sürüm doğrulanmış; serbest cümleler model üzerinden çalışıyor.':(s.error||'Doğrulama 20 sınırlı ücretsiz Gemini çağrısı kullanır, ~12 dakika sürer, işlem yapmaz.')}
-ACT.rolequal=async()=>{if(!await ask('Bu sürüm doğrulansın mı? 20 sınırlı ücretsiz Gemini çağrısı kullanılır, yaklaşık 12 dakika sürer; hiçbir işlem yapılmaz.'))return;try{const r=await api('role_qualification_prepare');toast(r&&r.started?'Doğrulama başladı; birkaç dakika sonra “Durumu yenile”e bas.':'Doğrulama zaten sürüyor.')}catch(e){toast(e.message,'bad')}drawSettings()};
-ACT.rolequalrefresh=()=>drawSettings();
 ACT.lsttprepare=async()=>{const name=$('#lsttmodel').value;if(!await ask(name+' yerel ses modeli indirilsin mi? İnternet ve disk alanı kullanır.'))return;try{await api('settings_save',{local_stt_model:name});await api('local_stt_prepare',name);toast('Model hazırlanıyor; biraz sonra durumu yenile.');drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.lsttrefresh=()=>drawSettings();

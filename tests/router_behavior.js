@@ -1,15 +1,42 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),'utf8');
-const S={snap:{user:{slug:'alice'},llm:{provider:'auto'}},sset:'baglanti'},SX={},ACT={},nodes={};let calls=[],draws=0;
-const c={S,SX,ACT,$:id=>nodes[id]||(nodes[id]={value:'',checked:false}),api:async(name,...args)=>{calls.push([name,...args]);return name==='smart_router_status'?{cloud_free_confirmed:true}:{msg:'saved',status:{cloud_free_confirmed:true}}},sbox:(a,b,c,d)=>d,field:(a,b)=>b,inp:(id,p,v)=>`<input id="${id}" value="${v||''}">`,pad18:x=>x,drawSettings:()=>draws++,toast:()=>{},refresh:async()=>{},say:()=>{},esc:x=>String(x||'')};
-vm.createContext(c);vm.runInContext(src.slice(src.indexOf('function routerBox('),src.indexOf('async function setUi(')),c);
-S.ui={ai_mode:'auto'};S.snap.llm.provider='gemini';const modes=c.modes();assert(!modes.includes('data-v="gemini"'));assert(modes.includes('data-v="auto"'));S.snap.llm.provider='auto';
+const S={snap:{user:{slug:'alice'},llm:{provider:'auto'}}}, ACT={};
+const SX={routerOwner:'alice',router:{
+  gemini_scopes:['conversation'],
+  ready_connections:{gemini:{state:'unchecked',configured:true},groq:{state:'ok',configured:true},cloudflare:{state:'quota',configured:true}},
+  last_reply:{provider:'groq',model:'exact-model'}
+}};
+const nodes={'#ready-key':{value:'new-key'},'#rgchat':{checked:true},'#rgselected':{checked:false}};
+const calls=[];
+const c={
+  S,SX,ACT,$:id=>nodes[id],api:async(name,...args)=>{calls.push([name,...args]);return {ok:true,msg:'saved'}},
+  sbox:(icon,title,hint,body)=>title+hint+body,srow:(icon,title,description)=>title+description,
+  field:(label,input)=>label+input,inp:(id,placeholder)=>`<input id="${id}" placeholder="${placeholder}">`,
+  pad18:html=>html,drawSettings:()=>{},toast:()=>{},refresh:async()=>{},settingsOpen:()=>true,esc:value=>String(value||'')
+};
+vm.createContext(c);
+vm.runInContext(src.slice(src.indexOf('const READY_LABELS='),src.indexOf('const AI_CARDS=')),c);
+vm.runInContext(src.slice(src.indexOf('function routerBox('),src.indexOf('async function setUi(')),c);
+
 (async()=>{
- c.routerBox();await new Promise(r=>setImmediate(r));assert.equal(SX.router.cloud_free_confirmed,true);assert.equal(draws,1);
- nodes['#rfree']={checked:true};nodes['#router-daily']={value:'200'};nodes['#router-parallel']={value:'2'};nodes['#router-reserved']={value:'1'};nodes['#router-daily-reserve']={value:'20'};calls=[];
- assert.equal(ACT.routersave,undefined);assert.equal(ACT.routerdelete,undefined);assert.equal(c.routerBox(),'');
- S.sset='ai';const automatic=c.routerBox();assert(!automatic.includes('id="rk"'));assert(!automatic.toLowerCase().includes('openrouter'));assert(automatic.includes('id="rfree"'));calls=[];await ACT.routerpolicy();assert.equal(calls[0][0],'smart_router_save');assert.equal(calls[0][1],true);assert.equal(calls[0][3],'alice');assert(Array.isArray(calls[0][2]));S.sset='baglanti';assert(!c.routerBox().includes('id="rfree"'));
- S.snap.user.slug='bob';c.routerBox();assert.equal(SX.routerOwner,'bob');assert.equal(SX.router,null);await new Promise(r=>setImmediate(r));
- assert(!c.routerBox().includes('private'));
- console.log('Smart Router UI: ücretsiz hesap seçimi, OpenRouter kartının yokluğu, kullanıcı değişiminde durum yenileme geçti.');
-})().catch(e=>{console.error(e);process.exit(1)});
+  assert.equal(c.readyBadge(S.snap,'gemini')[1],'Anahtar kayıtlı');
+  assert.equal(c.readyBadge(S.snap,'groq')[1],'Yanıt verdi');
+  assert.equal(c.readyBadge(S.snap,'cloudflare')[1],'Kota sınırı');
+  const automatic=c.routerBox();
+  assert(automatic.includes('Groq · exact-model'));
+  assert(!/router-daily|router-parallel|rfree|kota grubu/.test(automatic));
+  const gemini=c.readyProviderBox(S.snap,'gemini');
+  assert(gemini.includes('Bağlantıyı dene')&&gemini.includes('id="rgchat"')&&gemini.includes('id="rgselected"'));
+  assert(!c.readyProviderBox(S.snap,'groq').includes('rgchat'));
+  assert(c.readyProviderBox(S.snap,'cloudflare').includes('cf-account'));
+  await ACT.readySave({dataset:{provider:'gemini'}});
+  assert.equal(JSON.stringify(calls[0]),JSON.stringify(['smart_router_save',['conversation'],'alice']));
+  assert.deepEqual(calls[1],['router_ready_key_save','gemini','new-key','alice']);
+  await ACT.readyCheck({dataset:{provider:'groq'}});
+  assert.deepEqual(calls[2],['router_ready_check','groq','alice']);
+  S.snap.user.slug='bob';
+  assert(!c.routerBox().includes('exact-model'));
+  assert.equal(c.readyBadge(S.snap,'groq')[1],'Durum alınamadı');
+  assert(!c.readyProviderBox(S.snap,'gemini').includes('checked'));
+  console.log('Router ayarları bağlantı durumunu, gerçek yanıtı, veri iznini ve kullanıcı ayrımını gösteriyor.');
+})().catch(error=>{console.error(error);process.exit(1)});

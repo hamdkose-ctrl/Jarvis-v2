@@ -1,10 +1,9 @@
 import json
 import pathlib
-import tempfile
 import unittest
 from unittest.mock import patch
 
-from modules import cloudflare_chat, provider_privacy as pp, smart_router as router
+from modules import cloudflare_chat, provider_privacy as pp
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INSIDE = pp._VERIFIED_AT + 3600
@@ -96,67 +95,6 @@ class BundleTests(unittest.TestCase):
             for name in chain:
                 self.assertTrue(name == "ollama" or name in pp.PROVIDER_BUNDLE, name)
             self.assertNotIn("openrouter", chain)
-
-
-class RouterGateTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        for target, value in [("_STORE", pathlib.Path(self.tmp.name)), ("_HEALTH", {})]:
-            patcher = patch.object(router, target, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        patcher = patch.object(router.time, "time", return_value=INSIDE)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def evidence(self, provider):
-        return router.set_free_tier_evidence(
-            "alice", provider=provider, model="m", free_tier_verified=True, source="test-fixture",
-            evidence_ref="test://free-tier", verified_at=INSIDE - 60, ttl_seconds=3600,
-            eligibility="eligible", quota_state="available", quota_remaining=5,
-            hard_stop_guaranteed=True, verification_status="verified", reason="fixture")
-
-    def test_cloudflare_is_a_recordable_cloud_provider(self):
-        self.assertIn("cloudflare", router._CLOUD_PROVIDERS)
-        self.evidence("cloudflare")
-        self.assertTrue(router._evidence_gate("alice", "cloudflare", "m", route=PRIV)["ok"])
-
-    def test_gate_without_route_denies_gemini(self):
-        self.evidence("gemini")
-        denied = router._evidence_gate("alice", "gemini", "m")
-        self.assertFalse(denied["ok"])
-        self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_REQUIRED")
-
-    def test_default_route_is_private_and_legacy_route_is_gone(self):
-        self.assertEqual(router._DEFAULT_ROUTE, PRIV)
-        self.assertFalse(hasattr(router, "_LEGACY_ROUTE"))
-
-    def test_owner_evidence_alone_is_not_enough_without_privacy_bundle(self):
-        with self.assertRaises(ValueError):
-            self.evidence("openrouter")
-        result = router._evidence_gate("alice", "openrouter", "m")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EVIDENCE_MISSING")
-
-    def test_gemini_with_valid_owner_evidence_still_denied_for_private_route(self):
-        self.evidence("gemini")
-        self.assertTrue(router._evidence_gate("alice", "gemini", "m", route=PUB)["ok"])
-        denied = router._evidence_gate("alice", "gemini", "m", route=PRIV)
-        self.assertFalse(denied["ok"])
-        self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_NOT_ALLOWED")
-
-    def test_expired_bundle_blocks_even_fresh_owner_evidence(self):
-        self.evidence("groq")
-        result = router._evidence_gate("alice", "groq", "m", now=pp._EXPIRES_AT + 10)
-        self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EVIDENCE_STALE")
-
-    def test_owner_state_cannot_override_provider_privacy_facts(self):
-        self.evidence("gemini")
-        state = json.loads(router.owner_path("alice").read_text(encoding="utf-8"))
-        state["free_tier_evidence"]["gemini"]["m"].update(trains_on_data=False, allowed_routes=[PUB, PRIV])
-        router.owner_path("alice").write_text(json.dumps(state), encoding="utf-8")
-        self.assertFalse(router._evidence_gate("alice", "gemini", "m", route=PRIV)["ok"])
 
 
 class _Resp:

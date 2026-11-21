@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import requests
-from config import DATA_DIR, load_settings, save_settings
+from config import DATA_DIR
 from modules import privacy, provider_privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
@@ -20,11 +20,10 @@ _LOCK = threading.RLock()
 _HEALTH = {}
 _STORE = DATA_DIR / 'router'
 _CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare'})
-_EVIDENCE_MODELS_MAX = 32
 # Route class of a request is decided by its provenance (privacy_sources); callers never pick a provider.
 _DEFAULT_ROUTE = provider_privacy.ROUTE_PRIVATE_GENERAL
 PROFILES = frozenset({'brain_understanding','conversation','public_research','long_worker',
-                      'vision','local_only','custom_explicit'})
+                      'vision','local_only','custom_explicit','connection_test'})
 DATA_SCOPES = frozenset({'conversation','selected_content','public'})
 WORK_CLASSES = frozenset({'interactive','background','explicit_custom'})
 POLICY_VERSION = 'jarvis-router.v2'
@@ -54,20 +53,6 @@ def qualification_session(owner,provider,model,connection_id=None):
     token=_ROLE_EVALUATION.set((owner,provider,model,connection_id))
     try:yield
     finally:_ROLE_EVALUATION.reset(token)
-
-
-def _brain_role_allowed(request,spec):
-    """A pending Brain role report no longer blocks a provider.
-
-    The manual "Bu sürümü doğrula" report used to be a prerequisite: without a
-    recorded 20-case/95% corpus run every provider was skipped, so one invalid
-    Gemini answer left no fallback and the turn died as "doğrulayamadım".
-    A provider that answers wrongly is now caught where it happens -- the
-    response contract rejects it and the router moves to the next candidate --
-    which is strictly safer than an empty pool. The report stays as a status
-    surface, not a gate.
-    """
-    return True
 
 
 # Routing is deliberately based on the caller's declared contract, never on words in
@@ -158,36 +143,7 @@ def owner_path(owner):
     return _STORE / (owner + '.json')
 
 
-def _safe_evidence_catalog(value) -> dict:
-    if not isinstance(value, dict):
-        return {}
-    out = {}
-    for provider, models in value.items():
-        if provider not in _CLOUD_PROVIDERS or not isinstance(models, dict):
-            continue
-        safe_models = {}
-        for model, row in list(models.items())[:_EVIDENCE_MODELS_MAX]:
-            if not isinstance(model, str) or not model or len(model) > 120 or not isinstance(row, dict):
-                continue
-            safe_models[model] = dict(row)
-        if safe_models:
-            out[provider] = safe_models
-    return out
-
-
-_STATE_KEYS = ('cloud_free_confirmed', 'free_tier_evidence', 'gemini_scopes','application_limits','account_scopes')
-_APPLICATION_DEFAULTS={'daily_requests':200,'max_parallel':2,'interactive_reserved':1,'interactive_daily_reserve':20}
-
-
-def _application_limits(value):
-    if not isinstance(value,dict) or set(value)-set(_APPLICATION_DEFAULTS):raise ValueError('Uygulama model sınırları geçersiz.')
-    out={**_APPLICATION_DEFAULTS,**value}
-    if 'interactive_daily_reserve' not in value:out['interactive_daily_reserve']=min(20,out['daily_requests'])
-    if (any(type(v) is not int for v in out.values()) or not 1<=out['daily_requests']<=500000
-            or not 0<=out['interactive_daily_reserve']<=out['daily_requests']
-            or not 1<=out['max_parallel']<=8 or not 0<=out['interactive_reserved']<out['max_parallel']):
-        raise ValueError('Uygulama istek/eşzamanlılık sınırı geçersiz.')
-    return out
+_GEMINI_SCOPES = frozenset({'conversation', 'selected_content'})
 
 
 def _read_state(owner):
@@ -201,141 +157,36 @@ def _read_state(owner):
     return state if isinstance(state, dict) else None
 
 
-def _purge_legacy(owner, state=None):
-    """Keep only the known state keys on disk: a removed provider's stored key, model and evidence rows go away.
-    Runs under the lock on a fresh read, so a concurrent ``configure`` write is never overwritten by a stale copy."""
+def settings(owner):
     with _LOCK:
         state = _read_state(owner)
-        if state is None:
-            return _reset_unreadable(owner)
-        evidence = state.get('free_tier_evidence')
-        stale = isinstance(evidence, dict) and any(name not in _CLOUD_PROVIDERS for name in evidence)
-        if not stale and all(name in _STATE_KEYS for name in state):
-            return
-        clean = {k: v for k, v in state.items() if k in _STATE_KEYS}
-        if isinstance(evidence, dict):
-            clean['free_tier_evidence'] = _safe_evidence_catalog(evidence)
-        try:
-            _save_state(owner, clean)
-        except OSError:
-            _record_failure('modules/smart_router.py:_purge_legacy')
-
-
-def _reset_unreadable(owner):
-    """A corrupt or non-dict state file can still hold a removed provider's key. It can not be parsed, and a
-    backup would keep the secret, so it is replaced by the fail-closed default (the owner re-confirms).
-    Re-checked under the lock: a file another writer has just made valid is left alone."""
-    with _LOCK:
-        if _read_state(owner) is not None:
-            return
-        try:
-            _save_state(owner, {'cloud_free_confirmed': False, 'free_tier_evidence': {}})
-        except OSError:
-            _record_failure('modules/smart_router.py:_reset_unreadable')
-
-
-def settings(owner):
-    defaults={'cloud_free_confirmed':False,'free_tier_evidence':{},'gemini_scopes':[],
-              'application_limits':dict(_APPLICATION_DEFAULTS),'account_scopes':{}}
-    state=_read_state(owner)
-    if state is None:
-        _reset_unreadable(owner)
-        return defaults
-    if state:
-        _purge_legacy(owner)
-        state=_read_state(owner) or {}
-    return {'cloud_free_confirmed':state.get('cloud_free_confirmed') is True,
-            'free_tier_evidence':_safe_evidence_catalog(state.get('free_tier_evidence')),
-            'gemini_scopes':[v for v in state.get('gemini_scopes',[]) if v in ('conversation','selected_content')]
-                if isinstance(state.get('gemini_scopes'),list) else [],
-            'application_limits':_application_limits(state.get('application_limits',{})),
-            'account_scopes':dict(state.get('account_scopes',{})) if isinstance(state.get('account_scopes'),dict) else {}}
+        raw = state.get('gemini_scopes') if state else None
+        scopes = sorted({value for value in raw if isinstance(value, str) and value in _GEMINI_SCOPES}) if isinstance(raw, list) else []
+        current = {'gemini_scopes': scopes}
+        if state != current and state != {}:
+            try:
+                _save_state(owner, current)
+            except OSError:
+                _record_failure('modules/smart_router.py:settings_migration')
+        return current
 
 
 def _save_state(owner, state):
-    path = owner_path(owner); path.parent.mkdir(parents=True, exist_ok=True)
+    path = owner_path(owner)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with _LOCK:
-        tmp = path.with_suffix('.tmp'); tmp.write_text(json.dumps(state), encoding='utf-8'); tmp.replace(path)
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(state), encoding='utf-8')
+        tmp.replace(path)
 
 
-def configure(owner, cloud_free_confirmed=None, *, gemini_scopes=None,application_limits=None,account_scopes=None):
-    with _LOCK:
-        state = settings(owner)
-        if cloud_free_confirmed is not None:
-            state['cloud_free_confirmed'] = bool(cloud_free_confirmed)
-        if gemini_scopes is not None:
-            if not isinstance(gemini_scopes,list) or any(type(v) is not str or v not in ('conversation','selected_content') for v in gemini_scopes):
-                raise ValueError('Gemini veri kapsamı geçersiz.')
-            state['gemini_scopes']=sorted(set(gemini_scopes))
-        if application_limits is not None:state['application_limits']=_application_limits(application_limits)
-        if account_scopes is not None:
-            if (not isinstance(account_scopes,dict) or set(account_scopes)-_CLOUD_PROVIDERS
-                    or any(not isinstance(v,str) or not re.fullmatch(r'[\w.:-]{1,100}',v) for v in account_scopes.values())):
-                raise ValueError('Hesap/proje kota kapsamı geçersiz.')
-            state['account_scopes']=dict(account_scopes)
-        _save_state(owner, state)
-        return status(owner)
-
-
-def set_free_tier_evidence(owner, *, provider, model, free_tier_verified, source, evidence_ref,
-                           verified_at, ttl_seconds, eligibility, quota_state='unknown',
-                           quota_remaining=None, hard_stop_guaranteed=False,
-                           verification_status='unknown', reason=''):
-    """Store bounded provider/model free-tier evidence in the existing per-owner router state.
-
-    This function does not contact a provider and does not infer that a plan is free. The caller must
-    supply provenance. TTL expiry is checked lazily at routing time; stale evidence never auto-allows.
-    """
-    provider = str(provider or '').strip().casefold()
-    model = str(model or '').strip()
-    if provider not in _CLOUD_PROVIDERS:
-        raise ValueError('Free-tier evidence yalnız mevcut cloud sağlayıcıları için kaydedilebilir.')
-    if not model or len(model) > 120:
-        raise ValueError('Evidence model adı geçersiz.')
-    if not isinstance(source, str) or not source.strip() or len(source) > 120:
-        raise ValueError('Evidence kaynağı gerekli.')
-    if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 500:
-        raise ValueError('Evidence referansı gerekli.')
-    if type(verified_at) not in (int, float) or verified_at <= 0:
-        raise ValueError('verified_at geçersiz.')
-    if type(ttl_seconds) not in (int, float) or ttl_seconds <= 0 or ttl_seconds > 31 * 86400:
-        raise ValueError('Evidence TTL geçersiz.')
-    if eligibility not in {'eligible', 'not_eligible', 'unknown'}:
-        raise ValueError('Evidence eligibility geçersiz.')
-    if quota_state not in {'available', 'exhausted', 'not_reported', 'unknown'}:
-        raise ValueError('Evidence quota_state geçersiz.')
-    if quota_remaining is not None and (type(quota_remaining) not in (int, float) or quota_remaining < 0):
-        raise ValueError('Evidence quota_remaining geçersiz.')
-    if type(hard_stop_guaranteed) is not bool or type(free_tier_verified) is not bool:
-        raise ValueError('Evidence boolean alanı geçersiz.')
-    if verification_status not in {'verified', 'unknown', 'rejected'}:
-        raise ValueError('Evidence verification_status geçersiz.')
-    if not isinstance(reason, str):
-        raise ValueError('Evidence reason geçersiz.')
-    row = {
-        'provider': provider,
-        'model': model,
-        'free_tier_verified': free_tier_verified,
-        'source': source.strip(),
-        'evidence_ref': evidence_ref.strip(),
-        'verified_at': float(verified_at),
-        'expires_at': float(verified_at + ttl_seconds),
-        'ttl_seconds': float(ttl_seconds),
-        'eligibility': eligibility,
-        'quota_state': quota_state,
-        'quota_remaining': quota_remaining,
-        'hard_stop_guaranteed': hard_stop_guaranteed,
-        'verification_status': verification_status,
-        'reason': reason.strip()[:300],
-        'connection_fingerprint':_connection_fingerprint(owner,provider),
-    }
-    with _LOCK:
-        state = settings(owner)
-        catalog = _safe_evidence_catalog(state.get('free_tier_evidence'))
-        catalog.setdefault(provider, {})[model] = row
-        state['free_tier_evidence'] = catalog
-        _save_state(owner, state)
-    return dict(row)
+def configure(owner, *, gemini_scopes):
+    if not isinstance(gemini_scopes, list) or any(
+        not isinstance(value, str) or value not in _GEMINI_SCOPES for value in gemini_scopes
+    ):
+        raise ValueError('Gemini veri kapsamı geçersiz.')
+    _save_state(owner, {'gemini_scopes': sorted(set(gemini_scopes))})
+    return {'gemini_scopes': sorted(set(gemini_scopes))}
 
 
 def _connection_fingerprint(owner,provider):
@@ -344,92 +195,6 @@ def _connection_fingerprint(owner,provider):
     elif provider=='groq':value=llm.user_groq_key(owner)
     else:value=str(cloudflare_chat.user_cloudflare_account(owner) or '')+'|'+str(cloudflare_chat.user_cloudflare_token(owner) or '')
     return hashlib.sha256(str(value or '').encode()).hexdigest()
-
-
-def confirm_free_account(owner,provider,*,free_plan_confirmed=False,no_paid_billing=False):
-    """Explicit setup attestation + reviewed model terms, never a fictitious billing API check."""
-    from modules import llm,cloudflare_chat
-    if free_plan_confirmed is not True or no_paid_billing is not True:
-        raise ValueError('Ücretsiz plan ve ücretli faturalama kapalı tercihi gerekli.')
-    # Official pricing/model cards reviewed14Nov2026. Expiry belongs to those
-    # facts, not an auto-renewed claim about the user's current account.
-    expires=1795824000.0;now=time.time()
-    if now>=expires:raise ValueError('Resmî ücretsiz model koşulları yeniden incelenmeli.')
-    if provider=='gemini':
-        models=[m for m in llm.model_names(owner) if m in ('gemini-3.5-flash-lite','gemini-3.5-flash')]
-        has_key=bool(llm.user_key(owner));source='https://ai.google.dev/gemini-api/docs/pricing'
-    elif provider=='groq':
-        models=[m for m in llm.GROQ_MODELS if m in ('openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b')]
-        has_key=bool(llm.user_groq_key(owner));source='https://console.groq.com/docs/rate-limits ; https://console.groq.com/docs/billing-faqs'
-    elif provider=='cloudflare':
-        models=[cloudflare_chat.MODEL];has_key=cloudflare_chat.configured(owner)
-        source='https://developers.cloudflare.com/workers-ai/platform/pricing/'
-    else:raise ValueError('Hazır ücretsiz sağlayıcı geçersiz.')
-    if not has_key or not models:raise ValueError('Bu kullanıcıda anahtar veya incelenmiş exact model yok.')
-    for model in models:
-        old=free_tier_evidence(owner,provider,model) or {}
-        if (old.get('verification_status')=='rejected' or old.get('eligibility')=='not_eligible'
-                or old.get('quota_state')=='exhausted' or old.get('quota_remaining')==0):
-            raise ValueError('Mevcut olumsuz hesap/kota kanıtı korunuyor; yeniden beyanla silinmedi.')
-    configure(owner,True)
-    for model in models:
-        set_free_tier_evidence(owner,provider=provider,model=model,free_tier_verified=True,
-            source='user-attested Free/no-paid-billing + reviewed official model terms (not account API verification)',
-            evidence_ref=source,verified_at=now,ttl_seconds=min(7*86400,expires-now),eligibility='eligible',
-            quota_state='not_reported',quota_remaining=None,hard_stop_guaranteed=True,verification_status='verified',
-            reason='Account plan attested by this owner. Token/neuron remaining and exact project limits are not inferred.')
-    return {'provider':provider,'models':models,'expires_at':min(now+7*86400,expires),
-            'account_verification':'user_attested','quota_remaining':None}
-
-
-def free_tier_evidence(owner, provider, model):
-    state = settings(owner)
-    row = state.get('free_tier_evidence', {}).get(provider, {}).get(model)
-    return dict(row) if isinstance(row, dict) else None
-
-
-def _evidence_gate(owner, provider, model, *, route=None, now=None, data_scope='conversation'):
-    """Strict zero-cost gate. UNKNOWN is never ALLOW.
-
-    Two independent proofs are required: the provider-level privacy bundle (code, expiring, never
-    user-written; ``route`` narrows it) and the per-owner/model free-tier evidence below.
-    """
-    privacy_gate = provider_privacy.privacy_gate(provider, route, now=now,
-        consent_scopes=settings(owner)['gemini_scopes'],data_scope=data_scope)
-    if not privacy_gate['ok']:
-        return {'ok':False,'reason_code':privacy_gate['reason_code'],'reason':privacy_gate['reason']}
-    row = free_tier_evidence(owner, provider, model)
-    if not row or row.get('free_tier_verified') is not True or row.get('verification_status') != 'verified' \
-            or not row.get('source') or not row.get('evidence_ref'):
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_MISSING',
-                'reason':'Geçerli ücretsiz katman kanıtı yok; yeniden doğrulama gerekli.'}
-    if row.get('connection_fingerprint')!=_connection_fingerprint(owner,provider):
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_ACCOUNT_CHANGED',
-                'reason':'Anahtar/hesap değişti; eski ücretsiz hesap kanıtı yeni bağlantıya taşınmadı.'}
-    verified_at, expires_at = row.get('verified_at'), row.get('expires_at')
-    if type(verified_at) not in (int, float) or type(expires_at) not in (int, float):
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_MISSING',
-                'reason':'Ücretsiz katman kanıtının doğrulama zamanı eksik.'}
-    if expires_at <= (time.time() if now is None else now):
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_STALE',
-                'reason':'Ücretsiz katman kanıtının süresi geçmiş; yeniden doğrulama gerekli.'}
-    if row.get('eligibility') != 'eligible':
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_NOT_ELIGIBLE',
-                'reason':'Bu kullanıcı/model doğrulanmış ücretsiz katman için uygun değil veya uygunluğu bilinmiyor.'}
-    if row.get('hard_stop_guaranteed') is not True:
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_HARD_STOP_UNVERIFIED',
-                'reason':'Kota bitince ücretlendirmeyi engelleyen hard-stop kanıtı doğrulanmamış.'}
-    quota_state = row.get('quota_state')
-    remaining = row.get('quota_remaining')
-    if quota_state == 'exhausted' or remaining == 0:
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_QUOTA_EXHAUSTED',
-                'reason':'Doğrulanmış ücretsiz kota tükenmiş; sıradaki ücretsiz rota denenmeli.'}
-    if quota_state not in {'available', 'not_reported'}:
-        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_QUOTA_UNKNOWN',
-                'reason':'Ücretsiz kota durumu bilinmiyor; strict zero-cost modunda yeniden doğrulama gerekli.'}
-    return {'ok':True,'reason_code':None,'reason':'Doğrulanmış ücretsiz katman evidence geçerli.','evidence':row}
-
-
 
 
 def _skip(provider, reason, reason_code, seconds=0, model=''):
@@ -456,18 +221,13 @@ def _health_key(owner,provider,model,*,connection_id=None,revision=None):
 def _health_wait(owner,provider,model,**connection):
     key=_health_key(owner,provider,model,**connection)
     auth=_health_key(owner,provider,'*',**connection)
-    project=settings(owner)['account_scopes'].get(provider)
-    quota=('project:'+project,provider,model,'quota') if project else key
     with _LOCK:
-        return max(0,int(max(_HEALTH.get(k,{}).get('until',0) for k in (key,auth,quota))-time.monotonic()+.999))
+        return max(0,int(max(_HEALTH.get(k,{}).get('until',0) for k in (key,auth))-time.monotonic()+.999))
 
 
 def _failure_health_key(request,spec,error):
     from modules import failure_policy
     category=failure_policy.classify(error)
-    project=settings(request.owner)['account_scopes'].get(spec.provider)
-    if project and category in (failure_policy.RATE_LIMIT,failure_policy.QUOTA_EXHAUSTED):
-        return ('project:'+project,spec.provider,spec.model,'quota')
     return _health_key(request.owner,spec.provider,'*' if category==failure_policy.AUTH or spec.provider=='ollama' else spec.model,
                        connection_id=spec.connection_id,revision=spec.connection_revision)
 
@@ -477,49 +237,65 @@ def selection(owner,task,route=None, *, data_scope='conversation'):
     with llm.owner_context(owner):return _selection(owner,task,route,data_scope=data_scope)
 
 
-def _selection(owner,task,route=None, *, data_scope='conversation'):
-    from modules import llm, cloudflare_chat, usage_meter
-    route=_route_of(route)
-    if privacy.mode() in ('yerel','gizli'):
-        return {'candidates':['ollama'],'skipped':[
-            _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq','cloudflare')]}
-    state=settings(owner)
-    if task=='vision':
-        order,gate_route=['gemini','ollama'],_DEFAULT_ROUTE
+def _ready_key_configured(owner, provider):
+    from modules import llm, cloudflare_chat
+    if provider == 'gemini':
+        return bool(llm.user_key(owner))
+    if provider == 'groq':
+        return bool(llm.user_groq_key(owner))
+    return cloudflare_chat.configured(owner)
+
+
+def _ready_unavailable(owner, provider, model, order, route, data_scope, scopes):
+    from modules import usage_meter
+    if provider not in order:
+        return _skip(provider, 'Bu istek türü için kullanılmıyor.', 'PROVIDER_ROUTE_NOT_ALLOWED', model=model)
+    if not _ready_key_configured(owner, provider):
+        return _skip(provider, 'Bu kullanıcı için API bağlantısı eksik.', 'PROVIDER_CONFIGURATION_REQUIRED', model=model)
+    gate = provider_privacy.privacy_gate(provider, route, consent_scopes=scopes, data_scope=data_scope)
+    if not gate['ok']:
+        return _skip(provider, gate['reason'], gate['reason_code'], model=model)
+    observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time(),
+                                                credential=_connection_fingerprint(owner, provider))
+    if observed:
+        return _skip(provider, 'Sağlayıcının bildirdiği kota doldu.', 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED',
+                     observed['seconds'], model)
+    seconds = _health_wait(owner, provider, model)
+    if seconds:
+        return _skip(provider, 'Önceki çağrı hatası nedeniyle bağlantı kısa süre beklemede.', 'PROVIDER_COOLDOWN',
+                     seconds, model)
+    return None
+
+
+def _ready_route(task, route):
+    if task == 'vision':
+        return ('gemini', 'ollama'), _DEFAULT_ROUTE
+    route = _route_of(route)
+    return provider_privacy.CHAINS[route], route
+
+
+def _selection(owner, task, route=None, *, data_scope='conversation'):
+    if privacy.mode() in ('yerel', 'gizli'):
+        return {'candidates': ['ollama'], 'skipped': [
+            _skip(p, 'Yerel modda bulut kapalı', 'PROVIDER_LOCAL_MODE') for p in ('gemini', 'groq', 'cloudflare')]}
+    from modules import llm, cloudflare_chat
+    order, gate_route = _ready_route(task, route)
+    scopes = settings(owner)['gemini_scopes']
+    models = {'gemini': llm.active_model(owner), 'groq': llm.groq_model(), 'cloudflare': cloudflare_chat.MODEL}
+    selected, skipped = [], []
+    for provider, model in models.items():
+        reason = _ready_unavailable(owner, provider, model, order, gate_route, data_scope, scopes)
+        if reason:
+            skipped.append(reason)
+        else:
+            selected.append(provider)
+    local_wait = _health_wait(owner, 'ollama', '')
+    if local_wait:
+        skipped.append(_skip('ollama', 'Önceki çağrı hatası nedeniyle bağlantı kısa süre beklemede.',
+                             'PROVIDER_COOLDOWN', local_wait))
     else:
-        order,gate_route=list(provider_privacy.CHAINS[route]),route
-    models={'gemini':llm.active_model(owner),'groq':llm.groq_model(),'cloudflare':cloudflare_chat.MODEL}
-    selected=[];skipped=[]
-    for provider in ('gemini','groq','cloudflare','ollama'):
-        reason=None;reason_code=None;seconds=0;model=models.get(provider,'')
-        if provider not in order:
-            reason='Bu istek türü için izinli değil';reason_code='PROVIDER_ROUTE_NOT_ALLOWED'
-        elif provider!='ollama' and not state.get('cloud_free_confirmed'):
-            reason='Ücretsiz hesap onayı yok';reason_code='PROVIDER_FREE_ACCOUNT_UNCONFIRMED'
-        elif provider=='gemini' and not llm.user_key(owner):
-            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
-        elif provider=='groq' and not llm.user_groq_key(owner):
-            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
-        elif provider=='cloudflare' and not cloudflare_chat.configured(owner):
-            reason='Bu kullanıcı için Cloudflare hesap/anahtar eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
-        elif provider!='ollama':
-            gate=_evidence_gate(owner,provider,model,route=gate_route,data_scope=data_scope)
-            if not gate['ok']:
-                reason=gate['reason'];reason_code=gate['reason_code']
-        if reason is None and provider != 'ollama':
-            observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
-            if observed:
-                seconds = observed['seconds']
-                reason = ('Sağlayıcının son görülen rate-limit başlığı tükendi; ' +
-                          str(seconds) + ' saniye sonra yeniden değerlendirilecek')
-                reason_code = 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED'
-        if reason is None:
-            seconds=_health_wait(owner,provider,model)
-            if seconds:
-                reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede';reason_code='PROVIDER_COOLDOWN'
-        if reason:skipped.append(_skip(provider,reason,reason_code,seconds,model))
-        else:selected.append(provider)
-    return {'candidates':[p for p in order if p in selected],'skipped':skipped}
+        selected.append('ollama')
+    return {'candidates': [provider for provider in order if provider in selected], 'skipped': skipped}
 
 
 def wait_seconds(owner, task='long_worker', route=None):
@@ -552,6 +328,8 @@ def failure_status(exc):
 def failure_detail(attempt):
     reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı',
               'request_limit':'bu isteğin boyutu model kapasitesini aşıyor; isteği küçült veya uygun model kullan'}.get(attempt.get('kind'), 'çağrı başarısız')
+    if attempt.get('reason_code') == 'PROVIDER_QUOTA_EXHAUSTED':
+        reason = 'sağlayıcı kotası doldu'
     if (attempt.get('kind') == 'request_limit' and type(attempt.get('limit')) is int
             and type(attempt.get('requested')) is int):
         reason += f" (bildirilen sınır {attempt['limit']}, istenen {attempt['requested']})"
@@ -601,17 +379,12 @@ def _model_for(owner: str, provider: str) -> str:
     return ''
 
 
-def _binding(request,provider,model):
-    from modules import llm,cloudflare_chat
-    state=settings(request.owner)
-    values={'owner':request.owner,'model':model,'selected':_model_for(request.owner,provider),
-            'free':state['cloud_free_confirmed'],
-            'evidence':state['free_tier_evidence'].get(provider,{}).get(model)}
-    values['account_scope']=state['account_scopes'].get(provider)
-    key=llm.user_key(request.owner) if provider=='gemini' else llm.user_groq_key(request.owner) if provider=='groq' else cloudflare_chat.user_cloudflare_token(request.owner) if provider=='cloudflare' else ''
-    values['connection']=hashlib.sha256(str(key or '').encode()).hexdigest()
-    if provider=='gemini':values['scopes']=state['gemini_scopes']
-    return hashlib.sha256(json.dumps(values,sort_keys=True,allow_nan=False).encode()).hexdigest()
+def _binding(request, provider, model):
+    from modules import llm
+    identity = (llm.provider_configuration() if provider == 'ollama'
+                else _connection_fingerprint(request.owner, provider))
+    values = (request.owner, provider, model, identity)
+    return hashlib.sha256(json.dumps(values, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 def _capability_admitted(request,spec,row=None):
@@ -630,21 +403,28 @@ def _current_admission(request,spec):
         try:
             row,_=router_connections.resolve(request.owner,spec.connection_id,revision=spec.connection_revision)
             return (row['model']==spec.model and request.data_scope in row.get('data_scopes',[])
-                    and _brain_role_allowed(request,spec) and _capability_admitted(request,spec,row)
+                    and _capability_admitted(request,spec,row)
                     and not _health_wait(request.owner,spec.provider,spec.model,connection_id=spec.connection_id,revision=spec.connection_revision)
                     and (not row.get('free_pool') or router_connections.free_pool_eligible(request.owner,row))
                     and privacy.mode()!='gizli' and (privacy.mode()!='yerel' or router_connections.is_local(row['base_url'])))
         except (ValueError,OSError):return False
-    if spec.provider!='ollama' and privacy.mode() in ('yerel','gizli'):
+    if spec.provider != 'ollama' and privacy.mode() in ('yerel', 'gizli'):
         return False
-    if _health_wait(request.owner,spec.provider,spec.model):return False
-    if not spec.binding:return True  # explicitly injected plans used by transport boundary tests
-    if spec.binding!=_binding(request,spec.provider,spec.model) or not _capability_admitted(request,spec):return False
-    if spec.provider=='ollama':return _brain_role_allowed(request,spec)
-    chosen=selection(request.owner,'vision' if 'vision' in request.features else 'text',request.route,data_scope=request.data_scope)
-    if spec.provider not in chosen['candidates'] or not _brain_role_allowed(request,spec):return False
-    return _evidence_gate(request.owner,spec.provider,spec.model,route=_route_of(request.route),
-                          data_scope=request.data_scope)['ok']
+    if not spec.binding:
+        return not _health_wait(request.owner, spec.provider, spec.model)
+    from modules import llm
+    try:
+        if spec.model != _model_for(request.owner, spec.provider):
+            return False
+    except (llm.LocalModelError, OSError, ValueError):
+        return False
+    if spec.binding != _binding(request, spec.provider, spec.model) or not _capability_admitted(request, spec):
+        return False
+    if spec.provider == 'ollama':
+        return not _health_wait(request.owner, spec.provider, spec.model)
+    order, route = _ready_route('vision' if 'vision' in request.features else 'text', request.route)
+    scopes = settings(request.owner)['gemini_scopes']
+    return _ready_unavailable(request.owner, spec.provider, spec.model, order, route, request.data_scope, scopes) is None
 
 
 def _custom_plan(request):
@@ -836,13 +616,10 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 continue
             attempt_id=request.call_id+':'+str(len(attempts)+1)
             try:
-                admission_stack.enter_context(router_quota.admission(request,spec,directory=_STORE))
+                if spec.connection_id or spec.provider == 'ollama':
+                    admission_stack.enter_context(router_quota.admission(request,spec,directory=_STORE))
                 if spec.connection_id:
-                    router_quota.reserve_custom(request.owner,spec.connection_id,spec.connection_revision,directory=_STORE,attempt_id=attempt_id,cost_bound=request.cost_upper_bound_microusd,request=request)
-                else:
-                    router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE,
-                                         token_budget=request.token_budget,quota_scope=router_quota.account_scope(request,spec),
-                                         application_limit=router_quota.request_ceiling(request),attempt_id=attempt_id)
+                    router_quota.reserve_custom(request.owner,spec.connection_id,spec.connection_revision,directory=_STORE,attempt_id=attempt_id,cost_bound=request.cost_upper_bound_microusd)
             except (router_quota.ReservationUnavailable,router_quota.ReservationExhausted) as exc:
                 # This skipped provider made no actual HTTP attempt. Never bypass a
                 # configured limit merely because its local SQLite store is locked.
@@ -850,8 +627,9 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                                          seconds=exc.retry_after,model=spec.model))
                 continue
             _check_request(request)
-            attempt_id=request.call_id+':'+str(len(attempts)+1)
             attempt={'provider':spec.provider,'model':spec.model,'attempt_id':attempt_id,'ok':False,'state':'started'}
+            if spec.provider in _CLOUD_PROVIDERS and spec.binding:
+                attempt['binding'] = spec.binding
             attempts.append(attempt)
             try:
                 from modules import usage_meter
@@ -859,7 +637,8 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                     response = adapter(spec)
                 raw_usage=response.usage if isinstance(response,AdapterResponse) else measured['usage']
                 attempt['usage']={k:raw_usage.get(k) if type(raw_usage.get(k)) is int and raw_usage[k]>=0 else None for k in ('input_tokens','output_tokens','reasoning_tokens','cached_tokens','total_tokens')}
-                router_quota.reconcile(request.owner,attempt_id,raw_usage,directory=_STORE)
+                if spec.connection_id:
+                    router_quota.reconcile(request.owner,attempt_id,raw_usage,directory=_STORE)
                 _check_request(request)
                 reported=response if isinstance(response,AdapterResponse) else AdapterResponse(response,
                     usage=dict(measured['usage']),finish_reason=measured['finish_reason'])
@@ -911,6 +690,8 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                     from modules import llm
                     if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                         row['hint'] = 'ollama_missing'
+                if row['kind'] == 'quota':
+                    row['reason_code'] = failure_policy.reason_code(classified)
                 attempt.update(row,state='failed')
                 if not validation_error and not request_limit and type(exc).__name__ != 'ImageCapabilityError':
                     with _LOCK:
@@ -924,18 +705,12 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
     omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
     message = ('Uygun model en çok ' + str(route_plan.max_network_attempts) +
                ' deneme sınırında yanıt veremedi. ' + detail +
-               (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') +
-               ' Ücretli modele geçilmedi.')
+               (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else ''))
     if not attempts:
         if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
                or 'anahtarı eksik' in str(row.get('reason', '')) for row in skipped_now):
             raise failure_policy.ProviderExhaustedError(
                 message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
-        evidence_code = next((row.get('reason_code') for row in skipped_now
-                              if str(row.get('reason_code', '')).startswith('PROVIDER_FREE_TIER_')), None)
-        if evidence_code:
-            raise failure_policy.ProviderExhaustedError(
-                message, reason_code=evidence_code, recovery_class='user_action_required')
     if attempts and all(row.get('kind') == 'request_limit' for row in attempts):
         raise failure_policy.ProviderExhaustedError(message,reason_code='PROVIDER_REQUEST_TOO_LARGE',
                                                    recovery_class='request_change_required')
@@ -991,58 +766,109 @@ def status(owner):
     with llm.owner_context(owner):return _status(owner)
 
 
-def _status(owner):
-    state = settings(owner)
-    from modules import llm, usage_meter, cloudflare_chat,router_quota
-    recent=router_quota.recent_traces(owner,directory=_STORE)
-    last=recent[0] if recent else {}
-    cooldowns={p:wait for p,m in [('gemini',llm.active_model(owner)),('groq',llm.groq_model()),('cloudflare',cloudflare_chat.MODEL)]
-               if (wait:=_health_wait(owner,p,m))}
-    def cloud_policy(provider, model, has_key, route):
-        if not state.get('cloud_free_confirmed'):
-            return 'Ücretsiz hesap onayı gerekli'
-        if not has_key:
-            return 'Ücretsiz hesap onaylı; bu kullanıcı için API anahtarı eksik'
-        gate=_evidence_gate(owner,provider,model,route=route)
-        if not gate['ok']:
-            return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
-        observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
-        if observed:
-            return f'Kanıtlı ücretsiz rota; son görülen kota tükendi, {observed["seconds"]} saniye beklemede'
-        if provider in cooldowns:
-            return f'Kanıtlı ücretsiz rota; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
-        return 'Kanıtlı ücretsiz rota; evidence geçerli ve strict zero-cost seçimde kullanılabilir'
-    gemini_model=llm.active_model(owner)
-    groq_model=llm.groq_model()
-    local_policy='Yerel; görüntü için ayrıca vision modeli gerekir'
+def check_ready_connection(owner, provider):
+    from modules import failure_policy, llm
+    if not isinstance(provider, str) or provider not in _CLOUD_PROVIDERS:
+        raise ValueError('Hazır bağlantı geçersiz.')
+    request = ModelRequest(
+        owner=owner, profile='connection_test', route=provider_privacy.ROUTE_PUBLIC_RESEARCH,
+        data_scope='public', selection_mode='free', max_output_tokens=256,
+        max_network_attempts=1, exclude_providers=frozenset((_CLOUD_PROVIDERS | {'ollama'}) - {provider}),
+        deadline=time.monotonic() + 12,
+    )
     try:
-        local_model=llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
+        with requests_state.budget(12):
+            result = run_request(request, lambda spec: llm.dispatch(request, spec, 'Reply with OK.', ''))
+    except failure_policy.ProviderExhaustedError as exc:
+        current = ready_status(owner)
+        state = current['ready_connections'][provider]
+        msg = str(exc) if state['state'] == 'unchecked' else state['message']
+        return {'ok': False, 'msg': msg, 'status': current}
+    except requests_state.LocalDeadline:
+        return {'ok': False, 'msg': 'Bağlantı zamanında yanıt vermedi.', 'status': ready_status(owner)}
+    return {'ok': True, 'msg': f'{llm.provider_label(provider)} yanıt verdi. Model {result.model.model}.',
+            'status': ready_status(owner)}
+
+
+def _ready_connection_status(owner, provider, model, scopes, recent):
+    from modules import usage_meter
+    configured = _ready_key_configured(owner, provider)
+    if not configured:
+        return {'configured': False, 'state': 'missing', 'model': model, 'message': 'API bilgisi eksik.'}
+    signature = _binding(ModelRequest(owner=owner), provider, model)
+    last = next((attempt for trace in recent for attempt in reversed(trace.get('attempts', []))
+                 if attempt.get('binding') == signature and attempt.get('provider') == provider
+                 and attempt.get('state') in ('completed', 'failed')), None)
+    gate = provider_privacy.privacy_gate(provider, provider_privacy.ROUTE_PUBLIC_RESEARCH,
+                                         consent_scopes=scopes, data_scope='public')
+    if privacy.mode() in ('yerel', 'gizli'):
+        state, message = 'disabled', 'Gizlilik modu bulut bağlantısını kapatıyor.'
+    elif not gate['ok']:
+        state, message = 'disabled', gate['reason']
+    elif observed := usage_meter.observed_exhaustion(owner, provider, model, now=time.time(),
+                                                     credential=_connection_fingerprint(owner, provider)):
+        state, message = 'quota', f"Sağlayıcının bildirdiği kota doldu. {observed['seconds']} saniye kaldı."
+    elif last and last.get('reason_code') == 'PROVIDER_QUOTA_EXHAUSTED':
+        state, message = 'quota', 'Son çağrıda sağlayıcı kotanın dolduğunu bildirdi.'
+    elif last and last.get('kind') == 'quota':
+        state, message = 'quota', 'Son çağrı sağlayıcının hız sınırına takıldı.'
+    elif last and last.get('ok'):
+        state, message = 'ok', 'API yanıt verdi.'
+    elif last:
+        state, message = 'error', failure_detail(last)
+    else:
+        state, message = 'unchecked', 'Anahtar kayıtlı. Henüz yanıt alınmadı.'
+    return {'configured': configured, 'state': state, 'model': model, 'message': message}
+
+
+def _status(owner):
+    from modules import llm, usage_meter
+    state, recent = _ready_status(owner)
+    ready = state['ready_connections']
+    try:
+        local_model = llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
     except llm.LocalModelError:
-        local_model='—'
-        local_policy='Yerel effective model doğrulanamadı; yerel sunucuyu ve kurulu modelleri kontrol et'
-    table = [
-      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis'],'policy':'Konuşma/seçilmiş içerik owner iznine bağlı; '+cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)),provider_privacy.ROUTE_PUBLIC_RESEARCH)},
-      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)),provider_privacy.ROUTE_PRIVATE_GENERAL)},
-      {'provider':'cloudflare','model':cloudflare_chat.MODEL,'tasks':['chat','code','analysis'],'policy':cloud_policy('cloudflare',cloudflare_chat.MODEL,cloudflare_chat.configured(owner),provider_privacy.ROUTE_PRIVATE_GENERAL)},
-      {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy}]
-    from modules import router_connections
-    return {'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
-            'gemini_scopes':state['gemini_scopes'], 'policy_version':POLICY_VERSION,
-            'application_limits':state['application_limits'],'account_scopes':state['account_scopes'],
-            'custom_connections':router_connections.snapshot(owner),
-            'connection_states':{'gemini':bool(llm.user_key(owner)),'groq':bool(llm.user_groq_key(owner)),'cloudflare':cloudflare_chat.configured(owner)},
-            'profiles':[{'profile':p,'primary':'Gemini','fallback':'Uygun Groq / metin için Cloudflare / yeterli yerel'}
-                        for p in ('brain_understanding','conversation','public_research','long_worker','vision')],
-            'capabilities':table,'last':last,'traces':recent,'cooldowns':cooldowns,
-            'free_tier_evidence':state.get('free_tier_evidence',{}),
-            'observed_limits':usage_meter.limits(owner)}
+        local_model = '—'
+    capabilities = [{'provider': provider, 'model': row['model'], 'tasks': ['chat', 'code', 'analysis'],
+                     'policy': row['message']} for provider, row in ready.items()]
+    capabilities.append({'provider': 'ollama', 'model': local_model, 'tasks': ['chat', 'code', 'analysis'],
+                         'policy': 'Yerel bağlantı' if local_model != '—' else 'Yerel model doğrulanamadı.'})
+    return {
+        **state, 'policy_version': POLICY_VERSION,
+        'connection_states': {provider: row['configured'] for provider, row in ready.items()},
+        'capabilities': capabilities, 'last': recent[0] if recent else {}, 'traces': recent[:12],
+        'observed_limits': usage_meter.limits(owner),
+    }
+
+
+def ready_status(owner):
+    from modules import llm
+    with llm.owner_context(owner):
+        state, _ = _ready_status(owner)
+        return state
+
+
+def _ready_status(owner):
+    from modules import llm, cloudflare_chat, router_connections, router_quota
+    scopes = settings(owner)['gemini_scopes']
+    recent = router_quota.recent_traces(owner, directory=_STORE, limit=50)
+    models = {'gemini': llm.active_model(owner), 'groq': llm.groq_model(), 'cloudflare': cloudflare_chat.MODEL}
+    ready = {provider: _ready_connection_status(owner, provider, model, scopes, recent)
+             for provider, model in models.items()}
+    last_reply = next(({'provider': row['provider'], 'model': row['model']}
+                       for row in recent if row.get('profile') == 'conversation'
+                       and row.get('state') == 'completed' and row.get('provider') and row.get('model')), None)
+    return {
+        'owner': owner, 'gemini_scopes': scopes, 'ready_connections': ready, 'last_reply': last_reply,
+        'custom_connections': router_connections.snapshot(owner),
+    }, recent
 
 
 def handle(owner, command):
     c = command.casefold().strip(' .!')
     if c in ('smart router aç','smart router\u2019ı aç','akıllı router aç','otomatik model seçimini aç'):
         from modules import llm
-        llm.set_provider('auto'); return 'Smart Router açık. Göreve uygun kanıtlı ücretsiz havuz kullanılıyor.'
+        llm.set_provider('auto'); return 'Otomatik model seçimi açık.'
     if c in ('router durumu','model yetenekleri','smart router durumu'):
         s = status(owner)
         rows = ['| Sağlayıcı | Model | Görevler | Politika |','|---|---|---|---|']

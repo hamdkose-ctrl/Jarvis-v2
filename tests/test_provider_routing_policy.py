@@ -33,12 +33,7 @@ class RoutingPolicyTests(unittest.TestCase):
         # provider-limit observations in routing policy unit tests.
         p = patch('modules.usage_meter.observed_exhaustion', return_value=None)
         p.start(); self.addCleanup(p.stop)
-        router.configure('alice', True)
-        for provider, model in (('gemini', 'gem-model'), ('groq', 'groq-model'), ('cloudflare', cloudflare_chat.MODEL)):
-            router.set_free_tier_evidence('alice', provider=provider, model=model, free_tier_verified=True,
-                source='official_provider_docs', evidence_ref='https://example.invalid/f', verified_at=self.now - 60,
-                ttl_seconds=3600, eligibility='eligible', quota_state='available', quota_remaining=10,
-                hard_stop_guaranteed=True, verification_status='verified', reason='ok')
+        router.configure('alice', gemini_scopes=[])
 
     def order(self, route=None):
         return router.candidates('alice', 'chat', route=route)
@@ -80,22 +75,13 @@ class RoutingPolicyTests(unittest.TestCase):
             router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual(call.call_count, 2)
         self.assertNotIn('gemini:', str(caught.exception).split('Atlanan')[0])
-        self.assertIn('Ücretli modele geçilmedi', str(caught.exception))
+        self.assertIn('groq: kota veya hız sınırı', str(caught.exception))
 
     def test_public_chain_stops_after_two_failed_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('429'), 'yerel'])
         with self.assertRaises(RuntimeError):
             router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,route=PUB),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq'])
-
-    def test_missing_or_stale_evidence_skips_provider(self):
-        router.set_free_tier_evidence('alice', provider='groq', model='groq-model', free_tier_verified=True,
-            source='official_provider_docs', evidence_ref='https://example.invalid/f', verified_at=self.now - 7200,
-            ttl_seconds=300, eligibility='eligible', quota_state='available', quota_remaining=10,
-            hard_stop_guaranteed=True, verification_status='verified', reason='old')
-        self.assertEqual(self.order(), ['cloudflare', 'ollama'])
-        with patch.object(cloudflare_chat, 'configured', return_value=False):
-            self.assertEqual(self.order(), ['ollama'])
 
     def test_local_privacy_mode_closes_the_cloud(self):
         with patch.object(router.privacy, 'mode', return_value='yerel'):
@@ -161,7 +147,7 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_purge_runs_under_lock_on_a_fresh_read(self):
         path = router.owner_path('alice')
-        path.write_text('{"cloud_free_confirmed": true, "legacy_key": "SECRET"}', encoding='utf-8')
+        path.write_text('{"gemini_scopes": ["conversation"], "legacy_key": "SECRET"}', encoding='utf-8')
         real = router._read_state
         calls = []
         def racing(owner):
@@ -169,15 +155,10 @@ class RoutingPolicyTests(unittest.TestCase):
             calls.append(router._LOCK._is_owned())
             return state
         with patch.object(router, '_read_state', side_effect=racing):
-            router._purge_legacy('alice', {'stale': 'copy'})   # the passed copy is ignored
+            router.settings('alice')
         self.assertTrue(calls and all(calls))
         self.assertNotIn('SECRET', path.read_text(encoding='utf-8'))
-        self.assertTrue(router.settings('alice')['cloud_free_confirmed'])
-
-    def test_reset_leaves_a_file_that_became_valid_alone(self):
-        router.configure('alice', True)
-        router._reset_unreadable('alice')
-        self.assertTrue(router.settings('alice')['cloud_free_confirmed'])
+        self.assertEqual(router.settings('alice')['gemini_scopes'], ['conversation'])
 
     def test_legacy_route_constant_is_gone(self):
         self.assertFalse(hasattr(router, '_LEGACY_ROUTE'))
@@ -214,7 +195,7 @@ class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
         with patch.object(router, '_STORE', Path(tmp.name)), patch.object(router, '_HEALTH', {}), \
              patch.object(llm, 'user_key', return_value='k'), patch.object(llm, 'user_groq_key', return_value='k'), \
              patch.object(router.privacy, 'mode', return_value='normal'):
-            router.configure('alice', True)
+            router.configure('alice', gemini_scopes=[])
             sel = router.selection('alice', 'vision')
             self.assertEqual(sel['candidates'], ['ollama'])
             self.assertEqual({r['provider'] for r in sel['skipped']}, {'gemini', 'groq', 'cloudflare'})

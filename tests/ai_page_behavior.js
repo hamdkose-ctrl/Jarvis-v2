@@ -3,11 +3,11 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const path=require('node:path');
 const src=fs.readFileSync(path.join(__dirname,'../webui/nx.js'),'utf8');
 let draws=0;
-const S={snap:{llm:{provider:'groq',key:true,groq:{key:true},custom_connections:[{enabled:true}],ollama_up:false},google:{cred:true},youtube:{key:true,ok:true}}};
-const SX={router:{key:true}};const ACT={};
+const S={snap:{user:{slug:'alice'},llm:{provider:'groq',key:true,groq:{key:true},custom_connections:[{enabled:true}],ollama_up:false},google:{cred:true},youtube:{key:true,ok:true}}};
+const SX={routerOwner:'alice',router:{ready_connections:{groq:{state:'ok'}}}};const ACT={};
 const c={S,SX,ACT,$:()=>null,drawSettings:()=>draws++,esc:x=>String(x).replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]))};
 vm.createContext(c);
-vm.runInContext(src.slice(src.indexOf('const AI_CARDS='),src.indexOf('\n',src.indexOf('ACT.aipick='))),c);
+vm.runInContext(src.slice(src.indexOf('const READY_LABELS='),src.indexOf('\n',src.indexOf('ACT.aipick='))),c);
 const panels={auto:'<i>P-auto</i>',gemini:'<i>P-gemini</i>',groq:'<i>P-groq</i>',ollama:'<i>P-ollama</i>',custom:'<i>P-custom</i>',cloudflare:'<i>P-cf</i>',google:'<i>P-google</i>',youtube:'<i>P-yt</i>'};
 const st=c.aiStates(S.snap);
 assert.deepEqual(Object.keys(st).sort(),Object.keys(panels).sort(),'her kartın durumu var');
@@ -49,7 +49,7 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
     api:async name=>{assert.equal(name,'llm_status');return status},settingsOpen:()=>true,drawSettings:()=>{settingsRedraws++},render:()=>{fullRenders++},sAfter:()=>{},msgOf:r=>String(r?.msg||''),refresh:async()=>{},
   };
   vm.createContext(c2);
-  vm.runInContext(src.slice(src.indexOf('const AI_CARDS='),src.indexOf('\n',src.indexOf('ACT.aipick='))),c2);
+  vm.runInContext(src.slice(src.indexOf('const READY_LABELS='),src.indexOf('\n',src.indexOf('ACT.aipick='))),c2);
   vm.runInContext(modelSrc,c2);
   const legacy={...panels,ollama:'<section><label>Yerel Model - Hamdi</label><input id="om" value="llama3.2"><button data-act="omsave">Modeli kaydet</button></section>'};
   const loading=c2.aiPage(c2.S.snap,legacy);

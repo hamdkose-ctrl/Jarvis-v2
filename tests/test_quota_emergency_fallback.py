@@ -19,18 +19,8 @@ class QuotaFallbackTests(unittest.TestCase):
         p=patch.object(llm,'user_key',return_value='gem-key');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
 
-    def allow(self, provider, model):
-        now=router.time.time()
-        router.set_free_tier_evidence(
-            'alice',provider=provider,model=model,free_tier_verified=True,source='test-fixture',
-            evidence_ref='test://official-free-tier',verified_at=now,ttl_seconds=3600,
-            eligibility='eligible',quota_state='available',quota_remaining=10,
-            hard_stop_guaranteed=True,verification_status='verified',reason='quota fallback fixture')
-
     def allow_main_pool(self):
-        router.configure('alice',True)
-        self.allow('gemini',llm.active_model('alice'))
-        self.allow('groq',llm.groq_model())
+        router.configure('alice', gemini_scopes=[])
 
     def test_exhausted_pool_stops_at_the_configured_chain_with_no_extra_route(self):
         self.allow_main_pool()
@@ -59,9 +49,9 @@ class QuotaFallbackTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual([c.args[0] for c in call.call_args_list],['ollama'])
 
-    def test_without_confirmation_only_local_is_tried(self):
+    def test_without_an_api_key_only_local_is_tried(self):
         call=Mock(side_effect=[RuntimeError('a')])
-        with self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
+        with patch.object(llm,'user_groq_key',return_value=''), self.assertRaises(RuntimeError):router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=call:callback(spec.provider)).text
         self.assertEqual([c.args[0] for c in call.call_args_list],['ollama'])
 
 

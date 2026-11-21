@@ -60,10 +60,6 @@ class OpenRouterRemovedTests(unittest.TestCase):
         for name in ("openrouter", "api_key", "_free_emergency"):
             self.assertFalse(hasattr(router, name), name)
         self.assertNotIn("openrouter", router._CLOUD_PROVIDERS)
-        with self.assertRaises(ValueError):
-            router.set_free_tier_evidence(
-                "alice", provider="openrouter", model="m", free_tier_verified=True, source="s", evidence_ref="r",
-                verified_at=1.0, ttl_seconds=60, eligibility="eligible")
 
 
 class LegacyStatePurgeTests(unittest.TestCase):
@@ -82,18 +78,16 @@ class LegacyStatePurgeTests(unittest.TestCase):
 
     def test_stored_key_model_and_evidence_are_deleted_from_disk(self):
         path = self.write({
-            "cloud_free_confirmed": True, "key": "enc:sk-or-secret", "openrouter_model": "openrouter/free",
+            "cloud_free_confirmed": True, "gemini_scopes": ["conversation"], "key": "enc:sk-or-secret", "openrouter_model": "openrouter/free",
             "free_tier_evidence": {"openrouter": {"openrouter/free": {"provider": "openrouter"}},
                                    "groq": {"m": {"provider": "groq", "model": "m"}}},
         })
         state = router.settings("alice")
-        self.assertTrue(state["cloud_free_confirmed"])
+        self.assertEqual(state, {"gemini_scopes": ["conversation"]})
         on_disk = json.loads(path.read_text(encoding="utf-8"))
         self.assertNotIn("key", on_disk)
         self.assertNotIn("openrouter_model", on_disk)
-        self.assertNotIn("openrouter", on_disk["free_tier_evidence"])
-        self.assertIn("groq", on_disk["free_tier_evidence"])
-        self.assertTrue(on_disk["cloud_free_confirmed"])
+        self.assertEqual(on_disk, {"gemini_scopes": ["conversation"]})
         self.assertNotIn("sk-or-secret", path.read_text(encoding="utf-8"))
 
     def test_corrupt_or_non_dict_state_is_replaced_without_keeping_the_secret(self):
@@ -102,14 +96,14 @@ class LegacyStatePurgeTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             state = router.settings("alice")
-            self.assertFalse(state["cloud_free_confirmed"], content)
+            self.assertEqual(state, {"gemini_scopes": []}, content)
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("sk-or-secret", text, content)
-            self.assertEqual(json.loads(text), {"cloud_free_confirmed": False, "free_tier_evidence": {}})
+            self.assertEqual(json.loads(text), {"gemini_scopes": []})
             self.assertEqual([p.name for p in path.parent.iterdir()], [path.name], "no backup copy of the secret")
 
     def test_clean_state_is_not_rewritten(self):
-        path = self.write({"cloud_free_confirmed": False, "free_tier_evidence": {}})
+        path = self.write({"gemini_scopes": []})
         before = path.stat().st_mtime_ns
         router.settings("alice")
         self.assertEqual(path.stat().st_mtime_ns, before)
@@ -117,7 +111,7 @@ class LegacyStatePurgeTests(unittest.TestCase):
     def test_purge_failure_is_non_fatal(self):
         self.write({"cloud_free_confirmed": True, "key": "x"})
         with patch.object(router, "_save_state", side_effect=OSError("disk")):
-            self.assertTrue(router.settings("alice")["cloud_free_confirmed"])
+            self.assertEqual(router.settings("alice"), {"gemini_scopes": []})
 
     def test_status_has_no_openrouter_row_or_key_field(self):
         with patch.object(router.privacy, "mode", return_value="normal"):

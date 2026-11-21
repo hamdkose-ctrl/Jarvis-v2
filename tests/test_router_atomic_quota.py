@@ -3,9 +3,8 @@ import concurrent.futures
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from modules import router_quota as quota
-from modules import smart_router as router
 
 NOW = 1794300000.
 
@@ -77,21 +76,6 @@ class AtomicQuotaTests(unittest.TestCase):
             with self.assertRaises(quota.ReservationUnavailable):
                 self.reserve()
 
-    def test_router_skips_denied_model_without_spending_http_attempt(self):
-        specs = (router.ModelSpec('groq','m'), router.ModelSpec('ollama','local'))
-        callback = Mock(return_value='answer')
-        def permit(_owner, provider, _model, **kwargs):
-            if provider == 'groq':
-                raise quota.ReservationExhausted(20)
-            return False
-        with patch.object(router,'plan',return_value=router.RoutePlan(specs, (), 2)), \
-             patch.object(quota,'reserve',side_effect=permit), \
-              patch.object(router,'_HEALTH',{}):
-            result = router.run_request(router.ModelRequest(owner='alice'), callback)
-            self.assertEqual(router.status('alice')['last']['skipped'][-1]['reason_code'],
-                             'PROVIDER_LOCAL_QUOTA_EXHAUSTED')
-        callback.assert_called_once()
-        self.assertEqual(result.model.provider, 'ollama')
 
 if __name__ == '__main__':
     unittest.main()

@@ -565,7 +565,6 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                     return next(responses)
                 with patch.object(smart_router, '_STORE', Path(temp)), \
                         patch.object(smart_router, '_HEALTH', {}),                         patch.object(smart_router,'plan',return_value=smart_router.RoutePlan((smart_router.ModelSpec('groq','fixture-groq'),smart_router.ModelSpec('cloudflare','fixture-cf')),(),2)), \
-                        patch.object(smart_router, '_evidence_gate', return_value={'ok': True}), \
                         patch.object(usage_meter, 'observed_exhaustion', return_value=None), \
                         patch('modules.llm.provider', return_value='groq'), \
                         patch('modules.llm.privacy.mode', return_value='normal'), \

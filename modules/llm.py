@@ -231,13 +231,6 @@ def gemini_aux_allowed() -> bool:
     return False
 
 
-def _cloud_confirmed() -> bool:
-    """Owner confirmed the free-account policy (used for key-health checks that send no user content)."""
-    if provider() != 'auto': return True
-    from modules import smart_router
-    return bool(smart_router.settings(current_user()).get('cloud_free_confirmed'))
-
-
 _ollama_tags_lock = threading.Lock()
 _ollama_tags_cache = {}
 
@@ -311,8 +304,6 @@ def model_check(force=False):
     from modules import model_health
     if privacy.mode() in ("gizli", "yerel"):
         return {"state":"private", "message":"Gizli/yerel modda bulut model kontrolü kapalı."}
-    if not _cloud_confirmed():
-        return {'state':'budget','message':'Smart Router: Gemini ücretsiz hesap doğrulaması yok; bulut model kontrolü yapılmadı.'}
     owner = current_user() or ''
     return model_health.check(owner, user_key(owner), model_names(owner), genai.Client, force)
 def model_check_background():
@@ -531,7 +522,8 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
     except requests.RequestException as e:
         usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
         raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
-    usage_meter.observe_limits('groq', model, getattr(r, 'headers', None))
+    usage_meter.observe_limits('groq', model, getattr(r, 'headers', None),
+                               credential=hashlib.sha256(key.encode()).hexdigest())
     if r.status_code != 200:
         usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
     if r.status_code in (401, 403):
@@ -560,6 +552,8 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
         headers_in = getattr(r, 'headers', None) or {}
         daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
         _mark_limited('groq', model, 'HTTP 429', _limit_seconds(daily, headers_in.get('retry-after')),credential=key)
+        if daily:
+            raise CloudError('Groq günlük kotası doldu (HTTP 429).')
         raise CloudError('Groq istek/token sınırına takıldı (HTTP 429).')
     if r.status_code != 200:
         raise CloudError('Groq yanıt vermedi (HTTP ' + str(r.status_code) + ')')
@@ -822,7 +816,8 @@ def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',ro
     from modules import smart_router
     owner=current_user()
     return smart_router.ModelRequest(owner=owner,request_id=requests_state.request_identity(owner) or '',
-        profile='local_only' if provider()=='ollama' else profile,data_scope=data_scope,route=route,
+        profile=profile,data_scope=data_scope,route=route,
+        selection_mode='local_only' if provider()=='ollama' else 'configured',
         work_class=requests_state.model_work_class() or ('background' if profile in ('long_worker','public_research') else 'interactive'),max_output_tokens=max_tokens,
         features=frozenset({'text','structured_output'} if structured else {'text'}))
 

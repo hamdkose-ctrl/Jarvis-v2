@@ -170,6 +170,8 @@ Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Mi
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
+**Hazır Router bağlantıları, 21 Kasım 2026:** Gemini/Groq/Cloudflare sabit rolleriyle kullanıcı anahtarı ve Gemini veri iznini kullanır. Ekran gerçek bağlantı sonucunu, sağlayıcı kota hatasını ve son sohbeti yanıtlayan modeli gösterir. Plan beyanları, hazır kota grupları ve uygulama tavanları emekli edildi. Özel API’de çağrı sınırı ve isteğe bağlı harcama sınırı kendi bağlantısında uygulanır.
+
 **Router tek-attempt refactor dilimi, PR #540 (10 Kasım 2026, merged):** Provider+model kararı Router'da toplanıyor; validator/retry/fallback ortak en çok iki-deneme zarfına alınıyor. Bu, tam Router ürün planının kapanışı **değildir**. Model bazlı atomik SQLite RPM/RPD/TPM/TPD rezervasyon altyapısı ve seçili model kapasitesi kanıt kontrolü #540 ile eklendi; `router_quota.POLICIES` hâlâ bilinçli boş. Gerçek hesap/proje limit politikaları, custom-provider UI/adapter, Cloudflare neuron muhasebesi ve canlı kalite/hız kabulü açık. Kabul head `acd9db4067f451a71501353a22f26b84c311e82f`: Windows CI SUCCESS, aynı SHA PC watcher PASSED; merge `f1fc6bb0bc67f5bddaced4f53042b8793dbb0e2d`. Mevcut PRIVATE_GENERAL ve strict free-tier evidence sınırları korunmalıdır.
 
 

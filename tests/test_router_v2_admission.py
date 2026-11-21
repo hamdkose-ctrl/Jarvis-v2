@@ -83,13 +83,12 @@ class AdmissionTests(unittest.TestCase):
     def test_plan_uses_request_owners_real_model_preference_and_restores_reader(self):
         user_models.save_choice("alice", provider="auto", groq_model="model-a")
         user_models.save_choice("bob", provider="auto", groq_model="model-b")
-        router.configure("alice", True)
+        router.configure('alice', gemini_scopes=['conversation'])
         llm.set_user_context("bob")
         self.addCleanup(llm.set_user_context, None)
         with (
             patch.object(llm, "user_key", return_value=""),
             patch.object(llm, "user_groq_key", return_value="key"),
-            patch.object(router, "_evidence_gate", return_value={"ok": True}),
             patch("modules.cloudflare_chat.configured", return_value=False),
         ):
             plan = router.plan(router.ModelRequest(owner="alice"))
@@ -170,40 +169,6 @@ class AdmissionTests(unittest.TestCase):
                 db.execute("SELECT count(*) FROM requests").fetchone()[0], 1
             )
 
-    def test_background_daily_budget_keeps_foreground_request_capacity(self):
-        router.configure(
-            "alice",
-            application_limits={"daily_requests": 3, "interactive_daily_reserve": 1},
-        )
-        bg = router.ModelRequest(owner="alice", work_class="background")
-        for _ in range(2):
-            quota.reserve(
-                "alice",
-                "groq",
-                "m",
-                directory=self.root,
-                quota_scope="shared",
-                application_limit=quota.request_ceiling(bg),
-            )
-        with self.assertRaises(quota.ReservationExhausted):
-            quota.reserve(
-                "alice",
-                "groq",
-                "m",
-                directory=self.root,
-                quota_scope="shared",
-                application_limit=quota.request_ceiling(bg),
-            )
-        fg = replace(bg, work_class="interactive")
-        quota.reserve(
-            "alice",
-            "groq",
-            "m",
-            directory=self.root,
-            quota_scope="shared",
-            application_limit=quota.request_ceiling(fg),
-        )
-
     def test_background_cannot_take_interactive_reserved_slot(self):
         request = router.ModelRequest(
             owner="alice", call_id="bg", work_class="background"
@@ -262,16 +227,13 @@ class AdmissionTests(unittest.TestCase):
                         pass
 
     def test_cancelled_slow_call_holds_its_claim_until_transport_really_returns(self):
-        router.configure(
-            "alice", application_limits={"max_parallel": 1, "interactive_reserved": 0}
-        )
         entered = threading.Event()
         release = threading.Event()
         cancelled = threading.Event()
         request = router.ModelRequest(
             owner="alice", request_id="slow", cancelled=cancelled
         )
-        plan = router.RoutePlan((router.ModelSpec("groq", "m"),), (), 1)
+        plan = router.RoutePlan((router.ModelSpec("ollama", "m"),), (), 1)
 
         def adapter(spec):
             entered.set()

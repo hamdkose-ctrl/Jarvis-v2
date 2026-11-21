@@ -2,9 +2,7 @@
 
 Provider-level privacy facts live here, in code, with a source page and an expiry. They are not
 written by users or tools, so nothing at runtime can claim "this provider does not train on my data".
-Per-owner, per-model free-tier quota evidence stays in ``smart_router`` (its existing schema); the
-router gate requires both. Everything fails closed: unknown, expired, source-less or unlisted
-providers are not eligible, and NVIDIA is excluded from every route.
+The router uses these facts for data permissions, separately from provider billing and limits.
 
 Nothing here selects a provider. Chains are data for the Router (P0-3), which stays the only
 authority; ``llm.py`` and callers never pick a provider.
