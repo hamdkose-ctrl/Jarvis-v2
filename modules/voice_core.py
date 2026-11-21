@@ -103,6 +103,9 @@ SPEECH_EARLY_OPEN_CHARS = 120
 # bazında soru 135 -> 146 Hz). Hedef bu yüzden cümle boyu; uzun cevaplarda
 # istek sayısı sınırlı kalsın diye blok büyür.
 SPEECH_SENTENCE_CHARS = 170
+# Bundan kısa parçayı tek başına çalmak, açılış maliyeti yüzünden okumayı
+# yavaşlatıyor (ölçüm: 28 karakterlik parça 1.32 oranında çalındı).
+SPEECH_MIN_CHUNK = 120
 # Edge paralel istekleri kaldırıyor: 6 cümle paralel 1.8-2.5 sn (sırayla ~15 sn).
 # Sınır, tek cevabın açabileceği eşzamanlı istek sayısıdır.
 SPEECH_PARALLEL_SYNTH = 6
@@ -203,6 +206,17 @@ def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
         step = -(-len(sentences) // SPEECH_MAX_CHUNKS)
         sentences = ["".join(sentences[i:i + step])
                      for i in range(0, len(sentences), step)]
+    # Kısa cümle tek başına çalınınca ölçülen açılış maliyeti sesin kendisinden
+    # büyük oluyor (28 karakterlik cümle: 1898 ms ses, 2578 ms çalma = 1.32) ve
+    # kullanıcı bunu "okuma yavaşladı" diye duyuyor. Bu yüzden komşu kısa
+    # cümleler, parça en az SPEECH_MIN_CHUNK olana kadar birleştirilir.
+    merged: list[str] = []
+    for sentence in sentences:
+        if merged and len(merged[-1]) < SPEECH_MIN_CHUNK and                 len(merged[-1]) + len(sentence) <= SPEECH_SENTENCE_CHARS:
+            merged[-1] += sentence
+        else:
+            merged.append(sentence)
+    sentences = merged
     parts: list[str] = []
     for sentence in sentences:
         if len(sentence) <= SPEECH_SENTENCE_CHARS:
