@@ -517,7 +517,6 @@ class VoiceCoordinator:
         echo_note: Callable[[SpeechRequest, str], None] | None = None,
         resource_scope: Callable[[SpeechRequest, str], object] | None = None,
         before_play: Callable[[SpeechRequest, threading.Event], None] | None = None,
-        play_stream: Callable[..., int] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         if max_pending < 1:
@@ -533,10 +532,6 @@ class VoiceCoordinator:
         # VoiceCoordinator unit tests and the single output owner stay intact.
         self._resource_scope = resource_scope
         self._before_play = before_play
-        # Varsa ilk parça ses inerken çalınır: tam dosyayı beklemek uzun cevapta
-        # ilk sesi 2,8 sn'ye çıkarıyordu (ölçüm 21 Kasım). Başarısız olursa
-        # aşağıdaki normal yol (üret → çal) aynen kullanılır.
-        self._play_stream = play_stream
         self._clock = clock
         self._pending: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_pending)
         self._lock = threading.Lock()
@@ -887,50 +882,12 @@ class VoiceCoordinator:
                     # sağlayıcıyı kullanır, ikinci bir kilit talebi reddedilirdi.
                     _tts_scope = (nullcontext() if self._resource_scope is None
                                   else self._resource_scope(request, "tts"))
-                    stream_first = callable(self._play_stream)
                     with _tts_scope:
-                        # Akış yolunda ilk parça çalarken üretilir, önceden üretilmez.
-                        prefetch(1 if stream_first else 0, SPEECH_PARALLEL_SYNTH)
+                        prefetch(0, SPEECH_PARALLEL_SYNTH)
                         for position, chunk in enumerate(chunks):
                             if cancel.is_set():
                                 status, reason = "cancelled", self._cancelled_reason()
                                 break
-                            if position == 0 and stream_first:
-                                if self._before_play is not None:
-                                    self._before_play(request, cancel)
-                                if cancel.is_set():
-                                    status, reason = "cancelled", self._cancelled_reason()
-                                    break
-                                if self._expired(request, enqueued_at):
-                                    status, reason = "cancelled", "VOICE_TTL_EXPIRED"
-                                    break
-                                invalid = self._validity(request)
-                                if invalid:
-                                    status, reason = "cancelled", invalid
-                                    break
-                                started_at = time.monotonic()
-                                cpu_before = _cpu_window()
-                                played_bytes = 0
-                                try:
-                                    played_bytes = self._play_stream(
-                                        spec, chunk, cancel, start_notifier(chunk)) or 0
-                                except Exception:
-                                    _record_failure("modules/voice_core.py:play_stream")
-                                    played_bytes = 0
-                                if played_bytes:
-                                    if not announced_ready:
-                                        announced_ready = True
-                                        self._stage(request, "audio_ready")
-                                    voice_log.info(
-                                        "speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s %s akis=1",
-                                        position + 1, len(chunks), len(chunk),
-                                        (time.monotonic() - started_at) * 1000,
-                                        _device_timing(self._play),
-                                        _cpu_report(cpu_before, started_at))
-                                    if cancel.is_set():
-                                        status, reason = "cancelled", self._cancelled_reason()
-                                        break
-                                    continue
                             pending = prefetched.pop(position, None)
                             if pending is None:
                                 audio = synthesize_chunk(chunk)

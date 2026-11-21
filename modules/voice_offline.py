@@ -9,6 +9,7 @@ import io
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -22,6 +23,11 @@ class OfflineVoiceUnavailable(RuntimeError):
     pass
 
 
+_PIPER_LENGTH_BASE = 1.18   # kullanıcı onayı: biraz daha yavaş (tokluk)
+_TOK_CHAIN = ("bass=g=7:f=130:w=0.9,acompressor=threshold=-14dB:ratio=4:"
+              "attack=4:release=160,volume=1.9,alimiter=limit=0.95")
+
+
 def piper_length_scale(rate: int) -> float:
     """Map the bounded existing profile rate onto Piper's phoneme length.
 
@@ -33,6 +39,81 @@ def piper_length_scale(rate: int) -> float:
     return round(2 ** (-rate / 60), 3)
 
 
+def _pcm_to_wave(frames: bytes, rate: int) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(frames)
+    return buffer.getvalue()
+
+
+_PIPER_CACHE: dict[str, object] = {}
+
+
+def _piper_inprocess(real_model: Path, text: str, length_scale: float,
+                     cancel: threading.Event) -> bytes | None:
+    """Piper'ı süreç içinde çalıştırır: model bir kez yüklenir.
+
+    Ölçüm (21 Kasım): süreç içi 326-353 ms, CLI 2993 ms (model her cümlede
+    yeniden yükleniyor). Kütüphane yoksa/başarısızsa None döner ve mevcut CLI
+    yolu aynen kullanılır.
+    """
+    try:
+        from piper import PiperVoice, SynthesisConfig
+    except ImportError:
+        return None
+    try:
+        voice = _PIPER_CACHE.get(str(real_model))
+        if voice is None:
+            voice = PiperVoice.load(str(real_model))
+            _PIPER_CACHE[str(real_model)] = voice
+        chunks = []
+        for audio in voice.synthesize(
+                text, syn_config=SynthesisConfig(length_scale=round(length_scale, 3))):
+            if cancel.is_set():
+                return b""
+            chunks.append(audio.audio_int16_bytes)
+        if not chunks:
+            return b""
+        try:
+            rate = voice.config.sample_rate
+        except (AttributeError, TypeError):
+            rate = 22050
+        return _pcm_to_wave(b"".join(chunks), rate)
+    except Exception:
+        _record_failure("modules/voice_offline.py:piper_inprocess")
+        return None
+
+
+def _tok(wav: bytes) -> bytes:
+    """Tokluk: bas + kompresör + sınırlayıcı (kullanıcı onayı, 21 Kasım).
+
+    ffmpeg yoksa ya da dönüşüm başarısızsa ses AYNEN döner; konuşma kaybolmaz.
+    Ölçüm: zincir ~27 ms ekliyor.
+    """
+    executable = shutil.which("ffmpeg")
+    if not executable or not wav:
+        return wav
+    try:
+        with tempfile.TemporaryDirectory(prefix="jarvis-tok-") as folder:
+            source = Path(folder) / "in.wav"
+            target = Path(folder) / "out.wav"
+            source.write_bytes(wav)
+            done = subprocess.run([executable, "-y", "-v", "error", "-i", str(source),
+                                   "-af", _TOK_CHAIN, "-ac", "1", str(target)],
+                                  capture_output=True, timeout=20)
+            if done.returncode != 0 or not target.is_file():
+                return wav
+            shaped = target.read_bytes()
+            _validate_wave(shaped)
+            return shaped
+    except Exception:
+        _record_failure("modules/voice_offline.py:tok")
+        return wav
+
+
 class PiperSynthesizer:
     """Synthesize one explicitly provisioned voice without changing its identity."""
 
@@ -41,6 +122,27 @@ class PiperSynthesizer:
             raise ValueError("Piper timeout outside accepted limits.")
         self.model_root = Path(model_root)
         self.timeout_seconds = timeout_seconds
+
+    def preload_all(self) -> int:
+        """Yerel modelleri arka planda yükle: ilk cümle model yüklemesini ödemesin."""
+        loaded = 0
+        try:
+            from piper import PiperVoice
+        except ImportError:
+            return 0
+        try:
+            root = self.model_root.resolve()
+            for model in sorted(root.glob("*.onnx")):
+                if model.is_symlink() or str(model) in _PIPER_CACHE:
+                    continue
+                try:
+                    _PIPER_CACHE[str(model)] = PiperVoice.load(str(model))
+                    loaded += 1
+                except Exception:
+                    _record_failure("modules/voice_offline.py:preload")
+        except Exception:
+            _record_failure("modules/voice_offline.py:preload_root")
+        return loaded
 
     def _model(self, spec: VoiceSpec) -> Path:
         if spec.backend != "piper":
@@ -64,7 +166,24 @@ class PiperSynthesizer:
         if cancel.is_set():
             return b""
         model = self._model(spec)
-        executable = shutil.which("piper")
+        if not text or len(text) > 12000:
+            raise ValueError("Speech text is empty or exceeds limit.")
+        # Süreç içi yol yalnız GERÇEK modelde denenir: testler sahte (küçük)
+        # dosyalarla CLI sözleşmesini sınar, orada davranış değişmesin.
+        inprocess = None
+        try:
+            if model.stat().st_size > 1_000_000:
+                inprocess = _piper_inprocess(
+                    model, text,
+                    piper_length_scale(spec.speaking_rate) * _PIPER_LENGTH_BASE, cancel)
+        except OSError:
+            _record_failure("modules/voice_offline.py:model_stat")
+        if inprocess:
+            _validate_wave(inprocess)
+            return _tok(inprocess)
+        # Piper uygulamanın kendi sanal ortamına kurulur; Scripts PATH'te değil.
+        executable = shutil.which("piper") or shutil.which(
+            "piper", path=str(Path(sys.executable).parent))
         if not executable:
             raise OfflineVoiceUnavailable("Piper executable is not installed.")
         if not text or len(text) > 12000:
