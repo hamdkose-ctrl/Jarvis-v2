@@ -107,6 +107,18 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         if reply is not None:
             runtime._emit_for(runtime._get_profile(name), 'assistant', reply, source, rid=rid)
         return False
+    if command in ("devamını oku", "devamini oku", "kalanı oku", "kalanini oku"):
+        # Uzun cevapta ses yalnız ilk cümleleri okur; yazı ekranda tam durur.
+        taker = getattr(runtime.voice, "take_remainder", None)
+        rest = taker() if callable(taker) else ""
+        if rest.strip():
+            runtime.voice.stop_speaking()
+            runtime.voice.speak(rest)
+        else:
+            name = user or runtime.pc_profile().name
+            runtime._emit_for(runtime._get_profile(name), 'assistant',
+                              'Okuyacak devam yok; cevabın tamamı ekranda.', source, rid=rid)
+        return False
     if command == "rehberi durdur":
         from modules import pc_guide
         owner = runtime.slugify(user or runtime.pc_profile().name)
