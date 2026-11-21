@@ -254,10 +254,15 @@ class PcmSink:
     """
 
     def __init__(self, *, latency: float = 0.35, frames_per_write: int = 1024,
-                 idle_seconds: float = 4.0):
+                 idle_seconds: float = 25.0, join_silence_ms: float = 120.0):
         self.latency = latency
         self.frames_per_write = frames_per_write
         self.idle_seconds = idle_seconds
+        # Cümle sonundaki sessizlik kırpıldığı için iki cümle sıfır boşlukla
+        # birleşiyordu; kullanıcı bunu 'çok ufak takılma' olarak duydu. Doğal
+        # nefes payı: 120 ms.
+        self.join_silence_ms = max(0.0, join_silence_ms)
+        self._last_end = 0.0
         self._lock = threading.Lock()
         self._stream = None
         self._rate = 0
@@ -314,6 +319,12 @@ class PcmSink:
         rate, channels, pcm = _wave_pcm(wav)
         if not pcm or not any(pcm):
             raise OSError("Edge audio is empty.")
+        # Nefes payı yalnız AYNI cevabın cümleleri arasına girer: yeni cevabın
+        # ilk kelimesi 120 ms gecikmesin (canlı: tur başında oran 1.07-1.08).
+        devam = self._last_end and (time.monotonic() - self._last_end) < 2.0
+        if devam and self.join_silence_ms:
+            sessiz_kare = int(rate * self.join_silence_ms / 1000)
+            pcm = bytes(sessiz_kare * channels * 2) + pcm
         with self._lock:
             open_ms = 0.0
             if self._stream is None or (rate, channels) != (self._rate, self._channels):
@@ -334,6 +345,7 @@ class PcmSink:
                 self._job = None
                 self.close()
             else:
+                self._last_end = time.monotonic()
                 self._touch()
         timing = {"open_ms": open_ms, "wait_ms": gecen, "audio_ms": audio_ms,
                   "underruns": self._underflows}
