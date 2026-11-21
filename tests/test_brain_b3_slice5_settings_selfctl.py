@@ -34,7 +34,7 @@ class Slice5CoreTests(unittest.TestCase):
                 with self.subTest(bad=bad, kind=kind):
                     payload = {"kind": kind, key: bad}
                     if kind in ("setting", "ui"):
-                        payload["key"] = "wake_sensitivity" if kind == "setting" else "hologram_tone"
+                        payload["key"] = "wake_sensitivity" if kind == "setting" else "nx_theme"
                     self.assertIsNone(brain_core_map.core_plan("jarvis.selfctl", {"action": payload}))
 
     def test_safe_setting_read_values_are_closed(self):

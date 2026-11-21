@@ -27,11 +27,11 @@ PAGES: dict[str, tuple[str, str, str]] = {
     "study": ("study", "", "Çalışma"), "notes": ("tools", "takvim", "Notlar"),
     "calendar": ("tools", "takvim", "Takvim"), "scan": ("tools", "tarama", "Sistem Taraması"),
     "report": ("tools", "rapor", "Gelişim Raporu"), "about": ("settings", "hakkinda", "Hakkında"),
-    "menu": ("menu", "", "Menü"), "chat": ("chat", "", "Sohbet"),
+    "chat": ("chat", "", "Sohbet"),
+    "team": ("team", "", "Ekip Merkezi"),
     "files": ("files", "", "Dosyalar"), "messages": ("tools", "mesaj", "Mesajlar"),
     "tasks": ("tools", "takvim", "Görevler"),
 }
-TONES = {"blue": "Mavi", "turquoise": "Turkuaz", "yellow": "Sarı"}
 
 
 def execute(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
@@ -101,16 +101,4 @@ def _ui(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
         nxapi.ui_set("nx_theme", value)
         emit("action", "nx_set")
         return "Temayı " + {"light": "açık", "dark": "koyu", "system": "sisteme göre"}[value] + " yaptım."
-    if key == "hologram_tone" and value in TONES:
-        emit("ui", f"hologramtone|{value}")
-        return f"Hologram rengini {TONES[value].lower()} yaptım."
-    if key == "hologram_background" and value in {"lava", "mountains"}:
-        emit("ui", f"hologrambg|{value}")
-        return "Arka planı lav dağları yaptım." if value == "lava" else "Arka planı mavi dağlar yaptım."
-    if key == "replay":
-        emit("ui", "bustreplay|")
-        return "Açılış animasyonunu baştan oynatıyorum."
-    if key == "home_animation" and isinstance(value, bool):
-        emit("ui", f"nxbust|{1 if value else 0}")
-        return "Ana ekran animasyonunu " + ("açtım." if value else "kapattım; durağan görünüm kullanılacak.")
     return "Bu arayüz işlemi Core tarafından doğrulanmadı."

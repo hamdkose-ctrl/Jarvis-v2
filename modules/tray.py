@@ -25,9 +25,9 @@ def _image():
             pass
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse((4, 4, 60, 60), fill=(6, 18, 36, 255), outline=(0, 229, 255, 255), width=4)
-    hexp = [(32, 14), (48, 23), (48, 41), (32, 50), (16, 41), (16, 23)]
-    d.polygon(hexp, outline=(0, 229, 255, 255), fill=(0, 140, 190, 255))
+    d.rounded_rectangle((4, 4, 60, 60), radius=15, fill="#f39b78")
+    for x, height in ((22, 13), (32, 25), (42, 17)):
+        d.rounded_rectangle((x - 2, 32 - height / 2, x + 2, 32 + height / 2), radius=2, fill="#101e29")
     return img
 
 

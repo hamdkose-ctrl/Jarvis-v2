@@ -502,9 +502,7 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "wake_beep": [True, False], "learn_from_chat": [True, False],
                 "widget": [True, False], "window_mode": ["full", "window"],
             },
-            "ui": {"nx_theme": ["light", "dark", "system"], "hologram_tone": ["blue", "turquoise", "yellow"],
-                   "hologram_background": ["lava", "mountains"],
-                   "replay": [True], "home_animation": [True, False]},
+            "ui": {"nx_theme": ["light", "dark", "system"]},
         }}
     if capability_id == "finance.read":
         from modules import finance

@@ -83,8 +83,8 @@ class ResultAnnouncementSwitch(unittest.TestCase):
 
     def test_the_voice_page_offers_the_switch_once_and_saves_it(self):
         js = source()
-        self.assertEqual(js.count("sel('vres',"), 1, "satır tek yerde tanımlı, iki yüzey de onu çağırır")
-        self.assertEqual(js.count("vresField(st,sel)+"), 2, "yan sayfa bölümü ve Ayarlar satırı")
+        self.assertEqual(js.count("sel('vres',"), 1, "ses ayarı tek yerde tanımlı")
+        self.assertEqual(js.count("vresField(st,sel)+"), 1, "Ayarlar › Ses ve konuşma satırı")
         save_line = js.split("ACT.vsave=")[1].split("\n")[0]
         self.assertIn("voice_announce_results:$('#vres').value==='1'", save_line,
                       "Kaydet düğmesi seçimi taşır")

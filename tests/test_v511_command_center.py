@@ -9,21 +9,17 @@ WEB = (ROOT / "web.py").read_text(encoding="utf-8")
 
 
 class CommandCenterTests(unittest.TestCase):
-    def test_home_command_center_sections_exist(self):
-        for text in ("Sistem Durumu", "Canlı Aktivite", "Yaklaşan Hatırlatmalar", "GitHub’a Yükle"):
-            self.assertIn(text, JS)
-        # Hamdi'nin kararı: ana ekranda "AI ve Bağlantılar" kartı ve GitHub kartı yok; GitHub işlevi Ayarlar › Gelişmiş'tedir.
-        self.assertNotIn("AI ve Bağlantılar", JS)
-        self.assertNotIn('class="card hcard hgit"', JS)
-        self.assertIn("function githubBox()", JS)
-        self.assertIn("heyTxt()", JS)
+    def test_home_uses_live_jobs_calendar_and_composer(self):
+        home = JS[JS.index("PAGES.home="):JS.index("ACT.goset=")]
+        for target in ("dockhost", "home-jobs", "home-calendar"):
+            self.assertIn(f'id="{target}"', home)
+        self.assertIn("JarvisTeam?.refreshHome", JS)
 
-    def test_weather_is_visible_next_to_clock(self):
-        top = JS[JS.index("function renderTop()"):JS.index("function tcFirst(")]
-        self.assertIn('class="tw"', top)
-        self.assertIn("w.temp+'°C'", top)
+    def test_desktop_has_profile_notifications_and_clock(self):
+        top = JS[JS.index("function renderTop()"):JS.index("function needCount()")]
+        self.assertIn('data-act="user"', top)
+        self.assertIn('data-act="notif"', top)
         self.assertIn('id="clock"', top)
-        self.assertIn(".tw", CSS)
 
     def test_home_github_button_uses_existing_safe_action(self):
         self.assertIn('data-act="ghpublish"', JS)
@@ -35,7 +31,7 @@ class CommandCenterTests(unittest.TestCase):
         self.assertIn('"github": github_state', WEB)
 
     def test_command_center_responsive_rules_exist(self):
-        for text in (".home-command", "@media(max-width:1180px)", "@media(max-width:850px)"):
+        for text in (".workspace-hero", ".workspace-settings", "@media(max-width:620px)"):
             self.assertIn(text, CSS)
 
 

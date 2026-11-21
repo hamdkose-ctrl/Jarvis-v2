@@ -18,7 +18,7 @@ c.document={querySelectorAll:()=>[]};await ACT.ntopen({dataset:{id:'3'}});assert
 c.URL={revokeObjectURL(){}};c.upload=async()=>({path:'photo.png'});$('#nti').value='Görselli not';S.noteFile={name:'photo.png'};S.notePreview='blob:preview';await ACT.ntsave();assert.deepEqual(calls[calls.length-1],['note_add','Görselli not','photo.png','']);assert.equal(S.noteFile,null);assert.equal($('#nti').value,'');
 $('#nti').value='Saklanacak taslak';S.noteFile={name:'photo.png'};c.upload=async()=>null;const beforeFailedSave=calls.length;await ACT.ntsave();assert.equal(calls.length,beforeFailedSave);assert.equal($('#nti').value,'Saklanacak taslak');assert(S.noteFile);ACT.ntimageclear();
 // Microphone mute reaches the real server flag and sits immediately left of the speaker.
-load("const micToggleBtn=","const DOCK_PH=");load("const askBar=","const STATE_TXT=");
+load("const micToggleBtn=","const DOCK_PH=");load("const askBar=","// ======================================================================= ANA SAYFA");
 load('ACT.mictoggle=','ACT.wmin=');load('ACT.mic=','ACT.attach=');
 c.$$=()=>[];c.tryApi=async(name,...args)=>{calls.push([name,...args]);return name==='set_flag'?{mic:args[1],speak:true}:false};S.snap.flags={mic:true,speak:true};
 let dock=vm.runInContext('askBar()',c);assert(dock.indexOf('data-act="mic"')<dock.indexOf('data-act="mictoggle"'));assert(dock.indexOf('data-act="mictoggle"')<dock.indexOf('data-act="mute"'));assert(dock.indexOf('data-act="mute"')<dock.indexOf('data-act="pcmute"'));
@@ -26,7 +26,7 @@ await ACT.mictoggle();assert.deepEqual(calls[calls.length-1],['set_flag','mic',f
 await ACT.mictoggle();assert.deepEqual(calls[calls.length-1],['set_flag','mic',true]);assert.equal(S.snap.flags.mic,true);
 c.tryApi=async()=>undefined;await ACT.mictoggle();assert.equal(S.snap.flags.mic,true);
 let toasts=[];c.toast=x=>toasts.push(x);c.tryApi=async()=>false;await ACT.mic();assert.equal(toasts[0],'Mikrofon kapalı. Önce mikrofonu aç.');
-load('let previewTimer=null','// ======================================================================= UYGULAMALAR');S.page='vision';S.snap.mode='camera';await c.pollVisionPreview();assert.equal($('#vision-preview').src,'data:image/png;base64,PNGDATA');assert.equal($('#vision-preview').style.display,'block');let n=calls.length;S.page='home';await c.pollVisionPreview();assert.equal(calls.length,n);
+load('let previewTimer=null','// HARITA START');S.page='vision';S.snap.mode='camera';await c.pollVisionPreview();assert.equal($('#vision-preview').src,'data:image/png;base64,PNGDATA');assert.equal($('#vision-preview').style.display,'block');let n=calls.length;S.page='home';await c.pollVisionPreview();assert.equal(calls.length,n);
 // Screenshot button captures via the bridge and attaches only after preview approval.
 load('const MAX_ATT=','function pasteChatImage(');load('ACT.capture=async()=>','let previewTimer=null');
 S.page='vision';S.att=null;S.attPending=false;S.snap.user.name='Hamdi';
@@ -39,10 +39,11 @@ c.api=async()=>capture;c.showCapturePreview=async()=>false;await ACT.capture();a
 c.api=async()=>{throw Error('Capture failed')};await ACT.capture();assert.equal(S.captureBusy,false);assert.equal(S.att,null);
 c.api=async()=>{S.snap.user.name='Other';return capture};c.showCapturePreview=async()=>{throw Error('Must not preview another user capture')};await ACT.capture();assert.equal(S.att,null);
 assert(src.includes("'act:capture'"));assert(!src.includes("'say:ekran görüntüsü al'"));
-// The PC help extension adds only its own screen card and routes the goal to coaching.
-const helpButtons=[],helpSent=[];
-const help={PAGES:{vision:()=>{}},ACT:{},ic:()=>'',document:{createElement:()=>({dataset:{}})},askText:async()=> 'Fotoğrafları telefona gönder',say:q=>helpSent.push(q)};
-vm.createContext(help);vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../webui/pc-guide.js'),'utf8'),help);
-help.PAGES.vision({querySelector:()=>({appendChild:b=>helpButtons.push(b)})});assert.equal(helpButtons[0].dataset.act,'pcguide');await help.ACT.pcguide();assert.deepEqual(helpSent,['PC yardımı: Fotoğrafları telefona gönder']);
+// A single PC help route still passes the user's goal through the existing coaching command.
+const helpSent=[];
+const help={ACT:{},askText:async()=> 'Fotoğrafları telefona gönder',say:q=>helpSent.push(q)};
+vm.createContext(help);
+vm.runInContext(src.slice(src.indexOf('ACT.pcguide='),src.indexOf('function pcOperationsBox(')),help);
+await help.ACT.pcguide();assert.deepEqual(helpSent,['PC yardımı: Fotoğrafları telefona gönder']);
 console.log('Masaüstü: boş konuyla seçili kaynak, takvim/görev/not birleşimi, ay/gün seçimi ve kamera önizlemesi geçti (taklit DOM).');
 })().catch(e=>{console.error(e);process.exit(1)});

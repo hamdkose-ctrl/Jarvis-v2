@@ -80,8 +80,3 @@ alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2
 info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
 };
 function ic(n,extra){return `<svg class="i ${extra||''}" viewBox="0 0 24 24">${_I[n]||''}</svg>`}
-// Marka simgesi (elmas / reaktör)
-const GEM_SVG=`<svg viewBox="0 0 64 64"><defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fe4ff"/><stop offset="1" stop-color="#1a7fd8"/></linearGradient></defs>
-<polygon points="32,5 57,20 57,44 32,59 7,44 7,20" fill="none" stroke="#4cc6ff" stroke-width="2.2" opacity=".9"/>
-<polygon points="32,15 49,25 49,40 32,50 15,40 15,25" fill="rgba(34,211,238,.12)" stroke="#22d3ee" stroke-width="1.6"/>
-<polygon points="32,20 44,38 20,38" fill="url(#gg)" opacity=".92"/><polygon points="32,28 38,38 26,38" fill="#e9fbff"/></svg>`;

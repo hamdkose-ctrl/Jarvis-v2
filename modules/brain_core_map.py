@@ -1473,14 +1473,6 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         else:
             if key == "nx_theme":
                 good = value in {"light", "dark", "system"} if isinstance(value, str) else False
-            elif key == "hologram_tone":
-                good = isinstance(value, str) and value in {"blue", "turquoise", "yellow"}
-            elif key == "hologram_background":
-                good = isinstance(value, str) and value in {"lava", "mountains"}
-            elif key == "replay":
-                good = value is True
-            elif key == "home_animation":
-                good = type(value) is bool
             else:
                 good = False
         return dict(action) if good else None

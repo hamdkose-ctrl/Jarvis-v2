@@ -2,16 +2,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),'utf8');
 const S={ui:{},sset:'ai',snap:{study:{mode:'teacher'}},sov:{today:{target:{topic:'Hücre',mk:'bio',course:'Biyoloji'}}}},ACT={},PAGES={},input={value:''};
 const calls=[];
-const c={S,ACT,PAGES,ic:()=>'',drawSettings:()=>{},loadUi:async()=>{},go:page=>calls.push(['page',page]),$:()=>input};
+const c={S,ACT,PAGES,ic:()=>'',esc:String,drawSettings:()=>{},loadUi:async()=>{},go:page=>calls.push(['page',page]),$:()=>input};
 vm.createContext(c);
 vm.runInContext(src.slice(src.indexOf('const SECS='),src.indexOf('\n',src.indexOf('const sectionOf='))),c);
-vm.runInContext(src.slice(src.indexOf('PAGES.settings='),src.indexOf('async function loadUi(')),c);
-// eski Ayarlar sayfası kalktı: adres menüye yönlenir
-for(const oldTab of ['ai','baglanti']){
- S.sset=oldTab;const page={innerHTML:''};calls.length=0;PAGES.settings(page);
- assert.equal(S.sset,oldTab);assert.equal(page.innerHTML,'','sayfa artık çizilmez');assert.deepEqual(calls.pop(),['page','settings'],'go(settings) çağrılır, menüde yan sayfa açılır');
+vm.runInContext(src.slice(src.indexOf('function renderSettingsPage('),src.indexOf('async function loadUi(')),c);
+for(const section of ['ai','baglanti','ses']){
+ S.sset=section;const page={innerHTML:''};calls.length=0;PAGES.settings(page);
+ assert.equal(S.sset,section);assert(page.innerHTML.includes('id="spane"'));assert.deepEqual(calls,[]);
 }
-S.sset='ses';PAGES.settings({});assert.equal(S.sset,'ses');calls.length=0;
 vm.runInContext(src.slice(src.indexOf('function openAiHub('),src.indexOf('\n',src.indexOf('ACT.keysetup='))),c);
 ACT.keysetup();assert.equal(S.sset,'baglanti');assert.equal(S.tool,'aihub');assert.deepEqual(calls.pop(),['page','tools']);
 ACT.slearn=async e=>calls.push(['lesson',e.dataset.t,e.dataset.k]);ACT.studyask=async()=>calls.push(['source',input.value]);

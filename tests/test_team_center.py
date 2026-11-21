@@ -1,4 +1,5 @@
 """Team registry and real journal integration; no live accounts/model/device calls."""
+import base64
 import copy
 import json
 from pathlib import Path
@@ -84,7 +85,20 @@ class TeamTests(unittest.TestCase):
         self.assertTrue(self.bridge.team_verify('goal',job['id'])['ok'])
         self.assertTrue((goal_executor._root('alice')/(job['id']+'.execution.json')).exists())
         self.assertEqual([j['id'] for j in team.snapshot('alice')['jobs']],[job['id']])
-        Path(job['outputs']['s1']['file']).write_text('changed')
+        file = Path(job['outputs']['s1']['file'])
+        with patch.object(nxapi, 'FILES_DIR', self.root / 'files'):
+            saved = self.bridge.team_artifact('goal', job['id'], 's1', file.name)
+            self.assertEqual(saved['owner'], 'alice')
+            self.assertEqual(base64.b64decode(saved['content']), file.read_bytes())
+            with self.assertRaises(ValueError):
+                self.bridge.team_artifact('goal', job['id'], 's1', '../' + file.name)
+            with self.assertRaises(ValueError):
+                self.bridge.team_artifact('goal', job['id'], 's2', file.name)
+            with self.assertRaises((PermissionError, ValueError, OSError)):
+                team.artifact('bob', 'goal', job['id'], 's1', file.name)
+            file.write_text('changed')
+            with self.assertRaises(ValueError):
+                self.bridge.team_artifact('goal', job['id'], 's1', file.name)
         self.assertFalse(self.bridge.team_verify('goal',job['id'])['ok'])
 
     def test_queue_rejects_external_writes_and_code_and_invalid_repeat(self):

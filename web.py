@@ -784,8 +784,6 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         # Uyandırma ayarlarını hemen uygula (yeniden başlatmaya gerek yok; mikrofon seçimi hariç)
         if "wake_word" in ch:
             engine.WAKE_WORD = config.WAKE_WORD = ch["wake_word"]
-            if _widget is not None:
-                _widget.wake = ch["wake_word"]
         if "wake_aliases" in ch:
             engine.WAKE_ALIASES = config.WAKE_ALIASES = tuple(ch["wake_aliases"] or ())
         if "session_seconds" in ch:
@@ -1225,14 +1223,6 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/events":
             return self._events()
-        if path == "/arka_plan":                              # kullanıcının seçtiği arka plan resmi
-            f = DATA_DIR / "arka_plan.img"
-            if not secrets.compare_digest(self._token(), TOKEN) or not f.exists():
-                return self._send(404, b"", "text/plain")
-            d = f.read_bytes()
-            ct = ("image/png" if d[:4] == b"\x89PNG" else "image/webp" if d[8:12] == b"WEBP" else "video/mp4"
-                  if d[4:8] == b"ftyp" else "video/webm" if d[:4] == b"\x1aE\xdf\xa3" else "image/jpeg")
-            return self._send(200, d, ct)
         if path == "/fonts.css":
             _fonts_ready.wait(5)
             f = FONT_DIR / "fonts.css"
@@ -1350,7 +1340,10 @@ class Handler(BaseHTTPRequestHandler):
         if name in {".", ".."}:
             name = "belge"
         target = (q.get("to") or [""])[0]
-        limit = {"files": 200_000_000, "bg": 80_000_000, "phone": 500_000_000}.get(target, 40_000_000)
+        if target not in {"", "kb", "files", "phone"}:
+            self.close_connection = True
+            return self._json({"ok": False, "error": "Bu dosya hedefi desteklenmiyor."}, 400)
+        limit = {"files": 200_000_000, "phone": 500_000_000}.get(target, 40_000_000)
         if size <= 0 or size > limit:
             self.close_connection = True
             return self._json({"ok": False, "error": f"Dosya boş ya da {limit//1_000_000} MB'tan büyük."}, 413)
@@ -1368,14 +1361,6 @@ class Handler(BaseHTTPRequestHandler):
                     dest = nxapi.save_upload_stream(name, source)
                 threading.Thread(target=_index_upload, args=(dest,), daemon=True, name="belge-dizin").start()
                 return self._json({"ok": True, "data": {"path": str(dest), "name": dest.name}})
-            if target == "bg":
-                with temporary.open('rb') as source:
-                    head = source.read(16)
-                if not (head[:3] == b"\xff\xd8\xff" or head[:8] == b"\x89PNG\r\n\x1a\n" or head[8:12] == b"WEBP"
-                        or head[4:8] == b"ftyp" or head[:4] == b"\x1aE\xdf\xa3"):
-                    raise ValueError("Yalnızca JPG, PNG, WEBP resim ya da MP4/WEBM video.")
-                os.replace(temporary, DATA_DIR / "arka_plan.img")
-                return self._json({"ok": True, "data": True})
             if target == "phone":
                 from modules import filesend
                 return self._json({"ok": True, "data": filesend.send(temporary)})

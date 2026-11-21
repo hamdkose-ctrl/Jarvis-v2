@@ -35,21 +35,14 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("modules", proc.stdout.splitlines())
 
-    def test_browser_acceptance_uses_real_ai_menu_action_before_ollama_render(self):
+    def test_browser_acceptance_uses_sidebar_before_ollama_provider_card(self):
         src = SCRIPT.read_text(encoding="utf-8")
-        menu_selector = '[data-act=\\"mnopen\\"][data-k=\\"ai\\"]'
-        open_ai = 'dispatch_event("click")'
+        open_settings = '#workspace-nav [data-go="settings"]'
         wait_panel = 'page.wait_for_selector("#spane"'
-        select_ollama = "SX.aiSel='ollama'"
-        legacy_deep_link = 'page.evaluate("S.sset=\'ai\'; go(\'settings\')")'
-        self.assertIn(menu_selector, src)
-        self.assertIn(open_ai, src)
-        self.assertIn(wait_panel, src)
-        self.assertIn(select_ollama, src)
-        self.assertLess(src.index(menu_selector), src.index(open_ai))
-        self.assertLess(src.index(open_ai), src.index(wait_panel))
+        select_ollama = '#spane [data-act="aipick"][data-k="ollama"]'
+        self.assertLess(src.index(open_settings), src.index(wait_panel))
         self.assertLess(src.index(wait_panel), src.index(select_ollama))
-        self.assertNotIn(legacy_deep_link, src)
+        self.assertNotIn('mnopen', src)
         self.assertNotIn("page.wait_for_timeout(800)", src)
 
 
