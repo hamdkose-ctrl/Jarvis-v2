@@ -530,17 +530,18 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         proposal_diagnostic(clear=True)
         semantic = apply_model_understanding(evidence, text, active_context=active)
         if semantic is evidence:
+            from modules.brain_failure_synthesis import PROVIDER_RECOVERY
+
             diagnostic = proposal_diagnostic()
             reason = diagnostic.get("reason_code")
-            unavailable = (not diagnostic or reason in {
+            unavailable = (not diagnostic or reason in PROVIDER_RECOVERY or reason in {
                 "PROVIDER_UNAVAILABLE", "PROVIDER_ROUTE_DISABLED", "MODEL_CALL_ERROR",
-                "MODEL_CALL_OR_VALIDATION_ERROR", "LOCAL_DEADLINE_EXCEEDED", "REQUEST_CANCELLED",
-                "PROVIDER_REQUEST_TOO_LARGE",
+                "MODEL_CALL_OR_VALIDATION_ERROR", "REQUEST_CANCELLED",
             })
             semantic = replace(
                 evidence, reason_codes=evidence.reason_codes + (
                     "MODEL_UNAVAILABLE" if unavailable else "MODEL_PROPOSAL_REJECTED",)
-                    + (("PROVIDER_REQUEST_TOO_LARGE",) if reason == "PROVIDER_REQUEST_TOO_LARGE" else ()))
+                    + ((reason,) if reason in PROVIDER_RECOVERY else ()))
         elif "MODEL_DECIDED" not in semantic.reason_codes:
             semantic = replace(
                 semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))

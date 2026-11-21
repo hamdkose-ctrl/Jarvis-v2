@@ -434,14 +434,15 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                 _LAST_FEEDBACK.set(row)
                 return output, row, None
         rejected = "MODEL_PROPOSAL_REJECTED" in semantic.reason_codes
-        request_limit = 'PROVIDER_REQUEST_TOO_LARGE' in semantic.reason_codes
+        from modules import brain_failure_synthesis
+        provider_issue = next((code for code in semantic.reason_codes
+                               if code in brain_failure_synthesis.PROVIDER_RECOVERY), None)
         row = feedback(entry, result_status="failed", reason_code=(
-            'PROVIDER_REQUEST_TOO_LARGE' if request_limit else
+            provider_issue if provider_issue else
             "BRAIN_MODEL_PROPOSAL_REJECTED" if rejected else "BRAIN_MODEL_UNAVAILABLE"),
-            recovery_class='request_change_required' if request_limit else None)
+            recovery_class=brain_failure_synthesis.PROVIDER_RECOVERY.get(provider_issue))
         _LAST_FEEDBACK.set(row)
-        if request_limit:
-            from modules import brain_failure_synthesis
+        if provider_issue == 'PROVIDER_REQUEST_TOO_LARGE':
             return brain_failure_synthesis.synthesize(row), row, None
         answered = _pending_weather_answer(runtime, command)
         if answered is not None:
@@ -449,6 +450,8 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                                reason_code="PENDING_WEATHER_LOCATION_ANSWERED")
             _LAST_FEEDBACK.set(handled)
             return answered, handled, None
+        if provider_issue:
+            return brain_failure_synthesis.synthesize(row), row, None
         if rejected:
             return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
                     "hiçbir işlem başlatmadım.", row, None)

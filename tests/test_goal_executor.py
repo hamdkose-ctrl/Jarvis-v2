@@ -1002,8 +1002,8 @@ class GoalTests(unittest.TestCase):
         from modules import news_recovery
         with patch.object(news_recovery,'deliver') as recover, \
                 patch.object(goals,'_finish_completed',side_effect=lambda _job:recover.called):
-            self.run_with_writer_consent('Son dakika haberleri')
-        recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
+            self.run_with_writer_consent('son dakika haber lerini araştır')
+        recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24,model_status='not_needed')
         self.ask.assert_not_called()
 
     def test_generic_fileless_news_pauses_when_bounded_recovery_has_no_evidence(self):
@@ -1011,7 +1011,7 @@ class GoalTests(unittest.TestCase):
         with patch.object(news_recovery,'deliver') as recover:
             result=self.run_with_writer_consent('Son dakika haberleri')
         job=goals.latest('alice')
-        recover.assert_called_once_with(self.runtime,job,max_new_steps=24)
+        recover.assert_called_once_with(self.runtime,job,max_new_steps=24,model_status='not_needed')
         self.ask.assert_not_called()
         self.assertEqual(job['state'],'paused')
         self.assertEqual(job['goals'][0]['state'],'pending')

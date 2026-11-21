@@ -174,6 +174,8 @@ Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Mi
 
 Hazır sağlayıcı ve model kartlarının sabit son kullanma tarihleri kaldırıldı. 2030 saatli ağsız regresyon, üç hazır bağlantı denemesini ve Gemini görüntü planındaki veri iznini doğrular.
 
+Router performans düzeltmesi. Bulut metin çağrısı öncesindeki yerel model sorgusu yedek anına taşındı. Gemini taşıma süresi çağrı bütçesine bağlı. Groq Brain girişi küçültüldü, kota ve boyut hataları birlikte görünür. Son dakika kaynak teslimi yeterli bağımsız kanıt çıkar çıkmaz tamamlanır. Özel API'de USD tavanı ve kesin çağrı üst bedeli atomik kullanım kaydına bağlıdır.
+
 **Router tek-attempt refactor dilimi, PR #540 (10 Kasım 2026, merged):** Provider+model kararı Router'da toplanıyor; validator/retry/fallback ortak en çok iki-deneme zarfına alınıyor. Bu, tam Router ürün planının kapanışı **değildir**. Model bazlı atomik SQLite RPM/RPD/TPM/TPD rezervasyon altyapısı ve seçili model kapasitesi kanıt kontrolü #540 ile eklendi; `router_quota.POLICIES` hâlâ bilinçli boş. Gerçek hesap/proje limit politikaları, custom-provider UI/adapter, Cloudflare neuron muhasebesi ve canlı kalite/hız kabulü açık. Kabul head `acd9db4067f451a71501353a22f26b84c311e82f`: Windows CI SUCCESS, aynı SHA PC watcher PASSED; merge `f1fc6bb0bc67f5bddaced4f53042b8793dbb0e2d`. Mevcut PRIVATE_GENERAL ve strict free-tier evidence sınırları korunmalıdır.
 
 

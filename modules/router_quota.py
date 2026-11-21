@@ -93,15 +93,16 @@ def qualify_role(owner,spec,report,*,fingerprint,directory,corpus_sha256,expecte
              time.time()+7*86400,report.get('head'),corpus_sha256))
 
 
-def reserve_custom(owner,ident,revision,*,directory,attempt_id=None,cost_bound=None):
-    """Explicit custom connection's LOCAL daily request ceiling, not a dollar/billing guarantee."""
+def reserve_custom(owner,ident,revision,*,directory,attempt_id=None,cost_bound=None,require_enabled=True):
+    """Reserve the configured maximum charge before the custom connection sends."""
     from modules import router_connections
-    try:row,_=router_connections.resolve(owner,ident,revision=revision)
+    try:row,_=router_connections.resolve(owner,ident,revision=revision,require_enabled=require_enabled)
     except (ValueError,OSError) as exc:raise ReservationUnavailable('Özel bağlantı değişti.') from exc
     ceiling=row['daily_requests']
     return reserve(owner,custom_provider(row),row['model'],directory=directory,
                    application_limit=ceiling,quota_scope=custom_scope(owner,row),
-                   attempt_id=attempt_id,cost_limit=row.get('daily_cost_microusd'),cost_bound=cost_bound)
+                   attempt_id=attempt_id,cost_limit=row.get('daily_cost_microusd'),
+                   cost_bound=cost_bound if cost_bound is not None else row.get('max_call_cost_microusd'))
 
 
 def custom_provider(row):
@@ -295,8 +296,12 @@ def reserve(owner: str, provider: str, model: str, *, directory: Path,
             db.rollback()
             raise ReservationUnavailable('Eski isteklerin token maliyeti bilinmiyor.')
         if cost_limit is not None:
-            costs=db.execute('SELECT cost_units FROM requests WHERE owner=? AND provider=? AND stamp>?',
-                             (owner,provider,current-86400)).fetchall()
+            if quota_scope is None:
+                costs=db.execute('SELECT cost_units FROM requests WHERE owner=? AND provider=? AND stamp>?',
+                                 (owner,provider,current-86400)).fetchall()
+            else:
+                costs=db.execute('SELECT cost_units FROM requests WHERE quota_scope=? AND stamp>?',
+                                 (quota_scope,current-86400)).fetchall()
             if any(row[0] is None for row in costs):raise ReservationUnavailable('Önceki çağrıların parasal maliyeti bilinmiyor; tavan doğrulanamadı.')
             if sum(row[0] for row in costs)+cost_bound>cost_limit:raise ReservationExhausted(86400)
         minute = [(stamp, units) for stamp, units in day if stamp > current - 60]

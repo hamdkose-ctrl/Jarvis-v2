@@ -22,11 +22,16 @@ try:
 except ImportError:   # eski config.py ile de çalışsın
     FALLBACK_MODELS = ()
 
-def _gemini_http_options() -> dict:
+def _gemini_http_options(*, timeout_ms=45_000) -> dict:
     """One physical SDK HTTP attempt; Router owns all retries and fallbacks."""
     # Fresh per-client options: external client constructors must not mutate a
     # shared object and change another user's attempt budget.
-    return {"timeout": 45000, "retry_options": {"attempts": 1}}
+    return {"timeout": timeout_ms, "retry_options": {"attempts": 1}}
+
+
+def _gemini_request_http_options() -> dict:
+    _, seconds = transport_timeouts(5, 45)
+    return _gemini_http_options(timeout_ms=int(seconds * 1000))
 
 
 _client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options()) if API_KEY else None
@@ -877,6 +882,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     config_options = {
         "system_instruction": system or None,
         "max_output_tokens": max_tokens,
+        "http_options": _gemini_request_http_options(),
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
     }
     # Newer SDKs can continue a single send_message with extra HTTP requests.
@@ -1051,6 +1057,7 @@ def _image_transport(image_path, prompt, system, max_tokens, *, selected, model)
             cli=_cli()
             if cli is None:raise LocalModelError('Bu kullanıcının Gemini anahtarı yok.')
             options={'system_instruction':privacy.redact(system) or None,'max_output_tokens':max_tokens,
+                     'http_options':_gemini_request_http_options(),
                      'automatic_function_calling':types.AutomaticFunctionCallingConfig(disable=True)}
             if 'automatic_continuation' in getattr(types.GenerateContentConfig,'model_fields',{}):
                 options['automatic_continuation']=False

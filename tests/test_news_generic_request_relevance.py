@@ -10,6 +10,8 @@ class GenericNewsRelevanceTests(unittest.TestCase):
     def test_turkish_research_imperative_has_no_topic(self):
         self.assertEqual(model_free_news.terms('Son 7 gün güncel haberleri araştır'), [])
         self.assertEqual(model_free_news.terms('Son 7 gün güncel haberleri arastir'), [])
+        self.assertEqual(model_free_news.terms('son dakika haber lerini araştır'), [])
+        self.assertEqual(model_free_news.terms('Deprem haber lerini araştır'), ['deprem'])
 
     def test_generic_news_accepts_real_sentence_without_research_word(self):
         article = {

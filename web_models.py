@@ -238,8 +238,7 @@ class WebModels:
         owner=self._router_owner(expected_owner)
         row,secret=router_connections.resolve(owner,identity,require_enabled=False)
         # A test never enables a connection or attests role/vision/free-tier quality.
-        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
-            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        router_quota.reserve_custom(owner,identity,row['revision'],directory=smart_router._STORE,require_enabled=False)
         requests_state.request_identity(owner)
         with llm.owner_context(owner),usage_meter.capture_attempt(owner,'connection-test:'+identity,'test:'+identity):
             answer=provider_protocols.generate(owner,row,secret,[{'role':'user','content':'Reply only OK.'}],'',min(32,row['max_output_tokens']))
@@ -257,8 +256,7 @@ class WebModels:
         owner=self._router_owner(expected_owner)
         requests_state.request_identity(owner)
         row,secret=router_connections.resolve(owner,identity,require_enabled=False)
-        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
-            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        router_quota.reserve_custom(owner,identity,row['revision'],directory=smart_router._STORE,require_enabled=False)
         # The answer exists ONLY in image pixels. A successful text connection,
         # a model name or a user checkbox cannot produce this observation.
         expected=''.join(secrets.choice('0123456789') for _ in range(8))

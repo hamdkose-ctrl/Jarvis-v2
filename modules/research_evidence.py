@@ -286,7 +286,8 @@ def preview(output):
         excerpt=re.sub(r'\s+',' ',' '.join(quotes[:2])).strip()
         if len(excerpt)>600:excerpt=excerpt[:597].rsplit(' ',1)[0]+'…'
         note='\n'+VIDEO_DESCRIPTION_NOTE if source.get('kind')=='video_description' else ''
-        return title+'\nYayın tarihi: '+source['published']+note+'\nKaynak alıntısı: '+excerpt+'\nKaynak: '+source['url']
+        stamp = source.get('published_at') or source['published']
+        return title+'\nYayın tarihi: '+stamp+note+'\nKaynak alıntısı: '+excerpt+'\nKaynak: '+source['url']
     lines=[]
     if report:
         from modules.publisher_news import publisher_key

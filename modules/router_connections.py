@@ -255,6 +255,7 @@ def save(owner, record, *, secret=None):
         "workspace",
         "free_pool",
         "daily_cost_microusd",
+        "max_call_cost_microusd",
         "quota_group",
     }
     if set(record) - allowed:
@@ -313,6 +314,11 @@ def save(owner, record, *, secret=None):
     money = record.get("daily_cost_microusd")
     if money is not None and (type(money) is not int or not 1 <= money <= 10**12):
         raise ValueError("Parasal tavan geçersiz.")
+    call_cost = record.get("max_call_cost_microusd")
+    if call_cost is not None and (type(call_cost) is not int or not 1 <= call_cost <= 10**12):
+        raise ValueError("Çağrı başına en yüksek ücret geçersiz.")
+    if money is not None and (call_cost is None or call_cost > money):
+        raise ValueError("Günlük para sınırı için sağlayıcının çağrı başına en yüksek ücretini gir. Bu tutar günlük sınırı aşamaz.")
     base = endpoint(record.get("base_url"))
     workspace = record.get("workspace", "")
     if (
@@ -356,6 +362,7 @@ def save(owner, record, *, secret=None):
             migration_pending=False,
             free_pool=record.get("free_pool", False),
             daily_cost_microusd=money,
+            max_call_cost_microusd=call_cost,
         )
         if protected is not None:
             row["secret_ref"] = ident

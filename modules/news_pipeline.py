@@ -7,7 +7,7 @@ claim anlaşması sayılmaz; doğrulama mevcut tekil makale okuyucusundan gelir.
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -31,7 +31,8 @@ MAX_SOURCES = 8
 # A user news request may inspect the whole configured discovery pool; utility probes stay bounded.
 BROAD_MAX_SOURCES = 20
 MAX_ITEMS_PER_SOURCE = 12
-MAX_WORKERS = 4
+MAX_WORKERS = 8
+SOURCE_SECONDS = 4
 MIN_VERIFIED = 2
 # Page reads are bounded per run: the budget is read count, never a longer timeout.
 MAX_ARTICLE_READS = 36
@@ -279,7 +280,8 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
             return url, ([dict(row) for row in hit[1]], {'source': name, 'url': url, 'status': 'ok',
                                                             'item_count': len(hit[1]), 'reason': None, 'cache': True})
         try:
-            items = list(reader(url) or [])[:MAX_ITEMS_PER_SOURCE]
+            with requests_state.budget(SOURCE_SECONDS):
+                items = list(reader(url) or [])[:MAX_ITEMS_PER_SOURCE]
         except (requests_state.Cancelled, PermissionError):
             raise
         except Exception as exc:
@@ -315,6 +317,9 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
 def _safe_reason(exc) -> str:
     """Kaynak hatası kullanıcıya iner: anahtar ve benzeri ayrıntı maskelenir, metin kısaltılır."""
     from modules import privacy
+    from modules import requests_state
+    if isinstance(exc, requests_state.LocalDeadline):
+        return 'Kaynak ayrılan sürede yanıt vermedi.'
     text = ' '.join(str(exc or '').split())
     return privacy.redact(text, force=True)[:200] or type(exc).__name__
 
@@ -344,7 +349,8 @@ def verify(row, *, request, fetcher, today, days) -> dict:
     candidate = dict(row)
     try:
         requests_state.check()
-        article = article_reader(fetcher(row['url']))
+        with requests_state.budget(SOURCE_SECONDS):
+            article = article_reader(fetcher(row['url']))
         published = date.fromisoformat(article['published'])
         if published > today:
             raise ValueError('Haberin yayın tarihi gelecekte; taze haber olarak sunulmadı.')
@@ -374,7 +380,7 @@ def _read_plan(candidates, limit) -> list[dict]:
     order: list[str] = []
     groups: dict[str, list[dict]] = {}
     for row in candidates:
-        host = source_name(row['url'])
+        host = publisher_news.publisher_key(row['url'])
         if host not in groups:
             groups[host] = []
             order.append(host)
@@ -385,22 +391,6 @@ def _read_plan(candidates, limit) -> list[dict]:
             if index < len(groups[host]):
                 plan.append(groups[host][index])
     return plan[:max(0, int(limit))]
-
-
-def _verify_many(rows, *, request, fetcher, today, days) -> list[dict]:
-    """Independent article pages are opened in parallel under the caller's user context.
-
-    Every work item carries its own `copy_context()` snapshot: a single Context cannot be entered by
-    two workers at once. The snapshot is what lets `service_store.identity` still see the active owner
-    inside each worker, so a missing or foreign context fails closed instead of reading.
-    """
-    from functools import partial
-    if len(rows) <= 1:
-        return [verify(row, request=request, fetcher=fetcher, today=today, days=days) for row in rows]
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(rows)), thread_name_prefix='jarvis-news') as pool:
-        futures = [pool.submit(copy_context().run, partial(verify, row, request=request, fetcher=fetcher,
-                                                           today=today, days=days)) for row in rows]
-        return [future.result() for future in futures]
 
 
 def enough_evidence(verified, request=None) -> bool:
@@ -418,18 +408,33 @@ def enough_evidence(verified, request=None) -> bool:
     return len(urls) >= minimum and len(hosts - {''}) >= minimum
 
 
-def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
-    """Chunked page reads: the queue is the budget, and a finished target does not read the rest.
+def _verify_plan(rows, *, request, fetcher, today, days, previous=()) -> list[dict]:
+    """Read bounded batches and return as soon as the publisher evidence is sufficient."""
+    from modules import requests_state
+    from functools import partial
 
-    Real publisher indexes open with section and gallery links, so the host-diverse plan has to be
-    walked deeper than its first rows. Chunks stay bounded by the worker count and the run stops as
-    soon as two publishers are verified, so a wider plan costs time only while evidence is missing.
-    """
     checked: list[dict] = []
+    verified = [row for row in previous if row['verification'] == 'verified']
+    read = partial(verify, request=request, fetcher=fetcher, today=today, days=days)
+    breaking = bool(re.search(r'\bson\s+dakika\b', request, re.I))
     for start in range(0, len(rows), MAX_WORKERS):
-        checked.extend(_verify_many(rows[start:start + MAX_WORKERS], request=request, fetcher=fetcher,
-                                    today=today, days=days))
-        if enough_evidence([row for row in checked if row['verification'] == 'verified'], request):
+        batch = rows[start:start + MAX_WORKERS]
+        pool = ThreadPoolExecutor(max_workers=len(batch), thread_name_prefix='jarvis-news')
+        try:
+            futures = [pool.submit(copy_context().run, read, row) for row in batch]
+            for future in as_completed(futures) if breaking else futures:
+                requests_state.check()
+                row = future.result()
+                checked.append(row)
+                if row['verification'] == 'verified':
+                    verified.append(row)
+                    if breaking and enough_evidence(verified, request):
+                        return checked
+        finally:
+            # Unneeded reads carry the same owner and bounded source timeouts.
+            # Their future results are never used after this evidence set is closed.
+            pool.shutdown(wait=False, cancel_futures=True)
+        if enough_evidence(verified, request):
             break
     return checked
 
@@ -483,7 +488,7 @@ def report(result) -> str:
                      'Bu bir model hatası değil, kaynak erişim hatasıdır.')
     elif not verified:
         lines.append('Doğrulanmış haber bulunamadı; eski veya tarihsiz adaylar haber olarak sunulmadı.')
-    if result['model_synthesis_status'] != 'available':
+    if result['model_synthesis_status'] == 'unavailable':
         lines.append('Model tabanlı sentez kullanılamıyor; aşağıdaki haberler doğrulanmış kaynak '
                      'kanıtıyla olduğu gibi teslim edildi.')
     if verified:
@@ -677,7 +682,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                 additions = filter_candidates(additions, request)
                 candidates.extend(additions)
                 checked_rows.extend(_verify_plan(additions, request=request, fetcher=fetcher,
-                                                 today=today, days=window))
+                                                 today=today, days=window, previous=checked_rows))
                 verified = [row for row in checked_rows if row['verification'] == 'verified']
             except (requests_state.Cancelled, PermissionError):
                 raise
@@ -844,7 +849,7 @@ def delivery_note(job) -> str:
     if total:
         parts.append(f'{ok}/{total} kaynak yanıt verdi' + (f', {failed} erişilemedi' if failed else ''))
     line = ' · '.join(parts) + '.'
-    if record.get('model_synthesis_status') != 'available':
+    if record.get('model_synthesis_status') == 'unavailable':
         line += (' Model tabanlı sentez kullanılamıyor; haberler kaynak/tarih/link kanıtıyla '
                  'olduğu gibi teslim edildi.')
     return line

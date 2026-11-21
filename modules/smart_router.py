@@ -109,6 +109,7 @@ class RoutePlan:
     plan_id: str = field(default_factory=lambda:uuid.uuid4().hex)
     policy_version: str = POLICY_VERSION
     alternatives: tuple[ModelSpec,...] = ()
+    deferred_local: bool = False
 
 
 @dataclass
@@ -504,41 +505,19 @@ def _plan_request(request: ModelRequest) -> RoutePlan:
                 'skipped':chosen['skipped']}
     specs = []
     skipped = list(chosen['skipped'])
+    deferred_local = False
     for provider in chosen['candidates']:
         if provider in request.exclude_providers:
             skipped.append(_skip(provider, 'Bu çağrı için sağlayıcı dışlandı', 'PROVIDER_CALLER_EXCLUDED'))
             continue
-        try:
-            model = _model_for(request.owner, provider)
-        except Exception:
-            _record_failure('modules/smart_router.py:plan_model_discovery')
-            # Model discovery itself is not a model invocation.  It remains a
-            # transparent unavailable candidate rather than silently choosing one.
-            skipped.append(_skip(provider, 'Kullanılabilir model doğrulanamadı', 'MODEL_UNAVAILABLE'))
+        if provider == 'ollama' and specs and task == 'text' and evaluation is None:
+            deferred_local = True
             continue
-        if not model:
-            skipped.append(_skip(provider, 'Model yapılandırılmamış', 'MODEL_UNAVAILABLE'))
+        spec, reason = _ready_spec(request, provider, vision=task == 'vision')
+        if reason:
+            skipped.append(reason)
             continue
-        # App-side schema validator is *not* native provider JSON schema support.
-        features = frozenset({'text', 'structured_output'})
-        if not request.features <= features | {'vision'}:
-            skipped.append(_skip(provider, 'Model gerekli özelliği desteklemiyor',
-                                 'MODEL_FEATURE_UNSUPPORTED', model=model))
-            continue
-        assessed = model_capabilities.check(
-            provider, model, native_features=request.native_features | ({'verified_vision'} if task=='vision' else set()),
-            min_context_tokens=request.min_context_tokens,
-            requested_output=request.max_output_tokens)
-        if not assessed['ok']:
-            skipped.append(_skip(provider, assessed['reason'], assessed['reason_code'], model=model))
-            continue
-        spec=ModelSpec(provider, model, context_limit=assessed['context_limit'],
-                               output_limit=request.max_output_tokens,
-                               features=features | assessed['features'],
-                               usage_class='local' if provider == 'ollama' else 'free',
-                               binding=_binding(request,provider,model))
-        evaluation=_ROLE_EVALUATION.get()
-        if request.profile=='brain_understanding' and evaluation is not None and evaluation!=(request.owner,provider,model,None):continue
+        if request.profile=='brain_understanding' and evaluation is not None and evaluation!=(request.owner,provider,spec.model,None):continue
         specs.append(spec)
     if request.profile!='local_only' and request.selection_mode!='local_only':
         from modules import router_connections
@@ -551,7 +530,35 @@ def _plan_request(request: ModelRequest) -> RoutePlan:
                 skipped.extend(explicit.skipped)
                 index=next((i for i,s in enumerate(specs) if s.provider=='ollama'),len(specs))
                 specs[index:index]=explicit.candidates
-    return RoutePlan(tuple(specs[:2]), tuple(skipped), request.max_network_attempts,alternatives=tuple(specs[2:]))
+    return RoutePlan(tuple(specs[:2]), tuple(skipped), request.max_network_attempts,
+                     alternatives=tuple(specs[2:]), deferred_local=deferred_local)
+
+
+def _ready_spec(request, provider, *, vision):
+    """Resolve one ready model at the point where the route needs it."""
+    from modules import model_capabilities
+
+    try:
+        model = _model_for(request.owner, provider)
+    except Exception:
+        _record_failure('modules/smart_router.py:plan_model_discovery')
+        return None, _skip(provider, 'Kullanılabilir model doğrulanamadı', 'MODEL_UNAVAILABLE')
+    if not model:
+        return None, _skip(provider, 'Model yapılandırılmamış', 'MODEL_UNAVAILABLE')
+    features = frozenset({'text', 'structured_output'})
+    if not request.features <= features | {'vision'}:
+        return None, _skip(provider, 'Model gerekli özelliği desteklemiyor',
+                           'MODEL_FEATURE_UNSUPPORTED', model=model)
+    required = request.native_features | ({'verified_vision'} if vision else set())
+    assessed = model_capabilities.check(provider, model, native_features=required,
+                                        min_context_tokens=request.min_context_tokens,
+                                        requested_output=request.max_output_tokens)
+    if not assessed['ok']:
+        return None, _skip(provider, assessed['reason'], assessed['reason_code'], model=model)
+    return ModelSpec(provider, model, context_limit=assessed['context_limit'],
+                     output_limit=request.max_output_tokens, features=features | assessed['features'],
+                     usage_class='local' if provider == 'ollama' else 'free',
+                     binding=_binding(request, provider, model)), None
 
 
 def qualification_candidate(owner,*,connection_id=None,local=False,provider=None):
@@ -600,9 +607,23 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
         record.update(plan_id=route_plan.plan_id,skipped=skipped_now,planned=[{'provider':s.provider,'model':s.model} for s in route_plan.candidates])
     started = time.monotonic()
     candidates=route_plan.candidates+route_plan.alternatives
-    if len(candidates)==1 and validator is not None:candidates=candidates+candidates
+    if len(candidates) == 1 and validator is not None and not route_plan.deferred_local:
+        candidates = candidates + candidates
+
+    def eligible_candidates():
+        yield from candidates
+        if route_plan.deferred_local and len(attempts) < route_plan.max_network_attempts:
+            _check_request(request)
+            spec, reason = _ready_spec(request, 'ollama', vision='vision' in request.features)
+            if reason:
+                skipped_now.append(reason)
+                if len(candidates) == 1 and validator is not None:
+                    yield candidates[0]
+            else:
+                yield spec
+
     request_rejected = set()
-    for spec in candidates:
+    for spec in eligible_candidates():
         if len(attempts) >= route_plan.max_network_attempts:
             break
         with ExitStack() as admission_stack:
@@ -714,6 +735,9 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
     if attempts and all(row.get('kind') == 'request_limit' for row in attempts):
         raise failure_policy.ProviderExhaustedError(message,reason_code='PROVIDER_REQUEST_TOO_LARGE',
                                                    recovery_class='request_change_required')
+    if {row.get('kind') for row in attempts} == {'quota', 'request_limit'}:
+        raise failure_policy.ProviderExhaustedError(message, reason_code='PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE',
+                                                   recovery_class='fallback_possible')
     raise failure_policy.ProviderExhaustedError(message)
 
 

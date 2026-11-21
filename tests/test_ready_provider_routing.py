@@ -69,6 +69,32 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.assertEqual(state['last_reply'], {'provider': 'groq', 'model': result.model.model})
         self.assertNotIn('gemini-test-key', str(state))
 
+    def test_cloud_reply_does_not_wait_for_local_model_discovery(self):
+        smart_router.configure('alice', gemini_scopes=['conversation'])
+        with patch.object(llm, '_ollama_effective_model') as discover:
+            self.assertEqual(smart_router.run_request(self.request(), lambda spec: spec.provider).text, 'gemini')
+        discover.assert_not_called()
+
+    def test_local_model_is_discovered_only_after_the_only_cloud_attempt_fails(self):
+        events = []
+
+        def discover(*_args, **_kwargs):
+            events.append('discover')
+            return 'local-test'
+
+        def respond(spec):
+            events.append(spec.provider)
+            if spec.provider == 'groq':
+                raise requests.HTTPError('HTTP 429 daily quota exceeded')
+            return 'OK'
+
+        with patch.object(cloudflare_chat, 'configured', return_value=False), \
+             patch.object(llm, '_ollama_effective_model', side_effect=discover):
+            self.assertEqual(smart_router.run_request(self.request(), respond).model.provider, 'ollama')
+        self.assertEqual(events[0], 'groq')
+        self.assertIn('discover', events[1:-1])
+        self.assertEqual(events[-1], 'ollama')
+
     def test_connection_probe_only_calls_requested_provider_with_no_chat_content(self):
         self.assertEqual(self.ready('cloudflare')['state'], 'unchecked')
         with patch.object(llm, 'dispatch', return_value='OK') as send:

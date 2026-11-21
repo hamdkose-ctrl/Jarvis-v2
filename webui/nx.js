@@ -1669,7 +1669,10 @@ function routerConnectionsBox(sn){
     field('Hesabın ücret sınıfı',select('custom-billing',[['unknown','Bilinmiyor'],['free','Ücretsiz plan beyanı'],['trial','Deneme'],['paid','Ücretli']],r.billing),'Sınıf seçimi tek başına ücretsiz hesap veya kalan kota kanıtı değildir. Ücretsiz havuza katılım ayrıca incelenmiş hesap/model/veri kanıtı ister; bilinmeyen uygunlukta aday gönderilmez.')+
     field('Günlük Jarvis çağrı tavanı',inp('custom-daily','25',r.daily_requests),'Sağlayıcının gerçek kotası veya parasal harcama garantisi değildir.')+
     field('Çağrı başına çıktı sınırı',inp('custom-output','4096',r.max_output_tokens))+
-    field('Günlük yerel parasal tavan (USD, isteğe bağlı)',inp('custom-money','Boş: parasal tavan yok',r.daily_cost_microusd==null?'':r.daily_cost_microusd/1000000),'Bu tavan provider billing limiti değildir. Doluysa doğrulanmış maliyet üst sınırı olmadan çağrı gönderilmez; bilinmeyen fiyat sıfır sayılmaz.')+
+    `<details ${r.daily_cost_microusd==null?'':'open'}><summary>İsteğe bağlı harcama sınırı</summary>`+
+    field('Günlük sınır (USD)',inp('custom-money','Örn. 5',r.daily_cost_microusd==null?'':r.daily_cost_microusd/1000000))+
+    field('Çağrı başına en yüksek ücret (USD)',inp('custom-call-cost','Sağlayıcının kesin üst sınırı',r.max_call_cost_microusd==null?'':r.max_call_cost_microusd/1000000),'Jarvis her çağrı için bu tutarı ayırır. Kesin tutarı bilmiyorsan çağrı sınırını kullan.')+
+    '</details>'+
     field('Çalışma alanı (gerekiyorsa)',inp('custom-workspace','',r.workspace||''))+
     field('Ortak hesap/proje kota grubu (varsa)',inp('custom-quota','Aynı hesapta aynı ad',r.quota_group||''),'Boşsa endpoint ve anahtar parmak izine göre paylaşılır; anahtar görüntülenmez.')+
     pad18(checked('custom-conversation','Bu bağlantıya konuşma bağlamı gönderilebilir.',r.data_scopes.includes('conversation'))+
@@ -1684,7 +1687,13 @@ ACT.customnew=()=>{SX.customId='';SX.customModels=[];SX.customMsg='';drawSetting
 ACT.customedit=el=>{SX.customId=el.dataset.id;SX.customModels=[];SX.customMsg='';drawSettings()};
 ACT.customsave=async el=>{
   const owner=((S.snap||{}).user||{}).slug;
-  const record={name:$('#custom-name').value.trim(),protocol:$('#custom-protocol').value,base_url:$('#custom-url').value.trim(),model:$('#custom-model').value.trim(),role:$('#custom-role').value,billing:$('#custom-billing').value,enabled:$('#custom-enabled').checked,paid_enabled:$('#custom-paid').checked,free_pool:$('#custom-freepool').checked,daily_cost_microusd:$('#custom-money').value.trim()?Math.round(Number($('#custom-money').value)*1000000):null,data_scopes:[['conversation','custom-conversation'],['selected_content','custom-selected'],['public','custom-public']].filter(([,id])=>$('#'+id).checked).map(([value])=>value),daily_requests:Number($('#custom-daily').value),max_output_tokens:Number($('#custom-output').value),workspace:$('#custom-workspace').value.trim(),quota_group:$('#custom-quota').value.trim()};
+  const money=id=>{
+    const value=$('#'+id).value.trim();
+    if(!value)return null;
+    return /^\d+(?:[.,]\d{1,6})?$/.test(value)?Math.round(Number(value.replace(',','.'))*1000000):NaN;
+  };
+  const record={name:$('#custom-name').value.trim(),protocol:$('#custom-protocol').value,base_url:$('#custom-url').value.trim(),model:$('#custom-model').value.trim(),role:$('#custom-role').value,billing:$('#custom-billing').value,enabled:$('#custom-enabled').checked,paid_enabled:$('#custom-paid').checked,free_pool:$('#custom-freepool').checked,daily_cost_microusd:money('custom-money'),max_call_cost_microusd:money('custom-call-cost'),data_scopes:[['conversation','custom-conversation'],['selected_content','custom-selected'],['public','custom-public']].filter(([,id])=>$('#'+id).checked).map(([value])=>value),daily_requests:Number($('#custom-daily').value),max_output_tokens:Number($('#custom-output').value),workspace:$('#custom-workspace').value.trim(),quota_group:$('#custom-quota').value.trim()};
+  if([record.daily_cost_microusd,record.max_call_cost_microusd].some(v=>v!==null&&!Number.isSafeInteger(v))){toast('Harcama sınırlarını USD tutarı olarak gir.','bad');return;}
   if(SX.customId)record.id=SX.customId;
   el.disabled=true;
   try{const r=await api('router_connection_save',record,$('#custom-key').value,owner);if(owner!==((S.snap||{}).user||{}).slug)return;$('#custom-key').value='';SX.customId=r.connection.id;SX.customMsg=r.msg;SX.router=null;await refresh();drawSettings()}catch(e){toast(e.message,'bad')}finally{el.disabled=false}

@@ -22,6 +22,12 @@ _REASON_TEXT = {
         'Bu turu anlamlandırmak için gereken bağlam seçili modelin istek sınırını aşıyor; '
         'uygun kapasitede bir model gerekli. Hiçbir işlem başlatmadım.'
     ),
+    'PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE': (
+        'Bir model kota sınırına takıldı. Yedek model de isteğin boyutunu kabul etmedi. '
+        'Herhangi bir işlem başlatılmadı.'
+    ),
+    'PROVIDER_CONFIGURATION_REQUIRED': 'Bu istek için Ayarlar’daki model bağlantısı eksik.',
+    'LOCAL_DEADLINE_EXCEEDED': 'Model bu tur için ayrılan sürede yanıt vermedi.',
     "CORE_CANCELLED": "İşlem senin isteğinle durduruldu.",
     "FILE_TARGET_NOT_ACCESSIBLE": (
         "Bu dosyaya erişemiyorum (izinli klasörlerin dışında, bulunamıyor veya "
@@ -31,6 +37,13 @@ _REASON_TEXT = {
 }
 
 _FALLBACK_TEXT = "İşlem tamamlanamadı; tanı kaydına bakılmalı."
+
+PROVIDER_RECOVERY = {
+    'PROVIDER_REQUEST_TOO_LARGE': 'request_change_required',
+    'PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE': 'fallback_possible',
+    'PROVIDER_CONFIGURATION_REQUIRED': 'user_action_required',
+    'LOCAL_DEADLINE_EXCEEDED': 'fail_closed',
+}
 
 
 def synthesize(fb: BrainFeedback, exc: BaseException | None = None) -> str:

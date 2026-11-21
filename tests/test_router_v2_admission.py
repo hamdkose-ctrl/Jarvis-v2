@@ -345,6 +345,26 @@ class AdmissionTests(unittest.TestCase):
                 cost_bound=30,
             )
 
+    def test_custom_budget_reserves_each_normal_call_and_stops_before_overspend(self):
+        connections.save('alice', {
+            'name': 'Budgeted API', 'protocol': 'responses', 'base_url': 'https://api.example.org/v1',
+            'model': 'm', 'role': 'conversation', 'billing': 'paid', 'enabled': True,
+            'paid_enabled': True, 'data_scopes': ['conversation'], 'daily_cost_microusd': 5_000_000,
+            'max_call_cost_microusd': 2_000_000,
+        }, secret='key')
+        calls = []
+
+        def transport(spec):
+            calls.append(spec.provider)
+            return 'OK'
+
+        for _ in range(2):
+            result = router.run_request(router.ModelRequest(owner='alice'), transport)
+            self.assertEqual(result.text, 'OK')
+        with self.assertRaisesRegex(RuntimeError, 'Atlanan sağlayıcılar: custom'):
+            router.run_request(router.ModelRequest(owner='alice'), transport)
+        self.assertEqual(calls, ['custom', 'custom'])
+
     def test_ui_free_label_cannot_put_unknown_connection_in_automatic_pool(self):
         row = connections.save(
             "alice",
