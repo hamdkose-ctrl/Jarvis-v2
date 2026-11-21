@@ -311,15 +311,23 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(result)
         run.assert_not_called()
 
-    def test_legacy_paid_preference_cannot_bypass_router_qualification(self):
-        with patch("modules.llm.provider", return_value="openai"), patch("modules.llm._send_provider") as ask:
-            result = model.propose(owner=OWNER, text="rapor", current=current(),
-                                   arguments=current().arguments)
-        self.assertIsNone(result)
-        ask.assert_not_called()
+    def test_pending_role_report_no_longer_empties_the_free_pool(self):
+        """A named paid provider still never runs by itself, but the free pool is tried.
+
+        The manual "Bu sürümü doğrula" report used to gate every provider, so one
+        invalid answer left an empty pool and the turn died as "doğrulayamadım".
+        Pending is now a status, not a block: the contract check rejects a wrong
+        answer and the router moves on. A paid choice is still not auto-promoted.
+        """
+        with patch("modules.llm.provider", return_value="openai"),                 patch("modules.llm._send_provider") as ask:
+            model.propose(owner=OWNER, text="rapor", current=current(),
+                          arguments=current().arguments)
+        called = [str(call) for call in ask.call_args_list]
+        self.assertTrue(all("openai" not in call.lower() or "gpt-oss" in call.lower()
+                            for call in called))
 
     def test_local_ollama_is_not_silently_started_or_selected(self):
-        with patch("modules.llm.provider", return_value="ollama"), patch("modules.llm._send_provider") as ask:
+        with patch("modules.llm.provider", return_value="ollama"),                 patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}),                 patch("modules.llm._send_provider") as ask:
             result = model.propose(owner=OWNER, text="rapor", current=current(),
                                    arguments=current().arguments)
         self.assertIsNone(result)
