@@ -228,7 +228,10 @@ def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
     """Sıcak bağlantıdan üretim; aksaklıkta b"" (bugünkü yol kullanılır)."""
     try:
         from modules import voice_edge_warm
-        return voice_edge_warm.synthesize(text, name, rate, pitch) or b""
+        out = voice_edge_warm.synthesize(text, name, rate, pitch)
+        import logging as _lg
+        _lg.getLogger("jarvis").info("voice_warm %s chars=%d", "hit" if out else "miss", len(text))
+        return out or b""
     except Exception:
         _record_failure("modules/voice_edge.py:warm")
         return b""
