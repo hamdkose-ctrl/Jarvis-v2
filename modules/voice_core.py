@@ -28,40 +28,43 @@ def _device_timing(player) -> str:
     if not isinstance(timing, dict):
         return ""
     parts = []
-    for name in ("open_ms", "wait_ms"):
+    for name in ("open_ms", "wait_ms", "audio_ms", "ratio"):
         value = timing.get(name)
         if isinstance(value, (int, float)):
             parts.append(f"{name}={value:.0f}")
     return " ".join(parts)
 
 
-def _cpu_window():
-    """Snapshot who is burning this process's CPU for the next chunk.
+def _cpu_window() -> dict:
+    """Snapshot who is burning CPU for the next chunk.
 
     The voice plays smoothly in an isolated harness but stutters inside the live
     app, and the user sees CPU reach 100% exactly then. Wall time alone cannot
-    say whether the player is starved by this process or by the provider, so the
-    chunk records real CPU time and the busiest threads of the same window.
+    say whether the player is starved by this process or by something else, so
+    the chunk records real CPU time, the busiest threads of the same window and
+    the machine's own load. Nothing here enumerates other processes: the probe
+    must never add work to the voice path it measures.
     """
     snapshot = {"cpu": time.process_time(), "threads": {}, "names": {}}
     try:
         import psutil
-        process = psutil.Process()
-        snapshot["threads"] = {t.id: t.user_time + t.system_time for t in process.threads()}
+        snapshot["threads"] = {t.id: t.user_time + t.system_time for t in psutil.Process().threads()}
         snapshot["names"] = {t.native_id: t.name for t in threading.enumerate() if t.native_id}
+        snapshot["system"] = psutil.cpu_percent(None)
     except ImportError:
         snapshot["threads"] = {}
     return snapshot
 
 
 def _cpu_report(before: dict, started_at: float) -> str:
-    """CPU time and the busiest threads consumed by the chunk that just ended."""
+    """CPU time, busiest threads and machine load for the chunk that just ended."""
     wall_ms = (time.monotonic() - started_at) * 1000
     cpu_ms = (time.process_time() - before.get("cpu", 0.0)) * 1000
     parts = [f"cpu_ms={cpu_ms:.0f}", f"wall_ms={wall_ms:.0f}"]
     try:
         import psutil
         now = {t.id: t.user_time + t.system_time for t in psutil.Process().threads()}
+        parts.append(f"makine={psutil.cpu_percent(None):.0f}%")
     except ImportError:
         now = {}
     previous = before.get("threads") or {}
