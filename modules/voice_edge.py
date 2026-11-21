@@ -224,6 +224,16 @@ def prosody_ssml(rate: int, pitch: int) -> tuple[str, str]:
     return f"{_clamp(rate, -_RATE_LIMIT, _RATE_LIMIT):+d}%", f"{_clamp(pitch, -_PITCH_LIMIT, _PITCH_LIMIT):+d}Hz"
 
 
+def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
+    """Sıcak bağlantıdan üretim; aksaklıkta b"" (bugünkü yol kullanılır)."""
+    try:
+        from modules import voice_edge_warm
+        return voice_edge_warm.synthesize(text, name, rate, pitch) or b""
+    except Exception:
+        _record_failure("modules/voice_edge.py:warm")
+        return b""
+
+
 class EdgeSynthesizer:
     """Produce MP3 bytes for one exact Edge voice, never changing the identity.
 
@@ -246,6 +256,9 @@ class EdgeSynthesizer:
         if not isinstance(name, str) or not name.strip():
             raise EdgeVoiceUnavailable("Edge voice asset id is missing.")
         rate, pitch = prosody_ssml(*prosody(text, voice.speaking_rate))
+        warmed = _warm_audio(name, text, rate, pitch)
+        if warmed:
+            return warmed
         try:
             return asyncio.run(asyncio.wait_for(
                 self._stream(name, text, rate, pitch, cancel), timeout=self.timeout_seconds))
