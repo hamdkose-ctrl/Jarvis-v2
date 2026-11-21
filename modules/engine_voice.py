@@ -337,6 +337,25 @@ class VoiceSession:
         # "mikrofon devreye girince kesiliyor". A single open keeps the wake model
         # running (same 0.65 threshold) and the stop signal is still honoured
         # within one frame by `wakeword.wait`.
+        # The speaker must be allowed to start before this watch takes the
+        # microphone. Playback admission needs audio_lock, and a capture that
+        # opens before playback_started therefore makes the answer wait for the
+        # microphone instead of the other way round (measured: 1.7 s late start,
+        # and a full stall when the lock was held without slices). Waiting for the
+        # lane's real busy boundary costs nothing when the speaker is already
+        # playing and keeps barge-in exactly as it was.
+        lane = getattr(self, 'voice_lane', None)
+        busy = getattr(lane, 'is_busy', None)
+        if callable(busy):
+            give_up = runtime.time.time() + 3.0
+            while not stopped() and runtime.time.time() < give_up:
+                try:
+                    if busy():
+                        break
+                except Exception:
+                    runtime._record_failure('modules/engine_voice.py:barge_busy')
+                    break
+                runtime.time.sleep(0.02)
         deadline = runtime.time.time() + 600
         hit = None
         try:

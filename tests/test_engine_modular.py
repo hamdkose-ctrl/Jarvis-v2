@@ -405,6 +405,38 @@ class ModularEngineTests(unittest.TestCase):
         speaker.stop_speaking.assert_not_called()
         self.assertGreater(session.state["awake_until"], time.time())
 
+    def test_barge_watch_opens_the_microphone_only_after_playback_starts(self):
+        # Kilit sırası: ses başlamak için mikrofon kilidini bekliyor (before_play),
+        # barge ise konuşma başlamadan mikrofonu açıp aynı kilidi tutuyordu. Bu,
+        # her cevabın geç başlamasına (ölçüm: audio_ready -> playback_started 1,7 sn)
+        # ve dilimler kalkınca sesin hiç başlamamasına yol açtı. Dinleyici artık
+        # lane'in gerçek "konuşma başladı" sınırını bekliyor.
+        from modules import wakeword
+        session, lock, speaker = self.barge_session()
+        seen = []
+        busy_answers = [False, False, True]
+
+        def is_busy():
+            value = busy_answers.pop(0) if busy_answers else True
+            seen.append(value)
+            return value
+
+        session.voice_lane = SimpleNamespace(is_busy=is_busy,
+                                            receipt_is_current=lambda done: True,
+                                            outstanding_receipts=lambda owner: ())
+
+        def fake_wait(should_stop, capture=True, max_seconds=None, min_threshold=None):
+            # Mikrofon açılırken son okunan sınır "konuşma başladı" olmalı.
+            self.assertTrue(seen and seen[-1] is True,
+                            "mikrofon konuşma başlamadan açılmamalı")
+            return None
+
+        done = threading.Event()
+        with patch.object(wakeword, "wanted", return_value=True),                 patch.object(wakeword, "ready", return_value=True),                 patch.object(wakeword, "wait", side_effect=fake_wait):
+            session._barge_watch(done)
+        self.assertGreaterEqual(len(seen), 2, "dinleyici konuşmayı beklemedi")
+        self.assertIs(seen[-1], True, "dinleyici konuşma başlamadan hazırlanmış")
+
     def test_barge_hit_after_the_utterance_ended_does_not_cut_the_next_answer(self):
         # A wake word heard while the receipt was already landing belongs to the
         # next turn; cutting then would silence an answer that had not started.
