@@ -694,7 +694,15 @@ def main(runtime, ui=None):
 
                         print("Jarvis:", out)
                         runtime.emit("assistant", out)
+                        # Yazı ekranda; ses hemen başlamalı. Mikrofon kilidi
+                        # 2 sn'lik pencerelerle tutulduğu için önce dinlemeyi
+                        # kesiyoruz, sonra kilidi alıyoruz (ölçüm: 5-10 sn gecikme).
+                        speech_started_at = runtime.time.time()
+                        runtime.speech_pending.set()
                         with runtime.audio_lock:
+                            # Yazı ekranda; mikrofon kilidi ne kadar bekletti?
+                            runtime.log.info("Ses kapısı: kilit beklemesi %.0f ms",
+                                             (runtime.time.time() - speech_started_at) * 1000)
                             if source == "telefon":
                                 runtime._session().speech_override = None
                             elif runtime._session().speech_override:
@@ -705,6 +713,7 @@ def main(runtime, ui=None):
                             else:
                                 _speak_isolated(runtime, voice_session, runtime._short_for_speech(runtime.richtext.speakable(out)))
                     finally:
+                        runtime.speech_pending.clear()
                         runtime._cur_source = ""
                         runtime._cur_rid = None
                         from config import load_settings as _ls

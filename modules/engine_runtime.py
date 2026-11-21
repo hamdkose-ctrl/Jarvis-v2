@@ -201,6 +201,10 @@ def _initialize(runtime):
     runtime.pause_listening = runtime.threading.Event()
     runtime.mic_cancel = runtime.threading.Event()
     runtime.audio_lock = runtime.threading.Lock()
+    # Cevap hazır olduğunda sesin mikrofona önceliği: bu bayrak set edilirken
+    # dinleme pencereleri kesilir, aksi halde mikrofon kilidi 2 sn'lik turlarla
+    # sürekli geri alıyor ve cevabın sesi 5-10 sn gecikiyordu (canlı ölçüm).
+    runtime.speech_pending = runtime.threading.Event()
     runtime.flags = {"speak": True, "mic": True, "sleep": False}
     runtime._ui = None
     runtime.event_log: list[dict] = []

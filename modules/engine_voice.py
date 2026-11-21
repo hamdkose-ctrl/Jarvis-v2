@@ -289,6 +289,12 @@ class VoiceSession:
         the same speaker.
         """
         lane = getattr(self, "voice_lane", None)
+        # Cevap yazıldı ve seslenmeyi bekliyor: mikrofon kilidi ona bırakılır.
+        # (Canlı ölçüm: bu bayrak yokken ses 5-10 sn gecikiyordu.)
+        runtime = getattr(self, "runtime", None)
+        pending = getattr(runtime, "speech_pending", None)
+        if pending is not None and pending.is_set():
+            return True
         return lane is not None and (lane.is_busy() or lane.stop_unconfirmed())
 
     @contextlib.contextmanager
@@ -523,7 +529,7 @@ class VoiceSession:
                 # capture holds audio_lock for its full timeout and the speech
                 # admission's before_play waits out every silent second.
                 raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(
-                    runtime.pause_listening, runtime.mic_cancel,
+                    runtime.pause_listening, runtime.mic_cancel, runtime.speech_pending,
                     *((_lane.busy_event,) if _lane is not None else ()),
                 ))
             again = runtime.voice.recognize(raw or b"", announce_fail=False)
@@ -595,7 +601,7 @@ class VoiceSession:
                         continue
                     in_session = runtime.time.time() < self.state["awake_until"]
                     abort = runtime._AnyAbort(
-                        runtime.pause_listening, runtime.mic_cancel,
+                        runtime.pause_listening, runtime.mic_cancel, runtime.speech_pending,
                         *( (lane.busy_event,) if lane is not None else () ),
                     )
                     raw = runtime.voice.capture(timeout=2, abort=abort)
@@ -679,7 +685,7 @@ class VoiceSession:
                             continue
                         _lane = getattr(self, "voice_lane", None)
                         raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime._AnyAbort(
-                            runtime.mic_cancel,
+                            runtime.mic_cancel, runtime.speech_pending,
                             *((_lane.busy_event,) if _lane is not None else ()),
                         ))
                     cmd = runtime.voice.recognize(raw or b"", announce_fail=True)
