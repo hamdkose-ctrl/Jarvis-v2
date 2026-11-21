@@ -13,7 +13,12 @@ function listen(el,type,fn){el.addEventListener(type,fn);listeners.push([el,type
 function syncOnline(a){try{const on=document.querySelector('.hs-online');if(!on)return;const lab=on.querySelector('span'),num=on.querySelector('b'),bar=on.querySelector(':scope > i');if(!lab||!num||!bar)return;
 if(a<1){if(!on.dataset.real)on.dataset.real=JSON.stringify([lab.textContent,num.textContent,bar.style.getPropertyValue('--v')]);lab.textContent='OLUŞUYOR';num.textContent=Math.round(a*100)+'%';bar.style.setProperty('--v',(a*100).toFixed(1)+'%')}
 else if(on.dataset.real){const [l,t,v]=JSON.parse(on.dataset.real);lab.textContent=l;num.textContent=t;bar.style.setProperty('--v',v);delete on.dataset.real}}catch(e){}}
-function schedule(fn){if(!disposed)raf=requestAnimationFrame(fn)}
+let idlePaint=0;
+// Ölçüm (21 Kasım 11:32): boştaki JARVIS sekmesinde Edge GPU %205, sekme %129 CPU yakıyordu.
+// Bu dosya boşta da her karede gövdeyi+gölgelendiriciyi yeniden çiziyordu. Artık hazır/uyku
+// durumunda saniyede 4 kare çizilir; dinleme/düşünme/konuşma sırasında 60 FPS aynen kalır.
+function schedule(fn){if(disposed)return;raf=requestAnimationFrame(t=>{const st=readState();
+if(st==='idle'||st==='sleep'){if(t-idlePaint<250){schedule(fn);return}idlePaint=t}fn(t)})}
 function readState(){const s=options.getState();return ['idle','listening','thinking','speaking','sleep'].includes(s)?s:'idle'}
 function prepareHitRows(pixels,w,h){hitRows={w,h,rows:[]};for(let y=0;y<h;y++){let left=w,right=-1;for(let x=0;x<w;x++){const k=(y*w+x)*4;if(Math.max(pixels[k],pixels[k+1],pixels[k+2])>45){left=Math.min(left,x);right=x}}hitRows.rows.push([left/w,right/w])}}
 function figureHit(e){if(!hitRows)return null;const r=root.getBoundingClientRect(),W=r.width,H=r.height;if(!W||!H||!scale[0]||!scale[1])return null;
