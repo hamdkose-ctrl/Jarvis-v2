@@ -80,18 +80,10 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
                       15_000, "Yapay zekâ ayar eylemi")
             browser_status = page.evaluate("api('llm_status')")
 
-            # Gerçek kullanıcı yolu: ana menüyü aç, ardından canlı nx.html'deki
-            # Yapay zekâ menü eylemini tetikle. Eski go('settings') deep-link'i
-            # ürünün güncel yan-panel yaşam döngüsünü temsil etmiyor.
-            page.evaluate("go('menu')")
-            ai_menu = page.wait_for_selector(
-                "[data-act=\"mnopen\"][data-k=\"ai\"]",
-                state="attached",
-                timeout=15_000,
-            )
-            ai_menu.dispatch_event("click")
+            # Mevcut masaüstü sol menüsü ve gerçek sağlayıcı kartı.
+            page.locator('#workspace-nav [data-go="settings"]').click(timeout=15_000)
             page.wait_for_selector("#spane", state="attached", timeout=15_000)
-            page.evaluate("SX.aiSel='ollama'; drawSettings()")
+            page.locator('#spane [data-act="aipick"][data-k="ollama"]').click(timeout=15_000)
             page.wait_for_selector("#local-model-select", timeout=15_000)
             _wait_for(page,
                       "document.querySelector('#local-model-select') && "

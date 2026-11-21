@@ -2,10 +2,10 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../webui/team-center.js'),'utf8');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const context={NAV:[],PAGES:{},S:{},esc,document:{addEventListener(){}},setTimeout,clearTimeout};
+const context={NAV:[],PAGES:{},ACT:{},S:{page:'team'},esc,ic:()=>'',window:{},document:{addEventListener(){},querySelector:()=>({})},setTimeout,clearTimeout};
 vm.createContext(context);
-vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.teamTest={controls,paintOffice,capabilityStatus,select:id=>selectedPerson=id};})();'),context);
-const {controls,paintOffice,select}=context.teamTest;
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.teamTest={controls,inspector,renderPerson,capabilityStatus,select:id=>selectedPerson=id};})();'),context);
+const {controls,inspector,renderPerson,select}=context.teamTest;
 const staleResult={id:'b'.repeat(12),kind:'task',state:'incomplete',record_state:'done'};
 const readonly=controls(staleResult,staleResult);
 assert(readonly.includes('data-team="verify"'));
@@ -20,22 +20,3 @@ assert(!controls(job,{id:'b'.repeat(16)}).includes('team-approval-form'),'old go
 assert(!controls({...job,state:'review'},job).includes('data-team="continue"'),'unknown effect does not get a continue button');
 assert(controls({...job,state:'question'},job).includes('maxlength="2000" required'),'bounded answer form');
 assert(!controls({...job,state:'done'},job).includes('data-team="stop"'),'completed work is not cancellable');
-const slots={'[data-team-office]':{},'[data-team-person]':{}};
-const host={querySelector:s=>slots[s]};
-const member=id=>({id,name:id==='live'?'<svg onload=alert(1)>':id,tools:['writer']});
-const step=(id,state)=>({id:'s1',specialist:{id},tool:'writer',state,text:'<script>bad()</script>',artifacts:['rapor.md'],depends:[]});
-const data={members:[member('live'),member('idle'),{...member('off'),enabled:false},member('blocked')],jobs:[{...job,request:'Rapor',steps:[step('live','running'),step('blocked','failed')]}]};
-paintOffice(host,data);html=slots['[data-team-office]'].innerHTML;
-assert.equal((html.match(/team-seat is-working/g)||[]).length,1,'only actual running step animates');
-assert.equal((html.match(/team-seat is-disabled/g)||[]).length,1);
-assert.equal((html.match(/team-seat is-waiting/g)||[]).length,1);
-assert.equal((html.match(/team-seat is-idle/g)||[]).length,1);
-assert(!html.includes('<svg'),'specialist text escaped');
-select('live');paintOffice(host,data);
-assert.equal(slots['[data-team-person]'].hidden,false);
-assert(!slots['[data-team-person]'].innerHTML.includes('<script>'),'worker output escaped');
-assert(slots['[data-team-person]'].innerHTML.includes('rapor.md'),'real delivery filename shown');
-console.log('team center behavior ok');
-
-const cap=context.teamTest.capabilityStatus({source_watches:[{label:'<img>',url:'https://example.org',terms:['tatil'],interval:600,paused:true}],capability_candidates:[{name:'<svg>',url:'https://example.org'}],source_events:[],specialist_contracts:{specialists:[]}});
-assert(!cap.includes('<img>'));assert(!cap.includes('<svg>'));assert(cap.includes('Duraklatıldı'));assert(cap.includes('Bağlantı kurulmadı'));

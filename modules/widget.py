@@ -1,6 +1,6 @@
-"""Masaüstü küçük Jarvis: sağ altta her zaman üstte duran, arayüzün alt çubuğuna benzeyen ince şerit (durum rengi + halka).
+"""Masaüstü küçük Jarvis: sağ altta her zaman üstte duran, konuşma ve mikrofon düğmelerini gösteren ince şerit.
 
-- Halkaya tıkla: Jarvis seni dinler (ad söylemeden).
+- Durum alanına tıkla: Jarvis seni dinler (ad söylemeden).
 - ⤢ düğmesi: Komut Merkezi'ni açar.  🎤 düğmesi: mikrofonu açar/kapatır.
 - Sürükleyerek istediğin yere taşı (yer hatırlanır). Sağ tık: menü.
 Yalnızca tkinter + Pillow kullanır (ikisi de zaten kurulu).
@@ -9,18 +9,18 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 import functools
-import math
 import queue
 import time
 from typing import Callable
 
 KEY = (1, 2, 3)                      # saydam sayılacak renk (pencerenin görünmeyen kısmı)
 KEY_HEX = "#010203"
-COLORS = {"idle": (255, 197, 72), "listening": (40, 220, 140), "thinking": (255, 150, 40),
-          "speaking": (90, 170, 255), "muted": (107, 138, 160), "sleep": (88, 110, 190)}   # arayüzdeki alt çubukla aynı renkler
+COLORS = {
+    "idle": "#f39b78", "listening": "#a5cbb3", "thinking": "#f5c995",
+    "speaking": "#a7c6d8", "muted": "#b1bec5", "sleep": "#b1bec5",
+}
 SHORT = {"idle": "Hazır", "listening": "Dinliyor…", "thinking": "Düşünüyor…", "speaking": "Konuşuyor…",
          "muted": "Mikrofon kapalı", "sleep": "Uykuda"}   # şeritteki kısa durum yazısı
-STILL_STATES = {"idle", "muted", "sleep"}   # bu durumlarda görüntü sabit: yalnızca durum değişince yeniden çizilir
 
 
 @functools.lru_cache(maxsize=32)
@@ -40,13 +40,11 @@ class Widget:
     W, H = 210, 46                   # mantıksal boyut (ekran ölçeğiyle çarpılır): ince şerit
 
     def __init__(self, get_state: Callable[[], tuple[str, dict]], actions: dict[str, Callable[[], None]],
-                 wake_word: str = "Jarvis", pos: tuple[int, int] | None = None, name: Callable[[], str] | None = None,
+                 pos: tuple[int, int] | None = None,
                  save_pos: Callable[[int, int], None] | None = None,
                  main_open: Callable[[], bool] | None = None, visible: bool = True):
         self.get_state = get_state
         self.actions = actions
-        self.wake = wake_word
-        self.name = name or (lambda: "Jarvis")
         self.pos = pos
         self.save_pos = save_pos
         self.main_open = main_open      # büyük pencere ekrandaysa küçük Jarvis saklanır
@@ -55,7 +53,6 @@ class Widget:
         self._main_is_open = False
         self.cmds: queue.Queue = queue.Queue()
         self.visible = visible
-        self._t0 = time.time()
         self._drag = None
         self._moved = False
         self._last_key = None           # en son çizilen görüntünün anahtarı (boştayken boşuna yeniden çizmemek için)
@@ -69,56 +66,41 @@ class Widget:
 
     # ---------------------------------------------------------------- çizim
     def _render(self, state: str, flags: dict):
-        """Arayüzdeki alt çubuğun küçük hali: altın çerçeveli koyu cam şerit; solda logodaki altın halka (durum
-        rengiyle, konuşurken/dinlerken döner), ortada kısa durum yazısı, sağda Komut Merkezi ve mikrofon düğmeleri
-        (alt çubuktaki köşeli düğmelerle aynı biçim)."""
+        """Masaüstü çalışma alanının küçük denetimlerini çiz."""
         from PIL import Image, ImageDraw
-        s, k = self.scale, 2                               # 2x çizip küçült: yumuşak kenarlar
+        s, k = self.scale, 2
         W, H = int(self.W * s), int(self.H * s)
         im = Image.new("RGBA", (W * k, H * k), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         u = s * k
-        t = time.time() - self._t0
-        col = COLORS.get(state, COLORS["idle"])
-        speed = {"idle": 0, "listening": 1.6, "thinking": 3, "speaking": 2, "muted": 0, "sleep": 0}.get(state, 0)
+        color = COLORS.get(state, COLORS["idle"])
 
-        # şerit: koyu cam + durum renginde çerçeve (dinlerken/düşünürken/konuşurken nabız gibi parlar)
         x0, y0, x1, y1 = 2 * u, 2 * u, (self.W - 2) * u, (self.H - 2) * u
-        pulse = (.5 + .5 * math.sin(t * 5)) if speed else 1.0
-        d.rounded_rectangle((x0, y0, x1, y1), radius=int(12 * u), fill=(12, 30, 52, 252),
-                            outline=col + (int(150 + 105 * pulse),), width=max(1, int(1.6 * u)))
-
-        # logodaki altın halka: iki kat kesik halka + dört parlak nokta
-        cx, cy, R = x0 + 21 * u, (y0 + y1) / 2, 14.5 * u
-        rot = math.degrees(t * .9 * speed)
-        bw = max(2, int(3.2 * u))
-        for a0 in (-80, 10, 100, 190):
-            d.arc((cx - R, cy - R, cx + R, cy + R), a0 + rot, a0 + rot + 70, fill=col + (255,), width=bw)
-        r2 = R * .72
-        for a0 in (-35, 55, 145, 235):
-            d.arc((cx - r2, cy - r2, cx + r2, cy + r2), a0 - rot, a0 - rot + 62, fill=col + (200,), width=max(1, int(1.8 * u)))
-        for i in range(4):
-            a = math.radians(rot) + i * math.pi / 2 - math.pi / 2
-            px, py, pr = cx + math.cos(a) * R * .93, cy + math.sin(a) * R * .93, 2.1 * u
-            d.ellipse((px - pr, py - pr, px + pr, py + pr), fill=(255, 246, 220, 255))
-        ri = R * .26
-        d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), fill=col + (255,))
+        d.rounded_rectangle((x0, y0, x1, y1), radius=int(12 * u),
+                            fill="#101e29", outline="#354a56", width=max(1, int(u)))
+        cx, cy, radius = x0 + 20 * u, (y0 + y1) / 2, 14 * u
+        d.rounded_rectangle((cx - radius, cy - radius, cx + radius, cy + radius),
+                            radius=int(7 * u), fill=color)
+        for offset, height in ((-5, 7), (0, 13), (5, 9)):
+            x = cx + offset * u
+            half = height * u / 2
+            d.rounded_rectangle((x - u, cy - half, x + u, cy + half), radius=int(u), fill="#101e29")
 
         # durum yazısı (sığmazsa küçülür)
         txt = SHORT.get(state, SHORT["idle"])
-        tx, room = cx + R + 9 * u, (x1 - 66 * u) - (cx + R + 9 * u)
+        tx, room = cx + radius + 8 * u, (x1 - 66 * u) - (cx + radius + 8 * u)
         size = 13
         f = _font(int(size * u), True)
         while size > 9 and d.textlength(txt, font=f) > room:
             size -= 1
             f = _font(int(size * u), True)
-        d.text((tx, cy), txt, font=f, fill=(238, 246, 255, 255), anchor="lm")
+        d.text((tx, cy), txt, font=f, fill="#f8f8f4", anchor="lm")
 
-        # köşeli düğmeler (alt çubuktaki gibi): Komut Merkezi ve mikrofon
+        # Komut Merkezi ve mikrofon
         bs = 13 * u                                        # yarı boy
         hx, hy = x1 - 50 * u, cy
-        d.rounded_rectangle((hx - bs, hy - bs, hx + bs, hy + bs), radius=int(5 * u), fill=(40, 70, 100, 235))
-        hc, hw = (220, 236, 250, 255), max(1, int(1.6 * u))
+        d.rounded_rectangle((hx - bs, hy - bs, hx + bs, hy + bs), radius=int(5 * u), fill="#243744")
+        hc, hw = "#e5ecef", max(1, int(1.6 * u))
         d.line((hx - 6.5 * u, hy - .5 * u, hx, hy - 6.5 * u, hx + 6.5 * u, hy - .5 * u), fill=hc, width=hw, joint="curve")   # çatı
         d.line((hx - 4.5 * u, hy - 2 * u, hx - 4.5 * u, hy + 6 * u, hx + 4.5 * u, hy + 6 * u, hx + 4.5 * u, hy - 2 * u),
                fill=hc, width=hw, joint="curve")                                                                   # duvarlar
@@ -126,15 +108,14 @@ class Widget:
 
         mx, my = x1 - 20 * u, cy
         mic_on = bool(flags.get("mic", True)) and not flags.get("sleep")
-        mfill = {"listening": (25, 170, 105, 255), "thinking": (220, 120, 25, 255),
-                 "speaking": (45, 110, 220, 255)}.get(state, (200, 140, 40, 255)) if mic_on else (60, 76, 96, 255)
-        d.rounded_rectangle((mx - bs, my - bs, mx + bs, my + bs), radius=int(5 * u), fill=mfill)
-        mc = (255, 255, 255, 255) if mic_on else (200, 215, 230, 255)
+        d.rounded_rectangle((mx - bs, my - bs, mx + bs, my + bs), radius=int(5 * u),
+                            fill=color if mic_on else "#243744")
+        mc = "#101e29" if mic_on else "#e5ecef"
         d.rounded_rectangle((mx - 3 * u, my - 7 * u, mx + 3 * u, my + 2 * u), radius=int(3 * u), fill=mc)
         d.arc((mx - 6 * u, my - 5 * u, mx + 6 * u, my + 5 * u), 0, 180, fill=mc, width=max(1, int(1.5 * u)))
         d.line((mx, my + 5 * u, mx, my + 8 * u), fill=mc, width=max(1, int(1.5 * u)))
         if not mic_on:
-            d.line((mx - 7 * u, my - 7 * u, mx + 7 * u, my + 7 * u), fill=(255, 93, 115, 255), width=max(2, int(2 * u)))
+            d.line((mx - 7 * u, my - 7 * u, mx + 7 * u, my + 7 * u), fill="#f39b78", width=max(2, int(2 * u)))
 
         # Tıklama alanları gerçek pencere pikselinde ve görsel düğmeden biraz büyük tutulur.
         # Özellikle Windows %125/%150 DPI'da küçük mikrofonun tıklaması eskiden şeridin
@@ -149,7 +130,7 @@ class Widget:
         im = im.resize((W, H), Image.LANCZOS)
         bg = Image.new("RGBA", im.size, KEY + (255,))
         out = Image.alpha_composite(bg, im)
-        # yarı saydam kenarlar saydam renge karışıp halka bırakmasın: çok soluk pikselleri tamamen saydam yap
+        # Pencerenin saydam renk anahtarını yuvarlak köşelerde koru.
         a = im.split()[3].point(lambda v: 255 if v > 40 else 0)
         out = Image.composite(out, bg, a)
         return out.convert("RGB")
@@ -236,15 +217,12 @@ class Widget:
                 self.root.attributes("-topmost", True)
             else:
                 self.root.withdraw()
-        delay = 50
+        delay = 125
         if want:
             try:
                 state, flags = self.get_state()
-                key = (state, self.name(), self.wake,
-                       tuple(sorted((k, v) for k, v in flags.items() if isinstance(v, (bool, int, str)))))
-                if state in STILL_STATES and key == self._last_key and self.label.image is not None:
-                    delay = 200         # boştayken görüntü değişmiyor: yeniden çizme (işlemciyi %30+ yiyordu)
-                else:
+                key = (state, bool(flags.get("mic", True)), bool(flags.get("sleep")))
+                if key != self._last_key or self.label.image is None:
                     img = ImageTk.PhotoImage(self._render(state, flags))
                     self.label.configure(image=img)
                     self.label.image = img

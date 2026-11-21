@@ -167,20 +167,16 @@ class DesktopAuthTests(unittest.TestCase):
             response.close()
             snapshot.assert_not_called()
 
-    def test_background_upload_uses_header_and_get_uses_cookie(self):
-        jar = http.cookiejar.CookieJar()
-        client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-        request = urllib.request.Request(self.base+'/session', data=b'', headers={'X-Jarvis-Token': self.web.TOKEN})
-        with client.open(request, timeout=3) as response:
-            response.read()
+    def test_retired_background_upload_and_view_are_closed(self):
         image = b'\xff\xd8\xfftest-image'
         with tempfile.TemporaryDirectory() as folder, patch.object(self.web, 'DATA_DIR', Path(folder)):
+            old_image = Path(folder) / 'arka_plan.img'
+            old_image.write_bytes(image)
             request = urllib.request.Request(self.base+'/upload?to=bg&name=bg', data=image, headers={'X-Jarvis-Token': self.web.TOKEN})
-            with client.open(request, timeout=3) as response:
-                self.assertIn(b'"ok": true', response.read())
-            self.assertEqual((Path(folder)/'arka_plan.img').read_bytes(), image)
-            with client.open(self.base+'/arka_plan?v=1', timeout=3) as response:
-                self.assertEqual(response.read(), image)
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request, timeout=3)
+            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(old_image.read_bytes(), image)
             with self.assertRaises(urllib.error.HTTPError) as error:
                 urllib.request.urlopen(self.base+'/arka_plan?v=1', timeout=3)
             self.assertEqual(error.exception.code, 404)

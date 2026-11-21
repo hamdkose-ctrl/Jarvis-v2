@@ -496,7 +496,7 @@ def autostart_set(on: bool) -> bool:
 
 
 # ------------------------------------------------------------------ arayüz ayarları
-DEFAULTS = {"nx_theme": "dark", "nx_notify": True, "nx_bust": True, "ai_mode": "auto", "nx_advanced": False}
+DEFAULTS = {"nx_theme": "light", "nx_notify": True, "ai_mode": "auto"}
 
 
 def ui_settings() -> dict:
@@ -509,17 +509,6 @@ def ui_settings() -> dict:
     out["wake_beep"] = s.get("wake_beep", True) is not False
     from modules import learning, personalization
     out["learn_from_chat"] = learning.enabled(personalization.Profile(personalization.get_active()))
-    bgf = DATA_DIR / "arka_plan.img"
-    out["bg"] = bgf.exists()
-    out["bg_video"] = False
-    if out["bg"]:
-        try:
-            with open(bgf, "rb") as fh:
-                h = fh.read(12)
-            out["bg_video"] = h[4:8] == b"ftyp" or h[:4] == b"\x1aE\xdf\xa3"
-        except OSError:
-            pass
-    out["nx_globe"] = s.get("nx_globe", True) is not False
     out["widget_on"] = s.get("widget_on", True) is not False
     out["proactive_suggestions"] = s.get("proactive_suggestions", True) is not False
     return out
@@ -534,12 +523,10 @@ def ui_set(key: str, value) -> dict:
     elif key == "learn_from_chat":
         from modules import personalization
         personalization.Profile(personalization.get_active()).set_pref(key, bool(value))
-    elif key in ("nx_globe", "nx_notify", "nx_bust", "nx_advanced", "tray", "wake_beep", "proactive_suggestions"):
+    elif key in ("nx_notify", "tray", "wake_beep", "proactive_suggestions"):
         save_settings(**{key: bool(value)})
     elif key == "wake_sensitivity":
         save_settings(wake_sensitivity=max(1, min(5, int(value))))
-    elif key == "bg" and not value:                  # arka plan resmini kaldır (yerine çizilen gece salonu)
-        (DATA_DIR / "arka_plan.img").unlink(missing_ok=True)
     elif key == "ai_mode" and value in ("auto", "gemini", "groq", "ollama"):
         from modules import llm
         llm.set_provider(value)   # anahtar yoksa ValueError

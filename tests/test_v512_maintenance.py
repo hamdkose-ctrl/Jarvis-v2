@@ -45,7 +45,7 @@ class V512MaintenanceTests(unittest.TestCase):
         self.assertIn("Production yaptım", ui)
         self.assertIn("google_oauth_production", ga)
         self.assertIn("Gemini anahtarı yok", ui)
-        self.assertIn("home-key-warning", ui)
+        self.assertIn('id="home-connection" data-act="keysetup"', ui)
 
     def test_legacy_ui_removed_and_not_imported(self):
         # 2026-10-05: eski Tk pencere arayüzü kaldırıldı; tek arayüz web Komut Merkezi.

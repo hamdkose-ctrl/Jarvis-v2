@@ -5,6 +5,7 @@ All work still goes through goal_tools/task_agents and their existing boundaries
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -133,6 +134,71 @@ def _public(text, limit=1000):
     return privacy.redact(str(text or ''),force=True)[:limit]
 
 
+_ARTIFACT_LIMIT = 16 * 1024 * 1024
+
+
+def _artifact_records(output):
+    """Return unambiguous file names bound to the digests in a result."""
+    records = {}
+    ambiguous = set()
+    files = output.get('files')
+    items = [output, *(files if isinstance(files, (list, tuple)) else [])]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        path, digest = item.get('file'), item.get('sha256')
+        if not isinstance(path, str) or not path or not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
+            continue
+        name = Path(path).name
+        pair = (path, digest)
+        if name in records and records[name] != pair:
+            ambiguous.add(name)
+        records[name] = pair
+    return {name: pair for name, pair in records.items() if name not in ambiguous}
+
+
+def artifact(owner, kind, job_id, step_id, name):
+    """Read one delivery from the owning job's currently verified result."""
+    from modules import execution_record, goal_executor, nxapi, result_presentation, task_agents
+    _path(owner)
+    if kind == 'goal':
+        root = goal_executor.STORE / owner
+        job_path = execution_record.path_for(root, job_id)
+        legacy_path = root / (job_id + '.json')
+        if any(path.is_symlink() for path in (job_path, legacy_path, *root.parents, root)):
+            raise ValueError('Geçersiz iş kaydı.')
+        job = execution_record.load(root, owner, job_id)
+    elif kind == 'task':
+        root = task_agents.STORE / owner
+        job_path = task_agents._job_path(root, job_id)
+        if any(path.is_symlink() for path in (job_path, *root.parents, root)):
+            raise ValueError('Geçersiz iş kaydı.')
+        job = task_agents._load(owner, job_id)
+    else:
+        raise ValueError('İş türü geçersiz.')
+    if job.get('owner') != owner or not isinstance(step_id, str) or not isinstance(name, str):
+        raise ValueError('Bu teslim bu işe ait değil.')
+    checked = result_presentation.inspect_job(job, kind)
+    result = checked['job']['outputs'].get(step_id, {})
+    if step_id not in checked['verified']:
+        raise ValueError('Teslim kanıtı artık doğrulanamıyor.')
+    record = _artifact_records(result).get(name)
+    if record is None:
+        raise ValueError('Bu dosya seçili adımın doğrulanmış teslimi değil.')
+    raw, digest = record
+    path = Path(raw)
+    allowed = nxapi.allowed(path)
+    if allowed is None or path.is_symlink() or not allowed.is_file():
+        raise ValueError('Teslim dosyasına erişilemiyor.')
+    with allowed.open('rb') as source:
+        data = source.read(_ARTIFACT_LIMIT + 1)
+    if len(data) > _ARTIFACT_LIMIT:
+        raise ValueError('Dosya 16 MB indirme sınırını aşıyor. Dosyalar ekranından açabilirsin.')
+    if not data or hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError('Dosya, doğrulanan teslimden farklı.')
+    return {'owner':owner,'name':name,'content':base64.b64encode(data).decode('ascii')}
+
+
 def _job(owner, job, kind):
     from modules import result_presentation,goal_executor
     if job.get('owner')!=owner:raise ValueError('Görev sahibi eşleşmiyor.')
@@ -159,6 +225,7 @@ def _job(owner, job, kind):
                        'state':step.get('state','unknown'),'depends':step.get('depends',[]),
                        'text':_public(('Denenen kaynak: '+step.get('input',{}).get('url','')) if tool=='research' and step.get('state')=='running' else output.get('text',output.get('message','')),1200),
                        'artifacts':list(dict.fromkeys(artifacts)),
+                       'downloads':list(_artifact_records(output)) if step['id'] in checked['verified'] else [],
                        'has_receipt':step['id'] in checked['verified'],
                        'attempts':step.get('attempts',1)})
     from modules import goal_executor

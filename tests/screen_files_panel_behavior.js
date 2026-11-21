@@ -11,7 +11,7 @@ const c={S,ACT,esc:x=>String(x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>
  sbox:(i,t,s,b)=>`<blk t="${t}">${b}</blk>`,pad18:x=>x,srow:(i,t,s,r)=>`<row>${t}|${r}</row>`,sw2:(m,on)=>`<sw m="${m}" on="${on}"></sw>`,loadFiles:async f=>{calls.push(['loadFiles',f])},settingsOpen:()=>true,drawSettings:()=>{},
  api:async(...a)=>{calls.push(['api',...a])},$:()=>null,setTimeout,clearTimeout,Math,String};
 vm.createContext(c);
-vm.runInContext(src.slice(src.indexOf('function screenFilesPanel('),src.indexOf('// Ayarlarda arama')),c);
+vm.runInContext(src.slice(src.indexOf('function pcOperationsBox('),src.indexOf('// Ayarlarda arama')),c);
 const blocks=h=>[...h.matchAll(/<blk t="([^"]+)">/g)].map(m=>m[1]);
 const part=(h,title)=>{const a=h.indexOf('<blk t="'+title+'">');return h.slice(a,h.indexOf('</blk>',a))};
 let html=c.screenFilesPanel();

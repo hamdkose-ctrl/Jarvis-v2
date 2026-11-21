@@ -1222,3 +1222,8 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 - `modules/file_inventory.py` artık rafta değil: Dosyalar paneline "Klasör Envanteri" araç kartı eklendi (`webui/nx.js` `ACT.finv`) — kullanıcı klasör seçer (izinli kökler `file_worker.allowed_roots`), Jarvis salt-okunur tarar ve klasörün içine üzerine yazmayan `Klasor_Envanteri.xlsx` yazar (çift dosyalar, benzer adlar, boş/eski/geçici adaylar, uzantı dağılımı).
 - Kalıcı sözleşme arayüzden bağımsızdır: `web_files.file_inventory_run` / `file_inventory_excel`. Köklü arayüz yenilemesinde düğme taşınabilir, API adları korunur. Kanıt: `tests/test_file_inventory_bridge.py` (API projeksiyonu), `tests/test_file_inventory.py` (modül, 11 test).
 - `finance_watchlist` motor komutu bağlaması ve `finance_trade_intent` mühür kararları `docs/BEKLEYEN_ISLER.md` genel tarama kaydındadır (Hamdi: 2-bekliyor, 3-dursun).
+
+
+### Masaüstü arayüzü — 21 Kasım 2026
+
+Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş/kanıt ayrıntısı ve mevcut araç sayfaları tek arayüzde birleşir. Hologram, eski sahne, arka plan dosyaları ve dekoratif görünüm komutları kaldırılır. Teslim indirme aynı kullanıcı ve doğrulanmış iş/adım kanıtına bağlıdır. CI, PC ve fiziksel ses kabulü kaynak sürümüne göre ayrıca izlenir.

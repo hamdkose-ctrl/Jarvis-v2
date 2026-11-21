@@ -316,7 +316,7 @@ def _run_widget(runtime) -> bool:
     def mic() -> None:
         runtime._set_mic(not runtime.engine.flags.get('mic', True))
     pos = runtime.config.load_settings().get('widget_pos2')
-    runtime._widget = widgetmod.Widget(state, {'talk': talk, 'open': runtime._show_main, 'mic': mic, 'sleep': lambda: runtime.engine.set_sleep(not runtime.engine.flags.get('sleep')), 'quit': lambda: runtime.threading.Thread(target=lambda: runtime._shutdown(reason='küçük Jarvis menüsü'), daemon=True).start()}, wake_word=runtime.config.WAKE_WORD, name=runtime._aname, pos=tuple(pos) if isinstance(pos, list) and len(pos) == 2 else None, save_pos=lambda x, y: runtime.config.save_settings(widget_pos2=[x, y]), main_open=runtime._widget_should_hide, visible=runtime.config.load_settings().get('widget_on', True) is not False)
+    runtime._widget = widgetmod.Widget(state, {'talk': talk, 'open': runtime._show_main, 'mic': mic, 'sleep': lambda: runtime.engine.set_sleep(not runtime.engine.flags.get('sleep')), 'quit': lambda: runtime.threading.Thread(target=lambda: runtime._shutdown(reason='küçük Jarvis menüsü'), daemon=True).start()}, pos=tuple(pos) if isinstance(pos, list) and len(pos) == 2 else None, save_pos=lambda x, y: runtime.config.save_settings(widget_pos2=[x, y]), main_open=runtime._widget_should_hide, visible=runtime.config.load_settings().get('widget_on', True) is not False)
     try:
         runtime._widget.run()
     except Exception as exc:

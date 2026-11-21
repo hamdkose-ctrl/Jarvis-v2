@@ -7,6 +7,10 @@ class WebTasks:
         from modules import team_center
         return team_center.snapshot(self._runtime._p().slug)
 
+    def team_artifact(self, kind: str, identity: str, step_id: str, name: str) -> dict:
+        from modules import team_center
+        return team_center.artifact(self._runtime._p().slug, kind, identity, step_id, name)
+
     def team_save(self, members: list, revision=None) -> list:
         from modules import team_center
         return team_center.save_members(self._runtime._p().slug, members, revision)

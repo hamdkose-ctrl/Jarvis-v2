@@ -1,27 +1,40 @@
 <!doctype html>
-<html lang="tr" data-theme="dark">
+<html lang="tr" data-theme="light">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>JARVIS · Senin Yapay Zekâ Asistanın</title>
-<link rel="icon" type="image/png" sizes="256x256" href="/icon.png">
-<link rel="stylesheet" href="/fonts.css">
-<link rel="stylesheet" href="/nx.css">
-<link rel="stylesheet" href="/seljuk-backdrop.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Jarvis</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="/fonts.css">
+  <link rel="stylesheet" href="/nx.css">
 </head>
 <body>
-<div class="app">
-  <header class="top" id="top"></header>
-  <div class="body" id="body">
-    <main class="page" id="page"></main>
-    <aside class="rail" id="rail"></aside>
+  <div class="workspace">
+    <aside class="workspace-sidebar">
+      <button class="workspace-brand" type="button" data-go="home" aria-label="Jarvis ana ekran">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><b>Jarvis</b>
+      </button>
+      <nav id="workspace-nav" aria-label="Çalışma alanları"></nav>
+      <div id="workspace-profile"></div>
+    </aside>
+    <div class="workspace-main">
+      <header id="top" class="workspace-top"></header>
+      <main id="page" class="page"></main>
+      <div id="workspace-composer"></div>
+    </div>
   </div>
-</div>
-<div class="toast" id="toast"></div>
-<input type="file" id="upl" multiple hidden>
-<script src="/icons.js"></script>
-<script src="/earth.js"></script>
-<script src="/hologram.js"></script>
-<script src="/guide.js"></script><script src="/seljuk-backdrop.js"></script><script src="/activity_strip.js"></script><script src="/nx.js"></script><script src="/local-model-panel.js"></script><script src="/gesture-classifier.js"></script><script src="/gesture-client.js"></script><script src="/gesture-tracker.js"></script><script src="/team-center.js"></script><script src="/pc-guide.js"></script><script src="/math-workspace.js"></script><script src="/study-workspace.js"></script>
+  <div class="toast" id="toast" role="status"></div>
+  <input type="file" id="upl" multiple hidden>
+  <script src="/icons.js"></script>
+  <script src="/guide.js"></script>
+  <script src="/activity_strip.js"></script>
+  <script src="/nx.js"></script>
+  <script src="/local-model-panel.js"></script>
+  <script src="/gesture-classifier.js"></script>
+  <script src="/gesture-client.js"></script>
+  <script src="/gesture-tracker.js"></script>
+  <script src="/team-center.js"></script>
+  <script src="/math-workspace.js"></script>
+  <script src="/study-workspace.js"></script>
 </body>
 </html>

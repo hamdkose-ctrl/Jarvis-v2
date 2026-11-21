@@ -163,7 +163,7 @@ class UploadTests(unittest.TestCase):
             def read(self,n=-1):
                 if not 0 < n <= 1<<20: raise AssertionError(n)
                 return super().read(n)
-        for target in ['files','bg','phone','kb']:
+        for target in ['files','phone','kb']:
             with self.subTest(target=target), tempfile.TemporaryDirectory() as td:
                 root=Path(td);data=b'\x89PNG\r\n\x1a\n'+b'x'*(2*(1<<20))
                 obj,ns=self.handler(root,Limited(data),target)
@@ -172,10 +172,9 @@ class UploadTests(unittest.TestCase):
                     obj._upload(len(data))
                 self.assertTrue(obj._json.call_args.args[0]['ok'])
                 self.assertFalse(list((root/'uploads').glob('upload_*')))
-                if target=='bg':self.assertEqual((root/'arka_plan.img').read_bytes(),data)
 
     def test_truncated_input_is_rejected_and_staging_cleaned_for_every_target(self):
-        for target in ['files','bg','phone','kb']:
+        for target in ['files','phone','kb']:
             with self.subTest(target=target), tempfile.TemporaryDirectory() as td:
                 root=Path(td);obj,ns=self.handler(root,io.BytesIO(b'partial'),target)
                 with patch.object(nxapi,'save_upload_stream') as accept,patch('modules.filesend.send') as send:
@@ -276,12 +275,13 @@ class MiscTests(unittest.TestCase):
             pairs=stt_fixes.parse_fixes(settings['stt_fixes']);self.assertEqual(pairs,[('ışık','ışık kapat')])
             self.assertEqual(stt_fixes.format_fixes(pairs),'ışık=ışık kapat')
 
-    def test_background_settings_follow_data_dir(self):
+    def test_retired_background_setting_leaves_user_asset_on_disk(self):
         with tempfile.TemporaryDirectory() as td,patch.object(nxapi,'DATA_DIR',Path(td)),patch.object(nxapi,'load_settings',return_value={}),patch.object(nxapi,'autostart_get',return_value=False),patch('modules.learning.enabled',return_value=False),patch('modules.personalization.Profile'),patch('modules.personalization.get_active',return_value='a'):
             image=Path(td)/'arka_plan.img';image.write_bytes(b'image')
-            self.assertTrue(nxapi.ui_settings()['bg'])
-            nxapi.ui_set('bg',False)
-            self.assertFalse(image.exists())
+            self.assertNotIn('bg', nxapi.ui_settings())
+            with self.assertRaises(ValueError):
+                nxapi.ui_set('bg',False)
+            self.assertTrue(image.exists())
 
     def test_scope_change_restarts_running_phone(self):
         from web_phone import WebPhone
