@@ -83,8 +83,17 @@ def _record_shape(row):
     _proposal_diagnostic.set(detail)
 
 
-def _reject(code: str):
-    _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'rejected', 'reason_code':code})
+def _reject(code: str, **detail: Any):
+    """Record a rejection with closed-vocabulary detail only (codes, ids, field names).
+
+    "Sözleşmeyi karşılamıyor" alone cost a whole user turn per guess; a capability
+    id and a schema field name are protocol values, never user words.
+    """
+    closed = {key: value for key, value in detail.items()
+              if isinstance(value, (str, int, bool)) or
+              (isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value))}
+    _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'rejected',
+                              'reason_code':code, **closed})
     return None
 
 ENVELOPE_KEYS = frozenset({
@@ -1058,6 +1067,33 @@ def _field_is_grounded(field: str, value: str, span: str, spoken: tuple[str, ...
     return _is_contiguous_run(target, tokens)
 
 
+def _ungrounded_fields(*, capability_id: str, supplied: Mapping[str, Any],
+                       sources: Any, text: str) -> list[str]:
+    """Name the user-owned fields that failed grounding, without their values."""
+    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
+    if owned is None:
+        return ["arguments"]
+    if not isinstance(sources, Mapping):
+        return sorted(field for field in owned
+                      if isinstance(supplied.get(field), str) and supplied.get(field, "").strip())
+    spoken = _span_tokens(text)
+    gaps = []
+    for field in sorted(owned):
+        value = supplied.get(field)
+        filled = ((isinstance(value, str) and bool(value.strip()))
+                  or (field == "index" and type(value) is int and value > 0))
+        span = sources.get(field)
+        if span is None:
+            if filled:
+                gaps.append(f"{field}:span_yok")
+            continue
+        if not filled:
+            gaps.append(f"{field}:deger_yok")
+        elif not _field_is_grounded(field, str(value) if field == "index" else value, span, spoken):
+            gaps.append(f"{field}:alinti_cumlede_yok")
+    return gaps or ["kapsam_disi"]
+
+
 def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
                            sources: Any, text: str) -> bool:
     """§4: kullanıcı-sahibi alanlar yalnız kullanıcının kendi cümlesindeki alıntısıyla öneri olur.
@@ -1351,7 +1387,9 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
                 return _reject('BARE_LEVEL_CONTEXT_NOT_GROUNDED')
         if not _arguments_are_grounded(capability_id=capability_id, supplied=frozen,
                                       sources=item.get("argument_sources"), text=text):
-            return _reject('ARGUMENT_SOURCE_INVALID')
+            return _reject('ARGUMENT_SOURCE_INVALID', capability=capability_id,
+                           fields=_ungrounded_fields(capability_id=capability_id, supplied=frozen,
+                                                     sources=item.get("argument_sources"), text=text))
         resolved = _action_arguments(
             capability_id=capability_id, supplied=dict(frozen), text=text,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
@@ -1657,7 +1695,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 # enums are recorded, never user fields.
                 diagnostic = proposal_diagnostic()
                 code = diagnostic.get('reason_code') or diagnostic.get('status') or 'shape'
-                raise ValueError(f"Model yanıtı Brain sözleşmesini karşılamıyor ({code}).")
+                detail = " ".join(f"{key}={diagnostic[key]}" for key in ("capability", "fields")
+                                  if diagnostic.get(key))
+                suffix = f" {detail}" if detail else ""
+                raise ValueError(f"Model yanıtı Brain sözleşmesini karşılamıyor ({code}).{suffix}")
 
         with requests_state.budget(_MODEL_BUDGET_SECONDS):
             # Primary understanding uses the typed smart_router.run_request entry.
