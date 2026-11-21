@@ -25,7 +25,7 @@ class OfflineVoiceUnavailable(RuntimeError):
 
 _PIPER_LENGTH_BASE = 1.18   # kullanıcı onayı: biraz daha yavaş (tokluk)
 _TOK_CHAIN = ("bass=g=7:f=130:w=0.9,acompressor=threshold=-14dB:ratio=4:"
-              "attack=4:release=160,volume=1.9,alimiter=limit=0.95")
+              "attack=4:release=160,volume=1.9,alimiter=limit=0.95,aresample=48000")
 
 
 def piper_length_scale(rate: int) -> float:
@@ -108,7 +108,7 @@ def _tok(wav: bytes) -> bytes:
             target = Path(folder) / "out.wav"
             source.write_bytes(wav)
             done = subprocess.run([executable, "-y", "-v", "error", "-i", str(source),
-                                   "-af", _TOK_CHAIN, "-ac", "1", str(target)],
+                                   "-af", _TOK_CHAIN, "-ac", "1", "-ar", "48000", str(target)],
                                   capture_output=True, timeout=20)
             if done.returncode != 0 or not target.is_file():
                 return wav
@@ -254,15 +254,25 @@ def _validate_wave(audio: bytes) -> None:
 class WavePlayer:
     """The single PCM playback adapter. Cancellation never touches Core requests."""
 
-    def __init__(self, *, device=None, frames_per_write: int = 1024):
+    def __init__(self, *, device=None, frames_per_write: int = 1024, latency: float | str = 0.35):
         if not 256 <= frames_per_write <= 8192:
             raise ValueError("Audio output chunk size is invalid.")
         self.device = device
         self.frames_per_write = frames_per_write
-        # Takılma ancak cihaz tarafında ölçülür: ses uzunluğu, gerçek çalma süresi
-        # ve ardışık yazmalar arasındaki en uzun boşluk. Boşluk tampon süresini
-        # aşarsa cihaz kurudu (duyulan tık/sessizlik) — tahmin değil, kanıt.
+        # Canlı ölçüm: uygulama yükü altında çalma iş parçacığı 250 ms askıya
+        # alınıyordu ve cihaz susuz kalıyordu (ratio 1.14-1.19, max_gap 255 ms).
+        # Yüksek gecikmeli akış, 250 ms'lik bir askıyı duyulmadan soğurur.
+        self.latency = latency
         self.last_timing: dict[str, float | str] = {}
+
+    def _raise_priority(self) -> None:
+        """Çalma iş parçacığı öne alınır: ses her zaman önde (Windows, en iyi çaba)."""
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadPriority(
+                ctypes.windll.kernel32.GetCurrentThread(), 15)  # TIME_CRITICAL
+        except Exception:
+            pass
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         _validate_wave(audio)
@@ -271,14 +281,20 @@ class WavePlayer:
             return
         import sounddevice as sd
         completed = False
+        self._raise_priority()
         with wave.open(io.BytesIO(audio), "rb") as wf:
             rate = wf.getframerate()
             audio_ms = wf.getnframes() / max(rate, 1) * 1000
             buffer_ms = self.frames_per_write / max(rate, 1) * 1000
             opened = time.monotonic()
             with sd.RawOutputStream(samplerate=rate, channels=wf.getnchannels(),
-                                    dtype="int16", device=self.device) as stream:
+                                    dtype="int16", device=self.device,
+                                    latency=self.latency) as stream:
                 open_ms = (time.monotonic() - opened) * 1000
+                try:
+                    headroom_ms = float(getattr(stream, "latency", 0.0)) * 1000
+                except (TypeError, ValueError):
+                    headroom_ms = 0.0
                 started = False
                 gap_ms = 0.0
                 last = None
@@ -300,6 +316,10 @@ class WavePlayer:
             played_ms = (time.monotonic() - opened) * 1000
         timing: dict[str, float | str] = {"open_ms": open_ms, "audio_ms": audio_ms,
                                           "max_gap_ms": max(gap_ms, 0.0)}
+        # Duyulan takılma, askının cihazda hazır bekleyen sesi aşmasıdır; yüksek
+        # gecikmeli akışta 250 ms'lik bir askı sessizliğe dönüşmez.
+        timing["headroom_ms"] = headroom_ms
+        timing["stall_ms"] = max(0.0, max(gap_ms, 0.0) - headroom_ms)
         if completed and audio_ms:
             timing["ratio"] = played_ms / audio_ms
         try:
