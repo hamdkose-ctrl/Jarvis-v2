@@ -359,12 +359,19 @@ class VoiceLane:
                     if lock.acquire(timeout=0.05):
                         lock.release()
                         break
+        # İlk parça ses inerken çalınır (Edge adaptörü destekliyorsa): tam dosyayı
+        # beklemek uzun cevapta ilk sesi 2,5-2,9 sn'ye çıkarıyordu, akışta 730 ms.
+        # Yalnız gerçek adaptör metodunu kullan: testlerde `synthesize` bir Mock
+        # olduğunda `getattr` sahte bir metot döndürür ve ses yolu bozulur.
+        stream_first = (getattr(synthesize, "stream_play", None)
+                        if callable(getattr(type(synthesize), "stream_play", None)) else None)
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
             echo_note=self._echo_note,
             resource_scope=self._resource_scope,
             before_play=wait_for_capture,
+            play_stream=stream_first,
         )
 
     def _resource_scope(self, request: SpeechRequest, kind: str):

@@ -9,6 +9,7 @@ thread kill. Real Windows speaker output is accepted separately on the PC.
 """
 from __future__ import annotations
 
+import array
 import asyncio
 import ctypes
 import io
@@ -237,6 +238,21 @@ def _warm_audio(name: str, text: str, rate: str, pitch: str) -> bytes:
         return b""
 
 
+def _is_silence(block: bytes, floor: int = 120) -> bool:
+    """Bir PCM bloğu neredeyse tamamen sessiz mi (kırpma için)."""
+    try:
+        samples = array("h", block)
+    except Exception:
+        _record_failure("modules/voice_edge.py:silence_probe")
+        return False
+    if not samples:
+        return True
+    total = 0
+    for value in samples:
+        total += abs(value)
+    return (total / len(samples)) < floor
+
+
 class EdgeSynthesizer:
     """Produce MP3 bytes for one exact Edge voice, never changing the identity.
 
@@ -273,6 +289,110 @@ class EdgeSynthesizer:
         except Exception as exc:
             _record_failure("modules/voice_edge.py:synthesize")
             raise EdgeVoiceUnavailable("Edge speech service unavailable.") from exc
+
+
+    def stream_play(self, voice, text: str, cancel, on_start=None) -> int:
+        """Ses inerken çalar; çalınan PCM baytını döndürür (0 = başarısız).
+
+        Sıcak soketten gelen MP3 parçaları ffmpeg'e, oradan PCM olarak waveOut
+        tamponlarına akar. İlk anlamlı ses geldiği anda çalma başlar — tam
+        dosyayı beklemek uzun cevapta ilk sesi 2,8 sn'ye çıkarıyordu.
+        """
+        if voice.backend != "edge" or cancel.is_set():
+            return 0
+        name = voice.asset_id
+        if not isinstance(name, str) or not name.strip():
+            return 0
+        from modules import voice_edge_warm
+        rate, pitch = prosody_ssml(*prosody(text, voice.speaking_rate))
+        ffmpeg = _ffmpeg_exe()
+        if not ffmpeg:
+            return 0
+        player = None
+        process = None
+        played = 0
+        try:
+            from modules import voice_stream
+            player = voice_stream.StreamPlayer(rate=24000)
+            process = subprocess.Popen(
+                [ffmpeg, "-v", "error", "-i", "pipe:0", "-f", "s16le",
+                 "-ac", "1", "-ar", "24000", "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL)
+
+            def feed() -> None:
+                try:
+                    for data in voice_edge_warm.frames(text, name, rate, pitch, cancel):
+                        if cancel.is_set():
+                            break
+                        process.stdin.write(data)
+                        process.stdin.flush()
+                except Exception:
+                    _record_failure("modules/voice_edge.py:stream_feed")
+                finally:
+                    try:
+                        process.stdin.close()
+                    except Exception:
+                        _record_failure("modules/voice_edge.py:stream_close")
+
+            writer = threading.Thread(target=feed, daemon=True,
+                                      name="jarvis-edge-mp3")
+            writer.start()
+
+            # Kırpma akışta da sürer: baştaki ve sondaki sessizlik çalınmaz,
+            # içerideki ses ise asla düşmez (bekleyen sessizlik ses gelince yazılır).
+            pending: list[bytes] = []
+            started = False
+            while True:
+                if cancel.is_set():
+                    player.stop()
+                    break
+                block = process.stdout.read(4800)
+                if not block:
+                    break
+                if _is_silence(block):
+                    if started:
+                        # En fazla 2 blok beklet: sonraki sessizlik yazılır, yoksa
+                        # cihaz boş kalıp çalma duruyor (ölçüm: oran 1.14).
+                        pending.append(block)
+                        while len(pending) > 2:
+                            held = pending.pop(0)
+                            player.write(held)
+                            played += len(held)
+                    continue
+                if pending:
+                    for held in pending:
+                        player.write(held)
+                        played += len(held)
+                    pending.clear()
+                if not started:
+                    started = True
+                    if on_start is not None:
+                        try:
+                            on_start()
+                        except Exception:
+                            _record_failure("modules/voice_edge.py:stream_start")
+                player.write(block)
+                played += len(block)
+            player.flush()
+            if not cancel.is_set():
+                player.drain(cancel)
+            writer.join(timeout=1.0)
+            return played
+        except Exception:
+            _record_failure("modules/voice_edge.py:stream_play")
+            return 0
+        finally:
+            if player is not None:
+                try:
+                    player.close()
+                except Exception:
+                    _record_failure("modules/voice_edge.py:stream_player_close")
+            if process is not None and process.poll() is None:
+                try:
+                    process.kill()
+                except Exception:
+                    _record_failure("modules/voice_edge.py:stream_kill")
 
     async def _stream(self, name: str, text: str, rate: str, pitch: str,
                       cancel: threading.Event) -> bytes:
