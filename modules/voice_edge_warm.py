@@ -31,7 +31,7 @@ from modules.diagnostics import record_failure as _record_failure
 
 # Bağlantı bu süreden uzun boşta kalırsa tazelenir; 24 sn sonra ölçülen 1437 ms
 # tam olarak bunun cezasıydı.
-WARM_TTL = 8.0
+WARM_TTL = 15.0   # ölçüm: 24 sn boşta kalan soket 1437 ms'e düşüyor
 _AUDIO_FORMAT = "audio-24khz-48kbitrate-mono-mp3"
 _OPEN_TIMEOUT = 8.0
 _TURN_TIMEOUT = 30.0
@@ -260,6 +260,33 @@ class _Warm:
 
 
 _WARM = _Warm()
+
+
+_KEEPER: threading.Thread | None = None
+
+
+def start_keeper(interval: float = 4.0) -> None:
+    """Bağlantıyı boşta taze tutar: cevap anında her zaman sıcak olsun.
+
+    Ölçüm: uyandırma anında açılan soket, model 15 saniyeden uzun düşünürse
+    ölüyordu (`voice_warm miss`, canlı 17:31). Bu iş parçacığı soket bayatladıkça
+    yeniden açar; Edge web istemcisi de konuşma boyunca açık soket tutuyor.
+    """
+    global _KEEPER
+    if _KEEPER is not None and _KEEPER.is_alive():
+        return
+
+    def loop() -> None:
+        while not _WARM._closed:
+            try:
+                if not _WARM.is_warm():
+                    _WARM.warm()
+            except Exception:
+                _record_failure("modules/voice_edge_warm.py:keeper")
+            time.sleep(interval)
+
+    _KEEPER = threading.Thread(target=loop, daemon=True, name="jarvis-edge-keeper")
+    _KEEPER.start()
 
 
 def prewarm() -> bool:

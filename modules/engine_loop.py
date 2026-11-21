@@ -581,6 +581,9 @@ def main(runtime, ui=None):
                     try:
                         from modules import voice_edge_warm
                         if runtime.flags.get("speak", True):
+                            # Tazeleyici, uyandırma anındaki soket bayatladığında
+                            # yeniden açar (ölçüm: canlı 'voice_warm miss').
+                            voice_edge_warm.start_keeper()
                             runtime.threading.Thread(
                                 target=voice_edge_warm.prewarm, daemon=True,
                                 name="jarvis-edge-prewarm").start()
