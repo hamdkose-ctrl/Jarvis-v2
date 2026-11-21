@@ -50,6 +50,9 @@ def _pcm_to_wave(frames: bytes, rate: int) -> bytes:
 
 
 _PIPER_CACHE: dict[str, object] = {}
+# Paralel cümleler aynı modeli aynı anda yüklemesin: canlıda ilk tur 5657 ms
+# sürdü çünkü iki parça modeli iki kez yükledi. Tek yükleme, tek kilit.
+_LOAD_LOCK = threading.Lock()
 
 
 def _piper_inprocess(real_model: Path, text: str, length_scale: float,
@@ -67,8 +70,11 @@ def _piper_inprocess(real_model: Path, text: str, length_scale: float,
     try:
         voice = _PIPER_CACHE.get(str(real_model))
         if voice is None:
-            voice = PiperVoice.load(str(real_model))
-            _PIPER_CACHE[str(real_model)] = voice
+            with _LOAD_LOCK:
+                voice = _PIPER_CACHE.get(str(real_model))
+                if voice is None:
+                    voice = PiperVoice.load(str(real_model))
+                    _PIPER_CACHE[str(real_model)] = voice
         chunks = []
         for audio in voice.synthesize(
                 text, syn_config=SynthesisConfig(length_scale=round(length_scale, 3))):
@@ -136,7 +142,10 @@ class PiperSynthesizer:
                 if model.is_symlink() or str(model) in _PIPER_CACHE:
                     continue
                 try:
-                    _PIPER_CACHE[str(model)] = PiperVoice.load(str(model))
+                    with _LOAD_LOCK:
+                        if str(model) in _PIPER_CACHE:
+                            continue
+                        _PIPER_CACHE[str(model)] = PiperVoice.load(str(model))
                     loaded += 1
                 except Exception:
                     _record_failure("modules/voice_offline.py:preload")
@@ -250,23 +259,51 @@ class WavePlayer:
             raise ValueError("Audio output chunk size is invalid.")
         self.device = device
         self.frames_per_write = frames_per_write
+        # Takılma ancak cihaz tarafında ölçülür: ses uzunluğu, gerçek çalma süresi
+        # ve ardışık yazmalar arasındaki en uzun boşluk. Boşluk tampon süresini
+        # aşarsa cihaz kurudu (duyulan tık/sessizlik) — tahmin değil, kanıt.
+        self.last_timing: dict[str, float | str] = {}
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         _validate_wave(audio)
+        self.last_timing = {}
         if cancel.is_set():
             return
         import sounddevice as sd
+        completed = False
         with wave.open(io.BytesIO(audio), "rb") as wf:
-            with sd.RawOutputStream(samplerate=wf.getframerate(), channels=wf.getnchannels(),
+            rate = wf.getframerate()
+            audio_ms = wf.getnframes() / max(rate, 1) * 1000
+            buffer_ms = self.frames_per_write / max(rate, 1) * 1000
+            opened = time.monotonic()
+            with sd.RawOutputStream(samplerate=rate, channels=wf.getnchannels(),
                                     dtype="int16", device=self.device) as stream:
+                open_ms = (time.monotonic() - opened) * 1000
                 started = False
+                gap_ms = 0.0
+                last = None
                 while not cancel.is_set():
                     chunk = wf.readframes(self.frames_per_write)
                     if not chunk:
+                        completed = True
                         break
                     stream.write(chunk)
+                    now = time.monotonic()
+                    if last is not None:
+                        gap_ms = max(gap_ms, (now - last) * 1000 - buffer_ms)
+                    last = now
                     if not started:
                         started = True
                         # The output stream accepted the first real PCM frame. This is
                         # the player boundary, not proof that a human heard sound.
                         on_start()
+            played_ms = (time.monotonic() - opened) * 1000
+        timing: dict[str, float | str] = {"open_ms": open_ms, "audio_ms": audio_ms,
+                                          "max_gap_ms": max(gap_ms, 0.0)}
+        if completed and audio_ms:
+            timing["ratio"] = played_ms / audio_ms
+        try:
+            timing["out"] = str(sd.query_devices(kind="output")["name"])[:40]
+        except Exception:
+            pass
+        self.last_timing = timing

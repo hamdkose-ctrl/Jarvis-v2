@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import threading
 import time
+import time
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import (
@@ -118,8 +119,14 @@ def maybe_start(runtime):
     data_dir = getattr(runtime, "DATA_DIR", None)
     catalog = _read_config(data_dir / CONFIG_NAME) if isinstance(data_dir, Path) else None
     if catalog is not None:
-        lane = VoiceLane(runtime, catalog, PiperSynthesizer(data_dir / "voice_models"), WavePlayer())
+        synthesizer = PiperSynthesizer(data_dir / "voice_models")
+        lane = VoiceLane(runtime, catalog, synthesizer, WavePlayer())
         enabled = True
+        # Model açılışta yüklenir: ilk cevap model yükleme ücretini ödemesin
+        # (ölçüm: soğuk 2804 ms, sıcak 349 ms). Ön yükleme başarısız olursa
+        # ses yine çalışır, yalnız ilk cümle yavaş olur.
+        threading.Thread(target=_preload, args=(synthesizer,), name="jarvis-piper-preload",
+                         daemon=True).start()
     else:
         lane = VoiceLane(runtime, _edge_catalog(runtime), EdgeSynthesizer(), EdgePlayer())
         enabled = False
@@ -135,6 +142,17 @@ def maybe_start(runtime):
             _record_failure("modules/voice_runtime.py:voice_setup_close")
         raise
     return lane, enabled
+
+
+def _preload(synthesizer) -> None:
+    started = time.monotonic()
+    try:
+        loaded = synthesizer.preload_all()
+        # Canlıda görünmeli: ilk cevabın neden hızlı/yavaş olduğu tahmin edilmesin.
+        logging.getLogger("voice").info("ses modeli ön yükleme: %s model, %.0f ms",
+                                         loaded, (time.monotonic() - started) * 1000)
+    except Exception:
+        _record_failure("modules/voice_runtime.py:voice_preload")
 
 
 def register(lane):
