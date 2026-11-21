@@ -85,16 +85,16 @@ class RouterAuthorityTests(unittest.TestCase):
                 self.assertEqual(calls, ['groq'])
                 self.assertEqual(router._HEALTH, {})
 
-    def test_missing_evidence_retains_reason_code(self):
+    def test_missing_key_retains_configuration_reason_code(self):
         from modules.failure_policy import ProviderExhaustedError
         request = router.ModelRequest(owner='alice')
-        skipped = ({'provider': 'groq', 'reason': 'missing evidence',
-                    'reason_code': 'PROVIDER_FREE_TIER_EVIDENCE_MISSING'},)
+        skipped = ({'provider': 'groq', 'reason': 'missing API connection',
+                    'reason_code': 'PROVIDER_CONFIGURATION_REQUIRED'},)
         planned = router.RoutePlan((), skipped, 2)
         with patch.object(router, 'plan', return_value=planned):
             with self.assertRaises(ProviderExhaustedError) as caught:
                 router.run_request(request, lambda _: 'unexpected')
-        self.assertEqual(caught.exception.reason_code, 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
+        self.assertEqual(caught.exception.reason_code, 'PROVIDER_CONFIGURATION_REQUIRED')
         self.assertEqual(caught.exception.recovery_class, 'user_action_required')
 
 if __name__ == '__main__':

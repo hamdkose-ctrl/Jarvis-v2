@@ -427,4 +427,6 @@ class CaptureHeadTests(unittest.TestCase):
         # The manual report is now a status surface: a pending Brain report must
         # not empty the provider pool, which is what turned one invalid answer
         # into "doğrulayamadım". Non-qualification may never block a candidate.
-        self.assertNotIn('role_qualified', inspect.getsource(smart_router._brain_role_allowed))
+        for select in (smart_router._plan_request, smart_router._current_admission):
+            self.assertNotIn('role_qualified', inspect.getsource(select))
+        self.assertFalse(hasattr(smart_router, '_brain_role_allowed'))
