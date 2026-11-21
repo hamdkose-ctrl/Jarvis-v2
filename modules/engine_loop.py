@@ -219,6 +219,14 @@ def main(runtime, ui=None):
     voice_session = VoiceSession(runtime)
     pass  # Shared fields are held by the explicit engine context.
     runtime._ui = ui
+    # Edge bağlantısı uygulama açılışında tazelenmeye başlar: ilk turda da sıcak
+    # olsun (canlı 17:55'te ilk tur 'voice_warm miss' ile soğuk yola düşmüştü).
+    try:
+        if runtime.flags.get("speak", True):
+            from modules import voice_edge_warm
+            voice_edge_warm.start_keeper()
+    except Exception:
+        runtime._record_failure("modules/engine_loop.py:keeper_start")
     try:                                   # yazılı sohbet hafızası kalıcı geçmişten başlasın (bağlam kopmasın)
         runtime._llm.set_history_seed(lambda user: runtime._recent_turns(user, hours=2, limit=16))
     except Exception:
