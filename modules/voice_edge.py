@@ -105,6 +105,31 @@ def _winsound():
 # sesin 2.8 sn'si sessizlik. Kullanıcı bunu "aralarda fazla duruyor" diye duyuyor.
 # Kırpma konuşmayı değiştirmez: yalnız -40 dB altındaki boşluklar, iç boşluk en çok
 # 0.30 sn kalacak şekilde kısaltılır (baş/son tamamen alınır).
+_endpoint: tuple[float, str] = (0.0, "")
+
+
+def _output_endpoint() -> str:
+    """Hangi hoparlöre çalındığını söyler; ses hızı aygıta göre değişiyor.
+
+    Aynı makinede aynı cevap 1.03x (izole) ile 1.13x (canlı) arasında ölçüldü;
+    farkın hoparlör/Bluetooth değişimi mi yoksa süreç mi olduğunu ayırt etmenin
+    tek yolu cevabın hangi aygıta çalındığını kaydetmek. Sorgu 60 saniye
+    önbelleklenir, çalma yoluna ek gecikme koymaz.
+    """
+    global _endpoint
+    stamp, name = _endpoint
+    now = time.monotonic()
+    if name and now - stamp < 60.0:
+        return name
+    try:
+        import sounddevice as sd
+        name = str(sd.query_devices(kind="output").get("name") or "")[:48]
+    except Exception:
+        name = ""
+    _endpoint = (now, name)
+    return name
+
+
 _SILENCE_TRIM = (
     "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB:detection=peak,"
     "silenceremove=stop_periods=-1:stop_duration=0.30:stop_threshold=-40dB:detection=peak,"
@@ -254,7 +279,7 @@ class EdgePlayer:
         # The last real playback boundary durations, for the caller's receipt.
         # Without them a "stuttering voice" cannot be split into device open,
         # player wait or synthesis, so every fix is a guess.
-        self.last_timing: dict[str, float] = {}
+        self.last_timing: dict[str, object] = {}
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         if cancel.is_set():
@@ -310,7 +335,8 @@ class EdgePlayer:
             wait_at = time.monotonic()
             self._wait(mci, cancel, on_start)
             self.last_timing = {"open_ms": open_ms,
-                                "wait_ms": (time.monotonic() - wait_at) * 1000}
+                                "wait_ms": (time.monotonic() - wait_at) * 1000,
+                                "out": _output_endpoint()}
             length_ms = _wave_length_ms(payload)
             if length_ms:
                 # The file's own length is the only honest denominator: without it

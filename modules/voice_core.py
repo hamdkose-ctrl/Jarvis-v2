@@ -32,6 +32,12 @@ def _device_timing(player) -> str:
         value = timing.get(name)
         if isinstance(value, (int, float)):
             parts.append(f"{name}={value:{spec}}")
+    # Hangi aygıta çalındığı: aynı makinede izole 1.03x, canlı 1.13x ölçüldü.
+    # Aygıt adı olmadan bu farkın hoparlör değişiminden mi süreçten mi geldiği
+    # bilinemez; bir sonraki cevap kendi kanıtını yanında taşısın.
+    endpoint = timing.get("out")
+    if isinstance(endpoint, str) and endpoint:
+        parts.append(f"out={endpoint}")
     return " ".join(parts)
 
 
