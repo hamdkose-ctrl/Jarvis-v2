@@ -321,16 +321,6 @@ def announce_active(text: str, *, background: bool = True) -> bool:
     return True
 
 
-def _stream_enabled() -> bool:
-    """Akış oynatma ayarı (varsayılan kapalı: canlı ölçümde akışsız yol daha iyi)."""
-    try:
-        from config import load_settings
-        return bool(load_settings().get("voice_stream_first_chunk", False))
-    except Exception:
-        _record_failure("modules/voice_runtime.py:stream_setting")
-        return False
-
-
 class VoiceLane:
     def __init__(self, runtime, catalog, synthesize, play):
         self.runtime = runtime
@@ -369,25 +359,12 @@ class VoiceLane:
                     if lock.acquire(timeout=0.05):
                         lock.release()
                         break
-        # İlk parça ses inerken çalınır (Edge adaptörü destekliyorsa): tam dosyayı
-        # beklemek uzun cevapta ilk sesi 2,5-2,9 sn'ye çıkarıyordu, akışta 730 ms.
-        # Yalnız gerçek adaptör metodunu kullan: testlerde `synthesize` bir Mock
-        # olduğunda `getattr` sahte bir metot döndürür ve ses yolu bozulur.
-        stream_first = (getattr(synthesize, "stream_play", None)
-                        if callable(getattr(type(synthesize), "stream_play", None)) else None)
-        # Canlı ölçüm (23:49): akış yolu ilk parçada DAHA KÖTÜ — Edge ilk sesi geç
-        # gönderiyor, ön tamponla birlikte ilk ses 5,4 sn'ye çıkıyor; akışsız
-        # parçalarda oran 1.03 (duraklama yok). Varsayılan kapalı; istenirse
-        # ayardan açılır.
-        if not _stream_enabled():
-            stream_first = None
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
             echo_note=self._echo_note,
             resource_scope=self._resource_scope,
             before_play=wait_for_capture,
-            play_stream=stream_first,
         )
 
     def _resource_scope(self, request: SpeechRequest, kind: str):
