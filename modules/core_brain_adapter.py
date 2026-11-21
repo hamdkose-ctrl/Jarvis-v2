@@ -495,12 +495,13 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
         # Ret sessiz kalırsa her tahmin bir kullanıcı turu kaybettirir. Kapalı protokol
         # değerleri (capability + argüman anahtarları) yazılır; kullanıcı sözü yazılmaz.
+        from modules.diagnostics import record_failure as _fail
         if semantic is not None:
             keys = ",".join(sorted(dict(getattr(semantic, "arguments", {}) or {})))[:120]
-            _record_failure(f"modules/core_brain_adapter.py:core_rejected:"
-                            f"{getattr(semantic, 'capability_hint', None)}:{keys}")
+            _fail(f"modules/core_brain_adapter.py:core_rejected:"
+                  f"{getattr(semantic, 'capability_hint', None)}:{keys}")
         else:
-            _record_failure("modules/core_brain_adapter.py:core_rejected:no_semantic")
+            _fail("modules/core_brain_adapter.py:core_rejected:no_semantic")
         message = "Bu isteği güvenli biçimde doğrulayamadım; işlem başlatılmadı."
         row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")
         _LAST_FEEDBACK.set(row)
