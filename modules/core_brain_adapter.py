@@ -355,6 +355,33 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         return _handoff(runtime,entry,handler,command)
 
 
+def _pending_weather_answer(runtime: Any, command: str):
+    """Jarvis şehir sorduysa ve cümle tipli bir şehir cevabıysa hava okumasını bitirir.
+
+    Canlı kanıt (21 Kasım 09:48): Gemini sözleşmeden, Groq istek boyutundan döndü; tur
+    "güvenli biçimde doğrulayamadım" ile bitti ve kullanıcının cevabı kayboldu. Oysa bu
+    slot kapalı sözlükle ayrılabiliyor: "istanbul" konum, "hava nasıl"/"merhaba" değil.
+    Yalnız okuma yapan Core `weather` intent'i çalışır; etki sahibi değişmez.
+    """
+    reader = getattr(runtime, "_session", None)
+    if not callable(reader):
+        return None
+    session = reader()
+    if not getattr(session, "pending_weather_location", False):
+        return None
+    if not command:
+        return None
+    from modules import brain_core_map, engine_intents
+    from modules.brain_understanding import _looks_like_location_answer
+    if not _looks_like_location_answer(command):
+        return None
+    plan = brain_core_map.core_plan("weather.read", {"location": command})
+    if plan is None:
+        return None
+    session.pending_weather_location = False
+    return engine_intents.dispatch(runtime, plan[0], plan[1], command, command.casefold())
+
+
 def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     from modules.brain_entry import (
@@ -416,6 +443,12 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         if request_limit:
             from modules import brain_failure_synthesis
             return brain_failure_synthesis.synthesize(row), row, None
+        answered = _pending_weather_answer(runtime, command)
+        if answered is not None:
+            handled = feedback(entry, result_status="handled",
+                               reason_code="PENDING_WEATHER_LOCATION_ANSWERED")
+            _LAST_FEEDBACK.set(handled)
+            return answered, handled, None
         if rejected:
             return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
                     "hiçbir işlem başlatmadım.", row, None)

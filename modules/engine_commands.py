@@ -12,6 +12,12 @@ def handle_request(runtime, command: str) -> str:
     return handle(runtime, command)
 
 
+def _typed_location_answer(text: str) -> bool:
+    """Kısa ve tek başına bir şehir cevabı mı? Kapalı sözcük kümeleriyle, model olmadan."""
+    from modules.brain_understanding import _looks_like_location_answer
+    return bool(text) and bool(_looks_like_location_answer(text))
+
+
 def _canonical_tail(runtime, command: str, cmd_lower: str):
     """Bu turn'ün tek kanonical rota kararı ve tek yürütmesi.
 
@@ -250,7 +256,13 @@ def handle(runtime, command: str):
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
     if runtime._session().pending_weather_location:
         # Şehir sorusu yalnız semantik olarak cevap verilen turu tüketir; yeni istek şehir sanılmaz.
-        if brain_entry.pending_answer_owned("pending_weather_location"):
+        # Kanonik sahip seçimi birincil; ancak sağlayıcı yokken/asılı kaldığında (canlı kanıt
+        # 21 Kasım 09:48: ResponseValidationError -> ProviderExhausted) tur tümüyle düşüyordu.
+        # Bu slot zaten kapalı sözlüklü bir sınıflandırıcıyla ayrılıyor: kısa şehir cevabı
+        # ("istanbul") konumdur, "merhaba"/"hava nasıl"/"evet" değildir. Etki tek sahibinde:
+        # Core `weather` intent'i; burada yalnız okuma yapan bir niyet tetiklenir.
+        if (brain_entry.pending_answer_owned("pending_weather_location")
+                or _typed_location_answer(command)):
             if brain_entry.matched_protocol("session.pending_weather_location.cancel") \
                     or cmd_lower in ("iptal", "vazgeç", "boşver"):
                 runtime._session().pending_weather_location = False
