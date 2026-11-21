@@ -11,7 +11,8 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from modules import validation_lock
 
@@ -52,6 +53,21 @@ class SingleRunTests(unittest.TestCase):
             encoding="utf-8")
         with validation_lock.only_one_run("other", wait_seconds=0) as owned:
             self.assertFalse(owned)
+
+    def test_windows_pid_check_only_queries_the_process_table(self):
+        windows = SimpleNamespace(name="nt", kill=Mock(side_effect=AssertionError("signal sent")))
+        with patch.object(validation_lock, "os", windows), patch("psutil.pid_exists") as exists:
+            for active in (True, False):
+                with self.subTest(active=active):
+                    exists.return_value = active
+                    self.assertEqual(validation_lock._pid_alive(12345), active)
+                    exists.assert_called_with(12345)
+            windows.kill.assert_not_called()
+
+    def test_permission_denial_does_not_reclaim_a_posix_process(self):
+        posix = SimpleNamespace(name="posix", kill=Mock(side_effect=PermissionError))
+        with patch.object(validation_lock, "os", posix):
+            self.assertTrue(validation_lock._pid_alive(12345))
 
     def test_only_a_pass_is_remembered(self):
         key = "a" * 64
@@ -100,6 +116,17 @@ class CachedSuiteTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("önceki yeşil koşum", log)
         self.assertIn("sınav tekrarlanmadı", log)
+
+    def test_successful_validation_records_the_tree_verdict(self):
+        from modules import validation
+
+        key = "b" * 64
+        finished = SimpleNamespace(returncode=0, stdout="Ran 1 test", stderr="")
+        commands = [("Python testleri", ["python", "-m", "unittest"])]
+        with patch.object(validation.subprocess, "run", return_value=finished):
+            ok, _ = validation._run_commands(self.root, commands, "python", [], key, False)
+        self.assertTrue(ok)
+        self.assertIn("Ran 1 test", validation_lock.cached_verdict(key) or "")
 
     def test_busy_machine_reports_no_verdict_not_a_failure(self):
         from modules import validation

@@ -49,10 +49,16 @@ def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     try:
+        if os.name == "nt":
+            # Windows treats signal 0 as a console control event, not a PID probe.
+            import psutil
+            return psutil.pid_exists(pid)
         os.kill(pid, 0)
-    except OSError:
+    except ProcessLookupError:
         return False
-    except Exception:              # noqa: BLE001 - an unusual OS error is not proof of life
+    except PermissionError:
+        return True
+    except Exception:              # noqa: BLE001 - an unusual OS error is not proof of death
         _record_failure("modules/validation_lock.py:_pid_alive")
         return True
     return True

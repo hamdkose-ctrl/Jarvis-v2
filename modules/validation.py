@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import release_guard as guard
+from modules import validation_lock
 
 JS_GROUPS = ('desktop_flows', 'files_in_chat_behavior', 'chat_drop_behavior', 'mobile_behavior', 'continuity_behavior', 'fieldnotes_behavior', 'desktop_auth_behavior', 'paid_provider_behavior', 'developer_behavior', 'router_behavior', 'study_behavior', 'navigation_start_behavior', 'local_stt_behavior', 'ai_page_behavior', 'screen_files_panel_behavior', 'ses_boxes_behavior', 'files_search_behavior', 'mini_preview_behavior')
 JS_GROUPS += ('desktop_workspace_behavior', 'team_center_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior', 'harita_behavior')
@@ -46,7 +47,6 @@ def run_checks(root=None, *, python=None):
     #   * a second caller waits, and when it still cannot own the machine it says
     #     that no verdict exists instead of publishing a wrong one.
     # Failures are never remembered, so a red result is always re-earned.
-    from modules import validation_lock
     key = None
     try:
         key = validation_lock.tree_digest(root, executable)
