@@ -59,7 +59,7 @@ Profil çağıran tarafından kapalı enum olarak verilir; prompt kelimeleriyle 
 
 Bu tablo model adlarını veya ölçülmemiş Türkçe kaliteyi sabitlemez. Özellikle tek context boyutu, JSON verebilme veya büyük parametre sayısı Brain yeterliliğinin kanıtı değildir.
 
-Plan hazırlanırken ana ve yedek açıkça seçilir. Yerel yedek seçilmişse üçüncü/dördüncü sırada kalıp bütçenin bitmesi gizlenmez. Uygunluk nedeniyle ağ çağrısından önce atlanan aday fiziksel deneme tüketmez; kalan bütçeye uygun seçim yeniden değerlendirilebilir. Başlamış iki denemeden sonra üçüncü yoktur.
+Plan hazırlanırken ana ve yedek açıkça seçilir. Yerel yedek seçilmişse üçüncü/dördüncü sırada kalıp bütçenin bitmesi gizlenmez. Uygunluk nedeniyle ağ çağrısından önce atlanan aday fiziksel deneme tüketmez; kalan bütçeye uygun seçim yeniden değerlendirilebilir. Gemini HTTP 429 ve Groq HTTP 413 ile üretimi reddederse Router uygun Cloudflare veya yerel modelden yalnız birini deneyebilir. Bu durumda en fazla üç fiziksel çağrı yapılır.
 
 ## 5. Veri izni ve Gemini politika göçü
 
@@ -173,7 +173,7 @@ Ses dalı voice_core/runtime/offline ve ses adapter'larını sahiplenir. Router 
 
 ## 16. Kabul ve ölçüm
 
-**Ağsız zorunlu regresyonlar:** her profil için aday/ret planı; Gemini konuşma/görüntü izin kapsamı ve local/gizli tercihi; yanlış owner; vision olmayan modele görüntü gönderilmemesi; iki fiziksel çağrı sınırı (repair dahil); SDK retry; paid'e sıfır otomatik geçiş; token/context paketleme; aynı proje ortak kota yarışı; yanlış/eksik limit; response iptali ve geç delta; farklı request trace'lerinin çakışmaması; custom secret isolation; eski sağlayıcı/model enum'u ve caller emekliliği; konfigürasyon göçü.
+**Ağsız zorunlu regresyonlar:** her profil için aday/ret planı; Gemini konuşma/görüntü izin kapsamı ve local/gizli tercihi; yanlış owner; vision olmayan modele görüntü gönderilmemesi; iki fiziksel çağrı ve 429→413 için tek hazır yedek sınırı (repair dahil); SDK retry; paid'e sıfır otomatik geçiş; token/context paketleme; aynı proje ortak kota yarışı; yanlış/eksik limit; response iptali ve geç delta; farklı request trace'lerinin çakışmaması; custom secret isolation; eski sağlayıcı/model enum'u ve caller emekliliği; konfigürasyon göçü.
 
 **Canlı rol seçimi:** exact model/hesap/policy sürümüyle küçük aynı-korpus karşılaştırması. Türkçe anlam, kinaye/olumsuzlama, hedef seçimi, şema geçerliliği, yanlış işlem önerisi, gerçek görüntü doğruluğu, input/output/reasoning token, first-token ve toplam p50/p95 süre ayrı ölçülür. Tek toplam puanla gecikme/kalite kusuru saklanmaz. Canlı seçim çağrı bütçesi baştan sınırlandırılır; her küçük commit'te tekrar koşulmaz.
 

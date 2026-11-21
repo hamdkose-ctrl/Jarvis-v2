@@ -787,6 +787,7 @@ _COMPACT_GROQ_SYSTEM = (
     "argument_sources. Select capability IDs only from argument_schema. Use exact slots and prior "
     "action IDs. In argument_schema, "
     "precondition describes when the action applies and '*' is a descriptive or free-value slot. "
+    "A slot without a folder uses file_candidates_folder when present. "
     "Never supply credentials, paths, permissions or approval IDs. For argument_sources map each filled "
     "listed field to its exact quote in this utterance, else use null. Never invent a missing user value. "
     "Use current_time for dates; without it clarify. A bare level number can only continue the last "
@@ -822,6 +823,11 @@ def _groq_prompt(payload: dict[str, Any]) -> str:
     compact["recent_turns"] = [
         {**turn, "text": turn["text"][:180]} for turn in payload["recent_turns"][-4:]
     ]
+    files = payload["file_candidates"]
+    folders = {row["folder"] for row in files}
+    if len(files) > 1 and len(folders) == 1:
+        compact["file_candidates_folder"] = next(iter(folders))
+        compact["file_candidates"] = [{"slot": row["slot"], "name": row["name"]} for row in files]
     compact["allowed"] = {
         **{key: value for key, value in allowed.items() if key != "capability_id"},
         "confidence": [value.value for value in Confidence],

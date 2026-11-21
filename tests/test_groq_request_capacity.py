@@ -94,6 +94,17 @@ class GroqRequestCapacityTests(unittest.TestCase):
                         self.assertEqual(proposal.operation, 'chat')
                         self.assertEqual(proposal.actions, ())
 
+    def test_compact_file_slots_keep_all_labels_and_share_the_folder(self):
+        from modules.brain_model_understanding import _groq_prompt
+
+        folder = 'İstanbul Elektrik Pano Kabul Projeleri / 2026 Kasım Teslim ve Denetim Kayıtları'
+        files = [{'slot': f'file_{i}', 'name': f'Kabul tutanağı {i}.xlsx', 'folder': folder} for i in range(10)]
+        payload = {'allowed': {'argument_schema': {}}, 'recent_turns': [], 'file_candidates': files}
+        compact = json.loads(_groq_prompt(payload))
+        self.assertEqual(compact['file_candidates_folder'], folder)
+        self.assertEqual([dict(row, folder=folder) for row in compact['file_candidates']], files)
+        self.assertEqual(payload['file_candidates'], files)
+
     def test_native_413_retains_capacity_status_and_safe_provider_counts(self):
         with patch.object(llm.requests, 'post', return_value=too_large()):
             with self.assertRaises(Exception) as caught:
@@ -159,6 +170,38 @@ class GroqRequestCapacityTests(unittest.TestCase):
         self.assertEqual(failure_policy.classify(caught.exception), 'request_limit')
         self.assertIsNone(caught.exception.limit)
         self.assertNotIn('PRIVATE', str(caught.exception))
+
+    def test_two_pre_generation_rejections_leave_one_ready_fallback(self):
+        gemini = smart_router.ModelSpec('gemini', 'primary')
+        managed = smart_router.ModelSpec('custom', 'paid', connection_id='paid-example')
+        cloudflare = smart_router.ModelSpec('cloudflare', 'ready')
+        ollama = smart_router.ModelSpec('ollama', 'local')
+        plan = smart_router.RoutePlan((gemini, self.spec), (), 2, alternatives=(managed, cloudflare, ollama))
+        for backup_works in (True, False):
+            calls = []
+
+            def send(spec):
+                calls.append(spec.provider)
+                if spec is gemini:
+                    raise llm.requests.HTTPError('quota reached', response=response(429, {}))
+                if spec is self.spec:
+                    return llm.dispatch(self.request, spec, 'large request', '')
+                if backup_works:
+                    return 'fallback completed'
+                raise llm.requests.Timeout('Cloudflare timed out')
+
+            with self.subTest(backup_works=backup_works), patch.object(smart_router, '_HEALTH', {}), \
+                    patch.object(smart_router, 'plan', return_value=plan), \
+                    patch.object(llm.requests, 'post', return_value=too_large()) as post:
+                if backup_works:
+                    result = smart_router.run_request(self.request, send)
+                    self.assertEqual(result.model, cloudflare)
+                    self.assertEqual([row.get('status') for row in result.attempts[:2]], [429, 413])
+                else:
+                    with self.assertRaises(failure_policy.ProviderExhaustedError):
+                        smart_router.run_request(self.request, send)
+                post.assert_called_once()
+                self.assertEqual(calls, ['gemini', 'groq', 'cloudflare'])
 
     def test_full_holdout_reports_capacity_and_stops_without_a_model_response(self):
         from test_brain_output_diagnose_holdout import runner

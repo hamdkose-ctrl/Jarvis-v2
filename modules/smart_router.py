@@ -589,13 +589,25 @@ class ResponseValidationError(ValueError):
     """A received response did not satisfy the caller's application contract."""
 
 
+def _rejected_before_generation(attempts, limit):
+    """Recognize the ready-pool case where both providers refused generation."""
+    if limit != 2 or len(attempts) != 2:
+        return False
+    first, second = attempts
+    return (
+        first.get('provider') == 'gemini' and first.get('kind') == 'quota' and first.get('status') == 429
+        and second.get('provider') == 'groq' and second.get('kind') == 'request_limit' and second.get('status') == 413
+    )
+
+
 def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 *, validator: Callable[[str], Any] | None = None, attempts=None, record=None) -> RouteResult:
     """Execute a plan with one authority for retry, repair and fallback.
 
     Each adapter invocation is one real network attempt.  A schema rejection is
     recorded as an attempt and consumes the same two-attempt envelope as a retry
-    or fallback.  Cooperative cancellation/deadline checks happen before and
+    or fallback. Gemini 429 followed by Groq 413 leaves one ready fallback
+    because neither generated an answer. Cancellation/deadline checks happen before and
     after every adapter return, so a late answer is never adopted.
     """
     from modules import router_quota, failure_policy
@@ -612,7 +624,8 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
 
     def eligible_candidates():
         yield from candidates
-        if route_plan.deferred_local and len(attempts) < route_plan.max_network_attempts:
+        if route_plan.deferred_local and (len(attempts) < route_plan.max_network_attempts
+                or _rejected_before_generation(attempts, route_plan.max_network_attempts)):
             _check_request(request)
             spec, reason = _ready_spec(request, 'ollama', vision='vision' in request.features)
             if reason:
@@ -624,8 +637,11 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
 
     request_rejected = set()
     for spec in eligible_candidates():
-        if len(attempts) >= route_plan.max_network_attempts:
+        ready_fallback = _rejected_before_generation(attempts, route_plan.max_network_attempts)
+        if len(attempts) >= route_plan.max_network_attempts and not ready_fallback:
             break
+        if ready_fallback and (spec.connection_id or spec.provider not in ('cloudflare', 'ollama')):
+            continue
         with ExitStack() as admission_stack:
             _check_request(request)
             if spec in request_rejected:
@@ -724,8 +740,7 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
     from modules import failure_policy
     detail = '; '.join(failure_detail(row) for row in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok.'
     omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
-    message = ('Uygun model en çok ' + str(route_plan.max_network_attempts) +
-               ' deneme sınırında yanıt veremedi. ' + detail +
+    message = ('Uygun modelden yanıt alınamadı. ' + detail +
                (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else ''))
     if not attempts:
         if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
