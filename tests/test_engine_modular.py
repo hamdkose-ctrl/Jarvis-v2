@@ -367,9 +367,12 @@ class ModularEngineTests(unittest.TestCase):
     def test_barge_watch_holds_the_wake_microphone_under_the_audio_lock(self):
         # §P2: Jarvis speaking plus the user opening the mic used to mean two
         # PortAudio capture streams on one device, with the wake model hearing the
-        # speaker. The watch now owns the device the way the recorder does, and in
-        # bounded slices, so a recording can win the lock between slices instead of
-        # waiting out one 600-second grab.
+        # speaker. The watch owns the device the way the recorder does, and it opens
+        # it ONCE per utterance: closing and reopening every 2 seconds stretched the
+        # same answer from 1.03x to 1.16x on this PC (21 Kasım) and the user heard
+        # that as "mikrofon devreye girince kesiliyor". No recorder can want the
+        # device meanwhile — `_capture_manual_voice` refuses the microphone while
+        # the speaker carries audio — so the lock is held for the whole watch.
         from modules import wakeword
         session, lock, speaker = self.barge_session()
         done = threading.Event()
@@ -388,15 +391,16 @@ class ModularEngineTests(unittest.TestCase):
             tester.join(1)
             beside_a_free_stream.append(bool(opened and opened[0]))
             slices.append(max_seconds)
-            return b"" if len(slices) == 3 else None     # third slice: "Hey Jarvis"
+            return b""                                    # "Hey Jarvis"
 
         with patch.object(wakeword, "wanted", return_value=True), \
                 patch.object(wakeword, "ready", return_value=True), \
                 patch.object(wakeword, "wait", side_effect=fake_wait), \
                 patch('modules.voice_runtime.interrupt_receipt',return_value=True) as cut:
             session._barge_watch(done)
-        self.assertEqual(beside_a_free_stream, [False, False, False])
-        self.assertEqual(set(slices), {2.0})
+        self.assertEqual(beside_a_free_stream, [False])
+        self.assertEqual(len(slices), 1, "mikrofon ses boyunca tek kez açılmalı")
+        self.assertGreater(slices[0], 2.0, "tek açılış kısa bir dilime düşmemeli")
         cut.assert_called_once_with(getattr(session,'voice_lane',None),done)
         speaker.stop_speaking.assert_not_called()
         self.assertGreater(session.state["awake_until"], time.time())
