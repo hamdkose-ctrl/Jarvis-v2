@@ -343,6 +343,19 @@ class EdgeSynthesizer:
             # içerideki ses ise asla düşmez (bekleyen sessizlik ses gelince yazılır).
             pending: list[bytes] = []
             started = False
+            # Ölçüm: duraklamaların kaynağını ayırt etmek için (kaynak mı,
+            # cihaz mı) yazmalar arasındaki en büyük boşluğu tutuyoruz.
+            import logging as _logging
+            _vlog = _logging.getLogger("jarvis")
+            t_stream = time.monotonic()
+            last_write = None
+            max_gap = 0.0
+            max_gap_at = 0.0
+            # Ön tampon: cihaz ilk yazmada hemen çalsın ve çalma başlarken oluşan
+            # kaynak gecikmesi (barge mikrofonu açılışı vb.) sesi kesmesin.
+            # Kaynak ~25x gerçek zamanda geldiği için maliyeti ~20 ms.
+            preroll_need = 12000          # 250 ms @48 kHz mono 16-bit
+            preroll: list[bytes] = []
             while True:
                 if cancel.is_set():
                     player.stop()
@@ -365,6 +378,34 @@ class EdgeSynthesizer:
                         player.write(held)
                         played += len(held)
                     pending.clear()
+                if not started and len(b"".join(preroll)) + len(block) < preroll_need:
+                    preroll.append(block)
+                    continue
+                if not started:
+                    started = True
+                    if preroll:
+                        buffered = b"".join(preroll) + block
+                        preroll.clear()
+                        player.write(buffered)
+                        played += len(buffered)
+                    else:
+                        player.write(block)
+                        played += len(block)
+                    last_write = time.monotonic()
+                    stream_t0 = last_write
+                    if on_start is not None:
+                        try:
+                            on_start()
+                        except Exception:
+                            _record_failure("modules/voice_edge.py:stream_start")
+                    continue
+                now_w = time.monotonic()
+                if last_write is not None:
+                    gap = now_w - last_write
+                    if gap > max_gap:
+                        max_gap = gap
+                        max_gap_at = (now_w - stream_t0) * 1000
+                last_write = now_w
                 if not started:
                     started = True
                     if on_start is not None:
@@ -378,6 +419,9 @@ class EdgeSynthesizer:
             if not cancel.is_set():
                 player.drain(cancel)
             writer.join(timeout=1.0)
+            _vlog.info("speech_stream chars=%d pcm_ms=%.0f play_ms=%.0f max_gap_ms=%.0f at_ms=%.0f",
+                       len(text), played / 48.0, (time.monotonic() - t_stream) * 1000,
+                       max_gap * 1000, max_gap_at)
             return played
         except Exception:
             _record_failure("modules/voice_edge.py:stream_play")
