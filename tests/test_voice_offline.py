@@ -5,13 +5,15 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
 
 from modules.voice_core import VoiceSpec
-from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer, _validate_wave, piper_length_scale
+from modules.voice_offline import (OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer,
+                                   _piper_inprocess, _validate_wave, piper_length_scale)
 
 
 def wav_bytes(*, silent=False):
@@ -135,6 +137,43 @@ class OfflineVoiceTests(unittest.TestCase):
             WavePlayer(frames_per_write=256)(wav_bytes(), cancel, lambda: None)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(len(chunks[0]), 256 * 2)
+
+    def test_player_reports_audio_length_and_longest_device_gap(self):
+        # Takılma ölçülebilir olmalı: ses uzunluğu, çalma/uzunluk oranı ve cihazın
+        # kuruduğu en uzun boşluk. Bunlar yoksa "takılmıyor" yalnız tahmindir.
+        class Stream:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def write(self, data): pass
+        player = WavePlayer(frames_per_write=256)
+        with patch.dict(sys.modules, {"sounddevice": SimpleNamespace(
+                RawOutputStream=lambda **kwargs: Stream(),
+                query_devices=lambda **kwargs: {"name": "Hoparlor"})}):
+            player(wav_bytes(), threading.Event(), lambda: None)
+        self.assertAlmostEqual(player.last_timing["audio_ms"], 500 / 16000 * 1000, places=1)
+        self.assertEqual(player.last_timing["max_gap_ms"], 0.0)
+        self.assertIn("ratio", player.last_timing)
+        self.assertEqual(player.last_timing["out"], "Hoparlor")
+
+    def test_parallel_sentences_load_the_model_once(self):
+        # Canlıda ilk tur 5657 ms sürdü: iki parça modeli iki kez yükledi.
+        loads = []
+        def load(path):
+            loads.append(path)
+            time.sleep(0.05)   # yükleme penceresi geniş: kilitsiz kod 4 kez yükler
+            return SimpleNamespace(synthesize=lambda *a, **k: [])
+        fake_piper = SimpleNamespace(PiperVoice=SimpleNamespace(load=load),
+                                     SynthesisConfig=lambda **kwargs: kwargs)
+        threads = []
+        with patch.dict(sys.modules, {"piper": fake_piper}):
+            for _ in range(4):
+                thread = threading.Thread(target=_piper_inprocess,
+                                          args=(self.root / "male.onnx", "Merhaba", 1.0, threading.Event()))
+                threads.append(thread)
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+        self.assertEqual(len(loads), 1)
 
     def test_no_playback_when_cancelled(self):
         cancel = threading.Event()
