@@ -23,7 +23,7 @@ class OfflineVoiceUnavailable(RuntimeError):
     pass
 
 
-_PIPER_LENGTH_BASE = 1.18   # kullanıcı onayı: biraz daha yavaş (tokluk)
+_PIPER_LENGTH_BASE = 1.24   # kullanıcı: 'çok az yavaşlat' (1.18 -> 1.24, ~%5)
 _TOK_CHAIN = ("bass=g=7:f=130:w=0.9,acompressor=threshold=-14dB:ratio=4:"
               "attack=4:release=160,volume=1.9,alimiter=limit=0.95,aresample=48000")
 
@@ -275,51 +275,75 @@ class WavePlayer:
             pass
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
+        """Cihaz sesi kendisi çeker; Python döngüsü cihazı beslemek zorunda değil.
+
+        Canlı ölçüm (22 Kasım): yazma döngüsü sürümünde uygulama yükü çalma iş
+        parçacığını 250-310 ms askıya alıyordu; 350 ms hazır sese rağmen kullanıcı
+        ufak bir takılma duydu. Callback'li akışta ses PortAudio tarafından
+        çekilir, askı yalnız tamponu aşarsa duyulur ve bu artık PortAudio'nun
+        kendi `output_underflow` bayrağıyla ölçülür — tahmin değil.
+        """
         _validate_wave(audio)
         self.last_timing = {}
         if cancel.is_set():
             return
         import sounddevice as sd
-        completed = False
-        self._raise_priority()
         with wave.open(io.BytesIO(audio), "rb") as wf:
             rate = wf.getframerate()
-            audio_ms = wf.getnframes() / max(rate, 1) * 1000
-            buffer_ms = self.frames_per_write / max(rate, 1) * 1000
-            opened = time.monotonic()
-            with sd.RawOutputStream(samplerate=rate, channels=wf.getnchannels(),
-                                    dtype="int16", device=self.device,
-                                    latency=self.latency) as stream:
-                open_ms = (time.monotonic() - opened) * 1000
-                try:
-                    headroom_ms = float(getattr(stream, "latency", 0.0)) * 1000
-                except (TypeError, ValueError):
-                    headroom_ms = 0.0
-                started = False
-                gap_ms = 0.0
-                last = None
-                while not cancel.is_set():
-                    chunk = wf.readframes(self.frames_per_write)
-                    if not chunk:
-                        completed = True
-                        break
-                    stream.write(chunk)
-                    now = time.monotonic()
-                    if last is not None:
-                        gap_ms = max(gap_ms, (now - last) * 1000 - buffer_ms)
-                    last = now
-                    if not started:
-                        started = True
-                        # The output stream accepted the first real PCM frame. This is
-                        # the player boundary, not proof that a human heard sound.
-                        on_start()
-            played_ms = (time.monotonic() - opened) * 1000
-        timing: dict[str, float | str] = {"open_ms": open_ms, "audio_ms": audio_ms,
-                                          "max_gap_ms": max(gap_ms, 0.0)}
-        # Duyulan takılma, askının cihazda hazır bekleyen sesi aşmasıdır; yüksek
-        # gecikmeli akışta 250 ms'lik bir askı sessizliğe dönüşmez.
-        timing["headroom_ms"] = headroom_ms
-        timing["stall_ms"] = max(0.0, max(gap_ms, 0.0) - headroom_ms)
+            channels = wf.getnchannels()
+            frame_bytes = channels * wf.getsampwidth()
+            pcm = wf.readframes(wf.getnframes())
+        audio_ms = len(pcm) / frame_bytes / max(rate, 1) * 1000
+        state = {"pos": 0, "underflows": 0, "gap_ms": 0.0, "last": None, "started": False}
+        finished = threading.Event()
+
+        def callback(outdata, frames, time_info, status):
+            if status is not None and getattr(status, "output_underflow", False):
+                state["underflows"] += 1
+            now = time.monotonic()
+            if state["last"] is not None:
+                aski_ms = (now - state["last"]) * 1000 - frames / max(rate, 1) * 1000
+                state["gap_ms"] = max(state["gap_ms"], aski_ms)
+            state["last"] = now
+            wanted = frames * frame_bytes
+            if cancel.is_set():
+                outdata[:] = bytes(len(outdata))
+                finished.set()
+                raise sd.CallbackAbort
+            chunk = pcm[state["pos"]:state["pos"] + wanted]
+            if chunk:
+                outdata[:len(chunk)] = chunk
+                state["pos"] += len(chunk)
+            if len(chunk) < wanted:
+                outdata[len(chunk):] = bytes(wanted - len(chunk))
+                finished.set()
+                raise sd.CallbackStop
+            if not state["started"]:
+                state["started"] = True
+                # Çağrı geri çağırma içinde bloklanmamalı: başlangıç bildirimi
+                # kendi iş parçacığında yapılır (mikrofon açılışı buna bağlı).
+                threading.Thread(target=on_start, name="jarvis-voice-start", daemon=True).start()
+
+        opened = time.monotonic()
+        stream = sd.RawOutputStream(samplerate=rate, channels=channels, dtype="int16",
+                                    device=self.device, latency=self.latency,
+                                    blocksize=self.frames_per_write, callback=callback)
+        with stream:
+            open_ms = (time.monotonic() - opened) * 1000
+            try:
+                headroom_ms = float(getattr(stream, "latency", 0.0)) * 1000
+            except (TypeError, ValueError):
+                headroom_ms = 0.0
+            finished.wait(timeout=audio_ms / 1000 + 2.0)
+        played_ms = (time.monotonic() - opened) * 1000
+        completed = state["pos"] >= len(pcm)
+        timing: dict[str, float | str] = {
+            "open_ms": open_ms, "audio_ms": audio_ms,
+            "max_gap_ms": max(state["gap_ms"], 0.0), "headroom_ms": headroom_ms,
+            # Duyulan takılmanın tek güvenilir göstergesi: PortAudio tamponu
+            # tükettiğini kendi bildirdi mi?
+            "underruns": state["underflows"],
+        }
         if completed and audio_ms:
             timing["ratio"] = played_ms / audio_ms
         try:

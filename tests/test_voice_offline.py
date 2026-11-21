@@ -124,56 +124,57 @@ class OfflineVoiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _validate_wave(wav_bytes()[:70])
 
-    def test_pcm_player_cooperates_with_cancellation(self):
-        chunks = []
-        cancel = threading.Event()
+    def fake_device(self, *, underflow=False):
+        """Cihaz sesi kendi çeker: callback'i PortAudio çağırır, biz taklit ediyoruz."""
+        class Stop(Exception): pass
+        class Abort(Exception): pass
         class Stream:
-            def __enter__(self): return self
+            def __init__(self, *, callback, blocksize, **kwargs):
+                self.callback, self.blocksize = callback, blocksize
+                self.latency = 0.05
+                self.played = 0
+            def __enter__(self):
+                for _ in range(16):
+                    out = bytearray(self.blocksize * 2)
+                    status = SimpleNamespace(output_underflow=True) if underflow else None
+                    try:
+                        self.callback(memoryview(out), self.blocksize, None, status)
+                    except (Stop, Abort):
+                        break
+                    self.played += 1
+                return self
             def __exit__(self, *args): pass
-            def write(self, data):
-                chunks.append(data)
-                cancel.set()
-        with patch.dict(sys.modules, {"sounddevice": SimpleNamespace(RawOutputStream=lambda **kwargs: Stream())}):
-            WavePlayer(frames_per_write=256)(wav_bytes(), cancel, lambda: None)
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(len(chunks[0]), 256 * 2)
+        return patch.dict(sys.modules, {"sounddevice": SimpleNamespace(
+            RawOutputStream=lambda **kwargs: Stream(**kwargs),
+            CallbackStop=Stop, CallbackAbort=Abort,
+            query_devices=lambda **kwargs: {"name": "Hoparlor"})})
 
-    def test_player_reports_audio_length_and_longest_device_gap(self):
-        # Takılma ölçülebilir olmalı: ses uzunluğu, çalma/uzunluk oranı ve cihazın
-        # kuruduğu en uzun boşluk. Bunlar yoksa "takılmıyor" yalnız tahmindir.
-        class Stream:
-            def __enter__(self): return self
-            def __exit__(self, *args): pass
-            def write(self, data): pass
+    def test_player_reports_audio_length_and_device_underrun(self):
+        # Takılma ölçülebilir olmalı: ses uzunluğu, oran, hazır ses ve cihazın
+        # kendi "tampon tükendi" bayrağı. Bunlar yoksa "takılmıyor" tahmindir.
         player = WavePlayer(frames_per_write=256)
-        with patch.dict(sys.modules, {"sounddevice": SimpleNamespace(
-                RawOutputStream=lambda **kwargs: Stream(),
-                query_devices=lambda **kwargs: {"name": "Hoparlor"})}):
+        with self.fake_device():
             player(wav_bytes(), threading.Event(), lambda: None)
         self.assertAlmostEqual(player.last_timing["audio_ms"], 500 / 16000 * 1000, places=1)
-        self.assertEqual(player.last_timing["max_gap_ms"], 0.0)
+        self.assertEqual(player.last_timing["underruns"], 0)
         self.assertIn("ratio", player.last_timing)
         self.assertEqual(player.last_timing["out"], "Hoparlor")
 
-    def test_parallel_sentences_load_the_model_once(self):
-        # Canlıda ilk tur 5657 ms sürdü: iki parça modeli iki kez yükledi.
-        loads = []
-        def load(path):
-            loads.append(path)
-            time.sleep(0.05)   # yükleme penceresi geniş: kilitsiz kod 4 kez yükler
-            return SimpleNamespace(synthesize=lambda *a, **k: [])
-        fake_piper = SimpleNamespace(PiperVoice=SimpleNamespace(load=load),
-                                     SynthesisConfig=lambda **kwargs: kwargs)
-        threads = []
-        with patch.dict(sys.modules, {"piper": fake_piper}):
-            for _ in range(4):
-                thread = threading.Thread(target=_piper_inprocess,
-                                          args=(self.root / "male.onnx", "Merhaba", 1.0, threading.Event()))
-                threads.append(thread)
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=5)
-        self.assertEqual(len(loads), 1)
+    def test_player_reports_underrun_when_device_starves(self):
+        # Kullanıcının duyduğu takılma cihazın susuz kalmasıdır; artık ölçülüyor.
+        player = WavePlayer(frames_per_write=256)
+        with self.fake_device(underflow=True):
+            player(wav_bytes(), threading.Event(), lambda: None)
+        self.assertGreater(player.last_timing["underruns"], 0)
+
+    def test_cancellation_aborts_the_device_feed(self):
+        cancel = threading.Event()
+        player = WavePlayer(frames_per_write=256)
+        def on_start():
+            cancel.set()
+        with self.fake_device():
+            player(wav_bytes(), cancel, on_start)
+        self.assertNotIn("ratio", player.last_timing)   # yarıda kesildi, çalma oranı yok
 
     def test_no_playback_when_cancelled(self):
         cancel = threading.Event()

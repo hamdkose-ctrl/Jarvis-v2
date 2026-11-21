@@ -30,7 +30,8 @@ def _device_timing(player) -> str:
         return ""
     parts = []
     for name, spec in (("open_ms", ".0f"), ("wait_ms", ".0f"), ("audio_ms", ".0f"),
-                       ("ratio", ".2f"), ("max_gap_ms", ".0f")):
+                       ("ratio", ".2f"), ("max_gap_ms", ".0f"),
+                       ("headroom_ms", ".0f"), ("underruns", ".0f")):
         value = timing.get(name)
         if isinstance(value, (int, float)):
             parts.append(f"{name}={value:{spec}}")
