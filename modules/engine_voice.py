@@ -461,7 +461,22 @@ class VoiceSession:
             if should_stop():
                 return True
             with _physical_mic_claim():
-                audio = wakeword.wait(should_stop, on_wake=lambda: runtime.emit("state", "listening"))
+                def _on_wake() -> None:
+                    runtime.emit("state", "listening")
+                    # Uyandırma anında Edge bağlantısını aç: kullanıcının
+                    # komutu söylemesi + yazıya çevrilmesi ~1-3 sn sürüyor ve
+                    # cevabın bağlantısı o arada hazır oluyor (ölçüm: el sıkışma
+                    # 1337 ms, hazır bağlantıda ilk ses 414-481 ms). Cevap
+                    # hazırlanırken başlatmak modelin hızlı olduğu turlarda
+                    # yetişmiyordu (canlı: synth 1911-2902 ms = soğuk yol).
+                    try:
+                        from modules import voice_edge_warm
+                        runtime.threading.Thread(target=voice_edge_warm.prewarm,
+                                                 daemon=True,
+                                                 name="jarvis-edge-prewarm").start()
+                    except Exception:
+                        runtime._record_failure("modules/engine_voice.py:prewarm")
+                audio = wakeword.wait(should_stop, on_wake=_on_wake)
         if audio is None:
             return True                   # "Hey Jarvis" duyulmadı; döngü yeniden dinler
         cmd = runtime._strip_wake(runtime.voice.recognize(audio) or "") if audio else ""

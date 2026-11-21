@@ -219,6 +219,14 @@ def main(runtime, ui=None):
     voice_session = VoiceSession(runtime)
     pass  # Shared fields are held by the explicit engine context.
     runtime._ui = ui
+    # Edge bağlantısı uygulama açılışında tazelenmeye başlar: ilk turda da sıcak
+    # olsun (canlı 17:55'te ilk tur 'voice_warm miss' ile soğuk yola düşmüştü).
+    try:
+        if runtime.flags.get("speak", True):
+            from modules import voice_edge_warm
+            voice_edge_warm.start_keeper()
+    except Exception:
+        runtime._record_failure("modules/engine_loop.py:keeper_start")
     try:                                   # yazılı sohbet hafızası kalıcı geçmişten başlasın (bağlam kopmasın)
         runtime._llm.set_history_seed(lambda user: runtime._recent_turns(user, hours=2, limit=16))
     except Exception:
@@ -572,6 +580,23 @@ def main(runtime, ui=None):
 
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
+                    # Edge bağlantısı düşünme sırasında açılır: el sıkışma
+                    # ölçüldü 1337 ms, hazır bağlantıda ilk ses 414-481 ms.
+                    # Cevap üretilene kadar bu süre zaten boşta geçiyor; ses
+                    # yolunda ödemek yerine burada ödenir. Bağlantı kurulamazsa
+                    # ses bugünkü yoldan çıkar (voice_edge sıcak soket yoksa
+                    # edge_tts'e düşer), yani kaybedilecek bir şey yok.
+                    try:
+                        from modules import voice_edge_warm
+                        if runtime.flags.get("speak", True):
+                            # Tazeleyici, uyandırma anındaki soket bayatladığında
+                            # yeniden açar (ölçüm: canlı 'voice_warm miss').
+                            voice_edge_warm.start_keeper()
+                            runtime.threading.Thread(
+                                target=voice_edge_warm.prewarm, daemon=True,
+                                name="jarvis-edge-prewarm").start()
+                    except Exception:
+                        runtime._record_failure("modules/engine_loop.py:prewarm")
                     try:
                         t_cmd = runtime.time.time()
                         if explicit_read is None:
@@ -676,6 +701,13 @@ def main(runtime, ui=None):
         runtime.stop_event.set()
     finally:
         runtime.stop_event.set()
+        # Sıcak Edge bağlantısı kapanışta bırakılır; soket ve oturum sahipsiz
+        # kalırsa aiohttp kapanışta uyarı basar.
+        try:
+            from modules import voice_edge_warm
+            voice_edge_warm.close()
+        except Exception:
+            runtime._record_failure("modules/engine_loop.py:warm_close")
         runtime._cur_source = ""
         runtime._cur_rid = None
         runtime.pause_listening.clear()

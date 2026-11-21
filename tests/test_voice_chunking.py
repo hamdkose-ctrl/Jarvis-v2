@@ -4,7 +4,7 @@ import time
 import unittest
 
 from modules.voice_core import (
-    SPEECH_CHUNK_CHARS, SPEECH_FIRST_CHUNK_CHARS, SpeechRequest, VoiceCatalog,
+    SPEECH_CHUNK_CHARS, SPEECH_FIRST_CHUNK_CHARS, SpeechRequest, VoiceCatalog, speech_chunks,
     VoiceCoordinator, VoiceSpec, split_speech_text,
 )
 
@@ -143,7 +143,7 @@ class ChunkedSpeechTests(unittest.TestCase):
 
     def test_every_audible_chunk_of_a_long_answer_reaches_the_echo_guard(self):
         phrases = ("Merhaba, bu uzun bir yanıtın parçasıdır. " * 36).strip()
-        chunks = split_speech_text(phrases)
+        chunks = speech_chunks(phrases)
         self.assertGreater(len(chunks), 1)
         heard = []
         lane = self.start(lambda voice, text, cancel: text.encode("utf-8"),
@@ -157,7 +157,7 @@ class ChunkedSpeechTests(unittest.TestCase):
 
     def test_sus_registers_only_the_chunk_that_was_on_the_speaker(self):
         phrases = ("Merhaba, bu uzun bir yanıtın parçasıdır. " * 36).strip()
-        chunks = split_speech_text(phrases)
+        chunks = speech_chunks(phrases)
         self.assertGreater(len(chunks), 1)
         heard = []
         started, released = threading.Event(), threading.Event()
@@ -215,7 +215,9 @@ class ChunkedSpeechTests(unittest.TestCase):
         finally:
             released.set()
         self.until(1)
-        self.assertEqual(len(calls), 1)
+        # Hazırlık öne alınmış olabilir (paralel sentez); sözleşme çalmayla ilgili:
+        # susturulan cevaptan hiçbir parça hoparlöre gitmez.
+        self.assertGreaterEqual(len(calls), 1)
         self.assertEqual(played, [])
         self.assertEqual(self.receipts[0].status, "cancelled")
 
@@ -282,7 +284,8 @@ class ChunkedSpeechTests(unittest.TestCase):
         lane = self.start(synth, lambda audio, cancel, on_start: (played.append(audio), on_start()))
         self.assertTrue(lane.submit(request("failed", "Devam! " * 260)))
         self.until(1)
-        self.assertEqual(len(calls), 2)
+        # Sonraki parçalar önceden hazırlanabilir; hiçbiri çalınmamalı.
+        self.assertGreaterEqual(len(calls), 2)
         self.assertEqual(played, [b"audio"])
         self.assertEqual(self.receipts[0].status, "failed")
         self.assertEqual(self.receipts[0].reason_code, "VOICE_EMPTY_AUDIO")
@@ -309,8 +312,11 @@ class ChunkedSpeechTests(unittest.TestCase):
         self.until(2)
         self.assertEqual([(r.request_id, r.status) for r in self.receipts],
                          [("background", "cancelled"), ("foreground", "played")])
-        self.assertEqual(len(calls), 2)
-        self.assertEqual([voice for voice, _ in calls], ["tr_erkek", "tr_kadin"])
+        # Ön hazırlık arka planın birkaç parçasını üretmiş olabilir; sıra korunur:
+        # önce arka plan, sonra ön plan; çalınan yalnız ön plan.
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], "tr_erkek")
+        self.assertEqual(calls[-1][0], "tr_kadin")
         self.assertEqual(played, [b"audio"])
 
     def test_open_early_at_opens_a_normal_shortened_reply_at_its_first_sentence(self):

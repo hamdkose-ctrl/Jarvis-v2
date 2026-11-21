@@ -16,8 +16,9 @@ from unittest.mock import Mock, patch
 
 from modules import requests_state, voice_edge, voice_runtime
 from modules.engine_voice import VoiceSession
+from modules import voice_core
 from modules.voice_core import (
-    SpeechRequest, VoiceCatalog, VoiceSpec, split_speech_text,
+    SPEECH_PARALLEL_SYNTH, SpeechRequest, VoiceCatalog, VoiceSpec, speech_chunks,
 )
 
 
@@ -326,9 +327,11 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
                          "quiet was requested; a muted turn must not complain about itself")
 
     def test_sus_stops_the_remaining_chunks_of_an_utterance_already_playing(self):
-        # An answer cut mid-sentence must not synthesize or play its next chunk;
-        # the cooperative cancel is what bounds it, verified through the real
-        # shared stop entry rather than a mock of the worker.
+        # An answer cut mid-sentence must not PLAY its next chunk. Preparation may
+        # already have started for up to the bounded parallel window (cümle bazlı
+        # üretim konuşmayı duraklatmadan ton taşıyabilsin diye), but it stays
+        # bounded and the cooperative cancel is what stops the rest: verified
+        # through the real shared stop entry rather than a mock of the worker.
         self._requests_isolated()
         heard = []
         started = threading.Event()
@@ -352,7 +355,8 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         voice.stop_speaking()
         release.set()
         self.assertTrue(first.wait(2))
-        self.assertEqual(len(heard), 1, "the stopped turn never synthesizes its remaining chunk")
+        self.assertLessEqual(len(heard), SPEECH_PARALLEL_SYNTH,
+                             "hazırlık paralel penceresiyle sınırlı kalmalı")
 
     def test_sus_keeps_the_other_jobs_later_spoken_result_while_muting_its_own(self):
         # Two independent jobs run for the same user. Jarvis is speaking job A's
@@ -876,7 +880,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         head = "Ekran paylaşımını şimdi kapatıyorum."
         tail = "Sessiz modu da etkinleştiriyorum."
         phrases = " ".join([head] * 30) + " " + tail
-        chunks = split_speech_text(phrases)
+        chunks = speech_chunks(phrases)
         self.assertGreater(len(chunks), 1)
         self.assertNotIn(tail, chunks[0])
         self.assertIn(tail, chunks[-1])

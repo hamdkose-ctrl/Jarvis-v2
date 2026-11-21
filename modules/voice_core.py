@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import logging
+from contextlib import nullcontext
 import queue
 import threading
 import time
@@ -96,6 +97,21 @@ SPEECH_FIRST_CHUNK_CHARS = 200
 # spoken text is capped below SPEECH_CHUNK_CHARS, so without this the ordinary
 # max_chars gate never opens a normal reply early.
 SPEECH_EARLY_OPEN_CHARS = 120
+# Cümle tonu ancak cümle cümle üretilirse duyuluyor: bir blokta 2-3 cümle varsa
+# tek bir perde kaydırması hepsine uygulanır ve etki kaybolur (ölçüm 21 Kasım:
+# blok bazında perde hareketi 4.66 -> 4.95 yarım ton, yani duyulmaz; cümle
+# bazında soru 135 -> 146 Hz). Hedef bu yüzden cümle boyu; uzun cevaplarda
+# istek sayısı sınırlı kalsın diye blok büyür.
+SPEECH_SENTENCE_CHARS = 170
+# Bundan kısa parçayı tek başına çalmak, açılış maliyeti yüzünden okumayı
+# yavaşlatıyor (ölçüm: 28 karakterlik parça 1.32 oranında çalındı).
+SPEECH_MIN_CHUNK = 120
+# Edge paralel istekleri kaldırıyor: 6 cümle paralel 1.8-2.5 sn (sırayla ~15 sn).
+# Sınır, tek cevabın açabileceği eşzamanlı istek sayısıdır.
+SPEECH_PARALLEL_SYNTH = 6
+# Bir cevap için en çok bu kadar parça: cümle sayısı bunu aşarsa ardışık
+# cümleler gruplanır (çok uzun cevapta istek yağmuru olmasın).
+SPEECH_MAX_CHUNKS = 8
 # A tail shorter than this is not worth a second synthesis and a second player
 # start: the speaker would fall silent to prepare one short leftover word. Keep
 # the answer in ONE chunk instead, so its audio never breaks.
@@ -150,6 +166,66 @@ def _first_sentence_end(text: str, limit: int) -> int:
                 continue
         pos += 1
     return 0
+
+
+_SENTENCE_END = ".!?…"
+
+
+def _sentences(text: str) -> list[str]:
+    """Metni cümlelere böler, hiçbir karakteri kaybetmeden (bitişik ekler dahil)."""
+    parts: list[str] = []
+    start = 0
+    for index, char in enumerate(text):
+        if char in _SENTENCE_END:
+            end = index + 1
+            while end < len(text) and text[end].isspace():
+                end += 1
+            parts.append(text[start:end])
+            start = end
+    if start < len(text):
+        parts.append(text[start:])
+    return [part for part in parts if part.strip()]
+
+
+def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
+    """Bir cevabın seslendirilecek parçaları — varsayılan olarak birer cümle.
+
+    Ton ancak cümle cümle üretilirse duyuluyor: blok içinde tek perde kaydırması
+    bütün cümlelere uygulanır ve etki kaybolur (ölçüm 21 Kasım: blok bazında
+    perde hareketi 4.66 -> 4.95, cümle bazında soru 135 -> 146 Hz).
+    İstek sayısı sınırlı kalsın diye cümle sayısı SPEECH_MAX_CHUNKS'ı aşarsa
+    ardışık cümleler eşit gruplara birleştirilir; tek başına sığmayan cümle
+    kelime sınırından kırılır. Hiçbir karakter düşmez ya da eklenmez.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return ()
+    sentences = _sentences(text)
+    if not sentences:
+        return ()
+    if len(sentences) > SPEECH_MAX_CHUNKS:
+        step = -(-len(sentences) // SPEECH_MAX_CHUNKS)
+        sentences = ["".join(sentences[i:i + step])
+                     for i in range(0, len(sentences), step)]
+    # Kısa cümle tek başına çalınınca ölçülen açılış maliyeti sesin kendisinden
+    # büyük oluyor (28 karakterlik cümle: 1898 ms ses, 2578 ms çalma = 1.32) ve
+    # kullanıcı bunu "okuma yavaşladı" diye duyuyor. Bu yüzden komşu kısa
+    # cümleler, parça en az SPEECH_MIN_CHUNK olana kadar birleştirilir.
+    merged: list[str] = []
+    for sentence in sentences:
+        if merged and len(merged[-1]) < SPEECH_MIN_CHUNK and                 len(merged[-1]) + len(sentence) <= SPEECH_SENTENCE_CHARS:
+            merged[-1] += sentence
+        else:
+            merged.append(sentence)
+    sentences = merged
+    parts: list[str] = []
+    for sentence in sentences:
+        if len(sentence) <= SPEECH_SENTENCE_CHARS:
+            parts.append(sentence)
+        else:
+            parts.extend(split_speech_text(sentence, max_chars=SPEECH_SENTENCE_CHARS,
+                                          first_max_chars=SPEECH_SENTENCE_CHARS))
+    _ = open_early_at   # cümle bazında açılış zaten ilk cümleyle sınırlı
+    return tuple(parts)
 
 
 def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS,
@@ -699,8 +775,8 @@ class VoiceCoordinator:
 
                 try:
                     self._stage(request, "synthesizing")
-                    chunks = [chunk for chunk in split_speech_text(
-                        request.text, open_early_at=request.open_early_at) if chunk.strip()]
+                    chunks = [chunk for chunk in speech_chunks(
+                        request.text, request.open_early_at) if chunk.strip()]
                     # Prepare the NEXT chunk while the current one is still on the
                     # speaker. Synthesizing strictly after each playback ended made
                     # the voice stop between chunks: the user hears the answer as
@@ -708,12 +784,19 @@ class VoiceCoordinator:
                     prefetched: dict[int, tuple[threading.Thread, dict]] = {}
 
                     def synthesize_chunk(chunk: str) -> bytes:
-                        if self._resource_scope is None:
-                            return self._synthesize(spec, chunk, cancel)
-                        with self._resource_scope(request, "tts"):
-                            return self._synthesize(spec, chunk, cancel)
+                        # Kilit çağrı boyunca bir kez alınır (aşağıdaki with);
+                        # parça başına almak paralel hazırlıkta çakışıyordu.
+                        return self._synthesize(spec, chunk, cancel)
 
-                    def prefetch(index: int) -> None:
+                    def prefetch(index: int, depth: int = 1) -> None:
+                        # `depth` > 1 hazırlığı öne alır: cümle bazlı üretimde tek
+                        # tek beklemek konuşmayı yeniden duraklatırdı. Hepsi tek
+                        # "tts" kilidi altında çalışır; aynı sağlayıcı için ikinci
+                        # bir kilit talebi reddedilirdi (LeaseConflict).
+                        for ahead in range(index, min(index + depth, len(chunks))):
+                            _prefetch_one(ahead)
+
+                    def _prefetch_one(index: int) -> None:
                         if index >= len(chunks) or index in prefetched:
                             return
                         box: dict = {}
@@ -729,68 +812,73 @@ class VoiceCoordinator:
                         prefetched[index] = (worker, box)
                         worker.start()
 
-                    prefetch(0)
-                    for position, chunk in enumerate(chunks):
-                        if cancel.is_set():
-                            status, reason = "cancelled", self._cancelled_reason()
-                            break
-                        pending = prefetched.pop(position, None)
-                        if pending is None:
-                            audio = synthesize_chunk(chunk)
-                        else:
-                            worker, box = pending
-                            if not self._await_prefetch(worker, cancel):
-                                if cancel.is_set():
-                                    status, reason = "cancelled", self._cancelled_reason()
-                                    break
-                                # Never claim audio that is still being produced; the
-                                # existing adapter failure path reports it honestly.
-                                status, reason = "failed", "VOICE_PREFETCH_TIMEOUT"
+                    # Bütün hazırlık TEK "tts" kilidi altında: paralel parçalar aynı
+                    # sağlayıcıyı kullanır, ikinci bir kilit talebi reddedilirdi.
+                    _tts_scope = (nullcontext() if self._resource_scope is None
+                                  else self._resource_scope(request, "tts"))
+                    with _tts_scope:
+                        prefetch(0, SPEECH_PARALLEL_SYNTH)
+                        for position, chunk in enumerate(chunks):
+                            if cancel.is_set():
+                                status, reason = "cancelled", self._cancelled_reason()
                                 break
-                            if "error" in box:
-                                raise box["error"]
-                            audio = box.get("audio")
-                        if cancel.is_set():
-                            status, reason = "cancelled", self._cancelled_reason()
-                            break
-                        if not isinstance(audio, bytes) or not audio:
-                            status, reason = "failed", "VOICE_EMPTY_AUDIO"
-                            break
-                        if not announced_ready:
-                            announced_ready = True
-                            self._stage(request, "audio_ready")
-                        if self._before_play is not None:
-                            self._before_play(request,cancel)
-                        if cancel.is_set():
-                            status, reason = 'cancelled', self._cancelled_reason()
-                            break
-                        if self._expired(request, enqueued_at):
-                            status, reason = "cancelled", "VOICE_TTL_EXPIRED"
-                            break
-                        invalid = self._validity(request)
-                        if invalid:
-                            status, reason = "cancelled", invalid
-                            break
-                        prefetch(position + 1)
-                        started_at = time.monotonic()
-                        cpu_before = _cpu_window()
-                        if self._resource_scope is None:
-                            self._play(audio, cancel, start_notifier(chunk))
-                        else:
-                            with self._resource_scope(request, "output_device"):
+                            pending = prefetched.pop(position, None)
+                            if pending is None:
+                                audio = synthesize_chunk(chunk)
+                            else:
+                                worker, box = pending
+                                if not self._await_prefetch(worker, cancel):
+                                    if cancel.is_set():
+                                        status, reason = "cancelled", self._cancelled_reason()
+                                        break
+                                    # Never claim audio that is still being produced; the
+                                    # existing adapter failure path reports it honestly.
+                                    status, reason = "failed", "VOICE_PREFETCH_TIMEOUT"
+                                    break
+                                if "error" in box:
+                                    raise box["error"]
+                                audio = box.get("audio")
+                            if cancel.is_set():
+                                status, reason = "cancelled", self._cancelled_reason()
+                                break
+                            if not isinstance(audio, bytes) or not audio:
+                                status, reason = "failed", "VOICE_EMPTY_AUDIO"
+                                break
+                            if not announced_ready:
+                                announced_ready = True
+                                self._stage(request, "audio_ready")
+                            if self._before_play is not None:
+                                self._before_play(request,cancel)
+                            if cancel.is_set():
+                                status, reason = 'cancelled', self._cancelled_reason()
+                                break
+                            if self._expired(request, enqueued_at):
+                                status, reason = "cancelled", "VOICE_TTL_EXPIRED"
+                                break
+                            invalid = self._validity(request)
+                            if invalid:
+                                status, reason = "cancelled", invalid
+                                break
+                            prefetch(position + 1, SPEECH_PARALLEL_SYNTH)
+                            started_at = time.monotonic()
+                            cpu_before = _cpu_window()
+                            if self._resource_scope is None:
                                 self._play(audio, cancel, start_notifier(chunk))
-                        # Chunk timing is the evidence for a stuttering answer: a
-                        # long play next to its own audio length is a device stall,
-                        # a long prepare is a pipeline gap, and a chunk that burns
-                        # a whole core of CPU time explains why the device starves.
-                        voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s %s",
-                                       position + 1, len(chunks), len(chunk),
-                                       (time.monotonic() - started_at) * 1000,
-                                       _device_timing(self._play),
-                                       _cpu_report(cpu_before, started_at))
-                        if cancel.is_set():
-                            status, reason = "cancelled", self._cancelled_reason()
-                            break
+                            else:
+                                with self._resource_scope(request, "output_device"):
+                                    self._play(audio, cancel, start_notifier(chunk))
+                            # Chunk timing is the evidence for a stuttering answer: a
+                            # long play next to its own audio length is a device stall,
+                            # a long prepare is a pipeline gap, and a chunk that burns
+                            # a whole core of CPU time explains why the device starves.
+                            voice_log.info("speech_chunk index=%s of=%s chars=%s play_ms=%.0f %s %s",
+                                           position + 1, len(chunks), len(chunk),
+                                           (time.monotonic() - started_at) * 1000,
+                                           _device_timing(self._play),
+                                           _cpu_report(cpu_before, started_at))
+                            if cancel.is_set():
+                                status, reason = "cancelled", self._cancelled_reason()
+                                break
                     for worker, _box in prefetched.values():
                         worker.join(timeout=0.5)
                     self._notify(request, status, reason, played=announced_start)
