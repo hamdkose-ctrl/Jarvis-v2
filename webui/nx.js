@@ -153,7 +153,9 @@ function idleGate(now,key){if(UI_CALM())return true;
 let lastPaint=0;function frame(now){const budget=UI_CALM()?50:125;if(now-lastPaint<budget)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){window.JarvisBackdropController?.sync();bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
-const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid'],['map','Harita','grid']];
+// 'Menü' sekmesi kaldırıldı (21 Kasım, kullanıcı kararı): ayrı bir ana menü yok.
+// Ayarlar/Araçlar hâlâ yan sayfa olarak açılır; menü sahnesi (parçacıklı küre) kurulmaz.
+const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['team','Ekip merkezi','grid'],['map','Harita','grid']];
 function ic2(n){return ic(n)}
 function renderTop(){
   const sn=S.snap||{},n=needCount(),w=sn.weather,win=sn.winctl!==false;
@@ -249,7 +251,8 @@ function activities(){
 // Eski Ayarlar/Araçlar adreslerinin menüdeki karşılığı (düğüm kimliği).
 const SET_NODE={ai:'ai',baglanti:'ai',aihub:'ai',ses:'ses',takvim:'takvim',gorev:'gorev',iletisim:'telefon',telefon:'telefon',mesaj:'mesaj',ekran:'ekran',kb:'chat',hesap:'hesap',kullanici:'hesap',guvenlik:'hesap',hafiza:'hafiza',github:'github',sistem:'sistem',genel:'sistem',hakkinda:'sistem',araclar:'sistem',veri:'veri',rapor:'rapor',tarama:'tarama'};
 function settingsNode(tool,sset){return SET_NODE[tool]||SET_NODE[sset]||'sistem'}
-function go(p){if(!NAV.some(n=>n[0]===p))p='home';
+function go(p){if(!NAV.some(n=>n[0]===p)&&p!=='menu')p='home';
+  if(p==='menu'&&!S.mnOpen)p='chat';   // menü sahnesi yok: yan sayfa istenmiyorsa sohbete git
   if(p==='vision'){S.mnOpen='ekran';p='menu'}
   if(p==='settings'||p==='tools'){S.mnOpen=settingsNode(p==='tools'?S.tool:'',S.sset);S.tool='';p='menu'}   // eski Ayarlar sayfası yok: ayarlar menüdeki yan sayfadan açılır
   if(p!=='chat'&&S.snap?.development?.enabled&&S.snap?.development?.unlocked){
