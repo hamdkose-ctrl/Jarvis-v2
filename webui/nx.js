@@ -142,7 +142,8 @@ function drawGlobe(st,dt){
 }
 let lastT=performance.now();
 let bgT=0;
-let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){window.JarvisBackdropController?.sync();bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
+let orbPaint=0,shPaint=0;function idleGate(now,budget){if(UI_CALM())return true;if(now-(budget>60?orbPaint:shPaint)<budget)return false;if(budget>60)orbPaint=now;else shPaint=now;return true}
+let lastPaint=0;function frame(now){const budget=UI_CALM()?50:125;if(now-lastPaint<budget)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){window.JarvisBackdropController?.sync();bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
 const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid'],['map','Harita','grid']];
@@ -975,6 +976,7 @@ function mnShader(cv,speaking){
   const frame=now=>{if(!cv.isConnected)return;const dt0=Math.max(0,Math.min((now-last)/1000,.05));last=now;
     if(lost){requestAnimationFrame(frame);return}
     if(UI_CALM()){skip=!skip;if(skip){carry+=dt0;requestAnimationFrame(frame);return}}
+    else if(!idleGate(now,50)){carry+=dt0;requestAnimationFrame(frame);return}
     const dt=Math.min(dt0+carry,.1);carry=0;
     const w=cv.clientWidth||innerWidth,h=cv.clientHeight||innerHeight;if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;gl.viewport(0,0,w,h)}
     const tg=speaking()?1:0,rate=tg>voice?dt*2:dt*.67;voice+=(tg-voice)*Math.min(rate*4,1);flow+=dt*(1+voice*2.4);
@@ -995,6 +997,7 @@ function mountMenu(scene){
   let cr=0,sk=false;
   const frame=now=>{if(!cv.isConnected)return;const dt0=Math.max(0,Math.min(.05,(now-last)/1000));last=now;
     if(UI_CALM()){sk=!sk;if(sk){cr+=dt0;requestAnimationFrame(frame);return}}
+    else if(!idleGate(now,50)){cr+=dt0;requestAnimationFrame(frame);return}
     const dt=Math.min(dt0+cr,.1);cr=0;const t=now/1000,st=ost();
     if(st!==prev){if(st==='thinking')web.fire(['ai']);else if(st==='speaking'||st==='listening')web.fire(['ses']);prev=st}
     wrap.dataset.state=st;cast.style.background=`radial-gradient(circle at 50% 50%, rgba(13,210,255,${st==='speaking'?.30:.18}) 0%, rgba(13,170,228,.08) 30%, rgba(8,17,31,0) 62%)`;
