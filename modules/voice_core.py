@@ -28,10 +28,10 @@ def _device_timing(player) -> str:
     if not isinstance(timing, dict):
         return ""
     parts = []
-    for name in ("open_ms", "wait_ms", "audio_ms", "ratio"):
+    for name, spec in (("open_ms", ".0f"), ("wait_ms", ".0f"), ("audio_ms", ".0f"), ("ratio", ".2f")):
         value = timing.get(name)
         if isinstance(value, (int, float)):
-            parts.append(f"{name}={value:.0f}")
+            parts.append(f"{name}={value:{spec}}")
     return " ".join(parts)
 
 
