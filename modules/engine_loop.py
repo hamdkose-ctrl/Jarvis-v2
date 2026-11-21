@@ -147,6 +147,23 @@ def _log_core_feedback(runtime, entry):
     return None
 
 
+def _mic_stays_listening(runtime) -> bool:
+    """Tur sürerken mikrofon açık kalsın mı (varsayılan: evet).
+
+    Kullanıcı Jarvis arkada çalışırken konuşmaya devam edebilmeli. Jarvis kendi
+    sesini duymasın diye çalma sırasında dinleyici `speech_blocks_mic()` ile ayrıca
+    duruyor, yani bu ayar yalnız "düşünürken/çalışırken sağır kalma" davranışını
+    değiştirir. Ayar okunamazsa eski davranışa değil, kullanıcının istediği
+    davranışa düşülür (mikrofon açık).
+    """
+    try:
+        from config import load_settings
+        return bool(load_settings().get("voice_mic_while_working", True))
+    except Exception:
+        runtime._record_failure("modules/engine_loop.py:mic_setting")
+        return True
+
+
 def _turn_with_listening_foreground(voice_session, invoke):
     """Run one engine turn without letting a provider wait close the microphone.
 
@@ -578,7 +595,17 @@ def main(runtime, ui=None):
                         from modules import brain_echo
                         brain_echo.present(runtime, entry)
 
-                    runtime.pause_listening.set()
+                    # Mikrofon tur boyunca KAPATILMAZ: kullanıcı Jarvis arkada
+                    # çalışırken konuşmaya devam edebilmeli. Kendi sesini duymasın
+                    # diye çalma sırasında dinleyici `speech_blocks_mic()` ile
+                    # zaten duruyor; konuşma bitince kendiliğinden geri açılıyor.
+                    # Ayar kapalıysa eski davranış (tur boyunca sessiz) korunur.
+                    if _mic_stays_listening(runtime):
+                        # `submit_voice` komutu kuyruğa alırken mikrofonu kapatmıştı;
+                        # tur sürerken kullanıcı yine konuşabilsin diye burada açılır.
+                        runtime.pause_listening.clear()
+                    else:
+                        runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
                     # Edge bağlantısı düşünme sırasında açılır: el sıkışma
                     # ölçüldü 1337 ms, hazır bağlantıda ilk ses 414-481 ms.
