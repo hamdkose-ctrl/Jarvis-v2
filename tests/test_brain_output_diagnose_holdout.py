@@ -424,4 +424,7 @@ class CaptureHeadTests(unittest.TestCase):
         from modules import router_quota, smart_router
         gate = inspect.getsource(router_quota.role_qualified)
         self.assertNotIn('head', gate)
-        self.assertIn('_role_fingerprint()', inspect.getsource(smart_router._brain_role_allowed))
+        # The manual report is now a status surface: a pending Brain report must
+        # not empty the provider pool, which is what turned one invalid answer
+        # into "doğrulayamadım". Non-qualification may never block a candidate.
+        self.assertNotIn('role_qualified', inspect.getsource(smart_router._brain_role_allowed))

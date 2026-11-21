@@ -57,12 +57,17 @@ def qualification_session(owner,provider,model,connection_id=None):
 
 
 def _brain_role_allowed(request,spec):
-    if request.profile!='brain_understanding':return True
-    target=(request.owner,spec.provider,spec.model,spec.connection_id)
-    if _ROLE_EVALUATION.get()==target:return True
-    from modules import router_quota
-    return router_quota.role_qualified(request.owner,spec.provider,spec.model,spec.connection_id,
-        fingerprint=_role_fingerprint(),binding=spec.binding or str(spec.connection_revision),directory=_STORE)
+    """A pending Brain role report no longer blocks a provider.
+
+    The manual "Bu sürümü doğrula" report used to be a prerequisite: without a
+    recorded 20-case/95% corpus run every provider was skipped, so one invalid
+    Gemini answer left no fallback and the turn died as "doğrulayamadım".
+    A provider that answers wrongly is now caught where it happens -- the
+    response contract rejects it and the router moves to the next candidate --
+    which is strictly safer than an empty pool. The report stays as a status
+    surface, not a gate.
+    """
+    return True
 
 
 # Routing is deliberately based on the caller's declared contract, never on words in
@@ -672,7 +677,6 @@ def _custom_plan(request):
             features=frozenset({'text','structured_output'})|assessed['features'],usage_class=row['billing'],
             connection_id=ident,connection_revision=row['revision'],protocol=row['protocol'])
         if _health_wait(request.owner,spec.provider,spec.model,connection_id=ident,revision=row['revision']):raise ValueError('Bu bağlantı/model son hata nedeniyle beklemede.')
-        if not _brain_role_allowed(request,spec):raise ValueError('Bu exact bağlantı/modelin Brain rolü canlı kabul bekliyor.')
         return RoutePlan((spec,),(),request.max_network_attempts)
     except (ValueError,OSError) as exc:
         return RoutePlan((),(_skip('custom',str(exc),'PROVIDER_CUSTOM_CONFIGURATION_REQUIRED'),),1)
@@ -755,8 +759,6 @@ def _plan_request(request: ModelRequest) -> RoutePlan:
                                binding=_binding(request,provider,model))
         evaluation=_ROLE_EVALUATION.get()
         if request.profile=='brain_understanding' and evaluation is not None and evaluation!=(request.owner,provider,model,None):continue
-        if not _brain_role_allowed(request,spec):
-            skipped.append(_skip(provider,'Bu exact modelin Brain rolü canlı kabul bekliyor.','MODEL_ROLE_UNQUALIFIED',model=model));continue
         specs.append(spec)
     if request.profile!='local_only' and request.selection_mode!='local_only':
         from modules import router_connections
