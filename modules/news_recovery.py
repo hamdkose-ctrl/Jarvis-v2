@@ -8,7 +8,7 @@ import json
 from modules import research_evidence, goal_tools
 
 
-def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False):
+def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False, model_status='unavailable'):
     """Seal only canonical pipeline evidence into the durable job.
 
     Recovery has no source ranking, headline traversal or completion policy. It can
@@ -23,11 +23,11 @@ def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False):
         return
 
     saved_rows = news_pipeline.verified_from_outputs(job.get('outputs') or {})
-    saved = news_pipeline.attach_job(job) if saved_rows else {'verified': []}
+    saved = news_pipeline.attach_job(job, model_status=model_status) if saved_rows else {'verified': []}
     if existing_only or news_pipeline.enough_evidence(saved['verified'], job['request']):
         verified = saved['verified']
     else:
-        result = news_pipeline.deliver_job(job, model_status='unavailable',
+        result = news_pipeline.deliver_job(job, model_status=model_status,
                                            max_sources=news_pipeline.BROAD_MAX_SOURCES)
         verified = result['verified']
 
@@ -100,14 +100,14 @@ def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False):
         job['goals'][goal].update(state='done', evidence=evidence)
         goals._save(job)
 
-def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
+def deliver(runtime,job,*,max_new_steps=0,existing_only=False,model_status='unavailable'):
     """Chat and file delivery consume the same canonical pipeline receipts."""
     from modules import goal_executor as goals, news_pipeline
     if (job.get('state') in {'approval','review','cancelled'} or not job.get('goals')
             or not research_evidence.news_requested(job.get('request',''))):
         return
     before=len(job['steps'])
-    _chat_deliver(runtime,job,max_new_steps=max_new_steps,existing_only=existing_only)
+    _chat_deliver(runtime,job,max_new_steps=max_new_steps,existing_only=existing_only,model_status=model_status)
     if not research_evidence.file_requested(job['request']):
         return
     evidence=[]

@@ -788,14 +788,16 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
         discovery_only=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',job['request'],re.I) and
                         re.search(r'bul|listele|keşfet|kesfet',job['request'],re.I) and
                         not re.search(r'araştır|arastir|incele|rapor|özet|ozet|analiz',job['request'],re.I))
+        plain_news = not research_evidence.file_requested(job['request']) and not model_free_news.terms(job['request'])
         if (not job['goals'] and not job['steps'] and
                 research_evidence.publication_news_requested(job['request']) and
                 news_only and not discovery_only and
-                ((not research_evidence.file_requested(job['request']) and not model_free_news.terms(job['request'])) or _quota_wait()>0)):
+                (plain_news or _quota_wait()>0)):
             job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
             _save(job)
             from modules import news_recovery
-            news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+            news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)),
+                                  model_status='not_needed' if plain_news else 'unavailable')
             if job['state']=='approval' or _finish_completed(job):return render(job)
             job['state']='paused'
             job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'

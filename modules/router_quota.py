@@ -22,22 +22,7 @@ import time
 from urllib.parse import urlsplit
 from modules.diagnostics import record_failure as _record_failure
 
-# Groq's official Free plan base request caps for the three routed text models,
-# reviewed 16 Nov 2026 on https://console.groq.com/docs/rate-limits. The page is
-# org-level and "there may be exceptions", so this is a conservative local request
-# ceiling, not a provider billing hard stop; the observed-429 gate still covers
-# exceptions below the base value. Free TPM (8K) is deliberately NOT reserved: no
-# caller supplies a trusted input+max-output upper bound and a tpm policy without
-# one would fail-closed every Groq send. Gemini/Cloudflare pages publish no static
-# free-tier RPM/RPD numbers, so they stay policy-less until a real verified source.
-POLICIES: dict[tuple[str, str], dict] = {
-    ('groq', model): {
-        'source_url': 'https://console.groq.com/docs/rate-limits',
-        'verified_at': 1794855600,  # 16 Nov 2026 19:00 UTC
-        'expires_at': 1795460400,   # 23 Nov 2026 19:00 UTC — re-review before expiry
-        'rpm': 30, 'rpd': 1000,
-    } for model in ('openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b')
-}
+POLICIES: dict[tuple[str, str], dict] = {}
 _OWNER = re.compile(r'^[\w-]{1,100}$', re.UNICODE)
 
 
@@ -108,26 +93,16 @@ def qualify_role(owner,spec,report,*,fingerprint,directory,corpus_sha256,expecte
              time.time()+7*86400,report.get('head'),corpus_sha256))
 
 
-def reserve_custom(owner,ident,revision,*,directory,attempt_id=None,cost_bound=None,request=None):
-    """Explicit custom connection's LOCAL daily request ceiling, not a dollar/billing guarantee."""
+def reserve_custom(owner,ident,revision,*,directory,attempt_id=None,cost_bound=None,require_enabled=True):
+    """Reserve the configured maximum charge before the custom connection sends."""
     from modules import router_connections
-    try:row,_=router_connections.resolve(owner,ident,revision=revision)
+    try:row,_=router_connections.resolve(owner,ident,revision=revision,require_enabled=require_enabled)
     except (ValueError,OSError) as exc:raise ReservationUnavailable('Özel bağlantı değişti.') from exc
     ceiling=row['daily_requests']
-    if request is not None and request.work_class=='background':
-        ceiling=min(ceiling,request_ceiling(request))
     return reserve(owner,custom_provider(row),row['model'],directory=directory,
                    application_limit=ceiling,quota_scope=custom_scope(owner,row),
-                   attempt_id=attempt_id,cost_limit=row.get('daily_cost_microusd'),cost_bound=cost_bound)
-
-
-def request_ceiling(request):
-    from modules import smart_router
-    limits=smart_router.settings(request.owner)['application_limits']
-    ceiling=limits['daily_requests']
-    if request.work_class=='background':ceiling-=limits.get('interactive_daily_reserve',0)
-    if ceiling<1:raise ReservationExhausted(86400)
-    return ceiling
+                   attempt_id=attempt_id,cost_limit=row.get('daily_cost_microusd'),
+                   cost_bound=cost_bound if cost_bound is not None else row.get('max_call_cost_microusd'))
 
 
 def custom_provider(row):
@@ -152,8 +127,6 @@ def account_scope(request,spec):
         from urllib.parse import urlsplit
         host=urlsplit(str(info.get('url') or '')).hostname or ''
         return 'local:loopback' if host in ('localhost','127.0.0.1','::1') else 'local:'+hashlib.sha256(host.encode()).hexdigest()
-    configured=smart_router.settings(request.owner)['account_scopes'].get(spec.provider)
-    if configured:return 'project:'+configured
     if spec.provider=='cloudflare':
         from modules import cloudflare_chat
         account=cloudflare_chat.user_cloudflare_account(request.owner)
@@ -164,11 +137,10 @@ def account_scope(request,spec):
 @contextmanager
 def admission(request,spec,*,directory):
     """Provider slots on the EXISTING Core LeaseTable/OS claims; never a new queue/scheduler."""
-    from modules import smart_router,resource_leases,goal_executor
-    limits=smart_router.settings(request.owner)['application_limits']
+    from modules import resource_leases,goal_executor
     account=account_scope(request,spec)
-    count=1 if account.startswith('local:') else limits['max_parallel']
-    reserved=0 if count==1 else limits['interactive_reserved']
+    count=1 if account.startswith('local:') else 2
+    reserved=0 if count==1 else 1
     slots=range(reserved,count) if request.work_class=='background' else range(count)
     scope=('local' if account.startswith('local:') else spec.provider)+':'+account
     root=Path(directory)/'provider-claims'
@@ -324,8 +296,12 @@ def reserve(owner: str, provider: str, model: str, *, directory: Path,
             db.rollback()
             raise ReservationUnavailable('Eski isteklerin token maliyeti bilinmiyor.')
         if cost_limit is not None:
-            costs=db.execute('SELECT cost_units FROM requests WHERE owner=? AND provider=? AND stamp>?',
-                             (owner,provider,current-86400)).fetchall()
+            if quota_scope is None:
+                costs=db.execute('SELECT cost_units FROM requests WHERE owner=? AND provider=? AND stamp>?',
+                                 (owner,provider,current-86400)).fetchall()
+            else:
+                costs=db.execute('SELECT cost_units FROM requests WHERE quota_scope=? AND stamp>?',
+                                 (quota_scope,current-86400)).fetchall()
             if any(row[0] is None for row in costs):raise ReservationUnavailable('Önceki çağrıların parasal maliyeti bilinmiyor; tavan doğrulanamadı.')
             if sum(row[0] for row in costs)+cost_bound>cost_limit:raise ReservationExhausted(86400)
         minute = [(stamp, units) for stamp, units in day if stamp > current - 60]

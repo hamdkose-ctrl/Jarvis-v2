@@ -45,7 +45,9 @@ def fetch(url, *, max_bytes=MAX_BYTES):
     import certifi
     from modules import privacy,requests_state
     if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
-    requests_state.check();deadline=time.monotonic()+20
+    requests_state.check()
+    budget = requests_state.budget_remaining()
+    deadline = time.monotonic() + (20 if budget is None else min(20, budget))
     for _ in range(4):
         url=address(url)
         parsed=urlsplit(url);host=parsed.hostname
@@ -53,6 +55,9 @@ def fetch(url, *, max_bytes=MAX_BYTES):
         if not records or any(not ipaddress.ip_address(row[4][0]).is_global for row in records):
             raise ValueError('Kaynak genel internette olmalı.')
         requests_state.check()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError('Kaynak süre sınırını aşıyor.')
         pool=urllib3.HTTPSConnectionPool(records[0][4][0],port=443,assert_hostname=host,
               server_hostname=host,cert_reqs='CERT_REQUIRED',ca_certs=certifi.where(),maxsize=1)
         response=None
@@ -60,7 +65,7 @@ def fetch(url, *, max_bytes=MAX_BYTES):
             response=pool.urlopen('GET',urlunsplit(('','',parsed.path or '/',parsed.query,'')),
                 headers={'Host':'['+host+']' if ':' in host else host,'User-Agent':'Jarvis/2 public-source-reader',
                          'Accept':'application/json, application/rss+xml, application/atom+xml, text/html, text/plain'},
-                timeout=urllib3.Timeout(connect=5,read=8,total=max(.1,deadline-time.monotonic())),
+                timeout=urllib3.Timeout(connect=min(5, remaining), read=min(8, remaining), total=remaining),
                 preload_content=False,redirect=False,retries=False)
             if response.status in (301,302,303,307,308):
                 location=response.headers.get('Location')

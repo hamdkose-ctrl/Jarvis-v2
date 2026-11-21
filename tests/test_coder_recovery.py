@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from modules import developer as dev, goal_executor, llm, nxapi, resource_leases, smart_router as router, task_agents as agents, task_results
-from provider_fixture import fresh_bundle
 
 
 TESTS = '''import unittest
@@ -18,7 +17,6 @@ class AdditionTests(unittest.TestCase):
 
 class CoderRecoveryTests(unittest.TestCase):
     def setUp(self):
-        fresh_bundle(self)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.project=self.root/'project';self.project.mkdir()
         (self.project/'original.py').write_text('untouched = True\n')
@@ -31,14 +29,7 @@ class CoderRecoveryTests(unittest.TestCase):
         for obj,name,value in [(router.privacy,'mode','normal'),(llm,'provider','auto'),
              (llm,'current_user','alice'),(llm,'user_key','gem-key'),(llm,'user_groq_key','groq-key')]:
             p=patch.object(obj,name,return_value=value);p.start();self.addCleanup(p.stop)
-        dev.unlock('alice','test-password');dev.enable('alice');router.configure('alice',True)
-        now=router.time.time()
-        for provider, model in [('gemini',llm.active_model('alice')),('groq',llm.groq_model())]:
-            router.set_free_tier_evidence(
-                'alice',provider=provider,model=model,free_tier_verified=True,source='test-fixture',
-                evidence_ref='test://official-free-tier',verified_at=now,ttl_seconds=3600,
-                eligibility='eligible',quota_state='available',quota_remaining=10,
-                hard_stop_guaranteed=True,verification_status='verified',reason='coder recovery fixture')
+        dev.unlock('alice','test-password');dev.enable('alice');router.configure('alice', gemini_scopes=['conversation'])
         llm.take_route()
         self.addCleanup(llm.take_route)
 
@@ -204,7 +195,7 @@ class CoderRecoveryTests(unittest.TestCase):
 
 class GroqModelRecoveryTests(unittest.TestCase):
     def setUp(self):
-        p=patch.object(router,'settings',return_value={'cloud_free_confirmed':True});p.start();self.addCleanup(p.stop)
+        p=patch.object(router,'settings',return_value={'gemini_scopes':['conversation']});p.start();self.addCleanup(p.stop)
         for name,value in [('GROQ_MODELS',['a','b','c']),('_fallback_states',{}),('_rate_limited',{})]:
             p=patch.object(llm,name,value);p.start();self.addCleanup(p.stop)
         for name,value in [('groq_model','a'),('current_user','alice'),('user_groq_key','alice-secret')]:
@@ -251,7 +242,7 @@ class GroqModelRecoveryTests(unittest.TestCase):
         self.assertEqual(post.call_count,1);self.assertNotIn('PRIVATE',str(error.exception))
 
     def test_model_alternatives_require_this_users_free_account_confirmation(self):
-        with patch.object(router,'settings',return_value={'cloud_free_confirmed':False}), \
+        with patch.object(router,'settings',return_value={'gemini_scopes':[]}), \
              patch.object(llm.requests,'post',return_value=self.response(429)) as post:
             with self.assertRaises(llm.CloudError):llm._groq([],'',100)
         self.assertEqual(post.call_count,1)

@@ -24,6 +24,10 @@ Başlatma:
 
 Raporlar `%LOCALAPPDATA%\Jarvis\pc-acceptance` altında tutulur. Her SHA yalnız bir kez test edilir; PASS/FAIL sonrası otomatik tekrar yoktur, yeni SHA yeni kabul turu başlatır. Doğrulama yalnız gözetlenen kökteki `.venv\Scripts\python.exe` ile çalışır; bu yorumlayıcı yoksa sistem Python'una düşülmez, başlamadan "ortam eksik" sonucu kaydedilir.
 
+### Validation sırasında çıktı
+
+`[A] Validation basladi...` satırından sonra doğrulamanın alt test çıktıları yakalanır ve aşama bitene kadar bu pencereye yazılmaz. Başka bir doğrulama koşumu aynı kilidi tutuyorsa bekleme en çok 900 saniyedir. Windows'ta kilit sahibinin PID durumu süreç tablosundan okunur.
+
 ## "Hazırda test yok" tanısı ve rapor onarımı (9 Kasım 2026)
 
 Watcher yalnız test kuyruğunu değil, **PR'a yayınlanmayı bekleyen kabul raporlarını**

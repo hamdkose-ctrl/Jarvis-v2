@@ -81,7 +81,7 @@ class DurableWorkTests(unittest.TestCase):
         successful=Mock(status_code=200);successful.json.return_value={'message':{'content':'metin cevabı'}}
         from modules import model_capabilities
         facts={("http://ollama.invalid","text-only"):{'features':frozenset({'verified_vision'}),'context_limit':None,'output_limit':None,'expires_at':__import__('time').time()+300}}
-        with patch.object(model_capabilities,'_LOCAL_FACTS',facts),patch.object(router,'_HEALTH',{}),             patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'gemini_scopes':[],'free_tier_evidence':{},'application_limits':router._APPLICATION_DEFAULTS,'account_scopes':{}}), \
+        with patch.object(model_capabilities,'_LOCAL_FACTS',facts),patch.object(router,'_HEALTH',{}),             patch.object(router,'settings',return_value={'gemini_scopes': []}), \
              patch.object(router.privacy,'mode',return_value='normal'), \
              patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'), \
              patch.object(llm,'_cfg',return_value={'url':'http://ollama.invalid','model':'text-only'}), \
@@ -103,10 +103,7 @@ class DurableWorkTests(unittest.TestCase):
                  patch.object(router, '_HEALTH', {}), \
                  patch.object(router, '_STORE', self.root / 'router'), \
                  patch.object(goal_executor, '_RESOURCE_LEASES', resource_leases.LeaseTable()), \
-                 patch.object(router, 'settings', return_value={
-                     'cloud_free_confirmed': False, 'gemini_scopes': [],
-                     'free_tier_evidence': {}, 'application_limits': router._APPLICATION_DEFAULTS,
-                     'account_scopes': {}}), \
+                 patch.object(router, 'settings', return_value={'gemini_scopes': []}), \
                  patch.object(router.privacy, 'mode', return_value='normal'):
                 request = router.ModelRequest(owner='alice', profile='conversation',
                                               max_network_attempts=1)

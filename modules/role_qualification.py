@@ -34,11 +34,6 @@ def _explain(report: dict, code: str) -> str:
     sağlayıcı yanıtı, anahtar veya dosya yolu yazılmaz.
     """
     raw = ' '.join(str(report.get('reason') or '').split())
-    if 'PROVIDER_FREE_ACCOUNT_UNCONFIRMED' in raw:
-        return ('Ayarlar → Yapay Zekâ ekranındaki "Hazır bulut hesaplarım ücretsiz planda; '
-                'ücretli faturalama kapalı" beyanı kayıtlı değil, bu yüzden ücretsiz havuza '
-                'hiçbir sağlayıcı girmiyor. Beyanı işaretleyip Tercihi Kaydet’e bas, sonra '
-                'doğrulamayı yeniden başlat')
     if raw:
         return f'{raw[:240]} ({code})' if code else raw[:240]
     return code or 'neden bildirilmedi'

@@ -208,7 +208,7 @@ _LIMIT_HEADERS = {'limit-requests': 'req_limit', 'remaining-requests': 'req_left
                   'limit-tokens': 'tok_limit', 'remaining-tokens': 'tok_left', 'reset-tokens': 'tok_reset'}
 
 
-def observe_limits(provider: str, model: str, headers, owner: str | None = None) -> None:
+def observe_limits(provider: str, model: str, headers, owner: str | None = None, *, credential: str | None = None) -> None:
     """Sağlayıcının yanıt başlığında bildirdiği sınırı (x-ratelimit-*) son görülen değer olarak saklar.
 
     Groq bu başlıkları verir: istek sınırı günlük, token sınırı dakikalıktır. Başlık yoksa hiçbir şey yazılmaz.
@@ -226,6 +226,8 @@ def observe_limits(provider: str, model: str, headers, owner: str | None = None)
         if not seen:
             return
         seen['t'] = datetime.now(_TR).isoformat(timespec='seconds')
+        if credential is not None:
+            seen['credential'] = credential
         path = _dir() / (_slug(owner or _owner()) + '.limits.json')
         with _LOCK:
             try:
@@ -269,7 +271,8 @@ def _reset_duration_seconds(raw) -> float | None:
     return seconds if 0 < seconds <= 2 * 86400 else None
 
 
-def observed_exhaustion(owner: str, provider: str, model: str, *, now: float | None = None) -> dict | None:
+def observed_exhaustion(owner: str, provider: str, model: str, *, now: float | None = None,
+                        credential: str | None = None) -> dict | None:
     """Extra *deny-only* gate from fresh provider rate-limit headers.
 
     A locally saved zero remaining with parseable reset may postpone another
@@ -280,7 +283,7 @@ def observed_exhaustion(owner: str, provider: str, model: str, *, now: float | N
     if not isinstance(provider_rows, dict):
         return None
     row = provider_rows.get(model)
-    if not isinstance(row, dict):
+    if not isinstance(row, dict) or (credential is not None and row.get('credential') != credential):
         return None
     try:
         observed = datetime.fromisoformat(str(row['t']))

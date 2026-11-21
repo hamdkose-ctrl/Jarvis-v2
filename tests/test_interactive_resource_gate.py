@@ -93,18 +93,27 @@ class InteractiveResourcesTests(TestCase):
         self.assertEqual(result, "answer")
         self.assertEqual(seen, [("start", "llm", "alice"), ("end", "llm", "alice")])
 
-    def test_voice_coordinator_wraps_only_real_synth_and_play(self):
+    def test_voice_coordinator_uses_one_tts_scope_and_guards_real_playback(self):
         phases = []
+        active = set()
         completed = threading.Event()
         receipts = []
         @contextmanager
         def scope(request, phase):
             phases.append(("enter", phase))
+            active.add(phase)
             try:
                 yield
             finally:
+                active.remove(phase)
                 phases.append(("exit", phase))
+
+        def synthesize(spec, text, cancel):
+            self.assertEqual(active, {"tts"})
+            return b"valid-audio"
+
         def playback(audio, cancel, on_start):
+            self.assertEqual(active, {"tts", "output_device"})
             self.assertEqual(audio, b"valid-audio")
             on_start()
         def report(receipt):
@@ -112,7 +121,7 @@ class InteractiveResourcesTests(TestCase):
             completed.set()
         catalog = VoiceCatalog((VoiceSpec("tr_kadin", "Türkçe", "edge", "tr-TR-EmelNeural"),))
         voice = VoiceCoordinator(
-            catalog, lambda spec, text, cancel: b"valid-audio",
+            catalog, synthesize,
             playback, report, resource_scope=scope,
         )
         try:
@@ -122,8 +131,9 @@ class InteractiveResourcesTests(TestCase):
             self.assertTrue(completed.wait(3), "Speech worker did not issue its receipt")
             self.assertEqual(receipts[0].status, "played")
             self.assertEqual(phases, [
-                ("enter", "tts"), ("exit", "tts"),
-                ("enter", "output_device"), ("exit", "output_device"),
+                ("enter", "tts"), ("enter", "output_device"),
+                ("exit", "output_device"), ("exit", "tts"),
             ])
+            self.assertEqual(active, set())
         finally:
             voice.close()

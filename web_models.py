@@ -127,15 +127,18 @@ class WebModels:
         from modules import smart_router
         return smart_router.status(runtime._p().slug)
 
-    def smart_router_save(self, cloud_free_confirmed: bool | None=False, gemini_scopes: list | None=None,
-                          expected_owner: str | None=None,application_limits: dict | None=None,
-                          account_scopes: dict | None=None) -> dict:
-        runtime = self._runtime
+    def router_ready_status(self) -> dict:
         from modules import smart_router
-        owner=runtime._p().slug if expected_owner is None else self._router_owner(expected_owner)
-        state = smart_router.configure(owner, cloud_free_confirmed,gemini_scopes=gemini_scopes,
-            application_limits=application_limits,account_scopes=account_scopes)
-        return {'ok': True, 'msg': 'Model bağlantısı ve seçim tercihleri kaydedildi.', 'status': state}
+        return smart_router.ready_status(self._runtime._p().slug)
+
+    def smart_router_save(self, gemini_scopes: list, expected_owner: str) -> dict:
+        from modules import smart_router
+        state = smart_router.configure(self._router_owner(expected_owner), gemini_scopes=gemini_scopes)
+        return {'ok': True, 'msg': 'Gemini veri izinleri kaydedildi.', 'status': state}
+
+    def router_ready_check(self, provider: str, expected_owner: str) -> dict:
+        from modules import smart_router
+        return smart_router.check_ready_connection(self._router_owner(expected_owner), provider)
 
     def router_cloudflare_save(self, account_id: str='', token: str='', remove: bool=False, expected_owner: str='') -> dict:
         from modules import image_gen
@@ -147,18 +150,24 @@ class WebModels:
             return {'ok':True,'msg':'Yalnız bu kullanıcının Cloudflare bağlantısı kaldırıldı.'}
         account=(account_id or '').strip() or image_gen.user_cloudflare_account(owner)
         secret=(token or '').strip() or image_gen.user_cloudflare_token(owner)
-        if not re.fullmatch(r'[a-fA-F0-9]{32}',account):raise ValueError('Cloudflare Account ID32 hex karakter olmalı.')
+        if not re.fullmatch(r'[a-fA-F0-9]{32}',account):raise ValueError('Cloudflare hesap kimliği 32 onaltılık karakter olmalı.')
         if not secret or len(secret)>4096 or any(ord(c)<33 for c in secret):raise ValueError('Cloudflare token geçersiz.')
         image_gen.set_user_cloudflare(owner,account,secret)
-        return {'ok':True,'msg':'Cloudflare kaydedildi; API veya model çağrısı yapılmadı. Ücretsiz plan uygunluğunu ayrıca güncelle.'}
+        return {'ok':True,'msg':'Cloudflare bağlantısı kaydedildi.'}
 
-    def router_free_account_confirm(self, provider: str, free_plan: bool=False, no_paid_billing: bool=False,
-                                    expected_owner: str='') -> dict:
-        from modules import smart_router
-        result=smart_router.confirm_free_account(self._router_owner(expected_owner),provider,
-            free_plan_confirmed=free_plan,no_paid_billing=no_paid_billing)
-        return {'ok':True,'msg':'Ücretsiz plan beyanı ve resmî model koşulları kaydedildi. Hesap API doğrulaması veya kalan kota ölçümü yapılmadı.',
-                'evidence':result}
+    def router_ready_key_save(self, provider: str, key: str, expected_owner: str) -> dict:
+        from modules import llm
+        owner = self._router_owner(expected_owner)
+        key = key.strip() if isinstance(key, str) else ''
+        if not key or len(key) > 4096:
+            raise ValueError('API anahtarını gir.')
+        if provider == 'gemini':
+            llm.set_user_key(owner, key)
+        elif provider == 'groq':
+            llm.set_user_groq_key(owner, key)
+        else:
+            raise ValueError('Hazır bağlantı geçersiz.')
+        return {'ok': True, 'msg': 'API anahtarı kaydedildi.'}
 
     def groq_key_save(self, key: str='', model: str='', activate: bool=False) -> dict:
         """Groq anahtarını kaydeder, küçük bir çağrıyla dener. activate=True ise sağlayıcı Groq olur."""
@@ -229,8 +238,7 @@ class WebModels:
         owner=self._router_owner(expected_owner)
         row,secret=router_connections.resolve(owner,identity,require_enabled=False)
         # A test never enables a connection or attests role/vision/free-tier quality.
-        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
-            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        router_quota.reserve_custom(owner,identity,row['revision'],directory=smart_router._STORE,require_enabled=False)
         requests_state.request_identity(owner)
         with llm.owner_context(owner),usage_meter.capture_attempt(owner,'connection-test:'+identity,'test:'+identity):
             answer=provider_protocols.generate(owner,row,secret,[{'role':'user','content':'Reply only OK.'}],'',min(32,row['max_output_tokens']))
@@ -248,8 +256,7 @@ class WebModels:
         owner=self._router_owner(expected_owner)
         requests_state.request_identity(owner)
         row,secret=router_connections.resolve(owner,identity,require_enabled=False)
-        router_quota.reserve(owner,router_quota.custom_provider(row),row['model'],directory=smart_router._STORE,
-            quota_scope=router_quota.custom_scope(owner,row),application_limit=row['daily_requests'],cost_limit=row.get('daily_cost_microusd'))
+        router_quota.reserve_custom(owner,identity,row['revision'],directory=smart_router._STORE,require_enabled=False)
         # The answer exists ONLY in image pixels. A successful text connection,
         # a model name or a user checkbox cannot produce this observation.
         expected=''.join(secrets.choice('0123456789') for _ in range(8))

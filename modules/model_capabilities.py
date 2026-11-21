@@ -1,9 +1,9 @@
 """Developer-controlled, model-specific native feature evidence for Router plans.
 
 No network calls, no user-editable capability claims. Only exact model IDs with
-official source pages and bounded expiry appear in the registry; native API
-features remain disabled until their transport adapter is explicitly verified.
-Unverified, expired and unknown data cannot turn on native schemas, tool calling
+official source pages appear in the registry; native API features remain disabled
+until their transport adapter is explicitly verified.
+Unverified and unknown data cannot turn on native schemas, tool calling
 or a promised context length. Ordinary text and validator-based JSON parsing do
 not require native support and retain their established routes.
 """
@@ -17,10 +17,7 @@ NATIVE_FEATURES = frozenset({'native_json_schema', 'native_tool_calling', 'verif
 # Keyed by (provider, EXACT model id), not by model family/prefix/provider.
 # Example SHAPE only, not a claim about any actual model:
 # ('provider','exact-id'): {'features': frozenset({'native_json_schema'}),
-#     'context_limit': 32768, 'output_limit': 4096, 'source_url': 'https://...',
-#     'verified_at': 1794000000, 'expires_at': 1795000000}
-_GROQ_REVIEWED_AT = 1794855600  # 16 Nov 2026 19:00 UTC
-_GROQ_EXPIRES_AT = 1795460400   # 23 Nov 2026 19:00 UTC
+#     'context_limit': 32768, 'output_limit': 4096, 'source_url': 'https://...'}
 # Only context/output capacities are asserted. Although Groq docs describe
 # native structured outputs, our transport has not implemented schema-bearing
 # API requests, so NO native JSON/tool capability is advertised here.
@@ -31,7 +28,6 @@ CATALOG: dict[tuple[str, str], dict] = {
         # support is not advertised until that wire contract is implemented.
         'features':frozenset(),'context_limit':256000,'output_limit':4096,
         'source_url':'https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/',
-        'verified_at':1794614400,'expires_at':1795824000,
     },
     ('gemini', 'gemini-3.5-flash-lite'): {
         'features': frozenset({'verified_vision'}),
@@ -39,30 +35,26 @@ CATALOG: dict[tuple[str, str], dict] = {
         'source_url': 'https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite',
         # Official model card rechecked 14 Nov; the Gemini adapter's image-parts
         # transport is covered separately. No native schema/tool claim is made.
-        'verified_at': 1794614400, 'expires_at': 1795824000,
     },
     ('gemini', 'gemini-3.5-flash'): {
         'features': frozenset(),
         'context_limit': 1048576, 'output_limit': 65536,
         'source_url': 'https://ai.google.dev/gemini-api/docs/models',
-        'verified_at': 1794614400, 'expires_at': 1795824000,
     },
     ('groq', 'openai/gpt-oss-120b'): {
         'features': frozenset(),
         'context_limit': 131072, 'output_limit': 65536,
         'source_url': 'https://console.groq.com/docs/model/openai/gpt-oss-120b',
-        'verified_at': _GROQ_REVIEWED_AT, 'expires_at': _GROQ_EXPIRES_AT,
     },
     ('groq', 'openai/gpt-oss-20b'): {
         'features': frozenset(),
         'context_limit': 131072, 'output_limit': 65536,
         'source_url': 'https://console.groq.com/docs/model/openai/gpt-oss-20b',
-        'verified_at': _GROQ_REVIEWED_AT, 'expires_at': _GROQ_EXPIRES_AT,
     },
 }
 
 
-def _valid_entry(raw, *, now: float) -> bool:
+def _valid_entry(raw) -> bool:
     if not isinstance(raw, Mapping):
         return False
     source = raw.get('source_url')
@@ -74,12 +66,6 @@ def _valid_entry(raw, *, now: float) -> bool:
             return False
     except ValueError:
         return False
-    observed = raw.get('verified_at')
-    until = raw.get('expires_at')
-    if (type(observed) not in (int,float) or type(until) not in (int,float)
-            or not 0 < observed <= now + 60 or not observed < until or until <= now
-            or until - observed > 31 * 86400):
-        return False
     feats = raw.get('features')
     if not isinstance(feats, (set,frozenset,tuple,list)) or not set(feats) <= NATIVE_FEATURES:
         return False
@@ -90,20 +76,29 @@ def _valid_entry(raw, *, now: float) -> bool:
     return True
 
 
-def evidence(provider: str, model: str, *, now: float | None = None) -> dict | None:
-    """Return a bounded COPY of current exact-model claims, never mutable registry data."""
-    current = time.time() if now is None else now
+def valid_custom_free_evidence(raw, *, now: float) -> bool:
+    """Free-account eligibility depends on a time-bound account observation."""
+    if not _valid_entry(raw):
+        return False
+    observed = raw.get('verified_at')
+    until = raw.get('expires_at')
+    return (type(observed) in (int, float) and type(until) in (int, float)
+            and 0 < observed <= now + 60 and observed < until and now < until
+            and until - observed <= 31 * 86400)
+
+
+def evidence(provider: str, model: str) -> dict | None:
+    """Return a copy of exact-model claims, never mutable registry data."""
     if provider=='ollama':return local_evidence(model)
     raw = CATALOG.get((provider,model))
-    if not _valid_entry(raw, now=current):
+    if not _valid_entry(raw):
         return None
     return {'features':frozenset(raw['features']), 'context_limit':raw.get('context_limit'),
             'output_limit':raw.get('output_limit')}
 
 
 def check(provider: str, model: str, *, native_features=frozenset(),
-          min_context_tokens: int | None = None, requested_output: int | None = None,
-          now: float | None = None) -> dict:
+          min_context_tokens: int | None = None, requested_output: int | None = None) -> dict:
     """Fail closed for *advanced* requirements; baseline validator text is unchanged."""
     requested = frozenset(native_features)
     if not requested <= NATIVE_FEATURES:
@@ -111,7 +106,7 @@ def check(provider: str, model: str, *, native_features=frozenset(),
     if min_context_tokens is not None and (
             type(min_context_tokens) is not int or not 1 <= min_context_tokens <= 2_000_000):
         raise ValueError('min_context_tokens geçersiz.')
-    raw = evidence(provider,model,now=now)
+    raw = evidence(provider,model)
     if (requested or min_context_tokens is not None) and raw is None:
         return {'ok':False,'reason_code':'MODEL_CAPABILITY_EVIDENCE_MISSING',
                 'reason':'Modelin gelişmiş özelliği veya context uzunluğu doğrulanmamış.'}

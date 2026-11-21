@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 
 import test_engine_modular  # noqa: F401
 from modules import llm, model_capabilities, provider_privacy, smart_router as router
-from provider_fixture import fresh_bundle
 
 
 class RouterV2Tests(unittest.TestCase):
@@ -30,31 +29,10 @@ class RouterV2Tests(unittest.TestCase):
             p = patch.object(target, name, return_value=value)
             p.start()
             self.addCleanup(p.stop)
-        fresh_bundle(self)
         p = patch("modules.usage_meter.observed_exhaustion", return_value=None)
         p.start()
         self.addCleanup(p.stop)
-        router.configure("alice", True)
-        for provider, model in (
-            ("gemini", "gemini-3.5-flash-lite"),
-            ("groq", "openai/gpt-oss-120b"),
-        ):
-            import time
-
-            router.set_free_tier_evidence(
-                "alice",
-                provider=provider,
-                model=model,
-                free_tier_verified=True,
-                source="reviewed official model facts",
-                evidence_ref="https://example.org/evidence",
-                verified_at=time.time(),
-                ttl_seconds=3600,
-                eligibility="eligible",
-                quota_state="not_reported",
-                hard_stop_guaranteed=True,
-                verification_status="verified",
-            )
+        router.configure('alice', gemini_scopes=[])
 
     def request(self, **fields):
         return router.ModelRequest(

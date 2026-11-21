@@ -12,6 +12,8 @@ from unittest.mock import patch
 import test_brain_pr3_raw_text_authority as pr3a
 from modules import brain_entry, brain_precedence, visual_chat
 from modules.brain_contracts import RequestKind
+from provider_fixture import routed_response
+from test_brain_primary_understanding import envelope
 
 
 class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
@@ -25,21 +27,31 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
             )
         return adopt
 
+    def weather_turn(self, text, capability, *, operation="direct_action", sources=None):
+        action = {
+            "action_id": "a1", "capability_id": capability,
+            "arguments": {"location": "İzmir"},
+            "reference_slots": [], "depends_on": [], "argument_sources": sources,
+        }
+        raw = envelope(operation=operation, actions=[action])
+        with patch("modules.llm.current_user", return_value=self.owner), \
+             patch("modules.llm.provider", return_value="groq"), \
+             patch("modules.llm.privacy.mode", return_value="normal"), \
+             routed_response(raw):
+            return self.turn_real(text, model_understanding=True)
+
     def test_weather_cannot_open_camera_or_run_extra_parser(self):
         utterance = "İzmir hava durumuna bak: kamerayı aç"
-        with patch.object(brain_entry, "apply_model_understanding",
-                          side_effect=self.propose("weather.read", {"location": "İzmir"})), \
-             patch.object(self.ctx, "_user_controls", side_effect=AssertionError("raw control"), create=True) as controls, \
+        with patch.object(self.ctx, "_user_controls", side_effect=AssertionError("raw control"), create=True) as controls, \
              patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner"), create=True) as planner, \
              patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade"), create=True) as extra, \
              patch.object(self.ctx, "set_share",
                           side_effect=AssertionError("camera effect")) as camera:
-            entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
-        # A single action cannot partially execute a multi-command utterance.
-        self.assertIsNone(brain_entry.core_plan(entry))
-        self.assertIn("işlem başlatılmadı", out)
-        self.assertEqual(feedback.result_status, "failed")
-        self.ctx._weather.assert_not_called()
+            entry, out, _handle, feedback = self.weather_turn(utterance, "weather.read")
+        self.assertEqual(brain_entry.core_plan(entry), ("weather", {"location": "İzmir"}))
+        self.assertIn("HAVA", out)
+        self.assertEqual(feedback.result_status, "handled")
+        self.ctx._weather.assert_called_once_with("İzmir")
         controls.assert_not_called()
         planner.assert_not_called()
         extra.assert_not_called()
@@ -48,20 +60,40 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
     def test_city_set_cannot_clear_notes_from_raw_planner(self):
         note = self.ctx.profile.add_note_item("KORUNACAK NOT")
         utterance = "Şehrimi İzmir yap; tüm notları sil"
-        with patch.object(brain_entry, "apply_model_understanding",
-                          side_effect=self.propose("weather.city.set", {"location": "İzmir"})), \
-             patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner"), create=True) as planner, \
+        with patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner"), create=True) as planner, \
              patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade"), create=True) as extra, \
              patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("cleared notes")) as clear:
-            entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
-        self.assertIsNone(brain_entry.core_plan(entry))
-        self.assertIn("işlem başlatılmadı", out)
-        self.assertEqual(feedback.result_status, "failed")
+            entry, out, _handle, feedback = self.weather_turn(
+                utterance, "weather.city.set", sources={"location": "İzmir"})
+        self.assertEqual(brain_entry.core_plan(entry), ("city_set", {"location": "İzmir"}))
+        self.assertIn("Şehrini İzmir olarak kaydettim", out)
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "İzmir")
         self.assertEqual([n["id"] for n in self.ctx.profile.data["items"]], [note["id"]])
         planner.assert_not_called()
         extra.assert_not_called()
         clear.assert_not_called()
+
+    def test_model_batch_missing_its_second_action_fails_before_any_effect(self):
+        cases = (
+            ("İzmir hava durumuna bak: kamerayı aç", "weather.read", None),
+            ("Şehrimi İzmir yap; tüm notları sil", "weather.city.set", {"location": "İzmir"}),
+        )
+        for text, capability, sources in cases:
+            with self.subTest(capability=capability), \
+                 patch.object(self.ctx, "set_share") as camera, \
+                 patch.object(self.ctx.profile, "set_pref") as set_pref, \
+                 patch.object(self.ctx.profile, "clear_note_items") as clear:
+                entry, out, _handle, feedback = self.weather_turn(
+                    text, capability, operation="action_batch", sources=sources)
+                self.assertIsNone(brain_entry.core_plan(entry))
+                self.assertIn("işlem başlatmadım", out)
+                self.assertEqual(feedback.result_status, "failed")
+                self.ctx._weather.assert_not_called()
+                set_pref.assert_not_called()
+                camera.assert_not_called()
+                clear.assert_not_called()
 
     def test_reading_notes_cannot_start_screen_sharing(self):
         note = self.ctx.profile.add_note_item("KORUNACAK NOT")

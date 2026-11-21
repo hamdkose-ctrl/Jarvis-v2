@@ -47,6 +47,64 @@ class GroqRequestCapacityTests(unittest.TestCase):
         return smart_router.run_request(self.request, lambda spec: llm.dispatch(
             self.request, spec, prompt, 'synthetic system'), validator=validator)
 
+    def test_short_brain_turns_fit_a_smaller_wire_contract_without_extra_attempts(self):
+        from modules import brain_core_map, brain_model_understanding as brain
+        from test_brain_primary_understanding import action, deterministic, envelope
+
+        spec = smart_router.ModelSpec('groq', 'openai/gpt-oss-120b')
+        plan = smart_router.RoutePlan((spec,), (), 2)
+        past = tuple({'id': str(i), 'role': 'assistant', 'text': 'Haber özeti ' * 50}
+                     for i in range(8))
+        cases = (
+            ('naber', envelope(operation='chat'), None),
+            ('youtube aç', envelope(actions=[action(
+                capability_id='media.search', arguments={'service': 'youtube_home'})]),
+             'media_search'),
+        )
+
+        with patch.object(smart_router, 'plan', return_value=plan):
+            for text, raw, intent in cases:
+                with self.subTest(text=text), patch.object(
+                    llm.requests, 'post', return_value=response(200, {
+                        'choices': [{'message': {'content': raw}, 'finish_reason': 'stop'}],
+                    }),
+                ) as post:
+                    proposal = brain.propose(owner='alice', text=text, current=deterministic(text),
+                                             arguments={}, recent_turns=past)
+                    self.assertIsNotNone(proposal)
+                    post.assert_called_once()
+                    body = post.call_args.kwargs['json']
+                    system, user = (item['content'] for item in body['messages'])
+                    payload = json.loads(user)
+                    self.assertLess(len(system) + len(user), 25000)
+                    self.assertEqual(body['max_tokens'], 2048)
+                    self.assertEqual(set(payload['required']), brain.ENVELOPE_KEYS)
+                    self.assertEqual(set(payload['allowed']['argument_schema']),
+                                     set(brain_core_map.CORE_INTENTS) - brain._MODEL_DENIED_CAPABILITIES
+                                     - {'documents.export'})
+                    self.assertEqual(payload['allowed']['argument_schema']['message.send']['argument_sources'],
+                                     ['recipient', 'body'])
+                    self.assertEqual([row['id'] for row in payload['recent_turns']], ['4', '5', '6', '7'])
+                    self.assertTrue(all(len(row['text']) <= 180 for row in payload['recent_turns']))
+                    if intent:
+                        proposed = proposal.actions[0]
+                        self.assertEqual(brain_core_map.core_plan(proposed.capability_id, proposed.arguments),
+                                         (intent, {'service': 'youtube_home'}))
+                    else:
+                        self.assertEqual(proposal.operation, 'chat')
+                        self.assertEqual(proposal.actions, ())
+
+    def test_compact_file_slots_keep_all_labels_and_share_the_folder(self):
+        from modules.brain_model_understanding import _groq_prompt
+
+        folder = 'İstanbul Elektrik Pano Kabul Projeleri / 2026 Kasım Teslim ve Denetim Kayıtları'
+        files = [{'slot': f'file_{i}', 'name': f'Kabul tutanağı {i}.xlsx', 'folder': folder} for i in range(10)]
+        payload = {'allowed': {'argument_schema': {}}, 'recent_turns': [], 'file_candidates': files}
+        compact = json.loads(_groq_prompt(payload))
+        self.assertEqual(compact['file_candidates_folder'], folder)
+        self.assertEqual([dict(row, folder=folder) for row in compact['file_candidates']], files)
+        self.assertEqual(payload['file_candidates'], files)
+
     def test_native_413_retains_capacity_status_and_safe_provider_counts(self):
         with patch.object(llm.requests, 'post', return_value=too_large()):
             with self.assertRaises(Exception) as caught:
@@ -113,6 +171,38 @@ class GroqRequestCapacityTests(unittest.TestCase):
         self.assertIsNone(caught.exception.limit)
         self.assertNotIn('PRIVATE', str(caught.exception))
 
+    def test_two_pre_generation_rejections_leave_one_ready_fallback(self):
+        gemini = smart_router.ModelSpec('gemini', 'primary')
+        managed = smart_router.ModelSpec('custom', 'paid', connection_id='paid-example')
+        cloudflare = smart_router.ModelSpec('cloudflare', 'ready')
+        ollama = smart_router.ModelSpec('ollama', 'local')
+        plan = smart_router.RoutePlan((gemini, self.spec), (), 2, alternatives=(managed, cloudflare, ollama))
+        for backup_works in (True, False):
+            calls = []
+
+            def send(spec):
+                calls.append(spec.provider)
+                if spec is gemini:
+                    raise llm.requests.HTTPError('quota reached', response=response(429, {}))
+                if spec is self.spec:
+                    return llm.dispatch(self.request, spec, 'large request', '')
+                if backup_works:
+                    return 'fallback completed'
+                raise llm.requests.Timeout('Cloudflare timed out')
+
+            with self.subTest(backup_works=backup_works), patch.object(smart_router, '_HEALTH', {}), \
+                    patch.object(smart_router, 'plan', return_value=plan), \
+                    patch.object(llm.requests, 'post', return_value=too_large()) as post:
+                if backup_works:
+                    result = smart_router.run_request(self.request, send)
+                    self.assertEqual(result.model, cloudflare)
+                    self.assertEqual([row.get('status') for row in result.attempts[:2]], [429, 413])
+                else:
+                    with self.assertRaises(failure_policy.ProviderExhaustedError):
+                        smart_router.run_request(self.request, send)
+                post.assert_called_once()
+                self.assertEqual(calls, ['gemini', 'groq', 'cloudflare'])
+
     def test_full_holdout_reports_capacity_and_stops_without_a_model_response(self):
         from test_brain_output_diagnose_holdout import runner
         plan = smart_router.RoutePlan((self.spec,), (), 2)
@@ -131,6 +221,22 @@ class GroqRequestCapacityTests(unittest.TestCase):
 
 
 class BrainRequestCapacityRefusalTests(_CanonicalAuthorityHarness):
+    def test_quota_and_size_failure_reaches_the_user_without_effects(self):
+        plan = smart_router.RoutePlan((smart_router.ModelSpec('gemini', 'primary'),
+                                       smart_router.ModelSpec('groq', 'backup')), (), 2)
+        quota = llm.requests.HTTPError('daily quota', response=response(429, {}))
+        oversized = failure_policy.ProviderRequestLimitError(provider='groq', status_code=413,
+                                                            limit=8000, requested=13314)
+        with routed_plan(), patch.object(smart_router, 'plan', return_value=plan), \
+             patch.object(llm, 'dispatch', side_effect=[quota, oversized]) as dispatch:
+            entry, output, _handler, feedback = self.turn_real('YouTube aç', model_understanding=True)
+        self.assertEqual(dispatch.call_count, 2)
+        self.assertIn('PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE', entry.understanding.reason_codes)
+        self.assertEqual(feedback.reason_code, 'PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE')
+        self.assertIn('kota sınırına', output)
+        self.assertIn('isteğin boyutunu', output)
+        self.run_goal.assert_not_called()
+
     def test_real_brain_core_turn_reports_capacity_without_starting_effects(self):
         with routed_plan(provider='groq', model='capacity-fixture', count=2), \
                 patch.object(llm, '_rate_limited', {}), \

@@ -8,14 +8,14 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 - **VOICE:** `docs/agents/ses-video.md`; tek ses sahibi.
 
-- **Brain/Core:** anlam Brain; yürütme/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`; nonce/plan/target onayı effect öncesi tüketilir; unknown replay yok.
+- **Brain/Core:** anlam Brain, etki/onay Core. B08: `docs/architecture/BRAIN_08_SINGLE_PR_PLAN_2026-11-14.md`. nonce/plan/target onayı önce tüketilir, unknown replay yok. Slot çıkışta açılır.
 
 - **Ponytail yaklaşımı:** Önce mevcut kodu oku. Küçük, kararlı ve geri alınabilir değişiklik yap. Gereksiz katman veya bağımlılık ekleme.
 - **Önce plan:** Yeni özellikte önce yapılacakları ve en az iki seçeneği Hamdi'ye sun. Hamdi "Tamam" demeden kod yazma.
 - **Ayrı dal:** Her iş ayrı bir dalda yapılır, PR ile onaya sunulur. `main`'e doğrudan yazılmaz, `--force` kullanılmaz.
 - **"Bitti" kuralı:** Bir faz ya da madde ancak dördü birden sağlanınca "tamamlandı" sayılır: (1) sözleşme / arayüz yazıldı, (2) eski kod göçü tamamlandı, (3) yeni kod kullanıcı akışına bağlandı (yalnız testten çağrılması yetmez), (4) eski kod / legacy kısım kaldırıldı. Merge edilmiş PR tek başına "bitti" değildir. PR açıklaması hangi koşulları kapattığını yazar; durum `docs/Jarvis_Yol_Haritasi.md`'de bu koşullara göre işaretlenir.
 - **Program ledger:** Yeni işe başlamadan önce `docs/architecture/JARVIS_PROGRAM_LEDGER_V1.md` ve güncel açık PR durumunu oku; merge edilmiş işi yeniden açma.
-- **PC watcher:** Gerçek PC kabulü dal önekine değil açık PR'a bağlıdır; `gpt/*`, `codex/*`, `claude/*` ve bakım dalları desteklenir. Sonuç yorumu başarısızsa arşivlenen exact-SHA raporu tekrar yayımlanır, test tekrarlanmaz; tanı: `scripts/pc_test_watcher.py --status`. Ayrıntı: `docs/PC_TEST_WATCHER.md`.
+- **PC watcher:** PC kabulü açık PR'a bağlıdır; `gpt/*`, `codex/*`, `claude/*` ve bakım dalları desteklenir. Sonuç yorumu başarısızsa arşivlenen exact-SHA raporu tekrar yayımlanır, tanı `scripts/pc_test_watcher.py --status`. Windows PID sorgusu salt okunur. Ayrıntı: `docs/PC_TEST_WATCHER.md`.
 - **Android'e dokunma:** `android/` ayrı bir sohbette geliştirilir.
 - **Kişisel veri depoya girmez:** `%USERPROFILE%\.jarvis` (ayarlar, kullanıcılar, anahtarlar, günlük), `.venv` ve model dosyaları depoya eklenmez.
 - **Anahtarlar kullanıcıya özeldir:** Her kullanıcı kendi Gemini/Groq anahtarını kullanır, kullanıcılar arasında yedeğe düşülmez (`docs/MIMARI_KURALLAR_v5.7.md`). Ücretli sağlayıcılar otomatik havuza girmez.
@@ -28,7 +28,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
-- **Router V2:** `ModelRequest` → exact adapter, repair ≤2. Owner/Core korunur. Groq413 istek sınırıdır; aynı girdi tekrarlanmaz. Göç: `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
+- **Router V2:** Sabit hazır roller. İki deneme, Gemini 429→Groq 413 için tek hazır yedek. Göç `docs/architecture/JARVIS_ROUTER_V2_IMPLEMENTATION_AND_RETIREMENT_MAP.md`.
 
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.

@@ -41,10 +41,8 @@ _DAILY_NOTIFY_THREAD=None
 # bypasses per-owner Core leases, request cancellation or planner fences.
 _SCHEDULER_WAKE=threading.Event()
 _SCHEDULER_TICK_SECONDS=5.0
-# A finished worker must pull the next tick forward, but never into a spin. The
-# registry keeps a dead worker until the next loop pass pops it, and that same
-# pass admits a fresh worker; without a floor those two facts re-trigger each
-# other hundreds of times per second. Measured on the live PC: the scheduler
+# Removing an exited worker wakes the next pass, which may admit a replacement.
+# The floor prevents rapid handoffs from turning into a busy loop. On the live PC the scheduler
 # thread burned ~50% CPU while idle, every scan globbing the store and polling
 # outbox/sources, which starved the model call and the speech synthesis
 # (issue 679 follow-up: 'en basit işlem 10 sn'). One floor bounds the loop rate
@@ -64,13 +62,12 @@ _OWNER_MIN_SECONDS=1.0
 _IDLE_AFTER_SECONDS=60.0
 _IDLE_TICK_SECONDS=30.0
 _FORCED_WAKE_AT=0.0
-_DONE_REPORTED=set()
 
 
 def wake_scheduler():
+    """Request a prompt rescan of the one Scheduler after journal commit."""
     global _FORCED_WAKE_AT
     _FORCED_WAKE_AT=time.monotonic()
-    """Request a prompt rescan of the one Scheduler after journal commit."""
     _SCHEDULER_WAKE.set()
 
 
@@ -91,9 +88,11 @@ def _wait_for_scheduler_tick(stop_event):
         if stop_event.wait(_LOOP_FLOOR_SECONDS-gap):
             return False
     _LAST_TICK_MONOTONIC=time.monotonic()
-    quiet=time.monotonic()-max(_LAST_ADMITTED.values(), default=0.0)
-    deadline=time.monotonic()+(_IDLE_TICK_SECONDS if quiet>_IDLE_AFTER_SECONDS
-                               else _SCHEDULER_TICK_SECONDS)
+    last_activity = max(max(_LAST_ADMITTED.values(), default=0.0),
+                        max(_LAST_CANONICAL_ADMITTED.values(), default=0.0))
+    quiet = _LAST_TICK_MONOTONIC - last_activity
+    interval = _IDLE_TICK_SECONDS if quiet > _IDLE_AFTER_SECONDS else _SCHEDULER_TICK_SECONDS
+    deadline = _LAST_TICK_MONOTONIC + interval
     while not stop_event.is_set():
         left=deadline-time.monotonic()
         if left<=0:
@@ -107,23 +106,15 @@ def _wait_for_scheduler_tick(stop_event):
 
 
 def _reap_finished_workers():
-    """Return True only for a worker finishing for the FIRST time.
-
-    A dead entry stays in its registry until the next pass pops it, so a bare
-    ``is_alive()`` test reports the same finished worker over and over and
-    collapses the 5 s scan into a spin. Marking each finished worker once keeps
-    the prompt slot release the docstring promises without the repetition.
-    """
-    fresh=False
+    """Remove exited workers from the Scheduler's registries exactly once."""
+    reaped = False
     for registry in (_CANONICAL_WORKERS, _OWNER_TICKS):
         for key, worker in tuple(registry.items()):
-            ident=id(worker)
-            if worker.is_alive():
-                _DONE_REPORTED.discard(ident)
-            elif ident not in _DONE_REPORTED:
-                _DONE_REPORTED.add(ident)
-                fresh=True
-    return fresh
+            if not worker.is_alive():
+                registry.pop(key)
+                reaped = True
+    return reaped
+
 
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
 RUN_NOW_STATES=frozenset({'queued','paused'})
@@ -703,10 +694,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 # free a slot until its OS thread is actually gone: a
                 # quarantined/hung provider still occupies capacity.
                 _quarantine_expired_workers()
-                for registry in (_CANONICAL_WORKERS, _OWNER_TICKS):
-                    for key, worker in tuple(registry.items()):
-                        if not worker.is_alive():
-                            registry.pop(key, None)
+                _reap_finished_workers()
                 now=time.time()
                 _dispatch_daily_notify(now)
                 # Canonical goals do not require a pre-existing SQLite queue.

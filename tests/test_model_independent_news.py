@@ -6,6 +6,8 @@ sonucundan ayrılmamalı. Ağ ve model çağrısı yoktur; yalnız taşıyıcıl
 """
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import format_datetime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from unittest.mock import Mock, patch
 import unittest
 
@@ -179,6 +181,28 @@ class SourceIsolationTests(unittest.TestCase):
     def setUp(self):
         news_pipeline.cache_clear()
         self.addCleanup(news_pipeline.cache_clear)
+
+    def test_verified_publishers_do_not_wait_for_unneeded_slow_source(self):
+        rows = [{'url': root + '/story'} for root in (AA, BBC, DW)]
+        slow_started = Event()
+        release = Event()
+
+        def verify(row, **_kwargs):
+            if row['url'].startswith(DW):
+                slow_started.set()
+                release.wait(5)
+            else:
+                self.assertTrue(slow_started.wait(2))
+            return {**row, 'verification': 'verified', 'news_article': {'url': row['url']}}
+
+        with patch.object(news_pipeline, 'verify', side_effect=verify), ThreadPoolExecutor(max_workers=1) as caller:
+            future = caller.submit(news_pipeline._verify_plan, rows, request='Son dakika haberleri araştır',
+                                   fetcher=None, today=DAY, days=1)
+            try:
+                checked = future.result(timeout=2)
+                self.assertEqual({row['url'] for row in checked}, {AA + '/story', BBC + '/story'})
+            finally:
+                release.set()
 
     def test_one_failing_source_is_reported_and_others_still_deliver(self):
         reader, fetcher = two_source_feeds(failing=(AA + '/tr/gundem',))

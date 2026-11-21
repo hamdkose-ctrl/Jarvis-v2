@@ -158,7 +158,7 @@ class GroqRateLimitMemoryTests(unittest.TestCase):
                              ('current_user', {'return_value': 'alice'}), ('user_groq_key', {'return_value': 'k'})]:
             p = patch.object(llm, name, **kwargs); p.start(); self.addCleanup(p.stop)
         from modules import smart_router
-        p = patch.object(smart_router, 'settings', return_value={'cloud_free_confirmed': True}); p.start(); self.addCleanup(p.stop)
+        p = patch.object(smart_router, 'settings', return_value={'gemini_scopes':['conversation']}); p.start(); self.addCleanup(p.stop)
         llm.take_route(); self.addCleanup(llm.take_route)
 
     def test_groq_429_uses_retry_after_and_skips_model_next_call(self):

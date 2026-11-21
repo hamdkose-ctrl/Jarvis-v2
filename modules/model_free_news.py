@@ -47,6 +47,7 @@ def terms(value):
     result=[]
     topical = re.sub(r'https?://[^\s<>|]+', ' ', _fold(value))
     topical = re.sub(r'\bson\s+dakika\b', ' ', topical)
+    topical = re.sub(r'\bhaber\s+(?:ler|leri|lerini|lerden|lerinden|i|ini)\b', 'haber', topical)
     for aliases in _GEOGRAPHY_ALIASES.values():
         for alias in aliases:
             topical = re.sub(r'(?<!\w)'+re.escape(_fold(alias))+r'(?!\w)', ' ', topical)

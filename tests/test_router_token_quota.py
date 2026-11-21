@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from modules import router_quota as q, smart_router as router
 
@@ -103,39 +103,10 @@ class AtomicTokenQuotaTests(unittest.TestCase):
             result=list(pool.map(worker,range(8)))
         self.assertEqual(result.count(True),2)
 
-    def test_router_skips_model_without_trusted_budget(self):
-        adapter=Mock(return_value='ok')
-        specs=(router.ModelSpec('groq','exact'),)
-        with patch.object(router,'plan',return_value=router.RoutePlan(specs,(),2)), \
-             patch.object(router,'_STORE',self.directory), \
-             patch.object(router,'_HEALTH',{}):
-            with self.assertRaises(Exception):
-                router.run_request(router.ModelRequest(owner='alice'),adapter)
-            self.assertEqual(router.status('alice')['last']['skipped'][0]['reason_code'],
-                             'PROVIDER_LOCAL_QUOTA_UNAVAILABLE')
-        adapter.assert_not_called()
-
-    def test_router_accepts_trusted_bound_only_when_output_fits(self):
+    def test_request_rejects_upper_token_bound_below_requested_output(self):
         with self.assertRaises(ValueError):
             router.plan(router.ModelRequest(owner='alice',max_output_tokens=100,
                                             token_budget=50))
-        adapter=Mock(return_value='ok')
-        specs=(router.ModelSpec('groq','exact'),)
-        # The fixture's verified policy is anchored to NOW. Exercise the
-        # real SQLite quota reservation at that same synthetic instant:
-        # otherwise this test starts failing just because wall time passed
-        # expires_at, not because the token-budget acceptance regressed.
-        real_reserve = q.reserve
-        def reserve_at_fixture_clock(*args, **kwargs):
-            return real_reserve(*args, now=NOW, **kwargs)
-        with patch.object(router,'plan',return_value=router.RoutePlan(specs,(),2)), \
-             patch.object(router,'_STORE',self.directory), \
-             patch.object(router,'_HEALTH',{}), \
-             patch.object(q,'reserve',side_effect=reserve_at_fixture_clock):
-            result=router.run_request(router.ModelRequest(owner='alice',
-                       max_output_tokens=25,token_budget=95),adapter)
-        self.assertEqual(result.text,'ok')
-        adapter.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()

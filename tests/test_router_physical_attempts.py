@@ -8,6 +8,20 @@ from modules import llm
 
 
 class RouterPhysicalAttemptTests(unittest.TestCase):
+    def test_gemini_request_uses_remaining_timeout_without_sdk_retry(self):
+        from modules import requests_state
+
+        chat = SimpleNamespace(send_message=lambda _text: SimpleNamespace(text='OK', candidates=[]))
+        api = SimpleNamespace(chats=SimpleNamespace(create=Mock(return_value=chat)))
+        with patch.object(llm, '_cli', return_value=api), \
+             patch.object(llm.privacy, 'mode', return_value='normal'), \
+             patch.object(llm.usage_meter, 'record'), requests_state.budget(12):
+            self.assertEqual(llm._send_provider('gemini', 'ping', '', 32, [], model='gemini-test'), 'OK')
+        options = api.chats.create.call_args.kwargs['config'].http_options
+        self.assertGreater(options.timeout, 0)
+        self.assertLessEqual(options.timeout, 12_000)
+        self.assertEqual(options.retry_options.attempts, 1)
+
     def test_global_and_runtime_gemini_clients_disable_sdk_retries(self):
         # Tek sahip _gemini_http_options(): global istemci modül yüklenirken, kullanıcı
         # istemcisi _cli() içinde bu seçeneklerle kurulur. Çalışma zamanı anahtar değişimi

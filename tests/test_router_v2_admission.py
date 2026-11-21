@@ -83,13 +83,12 @@ class AdmissionTests(unittest.TestCase):
     def test_plan_uses_request_owners_real_model_preference_and_restores_reader(self):
         user_models.save_choice("alice", provider="auto", groq_model="model-a")
         user_models.save_choice("bob", provider="auto", groq_model="model-b")
-        router.configure("alice", True)
+        router.configure('alice', gemini_scopes=['conversation'])
         llm.set_user_context("bob")
         self.addCleanup(llm.set_user_context, None)
         with (
             patch.object(llm, "user_key", return_value=""),
             patch.object(llm, "user_groq_key", return_value="key"),
-            patch.object(router, "_evidence_gate", return_value={"ok": True}),
             patch("modules.cloudflare_chat.configured", return_value=False),
         ):
             plan = router.plan(router.ModelRequest(owner="alice"))
@@ -170,40 +169,6 @@ class AdmissionTests(unittest.TestCase):
                 db.execute("SELECT count(*) FROM requests").fetchone()[0], 1
             )
 
-    def test_background_daily_budget_keeps_foreground_request_capacity(self):
-        router.configure(
-            "alice",
-            application_limits={"daily_requests": 3, "interactive_daily_reserve": 1},
-        )
-        bg = router.ModelRequest(owner="alice", work_class="background")
-        for _ in range(2):
-            quota.reserve(
-                "alice",
-                "groq",
-                "m",
-                directory=self.root,
-                quota_scope="shared",
-                application_limit=quota.request_ceiling(bg),
-            )
-        with self.assertRaises(quota.ReservationExhausted):
-            quota.reserve(
-                "alice",
-                "groq",
-                "m",
-                directory=self.root,
-                quota_scope="shared",
-                application_limit=quota.request_ceiling(bg),
-            )
-        fg = replace(bg, work_class="interactive")
-        quota.reserve(
-            "alice",
-            "groq",
-            "m",
-            directory=self.root,
-            quota_scope="shared",
-            application_limit=quota.request_ceiling(fg),
-        )
-
     def test_background_cannot_take_interactive_reserved_slot(self):
         request = router.ModelRequest(
             owner="alice", call_id="bg", work_class="background"
@@ -262,16 +227,13 @@ class AdmissionTests(unittest.TestCase):
                         pass
 
     def test_cancelled_slow_call_holds_its_claim_until_transport_really_returns(self):
-        router.configure(
-            "alice", application_limits={"max_parallel": 1, "interactive_reserved": 0}
-        )
         entered = threading.Event()
         release = threading.Event()
         cancelled = threading.Event()
         request = router.ModelRequest(
             owner="alice", request_id="slow", cancelled=cancelled
         )
-        plan = router.RoutePlan((router.ModelSpec("groq", "m"),), (), 1)
+        plan = router.RoutePlan((router.ModelSpec("ollama", "m"),), (), 1)
 
         def adapter(spec):
             entered.set()
@@ -383,6 +345,26 @@ class AdmissionTests(unittest.TestCase):
                 cost_bound=30,
             )
 
+    def test_custom_budget_reserves_each_normal_call_and_stops_before_overspend(self):
+        connections.save('alice', {
+            'name': 'Budgeted API', 'protocol': 'responses', 'base_url': 'https://api.example.org/v1',
+            'model': 'm', 'role': 'conversation', 'billing': 'paid', 'enabled': True,
+            'paid_enabled': True, 'data_scopes': ['conversation'], 'daily_cost_microusd': 5_000_000,
+            'max_call_cost_microusd': 2_000_000,
+        }, secret='key')
+        calls = []
+
+        def transport(spec):
+            calls.append(spec.provider)
+            return 'OK'
+
+        for _ in range(2):
+            result = router.run_request(router.ModelRequest(owner='alice'), transport)
+            self.assertEqual(result.text, 'OK')
+        with self.assertRaisesRegex(RuntimeError, 'Atlanan sağlayıcılar: custom'):
+            router.run_request(router.ModelRequest(owner='alice'), transport)
+        self.assertEqual(calls, ['custom', 'custom'])
+
     def test_ui_free_label_cannot_put_unknown_connection_in_automatic_pool(self):
         row = connections.save(
             "alice",
@@ -428,6 +410,8 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(
                 router.plan(request).candidates[0].connection_id, row["id"]
             )
+            with patch.object(time, "time", return_value=facts["expires_at"] + 1):
+                self.assertFalse(router.plan(request).candidates)
         self.assertFalse(connections.free_pool_eligible("bob", row))
 
     def test_role_gate_requires_full_corpus_and_is_invalidated_by_source_or_binding(

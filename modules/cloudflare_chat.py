@@ -75,8 +75,10 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
         category = failure_policy.classify(_HttpStatusError(resp.status_code, getattr(resp, "text", "")))
         if category == failure_policy.AUTH:
             raise CloudflareChatError("Cloudflare kimlik doğrulaması başarısız (token/hesap kontrolü).", "AUTH_FAILED")
-        if category in (failure_policy.RATE_LIMIT, failure_policy.QUOTA_EXHAUSTED):
-            raise CloudflareChatError("Günlük ücretsiz Neuron kotası dolmuş olabilir.", "QUOTA_EXCEEDED")
+        if category == failure_policy.QUOTA_EXHAUSTED:
+            raise CloudflareChatError("Cloudflare günlük kotası doldu (HTTP 429).", "QUOTA_EXCEEDED")
+        if category == failure_policy.RATE_LIMIT:
+            raise CloudflareChatError("Cloudflare istek sınırına takıldı (HTTP 429).", "QUOTA_EXCEEDED")
         raise CloudflareChatError(f"Cloudflare hata döndürdü (HTTP {resp.status_code}).", "PROVIDER_ERROR")
     try:
         payload = resp.json()
