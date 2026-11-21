@@ -431,6 +431,30 @@ class SpeechReceipt:
     played: bool = False
 
 
+class _AnyCancel:
+    """İki bayraktan biri set olduğunda iptal: tur iptali ya da bayat üretim.
+
+    Ses önde olsun diye: biten cevabın artık parçaları hâlâ üretiliyorsa, yeni
+    komutun ilk parçası o üretimin arkasında bekliyordu (canlı ölçüm 18:34:
+    sıcak bağlantı `hit` olmasına rağmen synth 2767 ms).
+    """
+
+    def __init__(self, *events):
+        self._events = events
+
+    def is_set(self) -> bool:
+        return any(getattr(event, "is_set")() for event in self._events)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if self.is_set():
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+
+
 class VoiceCoordinator:
     """Single-owner output worker: foreground is preferred, Core workers never wait.
 
@@ -740,6 +764,7 @@ class VoiceCoordinator:
             except queue.Empty:
                 continue
             cancel = threading.Event()
+            stale = threading.Event()
             with self._lock:
                 if self._closed.is_set() or generation != self._generation:
                     cancel.set()
@@ -786,7 +811,9 @@ class VoiceCoordinator:
                     def synthesize_chunk(chunk: str) -> bytes:
                         # Kilit çağrı boyunca bir kez alınır (aşağıdaki with);
                         # parça başına almak paralel hazırlıkta çakışıyordu.
-                        return self._synthesize(spec, chunk, cancel)
+                        # `stale`: tur bitince artık parçaların üretimi kesilir,
+                        # böylece yeni komut tek "tts" kilidini beklemez.
+                        return self._synthesize(spec, chunk, _AnyCancel(cancel, stale))
 
                     def prefetch(index: int, depth: int = 1) -> None:
                         # `depth` > 1 hazırlığı öne alır: cümle bazlı üretimde tek
@@ -879,11 +906,13 @@ class VoiceCoordinator:
                             if cancel.is_set():
                                 status, reason = "cancelled", self._cancelled_reason()
                                 break
+                    stale.set()      # biten cevabın artık parçaları üretilmesin
                     for worker, _box in prefetched.values():
                         worker.join(timeout=0.5)
                     self._notify(request, status, reason, played=announced_start)
                 except Exception as exc:
                     _record_failure('modules/voice_core.py:adapter')
+                    stale.set()
                     # An adapter may declare the exact outcome it could not prove
                     # (a stop the device never confirmed). That declaration can only
                     # downgrade the receipt: an adapter can never claim "played",
