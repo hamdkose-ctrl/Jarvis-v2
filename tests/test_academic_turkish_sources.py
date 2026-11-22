@@ -100,11 +100,10 @@ class MixedListingTests(unittest.TestCase):
             out = academic_listing(rows, 'yapay zeka makaleleri', translate=True)
         self.assertEqual(ask.call_count, 1)                   # yalnız İngilizce kayıt çevrilir
         self.assertIn('Yapay Zeka ve Hukuk', out['text'])      # Türkçe kayıt aynen
-        self.assertIn('Hukuk ve Teknoloji', out['text'])
+        self.assertIn('Özet: Hukuki sorumluluk', out['text'])
         self.assertIn('Dikkat Yeterli', out['text'])           # arXiv çevrildi
         self.assertIn('https://arxiv.org/abs/1', out['text'])  # bağlantı kayıttan
-        self.assertIn('DergiPark/Crossref', out['text'])
-        self.assertIn('arXiv', out['text'])
+        self.assertIn('· arXiv', out['text'])
 
     def test_all_turkish_rows_need_no_model_call(self):
         from modules.task_workers import academic_listing
@@ -151,7 +150,7 @@ class RelevanceAndFormatTests(unittest.TestCase):
         ])
         self.assertEqual(rows[0]['title'], 'Yapay Zeka ile Teşhis')
 
-    def test_listing_is_sectioned_with_counts_and_aligned_links(self):
+    def test_listing_uses_the_plain_block_layout(self):
         from modules.task_workers import academic_listing
         rows = [
             {'provider': 'crossref', 'title': 'Yapay Zeka ve Hukuk', 'url': 'https://doi.org/10.1/x',
@@ -163,12 +162,50 @@ class RelevanceAndFormatTests(unittest.TestCase):
         answer = '{"items":[{"no":1,"baslik":"Dikkat Yeterli","ozet":"Transformer öneriliyor."}]}'
         with patch('modules.llm.ask', return_value=answer):
             text = academic_listing(rows, 'yapay zeka makaleleri', translate=True)['text']
+        # Kullanıcının istediği düzen: numaralı sade blok — başlık, Özet, Kaynak.
         self.assertIn('2 kayıt · Türkçe 1 · arXiv 1', text)
-        self.assertIn('Türkçe kaynaklar (DergiPark/Crossref):', text)
-        self.assertIn('İngilizce kaynaklar (Türkçeye çevrildi):', text)
         self.assertIn('1) Yapay Zeka ve Hukuk — 2025-11', text)
-        self.assertIn('   Hukuk ve Teknoloji', text)              # dergi satırı
-        self.assertIn('   https://doi.org/10.1/x', text)          # bağlantı hizalı
-        self.assertIn('   Özet: Hukuki sorumluluk', text)
-        self.assertIn('2) Dikkat Yeterli — 2017-06-12', text)
-        self.assertLess(text.index('Türkçe kaynaklar'), text.index('İngilizce kaynaklar'))
+        self.assertIn('\n\nÖzet: Hukuki sorumluluk tartışılıyor.\n', text)
+        self.assertIn('Kaynak: https://doi.org/10.1/x', text)
+        self.assertIn('2) Dikkat Yeterli — 2017-06-12 · arXiv', text)
+        self.assertLess(text.index('1) Yapay Zeka ve Hukuk'), text.index('2) Dikkat Yeterli'))
+
+
+class BudgetAndRepeatTests(unittest.TestCase):
+    """Canlı kusurlar (22 Kasım 2026): (1) "5 kayıt" yazıp ekranda 3 kayıt görünüyordu
+    çünkü yanıt önizlemesi 1200 karakterde kesiyordu; (2) aynı liste her hedef için
+    yeniden basılıyordu."""
+
+    def long_rows(self, count=5):
+        return [{'provider': 'crossref', 'title': f'Yapay Zeka Çalışması {index} ' + 'Uzun Başlık ' * 8,
+                 'url': f'https://doi.org/10.1/{index}', 'published': '2026-01-01',
+                 'snippet': 'Bu çalışma yapay zeka konusunu uzun uzun anlatır. ' * 6,
+                 'journal': 'Uzun Dergi Adı ' * 4} for index in range(count)]
+
+    def test_listing_fits_the_preview_budget_and_count_matches(self):
+        from modules import persona_contract
+        from modules.task_workers import academic_listing
+        out = academic_listing(self.long_rows(), 'yapay zeka makaleleri')
+        self.assertLessEqual(len(out['text']), persona_contract.PREVIEW_CHARS['orta'])
+        self.assertNotIn('Metnin devamı', out['text'])
+        shown = sum(1 for line in out['text'].splitlines() if line[:2] in {f'{n})' for n in range(1, 10)})
+        self.assertGreaterEqual(shown, 2)
+        self.assertIn(f'{shown} kayıt', out['text'])
+        self.assertIn('kaynak gösterildi', out['text'])       # kırpma sessiz değil
+
+    def test_shared_evidence_is_printed_once(self):
+        import test_goal_executor as fixture
+        from modules import goal_executor as goals
+        case = fixture.GoalTests()
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        from test_model_free_academic import listing_output
+        job = {'id': 'abcdefabcdefabcd', 'owner': 'alice', 'request': 'Yapay zeka makaleleri',
+               'state': 'done', 'steps': [{'id': 's1', 'tool': 'research', 'state': 'done'}],
+               'goals': [{'text': 'araştır', 'state': 'done', 'evidence': ['s1']},
+                         {'text': 'doğrula', 'state': 'done', 'evidence': ['s1']},
+                         {'text': 'raporla', 'state': 'done', 'evidence': ['s1']}],
+               'outputs': {'s1': listing_output()}}
+        goals._save(job)
+        text = goals.render(job)
+        self.assertEqual(text.count('Bulduğum akademik kaynaklar'), 1, text)

@@ -35,7 +35,8 @@ class TurkishListingTests(unittest.TestCase):
         self.assertIn('Hiyerarşik bir dönüştürücü öneriyor.', out['text'])
         self.assertIn('https://arxiv.org/abs/2209.15001v3', out['text'])
         self.assertNotIn('Dilated Neighborhood Attention', out['text'])
-        self.assertIn('Türkçeye çevrildi', out['text'])
+        self.assertIn('Özet: Hiyerarşik bir dönüştürücü öneriyor.', out['text'])
+        self.assertIn('· arXiv', out['text'])   # çevrilen kayıt işaretli
         self.assertTrue(out['academic_listing'])
         task_results.check('research', out)          # sözleşme bozulmadı
 

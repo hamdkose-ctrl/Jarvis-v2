@@ -1314,6 +1314,9 @@ def _render_verified(job,style,unverified=(),core_completed=False):
     if job.get('phase')=='planning' and job['state']=='running':
         elapsed=max(0,int(time.time()-job.get('phase_started',time.time())))
         lines.append(f'Model planı bekleniyor: {elapsed} saniye. Bu çağrının sınırı {PLANNER_SECONDS} saniye; henüz araç adımı başlamamış olabilir.')
+    # Aynı kanıt birden çok hedefe bağlıysa çıktı **bir kez** yazılır (canlı: akademik
+    # listede üç hedef de s1'i gösterdiği için aynı liste üç kez basıldı).
+    printed=set()
     for goal in job['goals']:
         chat=[ident for ident in goal.get('chat_evidence',[]) if job['outputs'].get(ident,{}).get('state')=='done']
         if goal['state']=='done' or chat:
@@ -1326,8 +1329,9 @@ def _render_verified(job,style,unverified=(),core_completed=False):
                              for ident in evidence)
             seen=set()
             for ident in evidence:
-                if ident in seen:continue
+                if ident in seen or ident in printed:continue
                 seen.add(ident)
+                printed.add(ident)
                 output=job['outputs'][ident]
                 step=steps.get(ident,{})
                 if has_findings and step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:
