@@ -555,6 +555,7 @@ class EdgePlayer:
         try:
             import sounddevice  # noqa: F401
         except Exception:
+            _record_failure("modules/voice_edge.py:sounddevice_probe")
             return False
         return True
 

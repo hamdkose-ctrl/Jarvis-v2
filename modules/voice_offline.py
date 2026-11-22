@@ -5,6 +5,8 @@ Adapters are not connected to the production engine until real-PC acceptance.
 """
 from __future__ import annotations
 
+from modules.diagnostics import record_failure as _record_failure
+
 import io
 from pathlib import Path
 import shutil
@@ -272,7 +274,7 @@ class WavePlayer:
             ctypes.windll.kernel32.SetThreadPriority(
                 ctypes.windll.kernel32.GetCurrentThread(), 15)  # TIME_CRITICAL
         except Exception:
-            pass
+            _record_failure("modules/voice_offline.py:thread_priority")
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         """Cihaz sesi kendisi çeker; Python döngüsü cihazı beslemek zorunda değil.
@@ -349,5 +351,5 @@ class WavePlayer:
         try:
             timing["out"] = str(sd.query_devices(kind="output")["name"])[:40]
         except Exception:
-            pass
+            _record_failure("modules/voice_offline.py:output_device_name")
         self.last_timing = timing
