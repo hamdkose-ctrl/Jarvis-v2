@@ -122,6 +122,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 - Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
+- Faz 4 durumu (22 Kasım 2026 ölçümü): yedi salt-okuma modülünün hepsi üretim kodundan çağrılıyor ve her dalın kendi bağlama testi var (`test_phase4_*_wiring`, toplam 55 test OK). Per-letter "akışa bağlı değil" hükümleri geçersiz; kalan kapı exact-head CI + gerçek PC kabulü. Kapsam işleri (SearXNG kendi sunucu, Tavily/Exa/Firecrawl API anahtarı, canlı OHLCV serisi, CDP gerçek profil, 4G UIA pilotu) kullanıcı kararı/hesap bekliyor.
 - Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan: 3-D alarm teslim başlığı canlı kabulü)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 modül üretimden çağrılıyor; kalan anahtar/kendi sunucu gerektiren arama sağlayıcıları, canlı OHLCV, CDP, 4G UIA pilotu, F-002 kabul PR'ları)
 - Faz 5: Güvenilirlik ve gözlem
@@ -308,7 +309,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 ### 4B — FileWorker sağlamlaştırma
 
-🟡 (#373) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#373) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_fileworker_wiring`` PASS; modül ``modules/task_workers.py` (`search_files`/`patch_text`)` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - Belgeden yapılacak iş, yükümlülük ve son tarih çıkarma eklenecek. Mailden tarihli iş ve ödev parçalama var, genel belge için yok.
 - PPTX üretimi, genel dosya yaması ve dosya arama komutu eklenecek. PPTX okuma var, yama yok, arama bilgi tabanıyla sınırlı.
@@ -316,7 +317,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 ### 4C — Tarayıcı salt okuma
 
-🟡 (#375) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#375) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_browser_readonly_wiring`` PASS; modül ``modules/task_workers.py`` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - Tarayıcıya erişilebilirlik ağacı tam hâle gelecek; birden çok sekme, indirme ve yükleme, diyalog yönetimi eklenecek. Şu an tek sayfa ve sade okuma var.
 - Kayıtlı oturum koruma, kendi şifreli yerel kimlik kasası ve 2FA için insana devretme eklenecek. Ayrı profil ve elle giriş betiği var, kasa yok. Kimlik bilgisi asla modele gitmez.
@@ -324,13 +325,13 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 ### 4D — Drive salt okuma
 
-🟡 (#376) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#376) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_drive_readonly_wiring`` PASS; modül ``modules/account_tools.py`` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - Google Drive, Docs ve Sheets okuma entegrasyonu eklenecek. Gmail ve Takvim var, Drive yok.
 
 ### 4E — Finans salt okuma
 
-🟡 (#378) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#378) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_gmail_calendar_readonly_wiring`` PASS; modül ``modules/account_tools.py`` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - 🟡 F-002 PR 1: doğrulanmış fiyat, kaynak kanıtı, freshness ve en az iki OHLCV mumu varsa mevcut Finance worker üzerinden salt-okunur yapılandırılmış giriş/stop/hedef taslağı üretilir. Seviye yöntemi yalnız son iki mumun gözlenen aralığıdır; veri eksik veya stale ise plan `incomplete` döner ve sayı uydurmaz. Pozisyon boyutu, PASS/BLOCK, kullanıcı onayı, broker ve emir yürütme kapsam dışıdır. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
 - 🟡 F-002 PR 2: planın stale/eksik kanıt, stop, hedef ve risk-getiri görünümü eksiklerini salt-okunur gözlem listesi olarak döndürür. Bu liste PASS/BLOCK, işlem kararı, onay veya yürütme yetkisi vermez. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
@@ -342,7 +343,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 ### 4F — Gmail ve Takvim salt okuma genişlemesi
 
-🟡 (#381) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#381) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_finance_readonly_wiring`` PASS; modül ``modules/task_workers.py` + `modules/task_results.py`` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - Gmail konuşma (thread) okuma ve Takvim planlama önerisi genişleyecek. Şu an okuma ve arama var.
 
@@ -351,7 +352,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 - Google Takvimden gelen saatli kayıt, plan çıktısında Jarvis'in çalıştığı makinenin saat dilimine ikinci kez çevrilmez; kaynağın takvim duvar saati korunur. Bu yalnız salt-okunur gösterim/eşsizleştirme düzeltmesidir; Google takvim yazımı, yetki veya etkinin kapsamı değişmez. Kanıt: PR #413; test `test_google_event_keeps_calendar_wall_time`.
 
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
-🟡 (#384) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#384) `[1✓ 2✓ 3✓ 4🔄]` Sözleşme modülü ve testi var. **Ölçüm (22 Kasım 2026):** bu dal akışa bağlı — ``test_phase4_computer_readonly_wiring`` PASS; modül ``modules/task_tools.py` + `modules/task_results.py`` üretim kodundan çağrılıyor. Yukarıdaki "akışa bağlı değil" hükmü geçersiz. Kalan: exact-head CI + gerçek PC kabulü.
 
 - ComputerWorker sınırı tanımlanacak, UIA temel ölçümü ve yetenek / makbuz sözleşmesi yazılacak. 4F merge edildikten sonra açılır. Hesap Makinesi ve Not Defteri pilotu, uygulama izin listesi ve manifest var.
 
