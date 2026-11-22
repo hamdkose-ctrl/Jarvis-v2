@@ -251,3 +251,28 @@ class FreshnessOrderTests(unittest.TestCase):
             rows = rp.search_turkish('yapay zeka', limit=3)
         self.assertEqual([row['title'] for row in rows],
                          ['Yapay Zeka Yeni Çalışma', 'Yapay Zeka Orta Çalışma', 'Yapay Zeka Eski Çalışma'])
+
+
+class RepeatedGoalLineTests(unittest.TestCase):
+    """Canlı (22 Kasım 20:40): liste bir kez yazıldıktan sonra "✓ doğrula / ✓ raporla"
+    satırları boş gürültü olarak kalıyordu."""
+
+    def test_goal_lines_with_already_printed_evidence_are_hidden(self):
+        import test_goal_executor as fixture
+        from test_model_free_academic import listing_output
+        from modules import goal_executor as goals
+        case = fixture.GoalTests()
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        job = {'id': 'abcdefabcdefabce', 'owner': 'alice', 'request': 'Yapay zeka makaleleri',
+               'state': 'done', 'steps': [{'id': 's1', 'tool': 'research', 'state': 'done'}],
+               'goals': [{'text': 'güncel makaleleri araştır', 'state': 'done', 'evidence': ['s1']},
+                         {'text': 'kaynakları doğrula', 'state': 'done', 'evidence': ['s1']},
+                         {'text': 'sonuçları raporla', 'state': 'done', 'evidence': ['s1']}],
+               'outputs': {'s1': listing_output()}}
+        goals._save(job)
+        text = goals.render(job)
+        self.assertIn('güncel makaleleri araştır', text)       # ilk hedef başlığı kalır
+        self.assertNotIn('kaynakları doğrula', text)           # kanıtı zaten yazıldı
+        self.assertNotIn('sonuçları raporla', text)
+        self.assertEqual(text.count('Bulduğum akademik kaynaklar'), 1)

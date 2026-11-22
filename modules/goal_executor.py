@@ -1323,7 +1323,10 @@ def _render_verified(job,style,unverified=(),core_completed=False):
             partial=goal['state']!='done'
             evidence=goal['evidence'] if goal['state']=='done' else chat
             if not core_completed and completion_policy.evaluate_evidence(_check_news_completion,job,goal,evidence)['decision']!=completion_policy.COMPLETE:partial=True
-            lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
+            # Kanıtı zaten yazılmış hedefin başlığı tekrar edilmez (canlı: liste bir kez
+            # yazıldıktan sonra "✓ doğrula / ✓ raporla" satırları boş gürültüydü).
+            if partial or any(ident not in printed for ident in evidence):
+                lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
             steps={step['id']:step for step in job.get('steps',[]) if isinstance(step,dict) and step.get('id')}
             has_findings=any(steps.get(ident,{}).get('tool')=='research' and job['outputs'].get(ident,{}).get('state')=='done'
                              for ident in evidence)
