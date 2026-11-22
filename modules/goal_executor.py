@@ -429,6 +429,52 @@ def _academic_route(job, kind, data):
     return 'research', routed
 
 
+def _model_free_academic_deliver(runtime, job):
+    """Planlayıcı yokken akademik liste hedefini deterministik yürütür.
+
+    Canlı ölçüm (22 Kasım 18:10): model kapalıyken "güncel akademik makaleleri
+    listele" hedefi hiç adım üretmedi — paused, `model_free.evidence` boş, kullanıcıya
+    yalnız "model yok" dendi. Oysa listenin kendisi modelsiz üretilebiliyor
+    (`task_workers.academic_listing`: arXiv Atom API, model çağrısı yok).
+    Haber hedefleri `news_recovery` ile aynı mantığa sahipti; akademik liste için
+    karşılığı yoktu.
+
+    Tetik kapalı ve dar: istek akademik dilli, haber/dosya isteği değil, iş hiç adım
+    üretmemiş ve planlayıcı model yok. Bu koşullardan biri düşerse hiçbir şey yapılmaz
+    (eski davranış: paused + modelsiz teslim mesajı).
+    """
+    if not isinstance(job, dict) or job.get('steps'):
+        return False
+    request = str(job.get('request') or '').strip()
+    if not request or len(request) > 2000:
+        return False
+    from modules import research_evidence, research_providers
+    if not research_providers.academic_requested(request):
+        return False
+    if research_evidence.publication_news_requested(request) or research_evidence.file_requested(request):
+        return False
+    data = {'query': request}
+    try:
+        goal_tools.validate('research', data)
+    except Exception:
+        _record_failure('modules/goal_executor.py:model_free_academic_validate')
+        return False
+    kind = 'research'
+    # Planlayıcı hiç çalışmadığı için hedef listesi boş olabilir; adımın bağlanacağı tek hedef budur.
+    if not job.get('goals'):
+        job['goals'] = [{'text': request, 'state': 'pending', 'evidence': []}]
+    signature = hashlib.sha256(json.dumps([kind, data], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    step = {'id': 's1', 'goal': 0, 'tool': kind, 'input': copy.deepcopy(data),
+            'depends': [], 'signature': signature, 'state': 'queued'}
+    from modules import brain_delegate
+    step['specialist'] = brain_delegate.assign(job['owner'], kind, request)
+    job['steps'].append(step)
+    output = _record(runtime, job, step)
+    _complete_academic_listing(job, step, output)
+    _save(job)
+    return True
+
+
 def _parse(text):
     if not isinstance(text,str):raise ValueError('Hedef planı metin olmalı.')
     text=re.sub(r'^```(?:json)?\s*|\s*```$','',text.strip())
@@ -1056,6 +1102,15 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
                         _record_failure('modules/goal_executor.py:news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
                     if job['state']=='approval' or _finish_completed(job):return render(job)
+                if planner_pending and not resume and not job['goals'] and not job['steps']:
+                    # Model yok ama hedef modelsiz yapılabiliyor: doğrulanmış teslim yine verilir.
+                    try:
+                        if _model_free_academic_deliver(runtime, job):
+                            if job['state']=='approval' or _finish_completed(job):return render(job)
+                    except (requests_state.Cancelled,PermissionError):raise
+                    except Exception:
+                        _record_failure('modules/goal_executor.py:model_free_academic')
+                        job['steps']=job.get('steps') or []
                 break
     if job['state']=='approval':
         return render(job)
