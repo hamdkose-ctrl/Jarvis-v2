@@ -94,9 +94,21 @@ BOUNDARY = {
 # Finance kodunun geçmiş/açık göç kayıtları. Tamamlanan kayıtlar tarihi kanıttır;
 # yalnız açık kayıtların kaynak konumu FIN-003 ile zorunlu tutulur.
 MIGRATION = (
+    {'step': '3-B', 'branch': 'data', 'location': 'modules/watcher.py:_finance_price',
+     'target': 'modules/finance.py:quote', 'status': 'completed',
+     'note': "Fiyat okuma Finance'te; watcher yalnız devreder (test_finance_migrations)."},
+    {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:finance_tick',
+     'target': 'modules/finance_alert_tick.py:tick', 'status': 'completed',
+     'note': 'Alarm tarama turu Finance modülünde; watcher yalnız devreder.'},
     {'step': '3-D', 'branch': 'alarm', 'location': 'modules/watcher.py:loop',
      'target': 'modules/watcher.py:loop', 'status': 'completed',
      'note': 'Bildirim teslimi Communication tarafında kalır; ntfy başlığı finans alarmı olarak ayrıldı.'},
+    {'step': '3-E', 'branch': 'data', 'location': 'modules/domain_tools.py:exchange',
+     'target': 'modules/finance.py:dated_rate', 'status': 'completed',
+     'note': "Tarihli kur doğrulaması Finance'te; domain_tools yalnız devreder."},
+    {'step': '3-F', 'branch': 'analysis', 'location': 'modules/domain_tools.py:csv_analysis',
+     'target': 'modules/finance_analysis.py:csv_summary', 'status': 'completed',
+     'note': 'CSV finans kolu analiz modülünde; domain_tools yalnız devreder.'},
 )
 
 # Finance modülleri bu modülleri içe aktaramaz: teslim/yayın/mesaj Communication'ındır.
