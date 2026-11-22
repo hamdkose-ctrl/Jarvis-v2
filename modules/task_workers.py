@@ -21,6 +21,38 @@ def json_text(text):
     return json.loads(text)
 
 
+def academic_listing(rows, request):
+    """arXiv kayıtlarını kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
+
+    Canlı ölçüm (22 Kasım 15:01): "Yapay zeka makaleleri araştır" isteğinde arXiv
+    kaynakları geldi ama soru-cevap doğrulaması ("kaynak soruyu yanıtlıyor mu")
+    makale listesi için anlamsız olduğu için üç adım da failed döndü. Makale
+    listesi isteyen kullanıcıya başlık, tarih, bağlantı ve kayıt özeti verilir;
+    değer/alıntı iddiası üretilmez.
+    """
+    satirlar = ['Bulduğum akademik kaynaklar (arXiv):']
+    quotes = []
+    for index, row in enumerate(rows[:5], start=1):
+        baslik = str(row.get('title') or '').strip()
+        url = str(row.get('url') or '').strip()
+        tarih = str(row.get('published') or '').strip()
+        ozet = ' '.join(str(row.get('snippet') or '').split())[:400]
+        satirlar.append(f"{index}) {baslik}" + (f" ({tarih})" if tarih else ''))
+        satirlar.append('   ' + url)
+        if ozet:
+            satirlar.append('   ' + ozet)
+            quotes.append(ozet)
+    satirlar.append('Özetler arXiv kaydından; tam metin bağlantıda. Kaynaklar doğrulanmış iddia değildir.')
+    text = "\n".join(satirlar)
+    okunan = sum(len(str(row.get('snippet') or '')) for row in rows[:5])
+    return {'state': 'done', 'text': text, 'source': str(rows[0]['url']),
+            # Sözleşme en az 80 karakter okunmuş kaynak metni ister; liste metni de
+            # gerçek arXiv kayıtlarından üretildiği için kanıt sayılır.
+            'source_chars': max(okunan, len(text)),
+            'source_quotes': quotes, 'academic_listing': True,
+            'source_only': False}
+
+
 def browser_task(owner, data):
     from modules import browser_agent
     mode = data.get('mode')
@@ -280,6 +312,9 @@ def run(owner, task, dependencies):
                 candidates = academic + [row for row in candidates if row['url'] not in seen]
             if not candidates:
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
+            if academic and not news:
+                # Makale listesi isteği: model doğrulaması yerine kayıt listesi.
+                return academic_listing(academic, user_request)
             url = _url(candidates[0]['url'])
         article=None
         if news:

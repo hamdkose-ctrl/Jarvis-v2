@@ -59,6 +59,27 @@ class AcademicRequestTests(unittest.TestCase):
                    return_value={"body": b"<not-xml", "url": "https://export.arxiv.org"}):
             self.assertEqual(rp.search_academic("attention"), [])
 
+    def test_academic_listing_cites_papers_without_claim_verification(self):
+        from modules.task_workers import academic_listing
+        rows = [
+            {"provider": "arxiv", "title": "Dilated Neighborhood Attention",
+             "url": "https://arxiv.org/abs/2209.15001v3", "published": "2022-09-29",
+             "snippet": "We propose a hierarchical transformer."},
+            {"provider": "arxiv", "title": "Ikinci makale",
+             "url": "https://arxiv.org/abs/2105.02723v1", "published": "2021-05-06",
+             "snippet": "Second abstract."},
+        ]
+        out = academic_listing(rows, "Yapay zeka makaleleri araştır")
+        self.assertEqual(out["state"], "done")
+        self.assertEqual(out["source"], "https://arxiv.org/abs/2209.15001v3")
+        self.assertIn("1) Dilated Neighborhood Attention (2022-09-29)", out["text"])
+        self.assertIn("https://arxiv.org/abs/2105.02723v1", out["text"])
+        self.assertGreaterEqual(out["source_chars"], 80)
+        self.assertTrue(out["academic_listing"])
+        # Kaynak kanıtı sözleşmesi: task_results.check araştırma çıktısını kabul eder.
+        from modules import task_results
+        task_results.check("research", out)
+
     def test_research_worker_wires_academic_candidates_first(self):
         source = Path(__file__).resolve().parents[1].joinpath("modules/task_workers.py").read_text(
             encoding="utf-8")
@@ -66,6 +87,8 @@ class AcademicRequestTests(unittest.TestCase):
         self.assertIn("research_providers.academic_requested(user_request)", source)
         # Akademik sonuç varken DDG engeli turu düşürmez.
         self.assertIn("modules/task_workers.py:research_public_search", source)
+        # Makale listesi isteği model doğrulamasına düşmez (canlı hata 15:01).
+        self.assertIn("return academic_listing(academic, user_request)", source)
 
 
 if __name__ == "__main__":
