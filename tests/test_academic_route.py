@@ -5,6 +5,7 @@ Canlı ölçüm (22 Kasım 2026): "Yapay zeka makaleleri araştır" isteği
 çalışmadı. Kaynak türü kararı planlayıcı istemine bırakılmıyor.
 """
 import unittest
+from pathlib import Path
 
 from modules import goal_executor, goal_tools, research_providers
 
@@ -49,6 +50,17 @@ class AcademicRouteTests(unittest.TestCase):
         self.assertEqual(
             goal_executor._academic_route({"request": "makale araştır"}, "research", {"query": "x"}),
             ("research", {"query": "x"}))
+
+    def test_research_step_never_requires_a_url_key(self):
+        """Sorgu adımında 'url' olmayabilir; doğrudan indeksleme KeyError verir.
+
+        Canlı hata (22 Kasım 14:53): 'Hedef: research' emit satırı ve başarısız
+        kaynak kaydı `step['input']['url']` üzerinden KeyError attı, tur düştü.
+        """
+        source = Path(__file__).resolve().parents[1].joinpath(
+            "modules/goal_executor.py").read_text(encoding="utf-8")
+        self.assertNotIn("step['input']['url']", source)
+        self.assertNotIn('step["input"]["url"]', source)
 
     def test_request_without_query_falls_back_to_the_request_text(self):
         kind, data = goal_executor._academic_route(
