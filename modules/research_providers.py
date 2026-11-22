@@ -9,7 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 import re
 from dataclasses import dataclass, field
-from urllib.parse import parse_qs, quote_plus, urlsplit
+from urllib.parse import parse_qs, quote, quote_plus, urlsplit
 
 from modules import public_sources
 from modules.diagnostics import record_failure as _record_failure
@@ -89,6 +89,75 @@ def _duckduckgo_transport(request: dict) -> dict:
 def search_public(query: str) -> list[dict]:
     """Search one keyless public provider through the bounded HTTPS reader."""
     return search_all(query, providers=("duckduckgo",), transport=_duckduckgo_transport)
+
+# --- arXiv (anahtarsız, resmî Atom API) -------------------------------------
+_ACADEMIC_HINT = re.compile(
+    '(?:^|[^0-9A-Za-zÇĞİÖŞÜçğıöşü])(makale|makalesi|makaleler|akademik|paper|papers|arxiv|bilimsel|tez|çalışma|calisma|literatür|literatur)(?:[^0-9A-Za-zÇĞİÖŞÜçğıöşü]|$)', re.I)
+
+
+def academic_requested(text: str) -> bool:
+    """Metin akademik kaynak istiyor mu? (Yalnız kaynak türü seçimi; yetki değil.)"""
+    return bool(_ACADEMIC_HINT.search(text or ''))
+
+
+def _arxiv_transport(request: dict) -> dict:
+    """arXiv Atom akışını oku; yalnız herkese açık başlık/özet/URL döndür."""
+    if not isinstance(request, dict) or request.get("provider") != "arxiv":
+        raise ValueError("arXiv taşıyıcısı geçersiz.")
+    params = request.get("params") if isinstance(request.get("params"), dict) else {}
+    query = _query(params.get("search_query", "").removeprefix("all:"))
+    limit = _limit(params.get("max_results"))
+    response = public_sources.fetch(
+        "https://export.arxiv.org/api/query?search_query=all:"
+        + quote(query) + "&start=0&max_results=" + str(limit)
+        + "&sortBy=relevance&sortOrder=descending"
+    )
+    import xml.etree.ElementTree as ET
+    atom = "{http://www.w3.org/2005/Atom}"
+    body = response.get("body")
+    if isinstance(body, str):
+        body = body.encode("utf-8")  # ET, kodlama bildirimli str kabul etmez.
+    try:
+        root = ET.fromstring(body)
+    except (ET.ParseError, TypeError) as exc:
+        raise ValueError("arxiv_unrecognized: arXiv yanıtı okunamadı.") from exc
+    rows = []
+    for entry in root.findall(atom + "entry"):
+        title = " ".join((entry.findtext(atom + "title") or "").split())
+        summary = " ".join((entry.findtext(atom + "summary") or "").split())
+        url = (entry.findtext(atom + "id") or "").strip()
+        # arXiv <id> alanı http:// ile gelir; arXiv https sunar, adres okuyucu
+        # yalnız standart HTTPS kabul ettiği için şema yükseltilir.
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://"):]
+        published = (entry.findtext(atom + "published") or "")[:10]
+        try:
+            target = public_sources.address(url)
+        except ValueError:
+            continue
+        if not title:
+            continue
+        rows.append({"provider": "arxiv", "url": target, "title": title[:400],
+                     "snippet": summary[:600], "source_kind": "academic",
+                     "published": published, "verified": False})
+        if len(rows) >= limit:
+            break
+    if not rows:
+        raise ValueError("arxiv_empty: Bu sorgu için arXiv sonucu bulunamadı.")
+    return {"results": rows}
+
+
+def search_academic(query: str, *, limit: int = 5) -> list[dict]:
+    """arXiv'te anahtarsız arama; hata durumunda boş liste (tur düşmez)."""
+    try:
+        request = search_request(query, provider="arxiv", limit=limit)
+        return _arxiv_transport(request)["results"][:limit]
+    except ValueError:
+        return []
+    except Exception:
+        _record_failure("modules/research_providers.py:arxiv")
+        return []
+
 
 def news_search_query(request: str) -> str:
     """Remove delivery/window instructions, preserving topical/geographic words.

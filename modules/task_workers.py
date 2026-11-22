@@ -266,7 +266,18 @@ def run(owner, task, dependencies):
         else:
             if news:
                 raise ValueError('Güncel haber araştırması doğrulanmış makale URL’siyle başlamalı.')
-            candidates = research_providers.search_public(data['query'])
+            academic = (research_providers.search_academic(data['query'])
+                        if research_providers.academic_requested(user_request) else [])
+            try:
+                candidates = research_providers.search_public(data['query'])
+            except ValueError:
+                if not academic:
+                    raise
+                _record_failure('modules/task_workers.py:research_public_search')
+                candidates = []
+            if academic:
+                seen = {row['url'] for row in academic}
+                candidates = academic + [row for row in candidates if row['url'] not in seen]
             if not candidates:
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
             url = _url(candidates[0]['url'])
