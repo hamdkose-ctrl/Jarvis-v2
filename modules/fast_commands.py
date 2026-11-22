@@ -23,19 +23,25 @@ KNOWN_APPS = frozenset({
 MAX_CHARS = 64
 
 
-def normalize(text: str) -> str:
-    """Türkçe küçük harf + noktalama temizliği; anlam değişmez."""
+def _harf_katla(text: str) -> str:
+    """Türkçe harfleri ASCII'ye katlar; noktalama korunur (hesap için gerekli)."""
     if not isinstance(text, str):
         return ''
-    # Türkçe harfler ASCII'ye katlanır: kalıplar tek biçimde yazılsın, "kıs" ile
-    # "kis" ayrı ayrı eşleşmesin. Eşleşme tam olduğu için anlam kaybı yok.
     katlanmis = text.replace('İ', 'i').replace('I', 'i').casefold()
     for kaynak, hedef in (('ı', 'i'), ('ş', 's'), ('ç', 'c'), ('ğ', 'g'),
                           ('ü', 'u'), ('ö', 'o'), ('â', 'a'), ('î', 'i'), ('û', 'u')):
         katlanmis = katlanmis.replace(kaynak, hedef)
     katlanmis = unicodedata.normalize('NFKD', katlanmis)
-    katlanmis = ''.join(ch for ch in katlanmis if not unicodedata.combining(ch))
-    katlanmis = re.sub(r'[^\w\s]', ' ', katlanmis)
+    return ''.join(ch for ch in katlanmis if not unicodedata.combining(ch))
+
+
+def normalize(text: str) -> str:
+    """Türkçe küçük harf + noktalama temizliği; anlam değişmez."""
+    if not isinstance(text, str):
+        return ''
+    # Kalıplar ASCII yazılsın, "kıs" ile "kis" ayrı ayrı eşleşmesin diye harfler
+    # katlanır. Eşleşme tam olduğu için anlam kaybı yok.
+    katlanmis = re.sub(r'[^\w\s]', ' ', _harf_katla(text))
     return re.sub(r'\s+', ' ', katlanmis).strip()
 
 
@@ -56,7 +62,7 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r'(sesi (ac|geri ac)|sessizi kaldir)'), ('audio_action', {'action': 'unmute'})),
     (re.compile(r'(sesi (arttir|yukselt|biraz ac)|sesi ac)'), ('audio_action', {'action': 'volume_up'})),
     (re.compile(r'(sesi (kis|azalt|dusur))'), ('audio_action', {'action': 'lower'})),
-    (re.compile(r'sesi (yuzde )?(\d{1,3}) (yap|ayarla)'),
+    (re.compile(r'sesi (yuzde )?(\d{1,3}) (a |e )?(yap|ayarla)'),
      ('level_set', lambda m: {'property': 'volume', 'level': _seviye(m.group(2))})),
     (re.compile(r'ses (seviyesi )?(yuzde )?(\d{1,3})'),
      ('level_set', lambda m: {'property': 'volume', 'level': _seviye(m.group(3))})),
@@ -69,10 +75,97 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r'(onceki) (sarki|parca)'), ('media_action', {'action': 'prev'})),
     (re.compile(r'(muzigi )?(duraklat|devam et|oynat|durdur)'),
      ('media_action', {'action': 'play_pause'})),
+    # --- ekran (salt okuma) ---
+    (re.compile(r'(ekran goruntusu al|ekrani (yakala|goruntule))'), ('screen_capture', {})),
+    # --- uygulama kapatma: yalnız onay sorusu açar (etki onaydan sonra) ---
+    (re.compile(r'(.{2,30}?)( uygulamasini)? kapat'), ('app_close', lambda m: {'name': m.group(1).strip()})),
     # --- uygulama açma (yalnız kapalı liste) ---
     (re.compile(r'(.{2,30}?)( uygulamasini)? (ac|baslat)'),
      ('app_open', lambda m: {'name': m.group(1).strip()})),
 )
+
+
+_ISLEM_SOZCUKLERI = (('carpi', '*'), ('kere', '*'), ('bolu', '/'), ('bol', '/'),
+                     ('arti', '+'), ('eksi', '-'), ('ussu', '**'), ('uzeri', '**'),
+                     ('mod', '%'), ('kere', '*'))
+
+_IZINLI = set('0123456789+-*/%()., ')
+
+
+class _HesapHatasi(ValueError):
+    pass
+
+
+def _hesapla(ifade: str) -> float:
+    """Yalnız sayı ve dört işlem: `eval` yok, AST beyaz listesi var."""
+    import ast
+
+    def yuru(dugum):
+        if isinstance(dugum, ast.Expression):
+            return yuru(dugum.body)
+        if isinstance(dugum, ast.Constant) and isinstance(dugum.value, (int, float))                 and not isinstance(dugum.value, bool):
+            return dugum.value
+        if isinstance(dugum, ast.UnaryOp) and isinstance(dugum.op, (ast.UAdd, ast.USub)):
+            deger = yuru(dugum.operand)
+            return deger if isinstance(dugum.op, ast.UAdd) else -deger
+        if isinstance(dugum, ast.BinOp):
+            sol, sag = yuru(dugum.left), yuru(dugum.right)
+            if isinstance(dugum.op, ast.Add):
+                return sol + sag
+            if isinstance(dugum.op, ast.Sub):
+                return sol - sag
+            if isinstance(dugum.op, ast.Mult):
+                return sol * sag
+            if isinstance(dugum.op, ast.Div):
+                if sag == 0:
+                    raise _HesapHatasi('sıfıra bölme')
+                return sol / sag
+            if isinstance(dugum.op, ast.Mod):
+                if sag == 0:
+                    raise _HesapHatasi('sıfıra bölme')
+                return sol % sag
+            if isinstance(dugum.op, ast.Pow):
+                if abs(sag) > 64 or abs(sol) > 10 ** 6:
+                    raise _HesapHatasi('üs çok büyük')
+                return sol ** sag
+            raise _HesapHatasi('desteklenmeyen işlem')
+        raise _HesapHatasi('desteklenmeyen ifade')
+
+    return float(yuru(ast.parse(ifade, mode='eval')))
+
+
+def _bicimle(deger: float) -> str:
+    if deger == int(deger) and abs(deger) < 1e15:
+        return str(int(deger))
+    return f'{deger:.4f}'.rstrip('0').rstrip('.').replace('.', ',')
+
+
+def compute(command: str):
+    """Salt hesap komutlarını model çağırmadan yanıtlar; değilse None.
+
+    Kapalı biçim: en az bir sayı ve bir işlem içeren kısa ifade. Serbest metin
+    ("bunu neden yaptın") buraya girmez; `_IZINLI` dışında karakter varsa None.
+    """
+    metin = _harf_katla(command).replace('^', '**')
+    for kelime, sembol in _ISLEM_SOZCUKLERI:
+        metin = metin.replace(kelime, f' {sembol} ')
+    metin = re.sub(r'\s+', ' ', metin).strip()
+    if not metin or len(metin) > MAX_CHARS or not set(metin) <= _IZINLI:
+        return None
+    if not any(ch.isdigit() for ch in metin):
+        return None
+    if not any(islem in metin for islem in '+-*/%'):
+        return None
+    if metin.count('(') != metin.count(')'):
+        return None
+    ifade = metin.replace(',', '.')
+    try:
+        sonuc = _hesapla(ifade)
+    except (ValueError, SyntaxError, ZeroDivisionError, OverflowError):
+        return None
+    if sonuc != sonuc or sonuc in (float('inf'), float('-inf')):
+        return None
+    return f'Sonuc {_bicimle(sonuc)}.'
 
 
 def resolve(command: str) -> tuple[str, dict] | None:
@@ -87,7 +180,7 @@ def resolve(command: str) -> tuple[str, dict] | None:
         intent, args = hedef if isinstance(hedef, tuple) else (None, None)
         if callable(args):
             args = args(eslesme)
-        if intent == 'app_open' and str(args.get('name', '')).strip() not in KNOWN_APPS:
+        if intent in ('app_open', 'app_close') and str(args.get('name', '')).strip() not in KNOWN_APPS:
             continue        # tanınmayan uygulama: hızlı yol değil, Brain karar verir
         return intent, dict(args)
     return None

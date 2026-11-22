@@ -140,6 +140,11 @@ def _fast_command_turn(runtime, cmd):
     from modules import engine_intents, fast_commands
     eslesme = fast_commands.resolve(cmd)
     if eslesme is None:
+        # Salt hesap ("25 çarpı 4") model istemez: yan etkisiz, yerel.
+        hesap = fast_commands.compute(cmd)
+        if hesap:
+            runtime.log.info("hızlı yol: intent=fast_calc")
+            return (hesap, None, None)
         return None
     intent, args = eslesme
     baslangic = runtime.time.time()
