@@ -77,15 +77,9 @@ def active():return _INSIDE.get()
 
 
 def _low(text):
-    """Komut eşleşmesi için Türkçe katlama.
-
-    str.casefold() 'İ' harfini 'i' + birleşik nokta yapar; bu yüzden
-    "HEDEF İPTAL" -> "hedef i̇ptal" olup hiçbir komuta eşleşmiyor, ardından
-    `hedef <konu>` kuralına düşüp yeni bir "İPTAL" hedefi açıyordu
-    (canlı hata 22 Kasım 16:05).
-    """
-    folded = str(text or "").translate(str.maketrans("İI", "iı")).lower()
-    return " ".join(folded.split()).strip(" .!?;:,")
+    """Komut eşleşmesi için Türkçe katlama; tek tanım modules/text_fold.py."""
+    from modules import text_fold
+    return text_fold.fold_command(text)
 
 
 def _fold(text):return re.sub(r'[^\w]+',' ',str(text or '').casefold()).strip()

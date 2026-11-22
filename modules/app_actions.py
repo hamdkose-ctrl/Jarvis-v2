@@ -296,7 +296,8 @@ def continue_voice(command,session,profile,emit):
         return None
     if pending['owner']!=profile.slug or pending['expires']<time.time():
         return 'İşlem onayının süresi doldu; isteğini yeniden söyle.'
-    t=command.casefold().strip(' .!?')
+    from modules import text_fold
+    t=text_fold.fold_command(command)
     if t in ('hayır','hayir','iptal','vazgeç','vazgec','boşver','bosver'):
         return 'Tamam, işlemi iptal ettim.'
     if pending.get('stage')=='clarify':
