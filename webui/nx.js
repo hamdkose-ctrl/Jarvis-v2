@@ -131,8 +131,8 @@ ACT.devpassword=async()=>{
  const r=await api('development_password_change',old,next);toast(r.message,r.ok?'':'bad');
 };
 ACT.homenote=()=>{S.tool='gorev';go('tools');setTimeout(()=>{const editor=$('#nti')?.closest('details');if(editor)editor.open=true;$('#nti')?.focus()},50)};
-ACT.mute=async el=>{const on=((S.snap||{}).flags||{}).speak!==false;if(on)tryApi('stop_speaking');const f=await tryApi('set_flag','speak',!on);if(f===null||f===undefined)return;if(S.snap){S.snap.flags={...(S.snap.flags||{}),...((f&&typeof f==='object')?f:{}),speak:!on}}toast(on?'Jarvis susturuldu. Yazıyla cevap vermeye devam eder.':'Jarvis’in sesi açıldı.');$$('[data-act="mute"]').forEach(b=>{const c=b.classList.contains('hb2')?'hb2':'ab';b.outerHTML=muteBtn(c)})};
-ACT.mictoggle=async()=>{if(S.page==='chat'&&S.snap?.development?.enabled&&S.snap?.development?.unlocked)return toast('Geliştirme ekranında ses kapalı; yazıyla devam et.');if(S.micToggling||!S.snap)return;const on=S.snap?.flags?.mic!==false,owner=S.snap?.user?.name;S.micToggling=true;try{const flags=await tryApi('set_flag','mic',!on);if(owner!==S.snap?.user?.name||!flags||typeof flags.mic!=='boolean')return;S.snap.flags={...(S.snap.flags||{}),...flags};$$('[data-act="mictoggle"]').forEach(b=>{b.outerHTML=micToggleBtn(b.classList.contains('hb2')?'hb2':'ab')});toast(flags.mic?'Mikrofon açıldı.':'Mikrofon kapatıldı.')}finally{S.micToggling=false}};
+ACT.mute=async el=>{const on=((S.snap||{}).flags||{}).speak!==false;if(on)tryApi('stop_speaking');const f=await tryApi('set_flag','speak',!on);if(f===null||f===undefined)return;if(S.snap){S.snap.flags={...(S.snap.flags||{}),...((f&&typeof f==='object')?f:{}),speak:!on}}toast(on?'Jarvis susturuldu. Yazıyla cevap vermeye devam eder.':'Jarvis’in sesi açıldı.');$$('[data-act="mute"]').forEach(b=>{const c=b.classList.contains('hb2')?'hb2':'ab';b.outerHTML=muteBtn(c)});if(S.page==='home')updateHomeStatus()};
+ACT.mictoggle=async()=>{if(S.page==='chat'&&S.snap?.development?.enabled&&S.snap?.development?.unlocked)return toast('Geliştirme ekranında ses kapalı; yazıyla devam et.');if(S.micToggling||!S.snap)return;const on=S.snap?.flags?.mic!==false,owner=S.snap?.user?.name;S.micToggling=true;try{const flags=await tryApi('set_flag','mic',!on);if(owner!==S.snap?.user?.name||!flags||typeof flags.mic!=='boolean')return;S.snap.flags={...(S.snap.flags||{}),...flags};$$('[data-act="mictoggle"]').forEach(b=>{b.outerHTML=micToggleBtn(b.classList.contains('hb2')?'hb2':'ab')});toast(flags.mic?'Mikrofon açıldı.':'Mikrofon kapatıldı.');if(S.page==='home')updateHomeStatus()}finally{S.micToggling=false}};
 ACT.wmin=()=>tryApi('win','min');ACT.wfull=()=>tryApi('win','full');ACT.wclose=async ()=>{if(await ask('Jarvis kapatılsın mı?'))tryApi('shutdown')};
 function openAiHub(tab='ai'){S.sset=tab;S.tool='aihub';go('tools')}
 ACT.keysetup=()=>openAiHub('baglanti');
@@ -268,6 +268,12 @@ function updateHomeStatus(){
     if(status.textContent!==label)status.textContent=label;
   }
   if(stage)stage.dataset.state=DOCK_ST[activity]?activity:'idle';
+  const audio=$('#home-audio'),flags=sn?.flags;
+  if(audio&&flags){
+    const statusText=(label,on)=>`<span data-active="${on===true}">${label} ${on===true?'açık':'kapalı'}</span>`;
+    const markup=statusText('Mikrofon',flags.mic)+statusText('Jarvis sesi',flags.speak);
+    if(audio._markup!==markup){audio._markup=markup;audio.innerHTML=markup}
+  }
   const warning=$('#home-connection');
   if(warning)warning.hidden=!sn?.llm||!!sn.llm.key||sn.llm.provider==='ollama';
 }
@@ -277,14 +283,44 @@ function updateHomeCalendar(){
   const events=(sn.all_events||sn.events||[]).filter(entry=>String(entry.when||'').startsWith(now)).sort((a,b)=>a.when.localeCompare(b.when)).slice(0,3);
   container.innerHTML=events.length?events.map(event=>`<div class="home-event">${ic('calendar')}<span>${event.when.length>10?`<time>${esc(event.when.slice(11,16))}</time> · `:''}${esc(event.title||'Etkinlik')}</span></div>`).join(''):'<p class="mut">Bugün için etkinlik yok.</p>';
 }
-function updateHome(){updateHomeStatus();updateHomeCalendar();window.JarvisTeam?.refreshHome($('#home-jobs'))}
+function updateHomeReadouts(){
+  const weather=$('#home-weather-data'),system=$('#home-system-data'),sn=S.snap;
+  if(weather){
+    const wx=sn?.weather;
+    const reading=Number.isFinite(wx?.temp)&&typeof wx.city==='string'&&wx.city.trim();
+    const details=reading?[
+      Number.isFinite(wx.feels)?`Hissedilen ${wx.feels}°`:'',
+      Number.isFinite(wx.min)&&Number.isFinite(wx.max)?`${wx.min}° / ${wx.max}°`:'',
+      Number.isFinite(wx.rain)?`Yağış %${wx.rain}`:'',
+    ].filter(Boolean):[];
+    const markup=reading?`<div class="home-weather-grid"><strong>${wx.temp}°</strong><div><b>${esc(wx.city)}</b><p>${esc(wx.desc||'')}</p></div></div>${details.length?`<p class="home-weather-meta">${details.join(' · ')}</p>`:''}`
+      :`<p class="mut">${sn?'Hava durumu verisi bekleniyor.':'Hava durumu yükleniyor…'}</p>`;
+    if(weather._markup!==markup){weather._markup=markup;weather.innerHTML=markup}
+  }
+  if(system){
+    const sys=sn?.sys;
+    const usage=(label,reading)=>{
+      const value=Number.isFinite(reading)?Math.max(0,Math.min(100,Math.round(reading))):null;
+      return `<div class="home-meter"><span>${label}</span><strong>${value===null?'—':'%'+value}</strong>${value===null?'':`<meter min="0" max="100" value="${value}" aria-label="${label} kullanımı">${value}%</meter>`}</div>`;
+    };
+    const online=sys?.online;
+    const network=online===false?'Bağlantı yok':online===true&&Number.isFinite(sys?.ping)?'Bağlı':'—';
+    const ping=online&&Number.isFinite(sys?.ping)?`<small>${sys.ping} ms</small>`:'';
+    const markup=usage('CPU',sys?.cpu)+usage('RAM',sys?.mem)+usage('Disk',sys?.disk_total>0?sys.disk:null)
+      +`<div class="home-network"><span>Ağ</span><strong>${network}</strong>${ping}</div>`;
+    if(system._markup!==markup){system._markup=markup;system.innerHTML=markup}
+  }
+}
+function updateHome(){updateHomeStatus();updateHomeCalendar();updateHomeReadouts();window.JarvisTeam?.refreshHome($('#home-jobs'))}
 PAGES.home=pg=>{
   pg.innerHTML=`<div class="home-grid home-console">
     <aside class="home-aside console-panel" aria-label="İş ve takvim özeti">
       <section class="workspace-summary"><div class="workspace-heading"><h2>Ekip Merkezi</h2></div><div id="home-jobs" aria-live="polite"><p class="mut">İşler yükleniyor…</p></div><button class="link" data-go="team">Tüm işleri gör</button></section>
       <section class="workspace-summary"><div class="workspace-heading"><h2>Bugün</h2><button class="link" data-act="tool" data-k="takvim">Takvim</button></div><div id="home-calendar"></div></section>
+      <section class="workspace-summary home-weather"><div class="workspace-heading"><h2>Hava durumu</h2><button class="link" data-act="goset" data-k="genel">Şehir</button></div><div id="home-weather-data"></div></section>
     </aside>
     <section class="workspace-hero console-stage console-panel" aria-label="Jarvis ses durumu">
+      <div class="home-audio-strip" id="home-audio" aria-label="Mikrofon ve Jarvis sesi"></div>
       <div class="console-portrait" aria-hidden="true"><img class="console-avatar" src="/home-avatar.webp" alt=""><span class="console-mouth"></span></div>
       <div class="console-voice"><p id="home-voice" role="status"></p><div class="console-wave" aria-hidden="true">${'<i></i>'.repeat(15)}</div></div>
     </section>
@@ -293,7 +329,16 @@ PAGES.home=pg=>{
       <div id="home-messages" class="console-messages" role="log" aria-label="Ana ekran konuşması"></div>
       <button class="link" id="home-open-chat" data-act="homechat">Sohbette aç</button>
       <button class="link home-connection" id="home-connection" data-act="keysetup" hidden>Model bağlantılarını aç</button>
+      <div class="home-shortcuts" aria-label="Hazır komutlar">
+        <button type="button" data-act="prefill" data-t="Bugünkü haberleri özetle">Haberleri özetle</button>
+        <button type="button" data-act="prefill" data-t="Takvimim">Takvimim</button>
+        <button type="button" data-act="prefill" data-t="Dosyalarımı göster">Dosyalarım</button>
+      </div>
       <div id="dockhost"></div>
+    </section>
+    <section class="home-system console-panel" aria-labelledby="home-system-title">
+      <h2 id="home-system-title">Sistem durumu</h2>
+      <div class="home-system-grid" id="home-system-data"></div>
     </section>
   </div>`;
   updateHome();

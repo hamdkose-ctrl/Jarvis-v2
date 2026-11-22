@@ -10,7 +10,9 @@ const requests = [];
 const visited = [];
 const snapshot = {
   user: {name: 'Hamdi', slug: 'hamdi'},
-  flags: {mic: true},
+  flags: {mic: true, speak: false},
+  sys: {cpu: 37, mem: 64, disk: 52, disk_total: 1000, online: true, ping: 18},
+  weather: {city: 'Ankara <merkez>', temp: 12, feels: 10, min: 5, max: 14, rain: 0, desc: 'Parçalı bulutlu'},
   all_events: [{title: 'Proje görüşmesi', when: '2099-01-01T14:00'}],
 };
 const results = {
@@ -48,7 +50,7 @@ const context = vm.createContext({
     visited.push(name);
     nodes.clear();
     const selectors = name === 'home'
-      ? ['#home-messages', '#home-voice', '#home-connection', '#home-calendar', '.console-stage']
+      ? ['#home-messages', '#home-voice', '#home-connection', '#home-calendar', '#home-weather-data', '#home-system-data', '#home-audio', '.console-stage']
       : ['#msgs'];
     for (const selector of [...selectors, '#workspace-nav', '#workspace-profile', '#top']) {
       nodes.set(selector, {innerHTML: '', textContent: '', dataset: {}});
@@ -91,6 +93,16 @@ async function main() {
   assert.match(page.innerHTML, /data-act="homechat"/);
   assert.doesNotMatch(homeMessages(), /Yanıt hazır/);
   assert.equal(nodes.get('#home-voice').textContent, 'Hazır');
+  assert.match(nodes.get('#home-weather-data').innerHTML, /Ankara &lt;merkez&gt;/);
+  assert.match(nodes.get('#home-weather-data').innerHTML, /Yağış %0/);
+  assert.match(nodes.get('#home-system-data').innerHTML, /value="37"/);
+  assert.match(nodes.get('#home-system-data').innerHTML, /18 ms/);
+  assert.match(nodes.get('#home-audio').innerHTML, /Mikrofon açık/);
+  assert.match(nodes.get('#home-audio').innerHTML, /Jarvis sesi kapalı/);
+  evaluate('S.snap={...snapshot, weather:null, sys:{disk_total:0, disk:0}}; updateHome()');
+  assert.match(nodes.get('#home-weather-data').innerHTML, /verisi bekleniyor/);
+  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /<meter/);
+  evaluate('S.snap=snapshot; updateHome()');
   const input = {value: 'Belgeyi özetle'};
   send(input);
   await flush();
