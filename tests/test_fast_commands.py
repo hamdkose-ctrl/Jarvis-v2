@@ -38,7 +38,8 @@ class FastPathMatchTests(unittest.TestCase):
         self.assertIsNone(resolve("bilinmeyenprogram aç"))
 
     def test_ambiguous_or_conversational_commands_fall_through_to_brain(self):
-        for metin in ("hava nasıl", "bunu neden yaptın", "saat kaçta toplantı var",
+        # "hava nasıl" artık hızlı yolda (salt okuma); serbest sorular modelde kalır.
+        for metin in ("hava nasıl olacak yarın", "bunu neden yaptın", "saat kaçta toplantı var",
                       "ses", "yarın hava nasıl olacak", ""):
             self.assertIsNone(resolve(metin), metin)
 
@@ -158,3 +159,24 @@ class FastPathExtraTests(unittest.TestCase):
                              "Sonuc 100.")
         finally:
             engine_intents.dispatch = eski
+
+
+class FastPathReadTests(unittest.TestCase):
+    """Salt-okuma komutları: model çağrısı yok, etki yok."""
+
+    def test_weather_without_location_uses_saved_city(self):
+        for metin in ('hava nasıl', 'hava durumu', 'bugün hava nasıl'):
+            self.assertEqual(resolve(metin), ('weather', {}), metin)
+
+    def test_agenda_day_plan(self):
+        self.assertEqual(resolve('bugün ne var'),
+                         ('agenda_read', {'view': 'day_plan', 'period': 'today'}))
+        self.assertEqual(resolve('yarın neler var'),
+                         ('agenda_read', {'view': 'day_plan', 'period': 'tomorrow'}))
+
+    def test_note_count(self):
+        self.assertEqual(resolve('kaç notum var'), ('notes_read', {'which': 'count'}))
+
+    def test_open_ended_questions_still_go_to_the_model(self):
+        for metin in ('hava nasıl olacak yarın', 'bugün ne yapmalıyım'):
+            self.assertIsNone(resolve(metin), metin)
