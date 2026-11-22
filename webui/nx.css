@@ -115,7 +115,7 @@ a { color:var(--blue) }
   inset:auto 8px 8px auto; border-width:0 1px 1px 0; border-radius:0 0 8px;
 }
 .console-avatar {
-  width:100%; max-width:520px; aspect-ratio:1; object-fit:contain; display:block;
+  width:100%; aspect-ratio:1; object-fit:contain; display:block;
   mix-blend-mode:screen; user-select:none; pointer-events:none;
 }
 .console-voice {
@@ -546,20 +546,20 @@ a { color:var(--blue) }
   display:none; position:absolute; inset:0; pointer-events:none;
 }
 .console-mouth::before {
-  content:""; position:absolute; left:43%; top:58.2%; width:14%; height:2.2%;
+  content:""; position:absolute; left:45.6%; top:40%; width:8.8%; height:1.35%;
   border-radius:45%; background:#001017;
   transform:scaleY(.25); transform-origin:center top;
   animation:console-mouth .62s ease-in-out infinite;
 }
 .console-mouth::after {
   content:""; position:absolute; inset:0; background:url('/home-avatar.webp') center / contain no-repeat;
-  clip-path:polygon(41% 59%, 50% 58.5%, 59% 59%, 60% 63%, 56% 68%, 50% 71%, 44% 68%, 40% 63%);
+  clip-path:polygon(45% 40.6%, 50% 40%, 55% 40.6%, 56% 42.6%, 54% 45.4%, 51% 47%, 49% 47%, 46% 45.4%, 44% 42.6%);
   animation:console-jaw .62s ease-in-out infinite;
 }
 .console-stage[data-state="speaking"] .console-mouth { display:block }
 @keyframes console-jaw {
   0%, 40%, 100% { transform:translateY(0) }
-  20%, 72% { transform:translateY(1.3%) }
+  20%, 72% { transform:translateY(.85%) }
   55% { transform:translateY(.45%) }
 }
 @keyframes console-mouth {
