@@ -127,18 +127,10 @@ def dated_rate(owner, base, quote, on_date=None, *, fetcher=None):
     if on_date:
         url += '?' + urlencode({'date': on_date})
     response = (fetcher or public_sources.fetch)(url)
-    data = json.loads(response['body'])
-    if not isinstance(data, dict) or data.get('base') != base.upper() or data.get('quote') != quote.upper():
-        raise ValueError('Kur yanıtı para birimleriyle eşleşmiyor.')
-    rate = Decimal(str(data.get('rate', '')))
-    if not rate.is_finite() or rate <= 0 or not isinstance(data.get('date'), str):
-        raise ValueError('Kur/değer tarihi geçersiz.')
-    date.fromisoformat(data['date'])
-    if on_date and data['date'] > on_date:
-        raise ValueError('Kaynak istenen tarihten sonraki kuru döndürdü.')
-    return {'data': data, 'source': response['url'], 'fetched_at': time.time(),
-            'sha256': hashlib.sha256(response['body']).hexdigest(),
-            'scope': 'Günlük kaynak kuru; anlık banka alış/satış fiyatı değildir.'}
+    # Doğrulama tek yerde: Finance `source_verification` dalı (Faz 3).
+    from modules import finance_verification
+    data = finance_verification.parse_rate_body(response['body'])
+    return finance_verification.verify_rate_evidence(data, response, base=base, quote=quote, on_date=on_date)
 
 def _tcmb():
     from modules import public_sources
