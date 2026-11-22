@@ -249,6 +249,18 @@ def _near(left, right) -> bool:
     return gap <= 48 * 3600
 
 
+def _rotate(rows, slots, *, now=None):
+    """Kalan kaynak yuvalarını saatlik döndürür; her kaynak eninde sonunda taranır."""
+    if not rows or slots <= 0:
+        return []
+    if len(rows) <= slots:
+        return list(rows)
+    saat = int((now or time.time()) // 3600)
+    offset = saat % len(rows)
+    donen = list(rows[offset:]) + list(rows[:offset])
+    return donen[:slots]
+
+
 def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sources=MAX_SOURCES) -> tuple[list[dict], list[dict]]:
     """Parallel per-source read with isolation: one dead index cannot drop the whole run.
 
@@ -258,7 +270,13 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
     from modules import requests_state
     default_reader = reader is None
     reader = reader or headline_reader(owner, query)
-    rows = list(catalog(query) if sources is None else sources)[:max_sources]
+    rows = list(catalog(query) if sources is None else sources)
+    if sources is None and len(rows) > max_sources:
+        # Katalog tarama bütçesinden büyük: ilk dört kaynak (ajans/ana akış) her turda kalır,
+        # kalan yuvalar saatlik döner. Yoksa sıranın sonundaki kaynaklar (DonanımHaber,
+        # Webtekno gibi teknoloji indeksleri) hiç taranmıyordu (#439).
+        rows = rows[:4] + _rotate(rows[4:], max_sources - 4)
+    rows = rows[:max_sources]
     if not rows:
         return [], []
     today = now or _today()

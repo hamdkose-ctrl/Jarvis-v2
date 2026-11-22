@@ -96,6 +96,20 @@ def _geography_scope_ok(article, request):
     return True, None
 
 
+# Sayfa çerçevesi: menü, öneri kutusu, footer. Canlı kusur (22 Kasım 2026): alakasız
+# haber (kar yağışı) "doğrulanmış" sayıldı çünkü kanıt olarak menüdeki "Son seçim anketi
+# yayınlandı!" kutusu seçildi. Çerçeve cümlesi kanıt olamaz.
+_CHROME_MARKERS = ('güncel', 'politika', 'son dakika', 'kategoriler', 'tümünü gör',
+                   'iletişim', 'gizlilik', 'reklam', 'çerez', 'abone', 'künye', 'hakkımızda',
+                   'copyright', 'teknoloji', 'otomobil', 'eğitim', 'sağlık', 'yaşam')
+
+
+def _chrome(sentence):
+    """Menü/öneri kutusu cümlesi mi? Kanıt seçiminde kullanılmaz."""
+    folded = _fold(sentence)
+    return sum(1 for marker in _CHROME_MARKERS if marker in folded) >= 3
+
+
 def _sentences(text):
     text=re.sub(r'\s+',' ',str(text)).strip()
     rows=[]
@@ -113,17 +127,29 @@ def quotes(article,request):
     title=re.sub(r'\s+',' ',article['title']).strip()
     if title and text.startswith(title) and (len(text)==len(title) or text[len(title)] in ' :-–—'):
         text=text[len(title):].lstrip(' :-–—')
-    rows=_sentences(text)
+    rows=[(pos,sentence) for pos,sentence in _sentences(text) if not _chrome(sentence)]
     if not rows:raise ValueError('Haber gövdesinde aktarılabilir tam cümle bulunamadı.')
     wanted=terms(request)
     folded_title=_fold(title)
+    title_topic=any(term in folded_title for term in wanted)
     scored=[]
     for pos,sentence in rows:
         folded=_fold(sentence)
-        score=sum(3 for term in wanted if term in folded)+sum(2 for term in wanted if term in folded_title)
-        scored.append((score,pos,sentence))
-    if wanted and max((row[0] for row in scored),default=0)<=0:
-        raise ValueError('Tekil haber kullanıcının istediği konuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
+        # Konu, cümlenin kendisinde geçmeli. Eskiden başlık eşleşmesi her cümleye 2 puan
+        # ekliyordu; bu yüzden konu geçmeyen cümleler de "kanıt" sayılabiliyordu.
+        hits=sum(1 for term in wanted if term in folded)
+        score=hits*3+(2 if title_topic else 0)
+        scored.append((score,pos,sentence,hits))
+    eslesen=[row for row in scored if row[3]>0]
+    # Konu haberde başlıkta ya da girişte olmalı. Sayfanın ilerisindeki "ilgili haberler"
+    # bağlantısı ("Son seçim anketi yayınlandı!") kanıt değildir: kar yağışı haberi
+    # "seçim" diye doğrulanıyordu (canlı 22 Kasım 2026).
+    lead=_fold(' '.join(sentence for _pos, sentence in rows[:2]))
+    lead_topic=any(term in lead for term in wanted)
+    if wanted and not (title_topic or lead_topic):
+        raise ValueError('Haber başlığı istenen konuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
+    if wanted and eslesen:
+        scored=eslesen
     geography_ok, missing=_geography_scope_ok(article,request)
     if not geography_ok:
         raise ValueError(f'Tekil haber istenen {missing} coğrafya kapsamını kanıtlamıyor.')
@@ -131,7 +157,8 @@ def quotes(article,request):
     if not wanted:selected=scored[:3]
     selected=sorted(selected,key=lambda row:row[1])
     result=[]
-    for _,_,sentence in selected:
+    for row in selected:
+        sentence=row[2]
         sentence=re.sub(r'\s+',' ',sentence).strip()
         if sentence not in result:result.append(sentence)
     if not result:raise ValueError('Haber gövdesinden doğrulanabilir alıntı seçilemedi.')
