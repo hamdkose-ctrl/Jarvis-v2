@@ -82,10 +82,12 @@ class ProviderExhaustedError(RuntimeError):
     """Safe aggregate failure after the bounded free-provider pool cannot answer."""
 
     def __init__(self, message: str, *, reason_code: str = 'PROVIDER_POOL_EXHAUSTED',
-                 recovery_class: str = 'fail_closed'):
+                 recovery_class: str = 'fail_closed', detail: str = ''):
         super().__init__(message)
         self.reason_code = reason_code
         self.recovery_class = recovery_class
+        # Kullanıcı metni sade; teknik ayrıntı yalnız log/UI izinde.
+        self.detail = detail
 
 
 def status_code(exc: BaseException) -> int | None:
@@ -316,6 +318,38 @@ def short_text(exc: BaseException) -> str:
 # Sağlayıcı/ağ/model hataları: kullanıcıya ham metin yerine sınıflandırılmış açıklama gider.
 PROVIDER_CATEGORIES = frozenset({RATE_LIMIT, QUOTA_EXHAUSTED, REQUEST_LIMIT, LOCAL_MODEL, AUTH, DNS, NETWORK, TIMEOUT,
                                  PROVIDER_DOWN, ENVIRONMENT, PROVIDER_EXHAUSTED})
+
+
+# --- Kullanıcıya giden dil (#350) -------------------------------------------
+# Teknik sınıflandırma log/UI izinde kalır; konuşulan metin sınıf adı, HTTP kodu
+# ve sağlayıcı iç istisnası taşımaz.
+PLAIN_REASON = {
+    'key': 'anahtarı ya da izni geçersiz',
+    'quota': 'günlük kotası ya da hız sınırı doldu',
+    'request_limit': 'bu isteğin boyutunu kaldıramıyor',
+    'timeout': 'zamanında yanıt vermedi',
+    'response_validation': 'beklenen biçimde yanıt vermedi',
+    'other': 'yanıt vermedi',
+}
+
+
+def plain_reason(kind: str) -> str:
+    """Deneme türünü kullanıcı diline çevirir (sınıf adı yok)."""
+    return PLAIN_REASON.get(str(kind or 'other'), PLAIN_REASON['other'])
+
+
+def plain_hint(kinds, *, recovery_class: str = '') -> str:
+    """Sıradaki adım önerisi: yalnız ölçülen duruma göre tek cümle."""
+    kinds = set(kinds or ())
+    if recovery_class == 'user_action_required':
+        return 'Ayarlar > Bağlantılar bölümünden anahtarları kontrol et.'
+    if recovery_class == 'request_change_required' or 'request_limit' in kinds:
+        return 'İsteği kısaltıp tekrar dene.'
+    if 'quota' in kinds:
+        return 'Birkaç dakika sonra tekrar dene; günlük kota dolduysa yarın yenilenir.'
+    if kinds & {'timeout', 'other'}:
+        return 'Bir dakika sonra tekrar dene.'
+    return 'Kısa bir süre sonra tekrar dene.'
 
 
 def user_message(exc: BaseException) -> str:

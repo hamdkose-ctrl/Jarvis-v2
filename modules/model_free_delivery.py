@@ -62,11 +62,11 @@ def attach(job, exc):
     why = reason(exc)
     job['model_free'] = {'category': failure_policy.classify(exc), 'reason': why, 'evidence': evidence, 'at': time.time()}
     if evidence:
-        job['blocker'] = (f'Planlayıcı model şu an kullanılamıyor. Modelsiz yol: doğrulanmış {len(evidence)} sonuç aşağıda '
-                          'teslim edildi; kalan hedefler açık tutuldu. Model dönünce “hedef devam” de.\n' + why)
+        job['blocker'] = (f'Şu an modele ulaşamıyorum. Modelsiz yol: doğrulanmış {len(evidence)} sonuç aşağıda '
+                          'kalan işler açık duruyor. Model dönünce “hedef devam” de.\n' + why)
     else:
-        job['blocker'] = ('Planlayıcı model şu an kullanılamıyor; henüz doğrulanmış bir sonuç yok. Hedef ve plan '
-                          'korundu, model dönünce “hedef devam” de.\n' + why)
+        job['blocker'] = ('Şu an modele ulaşamıyorum; henüz doğrulanmış bir sonuç yok. İş ve plan korundu, '
+                          'model dönünce “hedef devam” de.\n' + why)
 
 
 def render_lines(job, shown=()):

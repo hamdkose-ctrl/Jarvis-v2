@@ -835,22 +835,61 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 detail = 'yanıt sözleşmesini karşılamadı' if validation_error else failure_text(classified)
                 llm.note_route(llm.provider_label(spec.provider) + ' ' + detail + ', sıradakine geçildi', False)
     from modules import failure_policy
-    detail = '; '.join(failure_detail(row) for row in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok.'
-    omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
-    message = ('Uygun modelden yanıt alınamadı. ' + detail +
-               (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else ''))
+    message, technical = exhausted_message(attempts, skipped_now)
     if not attempts:
         if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
                or 'anahtarı eksik' in str(row.get('reason', '')) for row in skipped_now):
             raise failure_policy.ProviderExhaustedError(
-                message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
+                message, reason_code='PROVIDER_CONFIGURATION_REQUIRED',
+                recovery_class='user_action_required', detail=technical) from None
     if attempts and all(row.get('kind') == 'request_limit' for row in attempts):
         raise failure_policy.ProviderExhaustedError(message,reason_code='PROVIDER_REQUEST_TOO_LARGE',
-                                                   recovery_class='request_change_required')
+                                                   recovery_class='request_change_required', detail=technical)
     if {row.get('kind') for row in attempts} == {'quota', 'request_limit'}:
         raise failure_policy.ProviderExhaustedError(message, reason_code='PROVIDER_QUOTA_AND_REQUEST_TOO_LARGE',
-                                                   recovery_class='fallback_possible')
-    raise failure_policy.ProviderExhaustedError(message)
+                                                   recovery_class='fallback_possible', detail=technical)
+    raise failure_policy.ProviderExhaustedError(message, detail=technical)
+
+
+_TECHNICAL_TAIL = re.compile(
+    r'\s*\((?:[A-Za-z_][\w.]*(?:Error|Timeout|Exception)|HTTP \d{3})[^)]*\)\s*$')
+
+
+def user_attempt_text(row):
+    """Bir deneme satırını kullanıcı diline çevirir: sınıf adı ve HTTP kodu düşer."""
+    text = _TECHNICAL_TAIL.sub('', failure_detail(row)).strip()
+    return text
+
+
+def exhausted_message(attempts, skipped_now, *, recovery='fallback_possible'):
+    """(#350) Kullanıcı metni + teknik iz.
+
+    Kullanıcı: sağlayıcı adı, ne olduğu ve tek bir öneri; sınıf adı/HTTP kodu yok.
+    Teknik: ham deneme ayrıntıları `ProviderExhaustedError.detail` alanında kalır.
+    """
+    from modules import failure_policy
+    technical = ('; '.join(failure_detail(row) for row in attempts) if attempts
+                 else 'Bu çağrıda denenecek sağlayıcı yok.')
+    omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
+    if omitted:
+        technical += ' Atlanan sağlayıcılar: ' + omitted + '.'
+    if not attempts:
+        adlar = '; '.join(str(row.get('provider') or '').strip() + ': ' + str(row.get('reason') or '').strip()
+                          for row in skipped_now if str(row.get('provider') or '').strip())
+        user = ('Bu istekte denenecek sağlayıcı yok.'
+                + (' Atlanan sağlayıcılar: ' + adlar + '.' if adlar else ''))
+        if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
+               or 'anahtarı eksik' in str(row.get('reason', '')) for row in skipped_now):
+            return user + ' ' + failure_policy.plain_hint((), recovery_class='user_action_required'), technical
+        return user + ' ' + failure_policy.plain_hint(()), technical
+    parcalar = [user_attempt_text(row) for row in attempts]
+    oneri = failure_policy.plain_hint({row.get('kind') for row in attempts}, recovery_class=recovery)
+    # Kullanıcıya yalnız atlanan sağlayıcı adları; teknik nedeni `detail` taşır.
+    atlanan_adlar = '; '.join(str(row.get('provider') or '').strip() + ': ' + str(row.get('reason') or '').strip()
+                              for row in skipped_now if str(row.get('provider') or '').strip())
+    user = ('Uygun modelden yanıt alınamadı. ' + '; '.join(parcalar) + '. ' + oneri
+            + (' Atlanan sağlayıcılar: ' + atlanan_adlar + '.' if atlanan_adlar else ''))
+    return user, technical
 
 
 def run_request(request: ModelRequest, adapter: ProviderAdapter,

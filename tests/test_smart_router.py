@@ -144,7 +144,9 @@ class SmartRouterTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             router.run_request(router.ModelRequest(owner='alice',profile='conversation' ,route='PUBLIC_RESEARCH'),lambda spec, callback=Mock(side_effect=errors):callback(spec.provider)).text
         message=str(caught.exception)
-        self.assertIn('gemini: kota veya hız sınırı (HTTPError, HTTP 429)',message)
+        # #350: kullanıcı metni sınıf adı/HTTP kodu taşımaz.
+        self.assertIn('gemini: kota veya hız sınırı',message)
+        self.assertNotIn('HTTP 429',message)
         self.assertIn('groq: zaman aşımı',message)
         # Router's global envelope is two real network attempts: the local
         # fallback is intentionally not a third hidden adapter attempt.
@@ -285,7 +287,9 @@ class SmartRouterTests(unittest.TestCase):
                 router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))):callback(spec.provider)).text
         message=str(caught.exception)
         self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor',message)
-        self.assertIn('(LocalModelError)',message)
+        # #350: kullanıcı metni sınıf adı taşımaz; ham ad yalnız teknik izde kalır.
+        self.assertNotIn('LocalModelError',message)
+        self.assertIn('(LocalModelError)',caught.exception.detail)
         self.assertEqual(router.status('alice')['last']['attempts'][0].get('hint'),'ollama_missing')
 
     def test_ollama_model_missing_does_not_get_install_hint(self):
@@ -296,7 +300,9 @@ class SmartRouterTests(unittest.TestCase):
                 router.run_request(router.ModelRequest(owner='alice',profile='conversation'),lambda spec, callback=Mock(side_effect=error):callback(spec.provider)).text
         self.assertNotIn('Ollama yüklü değil',str(caught.exception))
         self.assertNotIn('hint',router.status('alice')['last']['attempts'][0])
-        self.assertIn('ollama: çağrı başarısız (LocalModelError)',str(caught.exception))
+        self.assertIn('ollama: çağrı başarısız',str(caught.exception))
+        self.assertNotIn('LocalModelError',str(caught.exception))
+        self.assertIn('LocalModelError',caught.exception.detail)
 
     def test_groq_429_detail_is_unchanged(self):
         attempt={'provider':'groq','ok':False,'error':'HTTPError','kind':'quota','status':429}

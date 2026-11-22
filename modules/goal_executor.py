@@ -1037,7 +1037,8 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
                             _record_failure('modules/goal_executor.py:news_recovery')
                             job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
                         if job['state']=='approval' or _finish_completed(job):return render(job)
-                    raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
+                    raise _TurnBudget('Bu istekte ilerleyemedim: '+str(MAX_INVALID_DECISIONS)+' kez denedim, hep aynı yerde '
+                                      'takıldım ve durdurdum. Mevcut sonuçlar korundu; farklı bir ifadeyle tekrar deneyebilirsin.')
             if isinstance(exc,RuntimeError):
                 if planner_pending:
                     _turn_check(runtime,job)
@@ -1059,7 +1060,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
     if job['state']=='approval':
         return render(job)
     job['state']='paused'
-    job['blocker']=('Planlayıcı kayıtlı hedefleri tekrar planlamaya çalıştığı için duraklatıldı; mevcut plan ve sonuçlar korundu.' if rejected_plans>=3 else 'Hedef tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
+    job['blocker']=('Aynı işi tekrar planlamaya çalıştığım için durdum; yapılanlar ve sonuçlar kayıtlı. Devam etmek için “hedef devam” de.' if rejected_plans>=3 else 'İş tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
     if job.get('partial_report'):
         job['blocker']='Modelsiz kısmi kaynak raporu oluşturuldu ve dosyası doğrulandı. İstenen araştırmanın tamamı doğrulanmadığı için hedef açık tutuldu.'
     elif model_down is not None:
