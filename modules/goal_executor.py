@@ -398,6 +398,31 @@ def _owned(runtime):
             _CANCEL_REQUESTED.difference_update({key for key in _CANCEL_REQUESTED if key[0]==owner})
 
 
+def _academic_route(job, kind, data):
+    """Akademik dil taşıyan istek haber indeksi adımına düşerse araştırmaya çevrilir.
+
+    Canlı ölçüm (22 Kasım 2026): "Yapay zeka makaleleri araştır" isteği
+    data.headlines ile donanimhaber/webtekno başlıklarına gitti; arXiv hattı hiç
+    çalışmadı. Planlayıcı istemi haber indeksini öneriyor, bu yüzden kaynak
+    türü kararı istemin metnine göre deterministik verilir: makale/akademik/
+    arxiv/bilimsel/tez/literatür geçiyorsa adım `research` olur.
+    """
+    if kind != 'data' or not isinstance(data, dict) or data.get('operation') != 'headlines':
+        return kind, data
+    from modules import research_providers
+    request = job.get('request') if isinstance(job, dict) else ''
+    if not research_providers.academic_requested(str(request or '')):
+        return kind, data
+    query = str(data.get('query') or '').strip() or str(request or '').strip()
+    if not query or len(query) > 2000:
+        return kind, data
+    routed = {'query': query}
+    request = str(request or '').strip()
+    if request and request != query:
+        routed['question'] = request[:2000]
+    return 'research', routed
+
+
 def _parse(text):
     if not isinstance(text,str):raise ValueError('Hedef planı metin olmalı.')
     text=re.sub(r'^```(?:json)?\s*|\s*```$','',text.strip())
@@ -927,6 +952,7 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
                             raise
                     deps=call.get('depends',[])
                     if not isinstance(deps,list) or any(not isinstance(d,str) or job['outputs'].get(d,{}).get('state')!='done' for d in deps):raise ValueError('Bağımlılık gerçek tamamlanmış adım olmalı.')
+                    kind,data=_academic_route(job,kind,data)
                     if kind=='writer':
                         try:research_evidence.news_report_requested(job['request'],data['instruction'],{d:job['outputs'][d] for d in deps},allow_source_only=False)
                         except research_evidence.ChatDeliveryRequired:
