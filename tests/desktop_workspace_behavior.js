@@ -25,6 +25,13 @@ vm.runInContext(slice('function go(p)','function render()'),test);
 test.renderTop();
 assert(nodes['#workspace-profile'].innerHTML.includes('&lt;img'));
 assert(!nodes['#workspace-profile'].innerHTML.includes('<img'));
+assert(nodes['#top'].innerHTML.includes('class="home-pages"'));
+assert(nodes['#top'].innerHTML.includes('data-act="homechat"'));
+assert(nodes['#top'].innerHTML.includes('data-go="study"'));
+test.S.page='chat';
+test.renderTop();
+assert(!nodes['#top'].innerHTML.includes('class="home-pages"'));
+test.S.page='home';
 for(const route of ['home','chat','files','vision','team','study','tools','settings']){
   assert(nodes['#workspace-nav'].innerHTML.includes('data-go="'+route+'"'));
   test.go(route);

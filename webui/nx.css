@@ -63,6 +63,24 @@ a { color:var(--blue) }
 .pagehead { display:flex; gap:14px; justify-content:space-between; align-items:start; margin-bottom:18px }
 .pagehead h1,.team-head h1 { font-size:clamp(28px,3vw,42px); line-height:1.1; letter-spacing:-.055em }
 .pagehead p,.team-head p { color:var(--mut); margin-top:5px }
+.workspace.workspace-home { grid-template-columns:minmax(0,1fr) }
+.workspace-home .workspace-sidebar { display:none }
+.workspace-home .workspace-top { gap:8px 14px; padding-inline:clamp(12px,2vw,32px) }
+.workspace-home .p-home { width:100%; padding:clamp(10px,2vw,28px) clamp(10px,2vw,32px) }
+.home-pages { position:relative }
+.home-pages > summary { cursor:pointer; list-style:none }
+.home-pages > summary::-webkit-details-marker { display:none }
+.home-pages[open] > summary { color:var(--blue); border-color:var(--blue) }
+.home-pages > :is(nav,div) {
+  position:absolute; z-index:13; inset:calc(100% + 6px) 0 auto auto; width:max-content; min-width:170px;
+  display:grid; gap:2px; padding:5px; background:var(--panel); border:1px solid var(--line2);
+  border-radius:8px; box-shadow:var(--shadow);
+}
+.home-pages > :is(nav,div) button {
+  display:flex; align-items:center; gap:9px; min-height:36px; padding:6px 9px;
+  border:0; border-radius:5px; background:none; text-align:left;
+}
+.home-pages > :is(nav,div) button:hover { background:var(--panel2); color:var(--blue) }
 .home-console {
   display:grid; grid-template-columns:minmax(185px,.63fr) minmax(0,1.35fr) minmax(300px,1.17fr); gap:14px;
   min-height:min(77vh,760px);
@@ -432,6 +450,8 @@ a { color:var(--blue) }
 
 @media(max-width:1120px) {
   .workspace { grid-template-columns:183px minmax(0,1fr) }
+}
+@media(max-width:900px) {
   .home-console { grid-template-columns:minmax(0,.8fr) minmax(300px,1.2fr); gap:12px }
   .home-console .home-aside { grid-column:1 / -1; grid-template-columns:repeat(2,minmax(0,1fr)) }
   .home-console .workspace-summary + .workspace-summary { border-top:0; border-left:1px solid var(--line); padding:0 0 0 14px }
@@ -452,6 +472,10 @@ a { color:var(--blue) }
 }
 @media(max-width:620px) {
   .workspace { display:block }
+  .workspace-home .workspace-top { position:relative; padding-block:7px; flex-wrap:wrap }
+  .workspace-home .top-actions { flex-wrap:wrap; justify-content:flex-end }
+  .home-pages { position:static }
+  .home-pages > :is(nav,div) { inset:calc(100% + 2px) 12px auto auto; max-width:calc(100vw - 24px) }
   .workspace-sidebar { position:static; height:auto; padding:7px }
   .workspace-brand { padding:3px 4px 8px }
   #workspace-nav { display:flex; overflow-x:auto; white-space:nowrap }
@@ -522,14 +546,14 @@ a { color:var(--blue) }
   display:none; position:absolute; inset:0; pointer-events:none;
 }
 .console-mouth::before {
-  content:""; position:absolute; left:56%; top:55.7%; width:12%; height:2.2%;
+  content:""; position:absolute; left:43%; top:58.2%; width:14%; height:2.2%;
   border-radius:45%; background:#001017;
-  transform:rotate(-5deg) scaleY(.25); transform-origin:center top;
+  transform:scaleY(.25); transform-origin:center top;
   animation:console-mouth .62s ease-in-out infinite;
 }
 .console-mouth::after {
   content:""; position:absolute; inset:0; background:url('/home-avatar.webp') center / contain no-repeat;
-  clip-path:polygon(53% 57%, 67% 55.6%, 69% 58%, 66% 65%, 59% 67%, 52% 62%);
+  clip-path:polygon(41% 59%, 50% 58.5%, 59% 59%, 60% 63%, 56% 68%, 50% 71%, 44% 68%, 40% 63%);
   animation:console-jaw .62s ease-in-out infinite;
 }
 .console-stage[data-state="speaking"] .console-mouth { display:block }
@@ -539,9 +563,9 @@ a { color:var(--blue) }
   55% { transform:translateY(.45%) }
 }
 @keyframes console-mouth {
-  0%, 40%, 100% { transform:rotate(-5deg) scaleY(.2) }
-  20%, 72% { transform:rotate(-5deg) scaleY(1) }
-  55% { transform:rotate(-5deg) scaleY(.5) }
+  0%, 40%, 100% { transform:scaleY(.2) }
+  20%, 72% { transform:scaleY(1) }
+  55% { transform:scaleY(.5) }
 }
 @media(prefers-reduced-motion:reduce) {
   .console-stage[data-state="speaking"] .console-mouth { display:none }

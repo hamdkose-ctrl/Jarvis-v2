@@ -36,11 +36,18 @@ const NAV=[
 function renderTop(){
   const sn=S.snap||{}, n=needCount(), win=sn.winctl!==false;
   const name=(sn.user||{}).name||'Kullanıcı';
+  const home=S.page==='home',top=$('#top'),openPages=top.querySelector?.('.home-pages')?.open;
+  top.closest?.('.workspace')?.classList.toggle('workspace-home',home);
   $('#workspace-nav').innerHTML=NAV.filter(([key])=>key!=='map').map(([key,label,glyph])=>
     `<button type="button" data-go="${key}" ${S.page===key?'aria-current="page"':''}>${ic(glyph)}<span>${label}</span></button>`).join('');
   $('#workspace-profile').innerHTML=`<button type="button" data-act="user" aria-label="Kullanıcı değiştir"><span class="profile-mark">${esc(name.charAt(0))}</span><span><b>${esc(name)}</b><small>Profil ve ayarlar</small></span>${ic('chev')}</button>`;
-  $('#top').innerHTML=`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
-   <div class="top-actions"><span id="clock" aria-hidden="true"></span>
+  const homeActions=home?`<button class="ab home-top-link" data-act="homechat">Sohbeti aç</button>
+    <details class="home-pages" ${openPages?'open':''}><summary>Ekranlar</summary><nav aria-label="Diğer ekranlar">
+    ${NAV.filter(([key])=>['files','vision','team','study','tools'].includes(key)).map(([key,label])=>`<button type="button" data-go="${key}">${label}</button>`).join('')}
+    <button type="button" data-act="user">Kullanıcı değiştir</button></nav></details>
+    <button class="ab home-top-link" data-act="goset" data-k="ai">Ayarlar</button>`:'';
+  top.innerHTML=`<strong>${home?'Jarvis':esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
+   <div class="top-actions">${homeActions}<span id="clock" aria-hidden="true"></span>
     <button class="ab" data-act="notif" aria-label="Bildirimler">${ic('bell')}${n?`<span class="notice-count">${n}</span>`:''}</button>
     ${win?`<button class="ab" data-act="wmin" aria-label="Pencereyi küçült">−</button><button class="ab" data-act="wfull" aria-label="Tam ekran veya pencere">□</button><button class="ab" data-act="wclose" aria-label="Pencereyi kapat">×</button>`:''}
    </div>`;
@@ -80,13 +87,15 @@ function render(){
   drawDock(dock);drawAtt();drawMiniPreview();if(focused)$('#dock input')?.focus();
 }
 document.addEventListener('click',e=>{
-  const g=e.target.closest('[data-go]');if(g){e.preventDefault();if(g.closest('#workspace-nav')){S.tool='';if(g.dataset.go==='tools')S.sset='takvim';if(g.dataset.go==='settings')S.sset='ai'}go(g.dataset.go);return}
+  const homePages=$('.home-pages[open]');
+  if(homePages&&!e.target.closest('.home-pages'))homePages.open=false;
+  const g=e.target.closest('[data-go]');if(g){e.preventDefault();if(g.closest('#workspace-nav, .home-pages')){S.tool='';if(g.dataset.go==='tools')S.sset='takvim';if(g.dataset.go==='settings')S.sset='ai'}go(g.dataset.go);return}
   const sy=e.target.closest('[data-say]');if(sy){e.preventDefault();const v=sy.dataset.say;if(v.startsWith('#'))return go(v.slice(1));say(v);return}
   // Önce açık menüyü kapat, sonra düğmenin işini yap: yoksa profil/bildirim menüsü açılır açılmaz kapanıyordu.
   const a=e.target.closest('[data-act]');if(a&&ACT[a.dataset.act]){e.preventDefault();closeMenu();Promise.resolve(ACT[a.dataset.act](a,e)).catch(err=>toast(err.message||String(err),'bad'));return}
   if(!e.target.closest('.menu'))closeMenu();
 });
-document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('.ask input')){e.preventDefault();if(S.attPending)return toast('Dosyanın yüklenmesini bekle.');const v=e.target.value.trim();if(v||atts().length){e.target.value='';say(v)}}if(e.key==='Escape'){closeMenu();if(S.orb==='speaking'||S.sspeaking)ACT.dstop()}});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('.ask input')){e.preventDefault();if(S.attPending)return toast('Dosyanın yüklenmesini bekle.');const v=e.target.value.trim();if(v||atts().length){e.target.value='';say(v)}}if(e.key==='Escape'){closeMenu();const pages=$('.home-pages[open]');if(pages){pages.open=false;pages.querySelector('summary').focus()}if(S.orb==='speaking'||S.sspeaking)ACT.dstop()}});
 
 // ======================================================================= arayüze uygun soru pencereleri (tarayıcının gri kutusu yerine)
 function _dlg(title,msg,input,def){return new Promise(res=>{const o=document.createElement('div');o.className='jdlg';
