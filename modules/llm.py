@@ -42,8 +42,6 @@ _client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options()) if 
 # main.py o an konuşan kullanıcıyı istek bağlamına yazar. Global istemci yalnız kullanıcı bağlamı olmayan
 # bakım/ilk-kurulum işlemleri içindir; normal kullanıcı sohbetinde kullanılmaz.
 _key_context = ContextVar("jarvis_llm_user", default=None)
-# Anlama sözleşmesi (şema) yalnız bu çağrı kapsamında: imzayı değiştirmeden taşınır.
-_CONTRACT = ContextVar("jarvis_static_contract", default=None)
 def current_user():
     target = _key_context.get()
     if target is not None:
@@ -491,10 +489,6 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     return text
 
 
-class CacheMissError(RuntimeError):
-    """Statik sözleşme verildi ama bağlam önbelleği kurulamadı: çağıran tam isteme döner."""
-
-
 class CloudError(RuntimeError):
     """Bulut sağlayıcısına ulaşılamadı / anahtar geçersiz."""
 
@@ -847,12 +841,7 @@ def dispatch(request,spec,prompt,system,history=None,*,image_path=None):
                                               request.max_output_tokens,image_path=image_path)
         if image_path is not None:
             return _image_transport(image_path,prompt,system,request.max_output_tokens,selected=spec.provider,model=spec.model)
-        # Ayrı token adı: `token` zaten kullanıcı bağlamının anahtarı.
-        sozlesme_token=_CONTRACT.set(getattr(request,'static_contract',None))
-        try:
-            return _send_provider(spec.provider,prompt,system,request.max_output_tokens,history,model=spec.model)
-        finally:
-            _CONTRACT.reset(sozlesme_token)
+        return _send_provider(spec.provider,prompt,system,request.max_output_tokens,history,model=spec.model)
     finally:_key_context.reset(token)
 
 
@@ -890,22 +879,8 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok.")
     system = privacy.redact(system)
-    # Bağlam önbelleği: sözleşme bir kez yüklenir, istem yalnız dinamik gövdeyi taşır.
-    # Kurulamazsa (ayar kapalı, kota, ağ) hiçbir şey değişmez: eski tek parça yol.
-    # Statik sözleşme yalnız `dispatch` kapsamında taşınır (imza değişmez).
-    static_contract = _CONTRACT.get()
-    cache_name = None
-    if static_contract:
-        from modules import understanding_cache
-        cache_name = understanding_cache.acquire(current_user(), model, static_contract, system)
-        # Kanıt sayacı: önbellek tuttu mu? (Günlüğe her turda satır yazmaz.)
-        understanding_cache.note(cache_name is not None)
-        logging.getLogger('jarvis').info('anlama önbelleği: %s', 'hit' if cache_name else 'miss')
-        if not cache_name:
-            # Sessiz yanlış yanıt yerine açık sinyal: istem şemayı taşımıyor.
-            raise CacheMissError('Anlama önbelleği kurulamadı; tam isteme dönülüyor.')
     config_options = {
-        "system_instruction": None if cache_name else (system or None),
+        "system_instruction": system or None,
         "max_output_tokens": max_tokens,
         "http_options": _gemini_request_http_options(),
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
@@ -914,8 +889,6 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     # Disable that feature where available; older SDKs do not expose it.
     if "automatic_continuation" in getattr(types.GenerateContentConfig, "model_fields", {}):
         config_options["automatic_continuation"] = False
-    if cache_name:
-        config_options["cached_content"] = cache_name
     cfg = types.GenerateContentConfig(**config_options)
 
     cli = [_cli()]

@@ -36,15 +36,6 @@ CATALOG: dict[tuple[str, str], dict] = {
         # Official model card rechecked 14 Nov; the Gemini adapter's image-parts
         # transport is covered separately. No native schema/tool claim is made.
     },
-    ('gemini', 'gemini-3.1-flash-lite-preview'): {
-        # 22 Kasım: anlama gecikmesi ölçümü (aynı ~21,8k token istem, 3 çağrı):
-        # medyan 1240 ms, sapma yok; 3.5-flash-lite aynı testte 1281 ms medyan ve
-        # 5293 ms'lik kuyruk üretti. Görsel mod verified_vision: 160x80 PNG
-        # ("42") bu modelle doğru okundu (llm._image_transport, 22 Kasım).
-        'features': frozenset({'verified_vision'}),
-        'context_limit': 1048576, 'output_limit': 65536,
-        'source_url': 'https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-preview',
-    },
     ('gemini', 'gemini-3.5-flash'): {
         'features': frozenset(),
         'context_limit': 1048576, 'output_limit': 65536,

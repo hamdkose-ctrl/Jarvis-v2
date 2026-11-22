@@ -67,61 +67,6 @@ def _notify_waiting_while_busy(runtime, owner, user, source, rid):
         return False
 
 
-_INSTANT_READ_INTENTS = frozenset({'fast_time', 'fast_date', 'fast_system_status'})
-
-
-def _instant_read_enabled(runtime) -> bool:
-    """Ayar kapalıysa (varsayılan) meşgulken araya girilmez."""
-    try:
-        from config import load_settings
-        return bool(load_settings().get("instant_read_while_busy", False))
-    except Exception:
-        return False
-
-
-def _answer_instant_while_busy(runtime, text, owner, user, source, rid) -> bool:
-    """Arka planda iş sürerken salt-okuma komutunu anında yanıtlar.
-
-    Yalnız saat/tarih/sistem durumu ve yerel hesap: model yok, etki yok, ikinci
-    yürütücü yok. Komut meşgulken kuyruğa girip tur sonunu beklemez. Ayar
-    `instant_read_while_busy` ile açılır; kapalıyken eskisi gibi kuyruğa girer.
-    """
-    if not _instant_read_enabled(runtime):
-        return False
-    lock = getattr(runtime, '_execution_lock', None)
-    if lock is None:
-        return False
-    if lock.acquire(blocking=False):
-        lock.release()
-        return False            # boşta: normal tek yol yanıtlasın
-    from modules import engine_intents, fast_commands
-    eslesme = fast_commands.resolve(text)
-    if eslesme is not None and eslesme[0] in _INSTANT_READ_INTENTS:
-        try:
-            metin = engine_intents.dispatch(runtime, eslesme[0], eslesme[1], text,
-                                            runtime._tr_lower(text))
-        except Exception:
-            runtime._record_failure('modules/engine_queue.py:instant_read')
-            return False
-    else:
-        metin = fast_commands.compute(text)
-    if not metin:
-        return False
-    profile = runtime.pc_profile() if source in ('ses', 'yazı') else runtime._get_profile(user)
-    if profile.slug != owner:
-        return False
-    metin = str(metin)
-    runtime._emit_for(profile, 'user', text, source, rid=rid)
-    runtime._emit_for(profile, 'assistant', metin, source, rid=rid)
-    try:
-        runtime.voice.speak(metin)
-    except Exception:
-        runtime._record_failure('modules/engine_queue.py:instant_speech')
-    _release_inline_voice_pause(runtime, source)
-    runtime.log.info('hızlı yol: meşgulken yanıt (rid=%s)', rid)
-    return True
-
-
 def submit(runtime, text: str, source: str = "yazı", user: str | None = None, rid: str | None = None) -> bool:
     """Arayüzden ya da telefondan gelen komutu motora iletir; 'dur' okumayı keser.
     user: komutu gönderen kişi (telefonlar). Boşsa bilgisayardaki aktif kullanıcı.
@@ -288,8 +233,6 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
                               goal_executor.fast_status(owner, details=status == 'details'),
                               source,rid=rid)
         _release_inline_voice_pause(runtime, source)
-        return True
-    if _answer_instant_while_busy(runtime, text, owner, user, source, rid):
         return True
     runtime.events.put(("command", text, source, user, rid))
     waiting = _notify_waiting_while_busy(runtime, owner, user, source, rid)
