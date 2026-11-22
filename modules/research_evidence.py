@@ -267,6 +267,14 @@ def vague_question(question,request):
 
 def preview(output):
     """Show the researched finding in chat; links support the answer instead of replacing it."""
+    if output.get('academic_listing') is True:
+        # Liste metni kendi başına tam bir cevaptır ve içinde **her kayıt için** "Kaynak:"
+        # satırı vardır; aşağıdaki tek-kaynaklı yol ilk "Kaynak:"ta kesip listeyi
+        # tek kayda indiriyordu (canlı: "4 kayıt" yazıp 1 kayıt göründü).
+        text = str(output.get('text') or '').strip()
+        if len(text) > 1200:
+            text = text[:1197].rsplit(' ', 1)[0] + '…'
+        return text
     if output.get('source') and not output.get('news_article') and not output.get('news_report_evidence'):
         answer=str(output.get('text','')).split('\nKaynak:',1)[0].strip()
         if len(answer)>1200:answer=answer[:1197].rsplit(' ',1)[0]+'…'
