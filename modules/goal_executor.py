@@ -76,6 +76,18 @@ Dosya teslimi gerekiyorsa gerçek çıktı dosyası oluştur. Ayrı iş türleri
 def active():return _INSIDE.get()
 
 
+def _low(text):
+    """Komut eşleşmesi için Türkçe katlama.
+
+    str.casefold() 'İ' harfini 'i' + birleşik nokta yapar; bu yüzden
+    "HEDEF İPTAL" -> "hedef i̇ptal" olup hiçbir komuta eşleşmiyor, ardından
+    `hedef <konu>` kuralına düşüp yeni bir "İPTAL" hedefi açıyordu
+    (canlı hata 22 Kasım 16:05).
+    """
+    folded = str(text or "").translate(str.maketrans("İI", "iı")).lower()
+    return " ".join(folded.split()).strip(" .!?;:,")
+
+
 def _fold(text):return re.sub(r'[^\w]+',' ',str(text or '').casefold()).strip()
 
 
@@ -1214,7 +1226,7 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
         # answer. Passing "hedef onayla" as an answer also skipped the
         # no-model news recovery path, causing redundant planner retries.
         answer=(request if resume and not approve
-                and request.casefold().strip(' .!?') not in RESUME_COMMANDS
+                and _low(request) not in RESUME_COMMANDS
                 else None)
         try:return _loop(runtime,job,answer=answer,
                          resume=resume,initial_legacy_call=initial_legacy_call,
@@ -1368,7 +1380,7 @@ def cancel_job(owner,identity,*,expected_snapshot=None):
 def _is_fast_command(command):
     """Modelsiz hızlı yolların (bugünün planı, mail listeleri) açık yeni komutu: bekleyen soruya cevap sayılmaz."""
     from modules import google_api,main_planner,when
-    low=command.casefold().strip(' .!?');forms={low,when._turkish(low),main_planner._fold(low)}
+    low=_low(command);forms={low,when._turkish(low),main_planner._fold(low)}
     return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
 
 
@@ -1539,7 +1551,7 @@ def handle(runtime,command):
     # yeniden yorumlayamaz (özellikle açık soruyu 'saat kaç' ile sürdüremez).
     if not brain_entry.allow_legacy_goal_control(command):
         return None
-    low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
+    low=_low(command);job=latest(runtime.profile.slug)
     if low in {'evet','onaylıyorum','onayla','hedef onayla'}:
         from modules import goal_approval
         choices=goal_approval.pending(runtime.profile.slug)
@@ -1578,7 +1590,7 @@ def handle(runtime,command):
         return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     explicit=re.match(r'^hedef\s+(.+)$',command.strip(),re.I|re.S)
-    if explicit and explicit[1].split(None,1)[0].casefold().strip(' .!?') not in {'iptal','devam','sürdür','surdur','onayla','yanıtla'}:
+    if explicit and _low(explicit[1]).split(' ',1)[0] not in {'iptal','devam','sürdür','surdur','onayla','yanıtla'}:
         return run(runtime,explicit[1].strip())
     if job and job['state']=='question' and age(job)<=QUESTION_SECONDS:
         from modules import brain_entry
