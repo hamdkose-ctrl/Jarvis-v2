@@ -627,6 +627,27 @@ def attempt_timeout_seconds() -> float | None:
     return value if 0.5 <= value <= 20 else None
 
 
+def _next_candidate_ready(request: ModelRequest, candidates, index: int) -> bool:
+    """Sıradaki aday gerçekten kullanılabilir mi?
+
+    Canlı hata (22 Kasım 13:31): 3 sn sınırı gemini'yi bıraktı, groq kota,
+    cloudflare zaman aşımı verdi ve tur tamamen düştü. Yavaş sağlayıcı ancak
+    YERİNE GEÇECEK sağlıklı bir aday varsa bırakılır.
+    """
+    if index + 1 >= len(candidates):
+        return False
+    nxt = candidates[index + 1]
+    if not _ready_key_configured(request.owner, nxt.provider):
+        return False
+    if _health_wait(request.owner, nxt.provider, nxt.model):
+        return False
+    from modules import usage_meter
+    if usage_meter.observed_exhaustion(request.owner, nxt.provider, nxt.model, now=time.time(),
+                                       credential=_connection_fingerprint(request.owner, nxt.provider)):
+        return False
+    return True
+
+
 def _call_with_attempt_timeout(request: ModelRequest, adapter: ProviderAdapter, *, enabled: bool):
     """Etkileşimli turda tek sağlayıcı denemesini sınırlar; alternatif yoksa beklemez."""
     # Kapsam bilerek dar: yalnız konuşma cevabı. Anlama (brain_understanding)
@@ -645,14 +666,20 @@ def _call_with_attempt_timeout(request: ModelRequest, adapter: ProviderAdapter, 
     try:
         with requests_state.budget(limit):
             return adapter()
+    except requests_state.Cancelled:
+        raise
     except requests_state.LocalDeadline as exc:
         # Yalnız GERÇEKTEN bizim deneme sınırımız dolduysa yavaş sağlayıcı bırakılır.
         # Dış istek bütçesinden gelen iptal/zaman aşımı aynen yukarı çıkar.
         if time.monotonic() - basladi >= limit * 0.9:
             raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
         raise
-    except _requests.Timeout as exc:
-        raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
+    except Exception as exc:
+        # SDK'ya özgü zaman aşımı/bağlantı tipleri de olabilir: sınırı biz kestiysek
+        # bu bir sağlayıcı hatası değildir, sağlayıcı ceza almamalı.
+        if time.monotonic() - basladi >= limit * 0.9:
+            raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
+        raise
 
 
 def _run_request(request: ModelRequest, adapter: ProviderAdapter,
@@ -728,7 +755,7 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 _pos = next(i for i, item in enumerate(candidates) if item is spec)
             except StopIteration:
                 _pos = len(candidates) - 1
-            alternatif = _pos < len(candidates) - 1 or bool(route_plan.deferred_local)
+            alternatif = _next_candidate_ready(request, candidates, _pos) or bool(route_plan.deferred_local)
             try:
                 from modules import usage_meter
                 with usage_meter.capture_attempt(request.owner,request.request_id,attempt_id) as measured:
