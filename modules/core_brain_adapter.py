@@ -382,6 +382,42 @@ def _pending_weather_answer(runtime: Any, command: str):
     return engine_intents.dispatch(runtime, plan[0], plan[1], command, command.casefold())
 
 
+def _academic_outage_answer(command: str):
+    """Model yokken akademik arama isteği boş ret mesajıyla düşmesin.
+
+    Canlı kusur (22 Kasım 2026 21:23): "Yapay zeka makaleleri araştır" isteğinde Gemini
+    Brain sözleşmesinden, Groq da çağrıdan döndü; kullanıcı liste beklerken
+    "hedefi güvenli biçimde doğrulayamadım" mesajı aldı. Arama açık API'lerden
+    yapılabildiği için bu istek model olmadan da karşılanabilir.
+
+    Yalnız okuma yapar, hiçbir etki üretmez; haber/dosya istekleri bu yola girmez.
+    """
+    request = str(command or '').strip()
+    if not request or len(request) > 500:
+        return None
+    from modules import research_evidence, research_providers, task_workers
+    if not research_providers.academic_requested(request):
+        return None
+    if research_evidence.publication_news_requested(request) or research_evidence.file_requested(request):
+        return None
+    try:
+        rows = task_workers.search_academic_rows(request, request)
+    except Exception:
+        from modules import diagnostics
+        diagnostics.record_failure('modules/core_brain_adapter.py:academic_outage_search')
+        return None
+    if not rows:
+        return None
+    try:
+        listing = task_workers.academic_listing(rows, request)
+    except Exception:
+        from modules import diagnostics
+        diagnostics.record_failure('modules/core_brain_adapter.py:academic_outage_listing')
+        return None
+    text = str(listing.get('text') or '').strip()
+    return text or None
+
+
 def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     from modules.brain_entry import (
@@ -451,8 +487,14 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             _LAST_FEEDBACK.set(handled)
             return answered, handled, None
         if provider_issue:
+            academic = _academic_outage_answer(command)
+            if academic is not None:
+                return academic, row, None
             return brain_failure_synthesis.synthesize(row), row, None
         if rejected:
+            academic = _academic_outage_answer(command)
+            if academic is not None:
+                return academic, row, None
             return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
                     "hiçbir işlem başlatmadım.", row, None)
         return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
