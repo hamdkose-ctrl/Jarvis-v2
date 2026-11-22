@@ -302,3 +302,52 @@ class NumberingSurvivesMarkdownTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / 'webui/nx.js').read_text(encoding='utf-8')
         self.assertIn(r"/^\s*\d+[.)]\s+(.*)/", source)
         self.assertTrue(re.match(r"\s*\d+[.)]\s+", '1) Başlık'))
+
+
+class JarvisReadsTheSourceTests(unittest.TestCase):
+    """Kullanıcı (22 Kasım 2026): "kaynağı bi kendine al orada düzenle sonra ver" —
+    kendine = Jarvis. Özet, başlıkla yetinmeyip okunan kaynak metnine dayanır."""
+
+    TEMPLATE = {'provider': 'crossref', 'title': 'Ortodontide Yapay Zeka', 'url': 'https://doi.org/10.1/a',
+                'published': '2026-06', 'snippet': 'Kısa kayıt özeti.'}
+
+    def test_first_sources_are_read_but_only_a_few(self):
+        from modules import task_workers
+        rows = [dict(self.TEMPLATE, url=f'https://doi.org/10.1/{index}') for index in range(4)]
+        calls = []
+
+        def fake_extract(url):
+            calls.append(url)
+            return {'url': url, 'text': 'Kaynak metni ' * 60}
+
+        with patch.object(rp, 'extract_source', side_effect=fake_extract):
+            read = task_workers._read_source_texts(rows)
+        self.assertEqual(read, task_workers._OKUMA_ADEDI)        # ilk N kaynak
+        self.assertEqual(len(calls), task_workers._OKUMA_ADEDI)  # fazlası okunmaz (gecikme sınırı)
+        self.assertTrue(all(row.get('_kaynak_metni') for row in rows[:task_workers._OKUMA_ADEDI]))
+
+    def test_unreadable_source_falls_back_to_the_record_summary(self):
+        from modules import task_workers
+        rows = [dict(self.TEMPLATE, url='https://doi.org/10.1/bad')]
+        with patch.object(rp, 'extract_source', side_effect=ValueError('HTTP 403')):
+            read = task_workers._read_source_texts(rows)
+        self.assertEqual(read, 0)
+        self.assertNotIn('_kaynak_metni', rows[0])
+        out = task_workers.academic_listing(rows, 'yapay zeka')
+        self.assertIn('Kısa kayıt özeti.', out['text'])          # kayıt özetiyle devam, tur düşmez
+
+    def test_summary_prompt_uses_the_read_source_text(self):
+        from modules.task_workers import academic_listing
+        rows = [{'provider': 'crossref', 'title': 'Ortodontide Yapay Zeka', 'url': 'https://doi.org/10.1/a',
+                 'published': '2026-06', 'snippet': 'Kısa özet.',
+                 '_kaynak_metni': 'OKUNAN KAYNAK METNI: ASPECTS skorlaması ve damar tıkanıklığı.'}]
+        answer = '{"items":[{"no":1,"baslik":"Ortodontide Yapay Zeka Uygulamaları","ozet":"Tanı ve tedavi kararlarını iyileştirir."}]}'
+        with patch.object(rp, 'extract_source', return_value={'url': 'https://doi.org/10.1/a',
+                                                             'text': rows[0]['_kaynak_metni']}), \
+             patch('modules.llm.ask', return_value=answer) as ask:
+            out = academic_listing(rows, 'yapay zeka', translate=True)
+        prompt = ask.call_args.args[0]
+        self.assertIn('OKUNAN KAYNAK METNI', prompt)             # özet okunan metne dayanır
+        self.assertIn('metnine dayanmalı', prompt)
+        self.assertIn('**1.** Ortodontide Yapay Zeka Uygulamaları', out['text'])
+        self.assertIn('Özet: Tanı ve tedavi kararlarını iyileştirir.', out['text'])

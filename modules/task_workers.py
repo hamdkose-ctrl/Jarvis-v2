@@ -23,6 +23,10 @@ def json_text(text):
 
 # Yanıt önizleme bütçesi 1200 karakter (persona 'orta'); liste ortadan kesilmesin.
 _LISTE_BUTCESI = 1050
+# Jarvis kaynağı kendisi okur: ilk N kayıt için DOI/arXiv sayfası alınır (~1-2 sn/adet).
+_OKUMA_ADEDI = 3
+_KAYNAK_METIN_KARAKTER = 1500
+
 _BASLIK_KARAKTER = 120
 _OZET_KARAKTER = 180
 
@@ -43,12 +47,15 @@ def _translate_listing_rows(rows, indexes=None):
     kalemler = []
     for index, row in enumerate(rows, start=1):
         baslik = ' '.join(str(row.get('title') or '').split())[:300]
-        ozet = ' '.join(str(row.get('snippet') or '').split())[:700]
+        # Jarvis kaynağı kendisi okuduysa özet o metne dayanır.
+        metin = row.get('_kaynak_metni') or row.get('snippet') or ''
+        ozet = ' '.join(str(metin).split())[:_KAYNAK_METIN_KARAKTER]
         if not baslik:
             return None
         kalemler.append(f'{index}) {baslik}' + (('\n' + ozet) if ozet else ''))
     prompt = ('Şu akademik kayıtları Türkçeye çevir. Her kayıt için doğal bir Türkçe başlık ve en çok '
-              'iki cümlelik Türkçe özet ver. Kayıtta olmayan bilgi, sayı veya sonuç ekleme; bağlantı yazma.\n\n'
+              'iki cümlelik Türkçe özet ver. Özet kaynağın kendi metnine dayanmalı; metinde olmayan bilgi, '
+              'sayı veya sonuç ekleme; bağlantı yazma.\n\n'
               + '\n\n'.join(kalemler))
     system = ('Yalnız JSON ver: {"items":[{"no":1,"baslik":"Türkçe başlık","ozet":"Türkçe özet"}]} . '
               'Kayıt sayısı ve "no" değerleri girdiyle aynı kalmalı.')
@@ -83,6 +90,33 @@ def _translate_listing_rows(rows, indexes=None):
         return None
     # Çeviri sırası alt kümenin sırasıdır; gerçek satır indeksine çevrilir.
     return {indexes[no - 1] if indexes else no - 1: by_no[no] for no in by_no}
+
+
+def _read_source_texts(rows, limit=None):
+    """İlk N kaydın kaynağını Jarvis kendisi okur; okunamayan kayıt özette kalır (fail-soft).
+
+    Kullanıcı isteği (22 Kasım 2026): "kaynağı bi kendine al, orada düzenle sonra ver"
+    (kendine = Jarvis). Ölçüm: DOI sayfaları 0,9-2,4 sn'de okunuyor. Yalnız ilk 3 kayıt
+    okunur; gecikme ~4-6 sn kalır.
+    """
+    from modules import research_providers
+    adet = _OKUMA_ADEDI if limit is None else max(0, int(limit))
+    okunan = 0
+    for row in rows[:adet]:
+        url = str(row.get('url') or '').strip()
+        if not url.startswith('https://'):
+            continue
+        try:
+            page = research_providers.extract_source(url)
+            text = ' '.join(str(page.get('text') or '').split())
+        except Exception:
+            _record_failure('modules/task_workers.py:academic_source_read')
+            continue
+        if len(text) < 200:
+            continue
+        row['_kaynak_metni'] = text[:_KAYNAK_METIN_KARAKTER]
+        okunan += 1
+    return okunan
 
 
 def _academic_query(query):
@@ -145,10 +179,17 @@ def academic_listing(rows, request, *, translate=False):
     """
     rows = list(rows[:5])
     ingilizce = [index for index, row in enumerate(rows) if row.get('provider') == 'arxiv']
-    ceviri = (_translate_listing_rows([rows[index] for index in ingilizce], ingilizce)
-              if translate and ingilizce else None)
     for row in rows:
         row['_tarih'] = str(row.get('published') or '').strip()
+    # Jarvis kaynağı kendisi okusun: özet uydurma değil, okunan metne dayanır.
+    if translate:
+        _read_source_texts(rows)
+    ceviri = (_translate_listing_rows([rows[index] for index in ingilizce], ingilizce)
+              if translate and ingilizce else None)
+    okunmus = [index for index, row in enumerate(rows) if row.get('_kaynak_metni')]
+    if translate and okunmus and not ingilizce:
+        # Türkçe kayıtlarda da başlık/özet düzeni aynı olsun: tek çağrı, okunan metne dayalı.
+        ceviri = _translate_listing_rows([rows[index] for index in okunmus], okunmus)
     kuyruk = ['', 'Kaynaklar doğrulanmış iddia değildir; bağlantılar kaydın kendi adresine gider.']
     giris = [_AKADEMIK_TANITIM] if ingilizce and ceviri is None else []
     gosterilen, bloklar = [], []
