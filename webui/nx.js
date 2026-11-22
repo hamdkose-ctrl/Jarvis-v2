@@ -600,7 +600,12 @@ function md(t){
   flush();let html=out.join('').replace(/(<tr>.*?<\/tr>)+/g,m=>{const header=m.startsWith('<tr><th')?m.slice(0,m.indexOf('</tr>')+5):'';return `<div class="chat-table" tabindex="0" role="region" aria-label="Tablo; yatay kaydırılabilir"><table>${header?'<thead>'+header+'</thead>':''}<tbody>${m.slice(header.length)}</tbody></table></div>`});
   return html.replace(/\u0000(\d+)\u0000/g,(m,i)=>blocks[+i]);
 }
-function inl(s){return s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>')}
+function inl(s){
+  // Bağlantılar tıklanabilir olsun (kullanıcı: "kaynaklar tıklanacak şekilde olursa tamamdır").
+  // Metin zaten esc() ile kaçırıldı; adres yalnız http(s) kabul eder, sondaki noktalama ayrılır.
+  s=s.replace(/(https?:\/\/[^\s<"'`]+)/g,(m,url)=>{const t=url.replace(/[.,;:!?]+$/,'');const tail=url.slice(t.length);
+    return `<a href="${t}" target="_blank" rel="noopener noreferrer">${t}</a>${tail}`});
+  return s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>')}
 function mathGroup(s,start){if(s[start]!=='{')return null;let depth=0;for(let i=start;i<s.length;i++){if(s[i]==='{')depth++;if(s[i]==='}'&&--depth===0)return {text:s.slice(start+1,i),end:i+1};if(depth>20)return null}return null}
 function mathBasic(x,depth=0){
  let s=String(x);if(depth>12)return s;
