@@ -118,3 +118,70 @@ class TransportTimeoutTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FallbackHealthTests(unittest.TestCase):
+    """Sınır yalnız yedek SAĞLIKLI ise uygulanır (canlı hata 22 Kasım 13:31)."""
+
+    def _kos(self, transport, *, health=None, exhausted=None):
+        with _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini', 'groq')), \
+                patch.object(smart_router, '_ready_key_configured', lambda owner, provider: True),                 patch.object(smart_router, '_current_admission', lambda *a, **k: True), \
+                patch.object(smart_router, '_health_wait', lambda *a, **k: health), \
+                patch('modules.usage_meter.observed_exhaustion', lambda *a, **k: exhausted):
+            return smart_router._run_request(_request(), transport)
+
+    def test_no_abort_when_the_fallback_is_in_cooldown(self):
+        cagrilar = []
+
+        def transport(spec):
+            cagrilar.append(spec.provider)
+            for _ in range(16):
+                time.sleep(0.05)
+                requests_state.check()
+            return 'yavaş ama geldi'
+
+        result = self._kos(transport, health=42)
+        self.assertEqual(result.text, 'yavaş ama geldi')
+        self.assertEqual(cagrilar, ['gemini'])
+
+    def test_no_abort_when_the_fallback_is_quota_exhausted(self):
+        cagrilar = []
+
+        def transport(spec):
+            cagrilar.append(spec.provider)
+            for _ in range(16):
+                time.sleep(0.05)
+                requests_state.check()
+            return 'kotasız yedek yok'
+
+        result = self._kos(transport, health=None, exhausted={'until': time.time() + 60})
+        self.assertEqual(result.text, 'kotasız yedek yok')
+        self.assertEqual(cagrilar, ['gemini'])
+
+    def test_abort_happens_when_the_fallback_is_healthy(self):
+        cagrilar = []
+
+        def transport(spec):
+            cagrilar.append(spec.provider)
+            if spec.provider == 'gemini':
+                for _ in range(40):
+                    time.sleep(0.05)
+                    requests_state.check()
+            return 'hızlı yedek'
+
+        result = self._kos(transport, health=None, exhausted=None)
+        self.assertEqual(result.text, 'hızlı yedek')
+        self.assertEqual(cagrilar, ['gemini', 'groq'])
+
+    def test_sdk_specific_error_after_the_deadline_is_not_a_provider_fault(self):
+        def transport(spec):
+            if spec.provider == 'gemini':
+                for _ in range(40):
+                    time.sleep(0.05)
+                    requests_state.check()
+                raise ValueError('sdk-özel tip')
+            return 'yedek'
+
+        with _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini', 'groq')):
+            result = smart_router._run_request(_request(), transport)
+        self.assertEqual(result.text, 'yedek')
