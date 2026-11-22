@@ -382,7 +382,7 @@ def _pending_weather_answer(runtime: Any, command: str):
     return engine_intents.dispatch(runtime, plan[0], plan[1], command, command.casefold())
 
 
-def _academic_outage_answer(command: str):
+def _academic_outage_answer(command: str, owner=None):
     """Model yokken akademik arama isteği boş ret mesajıyla düşmesin.
 
     Canlı kusur (22 Kasım 2026 21:23): "Yapay zeka makaleleri araştır" isteğinde Gemini
@@ -398,8 +398,10 @@ def _academic_outage_answer(command: str):
     from modules import research_evidence, research_providers, task_workers
     if not research_providers.academic_requested(request):
         return None
-    if research_evidence.publication_news_requested(request) or research_evidence.file_requested(request):
+    if research_evidence.file_requested(request):
         return None
+    # Haber isteniyorsa aynı turda haber bölümü de verilir; bu istek artık dışarıda değil.
+    haber_istendi = research_evidence.publication_news_requested(request)
     try:
         rows = task_workers.search_academic_rows(request, request)
     except Exception:
@@ -408,8 +410,9 @@ def _academic_outage_answer(command: str):
         return None
     if not rows:
         return None
+    haber = task_workers.news_rows_for(request, owner)[0] if haber_istendi else None
     try:
-        listing = task_workers.academic_listing(rows, request)
+        listing = task_workers.academic_listing(rows, request, news_rows=haber)
     except Exception:
         from modules import diagnostics
         diagnostics.record_failure('modules/core_brain_adapter.py:academic_outage_listing')
@@ -487,12 +490,12 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             _LAST_FEEDBACK.set(handled)
             return answered, handled, None
         if provider_issue:
-            academic = _academic_outage_answer(command)
+            academic = _academic_outage_answer(command, _runtime_owner(runtime))
             if academic is not None:
                 return academic, row, None
             return brain_failure_synthesis.synthesize(row), row, None
         if rejected:
-            academic = _academic_outage_answer(command)
+            academic = _academic_outage_answer(command, _runtime_owner(runtime))
             if academic is not None:
                 return academic, row, None
             return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
