@@ -22,7 +22,8 @@ def _negative(normalized):
 
 
 def decision(text, *, extra=()):
-    normalized = re.sub(r'\s+', ' ', str(text).translate(str.maketrans('İI', 'iı')).lower()).strip(' .!?;:,')
+    from modules import text_fold
+    normalized = text_fold.fold_command(text)
     normalized = re.sub(r'\s*[,;:]\s*', ' ', normalized)
     if _negative(normalized):
         return False
@@ -35,15 +36,16 @@ def choice_index(answer, choices):
     """Pick exactly one offered choice by 1-based number, exact title or unique substring; else None.
 
     Single definition shared by the Brain state gate (recognition) and Core resume (execution)."""
-    text = str(answer).casefold().strip(' .!?')
+    from modules import text_fold
+    text = text_fold.fold_command(answer)
     choices = [str(c) for c in (choices or [])]
     if text.isdigit() and 1 <= int(text) <= len(choices):
         return int(text) - 1
-    exact = [i for i, c in enumerate(choices) if c.casefold().strip() == text]
+    exact = [i for i, c in enumerate(choices) if text_fold.fold_command(c) == text]
     if len(exact) == 1:
         return exact[0]
     if len(text) >= 3:
-        part = [i for i, c in enumerate(choices) if text in c.casefold()]
+        part = [i for i, c in enumerate(choices) if text in text_fold.fold(c)]
         if len(part) == 1:
             return part[0]
     return None

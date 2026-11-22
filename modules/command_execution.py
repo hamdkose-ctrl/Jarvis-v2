@@ -30,7 +30,8 @@ def continue_app(runtime, command):
     if time.monotonic() - pending['at'] > 120:
         session.pending_app = None
         return None
-    text = command.casefold().strip(' .!?')
+    from modules import text_fold
+    text = text_fold.fold_command(command)
     from modules import brain_entry
     if brain_entry.matched_protocol("session.pending_app.cancel") or text in {'iptal', 'vazgeç', 'boşver'}:
         session.pending_app = None
@@ -40,7 +41,7 @@ def continue_app(runtime, command):
     if match and 1 <= int(match[1]) <= len(pending['choices']):
         chosen = pending['choices'][int(match[1])-1]
     else:
-        matches = [name for name in pending['choices'] if name.casefold() == text]
+        matches = [name for name in pending['choices'] if text_fold.fold(name) == text]
         if len(matches) == 1:
             chosen = matches[0]
     if chosen:

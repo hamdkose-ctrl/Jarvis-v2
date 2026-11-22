@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
 from modules import translation_targets
+from modules import text_fold
 from modules.brain_understanding import (
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
@@ -582,7 +583,7 @@ def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
             return None
         if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path)):
             return None
-        if not isinstance(folder, str) or folder.casefold() not in _FILE_MUTATION_FOLDERS:
+        if not isinstance(folder, str) or text_fold.fold(folder) not in _FILE_MUTATION_FOLDERS:
             return None
         return {"operation": "move", "path": path, "folder": folder}
     if operation == "rename":
@@ -602,7 +603,7 @@ def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if set(row) != {"operation", "folder", "name", "content"}:
             return None
         folder, name, content = row.get("folder"), row.get("name"), row.get("content")
-        if not isinstance(folder, str) or folder.casefold() not in {"masaüstü", "masaustu", "indirilenler", "belgeler"}:
+        if not isinstance(folder, str) or text_fold.fold(folder) not in {"masaüstü", "masaustu", "indirilenler", "belgeler"}:
             return None
         if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\x00" in name:
             return None
@@ -1163,12 +1164,14 @@ def _reminder_protocol_args(arguments: Mapping[str, Any]) -> dict[str, Any] | No
         return {"operation": operation, "title": checked_title, "minutes": 1440}
     named_delays = {"yarım saat": 30, "bir saat": 60, "bir gün": 1440,
                     "iki gün": 2880}
-    if duration.casefold().strip() in named_delays:
-        minutes = named_delays[duration.casefold().strip()]
+    from modules import text_fold
+    folded_duration = text_fold.fold(duration)
+    if folded_duration in named_delays:
+        minutes = named_delays[folded_duration]
         return {"operation": operation, "title": checked_title,
                 "minutes": minutes} if minutes <= (
                     1440 if operation == "snooze" else 10080) else None
-    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
+    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", folded_duration)
     if parsed is None:
         return None
     count, unit = int(parsed.group(1)), parsed.group(2)

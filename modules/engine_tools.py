@@ -3,8 +3,9 @@ from __future__ import annotations
 import contextlib
 
 def _tr_lower(runtime, text: str) -> str:
-    """Türkçe harflere uygun küçük harf (I -> ı, İ -> i)."""
-    return text.replace("I", "ı").replace("İ", "i").lower()
+    """Türkçe harflere uygun küçük harf; tek tanım modules/text_fold.py."""
+    from modules import text_fold
+    return text_fold.fold(text)
 
 def _numbers(runtime, text: str) -> list[int]:
     return [int(n) for n in runtime.re.findall(r"\d+", text)]
