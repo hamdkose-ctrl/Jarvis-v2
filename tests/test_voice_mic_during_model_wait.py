@@ -385,7 +385,8 @@ class LongJobStaysHeard(unittest.TestCase):
             stop_event=threading.Event(), pause_listening=threading.Event(),
             flags={'mic': True}, audio_lock=threading.RLock(), time=time, log=Mock(),
             emit=Mock(), _record_failure=Mock(), WAKE_WORD='Jarvis',
-            mic_cancel=threading.Event(), _AnyAbort=lambda *events: object(),
+            mic_cancel=threading.Event(), speech_pending=threading.Event(),
+            _AnyAbort=lambda *events: object(),
             _execution_lock=threading.RLock())
         captured = []
 

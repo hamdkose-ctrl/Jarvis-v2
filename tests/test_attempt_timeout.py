@@ -7,9 +7,27 @@ korunur, tur iptal edilmez.
 """
 import time
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 from modules import requests_state, smart_router
+
+
+@contextmanager
+def _temiz_butce(saniye=30.0):
+    """Testin kendi bütçesi: tam takımda kalan bir bütçe/iptal işareti sonucu değiştirmesin.
+
+    Canlı kanıt (tam doğrulama, 22 Kasım 2026): tek başına geçen test, 7130 testlik
+    turda düştü çünkü önceki testten kalan kısa bütçe "zaten sıkı, bozmam" yolunu açtı.
+    """
+    deadline = requests_state._budget_deadline.set(None)
+    cancel = requests_state._budget_cancel.set(None)
+    try:
+        with requests_state.budget(saniye):
+            yield
+    finally:
+        requests_state._budget_cancel.reset(cancel)
+        requests_state._budget_deadline.reset(deadline)
 
 
 def _ayar(saniye):
@@ -28,7 +46,18 @@ def _plan(*providers):
         tuple(smart_router.ModelSpec(p, 'model-' + p) for p in providers), (), 2)
 
 
-class AttemptTimeoutTests(unittest.TestCase):
+class _TemizButce(unittest.TestCase):
+    """Her test kendi bütçesiyle başlar: tam takımda sızmış bütçe sonucu değiştirmez."""
+
+    def setUp(self):
+        self._butce = _temiz_butce()
+        self._butce.__enter__()
+
+    def tearDown(self):
+        self._butce.__exit__(None, None, None)
+
+
+class AttemptTimeoutTests(_TemizButce):
     def test_slow_first_provider_is_abandoned_for_the_next_one(self):
         cagrilar = []
 
@@ -42,7 +71,9 @@ class AttemptTimeoutTests(unittest.TestCase):
                     requests_state.check()
             return 'yanıt'
 
-        with _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini', 'groq')):
+        # Yedek adayın "hazır" görünmesi ortam anahtarlarına bağlı olmamalı: tam takımda
+        # başka testlerin bıraktığı anahtar durumu testi sessizce tek sağlayıcıya düşürüyordu.
+        with _temiz_butce(), _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini', 'groq')),                 patch.object(smart_router, '_ready_key_configured', lambda owner, provider: True),                 patch.object(smart_router, '_current_admission', lambda *a, **k: True),                 patch.object(smart_router, '_health_wait', lambda *a, **k: 0),                 patch('modules.usage_meter.observed_exhaustion', lambda *a, **k: None):
             result = smart_router._run_request(_request(), transport)
         self.assertEqual(result.text, 'yanıt')
         self.assertEqual(cagrilar, ['gemini', 'groq'])
@@ -57,7 +88,7 @@ class AttemptTimeoutTests(unittest.TestCase):
                 requests_state.check()
             return 'yavaş ama tek'
 
-        with _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini')):
+        with _temiz_butce(), _ayar(0.5), patch.object(smart_router, 'plan', return_value=_plan('gemini')):
             result = smart_router._run_request(_request(), transport)
         self.assertEqual(result.text, 'yavaş ama tek')
         self.assertEqual(cagrilar, ['gemini'])
@@ -108,7 +139,7 @@ class AttemptTimeoutTests(unittest.TestCase):
         self.assertFalse([k for k in anahtarlar if 'gemini' in str(k) and 'attempt' in str(k)])
 
 
-class TransportTimeoutTests(unittest.TestCase):
+class TransportTimeoutTests(_TemizButce):
     def test_socket_read_timeout_is_capped_by_the_attempt_budget(self):
         from modules import llm
         with requests_state.budget(3):
@@ -120,7 +151,7 @@ if __name__ == '__main__':
     unittest.main()
 
 
-class FallbackHealthTests(unittest.TestCase):
+class FallbackHealthTests(_TemizButce):
     """Sınır yalnız yedek SAĞLIKLI ise uygulanır (canlı hata 22 Kasım 13:31)."""
 
     def _kos(self, transport, *, health=None, exhausted=None):
