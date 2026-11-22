@@ -122,8 +122,8 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 - Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
-- Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
-- Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 sözleşme merge edildi, hiçbiri akışa bağlı değil)
+- Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. Kalan: `source_verification` dalı boş)
+- Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 modül üretimden çağrılıyor; kalan anahtar/kendi sunucu gerektiren arama sağlayıcıları, canlı OHLCV, CDP, 4G UIA pilotu, F-002 kabul PR'ları)
 - Faz 5: Güvenilirlik ve gözlem
 - Faz 6: Sandbox, skill, kod ajanı
 - Faz 7: Alt-ajan ve Kanban
@@ -259,23 +259,23 @@ Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel m
 
 ## Faz 3 — Envanter ve Finance sözleşmesi
 
-**Durum: 🟡 kısmi. Envanter belgesi (#360) ✅. Finance yalnız koşul 1'de: `finance_domain.py` ve sözleşme belgesi var ama üretim kodunda hiçbir yerden çağrılmıyor, eski finans mantığı hâlâ `watcher` ve `domain_tools` içinde. 3-B..3-F göç adımları (#362'deki tablo) yapılmadan Finance bitmiş sayılmaz.**
+**Durum: ✅ sözleşme ve göç kapandı (22 Kasım 2026 doğrulaması). Envanter belgesi (#360) ✅. `finance_domain.validate()` → boş liste, `check()` → 0 sorun; 8 iş türü tanımlı, 6 açık / 2 kapalı (`account_read`, `money_effect` — para hareketi yolu yok). 3-B..3-F göç adımlarının beşi de kodda: `watcher._finance_price`→`finance.quote`, `watcher.finance_tick`→`finance_alert_tick.tick`, `domain_tools.exchange`→`finance.dated_rate`, `domain_tools.csv_analysis`→`finance_analysis.csv_summary`. Kalan tek boşluk: `source_verification` dalında henüz modül yok.**
 
 Finance ve envanter ayrı domain sözleşmelerine bağlanır. Worker'ların okuyacağı veri alanları temizlenmeden worker'lar başlayamaz.
 
 - 🟡 (#362) `[1✓ 2✗ 3✗ 4✗]` Finance ayrı domain olarak sözleşmeye bağlanacak: veri, alarm, analiz, kaynak doğrulama dalları ve kod göçü planı. Karar belgesi var, kod hâlâ iletişim tarafında. Salt okuma, para hareketi yok.
-  - 3-B `watcher._finance_price` → `finance.quote` (başlanmadı)
-  - 3-C `watcher.finance_tick` ve yardımcıları → `finance_alert_tick.py` (başlanmadı)
-  - 3-D alarm teslimi Communication'da, ntfy başlığı ayrılır (başlanmadı)
-  - 3-E `domain_tools.exchange` → `finance.dated_rate` (başlanmadı)
-  - 3-F `domain_tools.csv_analysis` finans kolu → `finance_analysis.csv_summary` (başlanmadı)
+  - ✅ 3-B `watcher._finance_price` → `finance.quote` (`modules/watcher.py:354-356`)
+  - ✅ 3-C `watcher.finance_tick` ve yardımcıları → `finance_alert_tick.py` (`modules/watcher.py:359-361`)
+  - 🟡 3-D alarm teslimi Communication'da, ntfy başlığı ayrılır (`finance_domain.BRANCHES['alarm']` alarm dallarını `notify/outbox` dışında tutuyor; teslim başlığı ayrımı canlı kabul bekliyor)
+  - ✅ 3-E `domain_tools.exchange` → `finance.dated_rate` (`modules/domain_tools.py:100`)
+  - ✅ 3-F `domain_tools.csv_analysis` finans kolu → `finance_analysis.csv_summary` (`modules/domain_tools.py:27-31`)
 - ✅ (#360) `[1✓ belge PR'ı]` 705 maddelik envanter repoya Capability Intake ikinci dalga olarak işlenecek ve Hermes sürüm referansı commit SHA'ya sabitlenecek. Şu an ilk dalga 20 aday var. Yalnız belge PR'ı.
 
 ---
 
 ## Faz 4 — Yalnız okuma yapan worker'lar
 
-**Durum: 🟡 kısmi `[1✓ 2✗ 3✗ 4✗]`. 4A–4G'nin hepsi merge edildi (#372, #373, #375, #376, #378, #381, #384) ama her PR yalnız yeni bir modül ve testinden oluşuyor. Yedi modülün (`research_providers`, `file_worker_extensions`, `browser_readonly`, `drive_readonly`, `finance_readonly`, `gmail_calendar_readonly`, `computer_worker_contract`) hiçbiri üretim kodundan çağrılmıyor; eski yollar (ör. `finance.py`, `tool_finance.py`, mevcut tarayıcı ve Gmail okuma kodu) olduğu gibi çalışıyor. Sıradaki iş yeni harf açmak değil, her harfi aynı sırayla (4A→4G) göç, bağlantı ve temizlikle kapatmak.**
+**Durum: 🟡 kısmi `[1✓ 2✗ 3✗ 4✗]`. 4A–4G'nin hepsi merge edildi (#372, #373, #375, #376, #378, #381, #384) ve 22 Kasım 2026 doğrulamasında **yedi modülün hepsi üretim kodundan çağrılıyor** (eski "hiçbiri akışa bağlı değil" notu geçersiz): `research_providers`→`task_workers.py:269`, `hoca.py`, `news_pipeline.py`; `file_worker_extensions`→`task_workers.py:70` (`extract_obligations`); `browser_readonly`→`task_workers.py:40` (`assert_readonly_action`); `drive_readonly`→`account_tools.py:150-158`; `finance_readonly`→`task_workers.py:96-97`, `task_results.py:138`; `gmail_calendar_readonly`→`account_tools.py:122-140`; `computer_worker_contract`→`task_tools.py:52`, `task_workers.py`, `task_results.py:157-165`. Kalan iş "bağlama" değil, **kapsam**: anahtar/kendi sunucu isteyen arama sağlayıcıları, canlı OHLCV serisi kaynağı, CDP ile gerçek profile bağlanma, 4G UIA pilotu ve F-002 kabul PR'ları.**
 
 Salt okuma yapan worker'lar sırayla devreye girer: araştırma, dosya, tarayıcı, Drive, finans, Gmail/Takvim ve PC Worker sözleşmesi. Veri sözleşmesi hazır; yalnız okuma en güvenli başlangıç noktasıdır.
 
@@ -285,11 +285,11 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 ### 4A — Araştırma ve Hoca
 
-🟡 (#372) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
+🟡 (#372) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; `task_workers` araştırma dalından çağrılıyor. 22 Kasım 2026: arXiv akademik araması bağlandı (#743).
 
-- Kart istemeyen arama sağlayıcıları eklenecek: SearXNG, DuckDuckGo, Tavily, Exa, Firecrawl. Arama ile içerik çıkarma ayrı sağlayıcılar olacak. Şu an yalnız doğrudan yayıncı okuma var.
-- arXiv ve akademik makale araştırması, kaynaklar arası çelişki karşılaştırması ve kaynak sıralama eklenecek. Şu an hiçbiri yok.
-- RSS ve site izleyicisi tam kapsamlı olacak; haftalık haber otomasyonu ve uzun araştırmada bağlam yönetimi eklenecek. Şu an RSS dar, haftalık otomasyon zayıf.
+- Kart istemeyen arama sağlayıcıları: DuckDuckGo ✅ (anahtarsız, `search_public`), arXiv ✅ (#743); SearXNG (kendi sunucu), Tavily, Exa, Firecrawl (API anahtarı) kullanıcı kararı bekliyor. Arama ile içerik çıkarma ayrı: `extract_source`/`public_sources`.
+- arXiv ✅ (#743: `search_academic`, canlı 655-685 ms, 3 sonuç); kaynaklar arası çelişki karşılaştırması ✅ (`compare_sources`/`verify_conflict`) ve kaynak sıralama ✅ (`rank_results`) sözleşmede var, canlı araştırma turunda kullanılıyor.
+- RSS ve site izleyicisi: `source_watch` + `publisher_news` var; haftalık haber otomasyonu ve uzun araştırmada bağlam yönetimi (`ResearchContext`) eklendi — canlı haftalık kabul yok.
 - Kaynak gösterimi biçimi ve konudan kopmama denetimi Hoca dışına yayılacak. Şu an kısmen Hoca'da var.
 
 #### Ek kabul kriterleri — Fable/Claude agent benchmark
