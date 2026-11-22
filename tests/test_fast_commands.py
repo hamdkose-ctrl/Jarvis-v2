@@ -109,3 +109,39 @@ class FastPathTurnTests(unittest.TestCase):
         self.engine_intents.dispatch = patlat
         self.assertIsNone(_fast_command_turn(rt, "sesi kıs"))
         self.assertEqual(rt.hatalar, ["modules/engine_loop.py:fast_command"])
+
+
+class FastPathExtraTests(unittest.TestCase):
+    def test_close_requests_confirmation_only_for_known_apps(self):
+        self.assertEqual(resolve("steam kapat"), ("app_close", {"name": "steam"}))
+        self.assertEqual(resolve("spotify uygulamasını kapat"),
+                         ("app_close", {"name": "spotify"}))
+        self.assertIsNone(resolve("kapıyı kapat"))
+
+    def test_screenshot_is_plain_read_command(self):
+        self.assertEqual(resolve("ekran görüntüsü al"), ("screen_capture", {}))
+
+    def test_arithmetic_is_answered_locally(self):
+        from modules.fast_commands import compute
+        self.assertEqual(compute("25 çarpı 4"), "Sonuc 100.")
+        self.assertEqual(compute("12 artı 8"), "Sonuc 20.")
+        self.assertEqual(compute("100 bölü 4"), "Sonuc 25.")
+        self.assertEqual(compute("3 üssü 4"), "Sonuc 81.")
+        self.assertEqual(compute("250 * 4 - 100"), "Sonuc 900.")
+
+    def test_arithmetic_refuses_unsafe_or_ambiguous_input(self):
+        from modules.fast_commands import compute
+        for metin in ('__import__("os")', '0/0', '1+', '5 + 3 = 8',
+                      'bunu neden yaptın', 'saat kaç', 'sesi kıs'):
+            self.assertIsNone(compute(metin), metin)
+
+    def test_calc_reaches_the_turn_before_the_model(self):
+        from modules.engine_loop import _fast_command_turn
+        from modules import engine_intents
+        eski = engine_intents.dispatch
+        engine_intents.dispatch = lambda *a: self.fail("hesap komutu dispatch edilmemeli")
+        try:
+            self.assertEqual(_fast_command_turn(_SahteRuntime(), "25 çarpı 4"),
+                             ("Sonuc 100.", None, None))
+        finally:
+            engine_intents.dispatch = eski
