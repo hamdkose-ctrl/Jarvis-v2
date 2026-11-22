@@ -572,6 +572,28 @@ def _context(job):
     return context
 
 
+def _complete_academic_listing(job, step, output):
+    """Makale listesi tek adımda biter; modelin "complete" kararı beklenmez.
+
+    Canlı ölçüm (22 Kasım 15:35): arXiv listesi s1'de başarıyla doğrulandı
+    (OUTCOME-RESEARCH-VERIFIED) ama model hedefi tamamlamadı; aynı araştırma
+    adımını üç kez daha önerdi ve tekrar koruması turu kapattı. Liste isteğinin
+    cevabı listenin kendisidir.
+    """
+    if not isinstance(output, dict) or output.get('state') != 'done':
+        return False
+    if output.get('academic_listing') is not True:
+        return False
+    goals = job.get('goals') or []
+    if not goals or not isinstance(step, dict) or not step.get('id'):
+        return False
+    for goal in goals:
+        goal['state'] = 'done'
+        goal['evidence'] = [step['id']]
+    _save(job)
+    return True
+
+
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
     if approval is not None:
@@ -983,7 +1005,8 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
                     from modules import brain_delegate
                     step['specialist']=brain_delegate.assign(job['owner'],kind,job['request'],call.get('specialist'))
                     job['steps'].append(step)
-                    _record(runtime,job,step)
+                    output=_record(runtime,job,step)
+                    _complete_academic_listing(job,step,output)
                     if job['state'] in {'approval','review'}:return render(job)
             _save(job)
             if any(value.get("state")=="done" and key not in completed_before for key,value in job["outputs"].items()):invalid_decisions=0
