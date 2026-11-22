@@ -1102,7 +1102,9 @@ def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None,ap
                         _record_failure('modules/goal_executor.py:news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
                     if job['state']=='approval' or _finish_completed(job):return render(job)
-                if planner_pending and not resume and not job['goals'] and not job['steps']:
+                # Hedef listesi planlayıcıdan önce de oluşabilir (canlı 19:08: dört boş hedef vardı);
+                # model-dışı teslimin tek şartı hiç adım üretilmemiş olması.
+                if planner_pending and not resume and not job['steps']:
                     # Model yok ama hedef modelsiz yapılabiliyor: doğrulanmış teslim yine verilir.
                     try:
                         if _model_free_academic_deliver(runtime, job):
