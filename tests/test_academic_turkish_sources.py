@@ -209,3 +209,28 @@ class BudgetAndRepeatTests(unittest.TestCase):
         goals._save(job)
         text = goals.render(job)
         self.assertEqual(text.count('Bulduğum akademik kaynaklar'), 1, text)
+
+
+class PreviewPassThroughTests(unittest.TestCase):
+    """Canlı kusur (22 Kasım 20:1x): liste "4 kayıt" diyordu ama tek kayıt görünüyordu;
+    `research_evidence.preview` metni **ilk** "Kaynak:" satırında kesiyordu."""
+
+    def test_listing_preview_keeps_every_record(self):
+        from modules import research_evidence
+        text = ('Bulduğum akademik kaynaklar (2 kayıt · Türkçe 2):\n'
+                '1) Birinci Makale — 2026-01-01\n\nÖzet: Birinci özet.\n'
+                'Kaynak: https://doi.org/10.1/a\n\n'
+                '2) İkinci Makale — 2025-02-02\n\nÖzet: İkinci özet.\n'
+                'Kaynak: https://doi.org/10.1/b')
+        out = research_evidence.preview({'academic_listing': True, 'text': text,
+                                         'source': 'https://doi.org/10.1/a', 'state': 'done'})
+        self.assertIn('1) Birinci Makale', out)
+        self.assertIn('2) İkinci Makale', out)          # ikinci kayıt kaybolmaz
+        self.assertIn('https://doi.org/10.1/b', out)
+
+    def test_long_listing_preview_is_capped_not_cut_mid_word(self):
+        from modules import research_evidence
+        text = 'Bulduğum akademik kaynaklar (1 kayıt · Türkçe 1):\n' + ('kaynak metni ' * 300)
+        out = research_evidence.preview({'academic_listing': True, 'text': text})
+        self.assertLessEqual(len(out), 1201)
+        self.assertTrue(out.endswith('…'))
