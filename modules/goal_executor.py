@@ -601,7 +601,7 @@ def _record(runtime,job,step,approval=None):
     from modules import brain_delegate,specialist_orchestrator
     if 'specialist' not in step:step['specialist']=brain_delegate.assign(job['owner'],step['tool'],job['request'])
     step['state']='running';step['started']=False;job['state']='running';_save(job)
-    runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text']+(' · '+goal_tools.public_request(step['input']['url']) if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines' else ''))
+    runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text']+(' · '+goal_tools.public_request(step['input'].get('url') or step['input'].get('query') or '') if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines' else ''))
     try:
         for dep in step['depends']:_verify_result(job,dep)
         step['checkpoint']=goal_tools.checkpoint(runtime,step['tool'],step['input']);_save(job)
@@ -639,10 +639,13 @@ def _record(runtime,job,step,approval=None):
     step['state']=output['state'];job['outputs'][step['id']]=output
     if (step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines') and output['state']!='done':
         from urllib.parse import urlsplit,urlunsplit
-        parsed=urlsplit(step['input']['url'])
-        source=urlunsplit((parsed.scheme,parsed.hostname or '',parsed.path,'',''))
-        if source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
-        job.setdefault('feedback',[]).append('Kaynak doğrulanamadı: '+source+'. Erişim veya içerik nedeniyle bu kaynaktan soruyu yanıtlayan kanıt alınamadı. Mevcut hedefleri ve tamamlanan adımları koru; kullanıcı yalnız bu kaynağı şart koşmadıysa başka ilgili kaynakla sürdür. Aynı başarısız adresi tekrar deneme.')
+        # Sorgu ile başlayan araştırma adımında URL yok; kaynak listesi yalnız
+        # gerçek adres varsa güncellenir, yoksa sorgu metniyle devam edilir.
+        step_url=str(step['input'].get('url') or '')
+        parsed=urlsplit(step_url)
+        source=urlunsplit((parsed.scheme,parsed.hostname or '',parsed.path,'','')) if step_url else ''
+        if source and source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
+        job.setdefault('feedback',[]).append('Kaynak doğrulanamadı: '+(source or (step_url or 'sorgu'))+'. Erişim veya içerik nedeniyle bu kaynaktan soruyu yanıtlayan kanıt alınamadı. Mevcut hedefleri ve tamamlanan adımları koru; kullanıcı yalnız bu kaynağı şart koşmadıysa başka ilgili kaynakla sürdür. Aynı başarısız adresi tekrar deneme.')
     step.pop('runtime_approved', None)
     if output['state']=='approval':
         from modules import goal_approval
