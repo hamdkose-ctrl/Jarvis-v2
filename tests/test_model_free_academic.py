@@ -10,6 +10,7 @@ Tetik dar ve kapalı: akademik dil + haber/dosya isteği değil + iş hiç adım
 + planlayıcı model yok. Koşullardan biri düşerse eski davranış korunur.
 """
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from modules import goal_executor as goals, llm
@@ -93,3 +94,31 @@ class ModelFreeAcademicDeliveryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GoalsAlreadyExistTests(unittest.TestCase):
+    """Canlı kusur (22 Kasım 19:08): model hattı çöktü (Gemini 503 + Groq 429 + Cloudflare),
+    hedefte dört boş hedef vardı ve model-dışı teslim **tetiklenmedi**; kullanıcıya yalnız
+    "modele ulaşamıyorum" dendi. Kapı 'hedef listesi boş' diye şart koymuştu; doğru şart
+    'hiç adım üretilmemiş' olmasıdır.
+    """
+
+    def test_delivery_runs_even_when_planner_created_goals_first(self):
+        case = fixture.GoalTests()
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        job = {'id': '0123456789abcdef', 'owner': 'alice', 'request': ACADEMIC, 'state': 'paused',
+               'goals': [{'text': 'araştır', 'state': 'pending', 'evidence': []} for _ in range(4)],
+               'steps': [], 'outputs': {}}
+        goals._save(job)   # fixture deposu geçici kök: canlı kullanıcı kaydına dokunulmaz
+        with patch('modules.specialist_orchestrator.execute_step', side_effect=lambda *a, **k: listing_output()):
+            delivered = goals._model_free_academic_deliver(case.runtime, job)
+        self.assertTrue(delivered)
+        self.assertEqual([step['tool'] for step in job['steps']], ['research'])
+        self.assertEqual(job['steps'][0]['state'], 'done')
+        self.assertEqual([goal['state'] for goal in job['goals']], ['done'] * 4)
+
+    def test_gate_only_requires_missing_steps(self):
+        source = (Path(__file__).resolve().parents[1] / 'modules/goal_executor.py').read_text(encoding='utf-8')
+        self.assertIn("if planner_pending and not resume and not job['steps']:", source)
+        self.assertNotIn("not job['goals'] and not job['steps']:", source)
