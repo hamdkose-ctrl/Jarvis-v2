@@ -84,10 +84,6 @@ class ModelRequest:
     cancelled: Any = None
     route: str | None = None
     exclude_providers: frozenset[str] = frozenset()
-    # Statik sözleşme (şema + izinli kümeler). Doluysa Gemini yolu bunu bağlam
-    # önbelleğinden okur ve istem yalnız dinamik gövdeyi taşır; boşsa davranış
-    # eskisi gibi tek parça istemdir. Karar `understanding_cache` ayarında.
-    static_contract: str | None = None
     max_network_attempts: int = 2
 
 

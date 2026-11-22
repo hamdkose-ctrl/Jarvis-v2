@@ -11,7 +11,6 @@ alanı kendi doğrulayıcısından geçirir; izin ve etki yetkisi yine yalnız C
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 import ntpath
 import re
 import time
@@ -1614,19 +1613,6 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "session_artifacts": list(session_artifacts),
         }
         prompt = json.dumps(payload, ensure_ascii=False)
-        # Önbellek için istemi ikiye ayır: sözleşme (şema + izinli kümeler) her turda
-        # AYNI; tur verisi değişken. Ayar kapalıysa aşağıdaki dal hiç kullanılmaz.
-        _sozlesme = {"schema": payload["schema"],
-                     "response_schema": payload["response_schema"],
-                     "allowed": payload["allowed"]}
-        static_contract = json.dumps(_sozlesme, ensure_ascii=False)
-        dynamic_prompt = (
-            "SÖZLEŞME önbellekteki ilk iletide tanımlı (response_schema ve allowed). "
-            "Yalnız aşağıdaki tur verisini değerlendir; yanıt olarak yalnız JSON nesnesi döndür."
-            + chr(10)
-            + json.dumps({k: v for k, v in payload.items() if k not in _sozlesme},
-                         ensure_ascii=False)
-        )
         system = (
             "You are the primary semantic decider, not an agent. Return exactly one bare JSON object "
             "matching response_schema, without a named wrapper or Markdown. "
@@ -1787,24 +1773,13 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             # No second execution lane or provider selection is introduced.
             from modules import model_wait
             with model_wait.interactive_wait():
-                # Önbellek yalnız ayarla açılır; açıkken başarısız olursa tam istem.
-                from modules import understanding_cache
-                sozlesme_aktif = understanding_cache.enabled()
                 request=smart_router.ModelRequest(owner=owner,request_id=getattr(current,'request_id',''),
                     profile='brain_understanding',data_scope='conversation',work_class='interactive',route=route,
                     features=frozenset({'text','structured_output'}),max_output_tokens=_RESPONSE_MAX_TOKENS,deadline=deadline,
-                    selection_mode='local_only' if selected=='ollama' else 'configured',
-                    static_contract=static_contract if sozlesme_aktif else None)
+                    selection_mode='local_only' if selected=='ollama' else 'configured')
                 def dispatch(spec):
                     if spec.provider == 'groq' and spec.model in llm.GROQ_MODELS:
                         return llm.dispatch(request, spec, _groq_prompt(payload), _COMPACT_GROQ_SYSTEM)
-                    if sozlesme_aktif and spec.provider == 'gemini':
-                        try:
-                            return llm.dispatch(request, spec, dynamic_prompt, system)
-                        except llm.CacheMissError:
-                            # Önbellek kurulamadı: şemayı taşıyan tam isteme dön.
-                            understanding_cache.note(False)
-                            return llm.dispatch(replace(request, static_contract=None), spec, prompt, system)
                     return llm.dispatch(request, spec, prompt, system)
 
                 raw=smart_router.run_request(request,dispatch,validator=validate_response).text
