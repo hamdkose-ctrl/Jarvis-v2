@@ -130,6 +130,32 @@ def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     return result
 
 
+def _fast_command_turn(runtime, cmd):
+    """Kapalı sözlükteki komutu model çağırmadan mevcut sahibinde çalıştırır.
+
+    Canlı ölçüm: "saat kaç" gibi bir soru bile anlama modeline gidiyordu; hızlı
+    yol eşleşmezse komut eskisi gibi Brain/Core yolundan gider. Burada karar,
+    izin veya yeni bir etki sahibi yok: yalnız `engine_intents.dispatch` çağrılır.
+    """
+    from modules import engine_intents, fast_commands
+    eslesme = fast_commands.resolve(cmd)
+    if eslesme is None:
+        return None
+    intent, args = eslesme
+    baslangic = runtime.time.time()
+    try:
+        metin = engine_intents.dispatch(runtime, intent, args, cmd, cmd.casefold())
+    except Exception:
+        # Hata yutulmaz: tur Brain/Core yolundan yeniden denenir.
+        runtime._record_failure("modules/engine_loop.py:fast_command")
+        return None
+    if not metin:
+        return None
+    runtime.log.info("hızlı yol: intent=%s süre=%.0f ms", intent,
+                     (runtime.time.time() - baslangic) * 1000)
+    return (str(metin), None, None)
+
+
 def _log_core_feedback(runtime, entry):
     """Log the real Core outcome (failed/cancelled) that handoff correlated before re-raising.
 
@@ -579,6 +605,10 @@ def main(runtime, ui=None):
                             if claimed is not None:
                                 explicit_read = ('__foreground_goal__', claimed[0], claimed[1])
                     entry = None
+                    if explicit_read is None:
+                        # Model gerektirmeyen komutlar (saat, ses, medya, bilinen
+                        # uygulama) burada biter: anlama modeli hiç çağrılmaz.
+                        explicit_read = _fast_command_turn(runtime, cmd)
                     if explicit_read is None:
                         # The primary semantic model may wait before handoff.
                         # Keep the same owner/request gates while that FIRST
