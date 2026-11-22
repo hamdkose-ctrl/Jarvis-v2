@@ -817,11 +817,11 @@ def _timed(name: str, fn):
     return out
 
 
-def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',route=None,structured=False):
+def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',route=None,structured=False,evidence=None):
     from modules import smart_router
     owner=current_user()
     return smart_router.ModelRequest(owner=owner,request_id=requests_state.request_identity(owner) or '',
-        profile=profile,data_scope=data_scope,route=route,
+        profile=profile,data_scope=data_scope,route=route,evidence=evidence,
         selection_mode='local_only' if provider()=='ollama' else 'configured',
         work_class=requests_state.model_work_class() or ('background' if profile in ('long_worker','public_research') else 'interactive'),max_output_tokens=max_tokens,
         features=frozenset({'text','structured_output'} if structured else {'text'}))
@@ -956,9 +956,14 @@ def _provider_name() -> str:
         return "unknown"
 
 
-def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None,profile='long_worker') -> str:
-    """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için). Etiketsiz içerik daima PRIVATE rotadır."""
-    return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator,profile=profile))
+def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None,profile='long_worker',
+        evidence=None) -> str:
+    """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için).
+
+    Etiketsiz içerik daima PRIVATE rotadır. ``evidence`` verilirse rota sınıfı o kanıtın
+    provenansından gelir (hepsi gerçek, izinli PUBLIC değilse PRIVATE)."""
+    return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator,profile=profile,
+                                         evidence=evidence))
 
 
 def research(query: str, evidence, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
@@ -976,9 +981,10 @@ def research(query: str, evidence, system: str = "", max_tokens: int = 2000, *, 
 
 
 def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None, route=None,
-         profile='long_worker',data_scope='selected_content') -> str:
+         profile='long_worker',data_scope='selected_content',evidence=None) -> str:
     from modules import smart_router
-    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route,structured=validator is not None)
+    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route,structured=validator is not None,
+                     evidence=evidence)
     return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system),validator=validator).text
 
 
