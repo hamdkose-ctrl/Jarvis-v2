@@ -190,3 +190,14 @@ Tek Router V2 kod göçü için uygulama/emeklilik kaydı `docs/architecture/JAR
 - **Bu turda ayrıca silinen tümüyle yetim modül:** `modules/widget_styles.py` (77 satır, `FAMILIES`/`validate`/`draw`). Deposun tamamında (Python, JS, arayüz, belge, test, yapılandırma) adını anan tek satır yoktu; "son doğrulanmış ZIP" aktarımında (`8d46466d`) gelmiş, hiçbir zaman bir kullanıcı akışına bağlanmamıştı. Küçük Jarvis şeridinin gerçek çizim sahibi `modules/widget.py` (kendi `COLORS`/halka çizimi) olup davranış değişmedi. Kilit: `OrphanModuleIsGoneTests`.
 
 - **Not:** 0aaad5a3 koşumu 3 symlink ayrıcalığı hatasıyla döndü; taze koşum için kayıt tetiklendi (flaky kilit vs. ortam ayrımı).
+
+---
+
+# Hızlı yol (madde 2) — durum ve açık işler (22 Kasım 2026 gece)
+
+`#730` + `#731` ile model gerektirmeyen komutlar Brain'e hiç uğramadan çalışıyor (`modules/fast_commands.py`, `engine_loop._fast_command_turn`). `#732` ile meşgulken anlık salt-okuma yanıtı hazır ama **varsayılan kapalı** (`settings`: `instant_read_while_busy`).
+
+Açık işler:
+- **Canlı doğrulama bekliyor:** canlı gecikme sayısı henüz ölçülmedi. Ölçüm planı: kullanıcı "saat kaç" dediğinde log'da `hızlı yol: intent=fast_time süre=...` satırı; süre <10 ms ise model gerçekten atlanmış demektir.
+- **`instant_read_while_busy` sesli kabul testi:** açıldıktan sonra uzun iş sürerken "saat kaç" → anında yanıt ve uzun cevabın sesinin kesilmemesi doğrulanacak. Kesilme varsa ses kuyruğuna "arka plan" türü verilmeden açılmamalı.
+- **Kapsam genişletme (ölçülerek):** hatırlatma, dosya bulma/açma, hesap genişletmeleri hızlı yola ancak argüman sözleşmesi deterministik çıkarılabiliyorsa eklenecek; tahmin eden kalıp eklenmeyecek.
