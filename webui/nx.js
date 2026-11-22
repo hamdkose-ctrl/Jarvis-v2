@@ -46,7 +46,7 @@ function renderTop(){
     ${NAV.filter(([key])=>['files','vision','team','study','tools'].includes(key)).map(([key,label])=>`<button type="button" data-go="${key}">${label}</button>`).join('')}
     <button type="button" data-act="user">Kullanıcı değiştir</button></nav></details>
     <button class="ab home-top-link" data-act="goset" data-k="ai">Ayarlar</button>`:'';
-  top.innerHTML=`<strong>${home?'Jarvis':esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
+  top.innerHTML=`${home?'<strong class="home-wordmark">Jarvis</strong>':`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>`}
    <div class="top-actions">${homeActions}<span id="clock" aria-hidden="true"></span>
     <button class="ab" data-act="notif" aria-label="Bildirimler">${ic('bell')}${n?`<span class="notice-count">${n}</span>`:''}</button>
     ${win?`<button class="ab" data-act="wmin" aria-label="Pencereyi küçült">−</button><button class="ab" data-act="wfull" aria-label="Tam ekran veya pencere">□</button><button class="ab" data-act="wclose" aria-label="Pencereyi kapat">×</button>`:''}
@@ -301,7 +301,7 @@ function updateHomeReadouts(){
     const sys=sn?.sys;
     const usage=(label,reading)=>{
       const value=Number.isFinite(reading)?Math.max(0,Math.min(100,Math.round(reading))):null;
-      return `<div class="home-meter"><span>${label}</span><strong>${value===null?'—':'%'+value}</strong>${value===null?'':`<meter min="0" max="100" value="${value}" aria-label="${label} kullanımı">${value}%</meter>`}</div>`;
+      return `<div class="home-meter"><span>${label}</span><strong>${value===null?'—':`<span class="home-unit">%</span>${value}`}</strong></div>`;
     };
     const online=sys?.online;
     const network=online===false?'Bağlantı yok':online===true&&Number.isFinite(sys?.ping)?'Bağlı':'—';
@@ -321,6 +321,7 @@ PAGES.home=pg=>{
     </aside>
     <section class="workspace-hero console-stage console-panel" aria-label="Jarvis ses durumu">
       <div class="home-audio-strip" id="home-audio" aria-label="Mikrofon ve Jarvis sesi"></div>
+      <div class="console-grid" aria-hidden="true"></div>
       <div class="console-portrait" aria-hidden="true"><img class="console-avatar" src="/home-avatar.webp" alt=""><span class="console-mouth"></span></div>
       <div class="console-voice"><p id="home-voice" role="status"></p><div class="console-wave" aria-hidden="true">${'<i></i>'.repeat(15)}</div></div>
     </section>

@@ -95,13 +95,14 @@ async function main() {
   assert.equal(nodes.get('#home-voice').textContent, 'Hazır');
   assert.match(nodes.get('#home-weather-data').innerHTML, /Ankara &lt;merkez&gt;/);
   assert.match(nodes.get('#home-weather-data').innerHTML, /Yağış %0/);
-  assert.match(nodes.get('#home-system-data').innerHTML, /value="37"/);
+  assert.match(nodes.get('#home-system-data').innerHTML, /home-unit">%<\/span>37/);
+  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /<meter/);
   assert.match(nodes.get('#home-system-data').innerHTML, /18 ms/);
   assert.match(nodes.get('#home-audio').innerHTML, /Mikrofon açık/);
   assert.match(nodes.get('#home-audio').innerHTML, /Jarvis sesi kapalı/);
   evaluate('S.snap={...snapshot, weather:null, sys:{disk_total:0, disk:0}}; updateHome()');
   assert.match(nodes.get('#home-weather-data').innerHTML, /verisi bekleniyor/);
-  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /<meter/);
+  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /home-unit/);
   evaluate('S.snap=snapshot; updateHome()');
   const input = {value: 'Belgeyi özetle'};
   send(input);
