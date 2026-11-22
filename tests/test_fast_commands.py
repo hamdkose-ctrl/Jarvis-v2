@@ -77,6 +77,19 @@ class _SahteRuntime:
 
 
 class FastPathTurnTests(unittest.TestCase):
+    def test_answer_is_plain_text_never_a_tuple(self):
+        """Canlı hata 11:39: ekrana \"('...', None, None)\" sızdı; dönüş düz metin olmalı."""
+        from modules.engine_loop import _fast_command_turn
+        from modules import engine_intents
+        eski = engine_intents.dispatch
+        engine_intents.dispatch = lambda *a: "Chrome penceresi açık; açılışı doğruladım."
+        try:
+            out = _fast_command_turn(_SahteRuntime(), "chrome aç")
+        finally:
+            engine_intents.dispatch = eski
+        self.assertIsInstance(out, str)
+        self.assertNotIn("None", out)
+
     def setUp(self):
         from modules import engine_intents
         self.engine_intents = engine_intents
@@ -91,7 +104,7 @@ class FastPathTurnTests(unittest.TestCase):
         self.engine_intents.dispatch = lambda rt, intent, a, cmd, low: (cagrilar.append((intent, dict(a), cmd)),
                                                                        "Saat 03:14")[1]
         out = _fast_command_turn(_SahteRuntime(), "saat kaç")
-        self.assertEqual(out, ("Saat 03:14", None, None))
+        self.assertEqual(out, "Saat 03:14")
         self.assertEqual(cagrilar, [("fast_time", {}, "saat kaç")])
 
     def test_unmatched_command_returns_none_so_brain_still_runs(self):
@@ -142,6 +155,6 @@ class FastPathExtraTests(unittest.TestCase):
         engine_intents.dispatch = lambda *a: self.fail("hesap komutu dispatch edilmemeli")
         try:
             self.assertEqual(_fast_command_turn(_SahteRuntime(), "25 çarpı 4"),
-                             ("Sonuc 100.", None, None))
+                             "Sonuc 100.")
         finally:
             engine_intents.dispatch = eski
