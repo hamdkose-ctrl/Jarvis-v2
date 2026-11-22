@@ -22,7 +22,18 @@ CHAINS: dict[str, tuple[str, ...]] = {
 EXCLUDED_PROVIDERS = frozenset({"nvidia", "nvidia_nim"})
 
 
-# Official sources last reviewed on 2026-11-19.
+# Official sources last reviewed on 2026-11-19; evidence must be re-verified every 180 days
+# (P0-2). Expired or undated evidence is rejected instead of being trusted forever.
+EVIDENCE_VERIFIED_AT = "2026-11-19"
+EVIDENCE_TTL_DAYS = 180
+
+
+def _epoch(date_text: str) -> float:
+    """ISO tarihi (YYYY-MM-DD, UTC) epoch saniyeye çevirir."""
+    from datetime import datetime, timezone
+    return datetime.fromisoformat(date_text).replace(tzinfo=timezone.utc).timestamp()
+
+
 PROVIDER_BUNDLE: dict[str, dict] = {
     "groq": {
         "free_no_card": True,
@@ -31,6 +42,8 @@ PROVIDER_BUNDLE: dict[str, dict] = {
         "allowed_routes": (ROUTE_PUBLIC_RESEARCH, ROUTE_PRIVATE_GENERAL),
         "source_url": "https://console.groq.com/docs/your-data",
         "evidence_ref": "console.groq.com/docs/your-data; trust.groq.com/faq (no training on customer data)",
+        "verified_at": _epoch(EVIDENCE_VERIFIED_AT),
+        "expires_at": _epoch(EVIDENCE_VERIFIED_AT) + EVIDENCE_TTL_DAYS * 86400,
     },
     "cloudflare": {
         "free_no_card": True,
@@ -39,6 +52,8 @@ PROVIDER_BUNDLE: dict[str, dict] = {
         "allowed_routes": (ROUTE_PUBLIC_RESEARCH, ROUTE_PRIVATE_GENERAL),
         "source_url": "https://developers.cloudflare.com/workers-ai/platform/data-usage/",
         "evidence_ref": "developers.cloudflare.com/workers-ai/platform/data-usage (zero data retention, no training)",
+        "verified_at": _epoch(EVIDENCE_VERIFIED_AT),
+        "expires_at": _epoch(EVIDENCE_VERIFIED_AT) + EVIDENCE_TTL_DAYS * 86400,
     },
     "gemini": {
         "free_no_card": True,
@@ -48,12 +63,26 @@ PROVIDER_BUNDLE: dict[str, dict] = {
         "input_restriction": "public research or explicit owner-scoped conversation/selected-content consent",
         "source_url": "https://ai.google.dev/gemini-api/terms",
         "evidence_ref": "ai.google.dev/gemini-api/terms#unpaid-services",
+        "verified_at": _epoch(EVIDENCE_VERIFIED_AT),
+        "expires_at": _epoch(EVIDENCE_VERIFIED_AT) + EVIDENCE_TTL_DAYS * 86400,
     },
 }
 
 
+def _evidence_fresh(facts: dict, now: float) -> bool:
+    """Kanıt hâlâ geçerli mi? Tarihsiz veya süresi geçmiş kanıt kullanılmaz (P0-2)."""
+    verified = facts.get("verified_at")
+    expires = facts.get("expires_at")
+    if type(verified) not in (int, float) or type(expires) not in (int, float):
+        return False
+    if not (0 < verified < expires):
+        return False
+    # Süre üst sınırı: kanıt en fazla TTL kadar ileri tarihli olabilir.
+    return verified <= now + 60 and now < expires and expires - verified <= EVIDENCE_TTL_DAYS * 86400
+
+
 def privacy_gate(provider: str, route: str | None = None, *, bundle: dict | None = None,
-                 consent_scopes=(), data_scope='conversation') -> dict:
+                 consent_scopes=(), data_scope='conversation', now: float | None = None) -> dict:
     """Is ``provider`` privacy-eligible (for ``route``, when given)? Unknown is never eligible."""
     facts_by_provider = PROVIDER_BUNDLE if bundle is None else bundle
     name = provider if type(provider) is str else ""
@@ -65,6 +94,10 @@ def privacy_gate(provider: str, route: str | None = None, *, bundle: dict | None
     source = facts.get("source_url")
     if type(source) is not str or not source.startswith("https://") or not facts.get("evidence_ref"):
         return _deny("PROVIDER_PRIVACY_EVIDENCE_MISSING", "Gizlilik kanıtının kaynak adresi eksik.")
+    import time as _time
+    if not _evidence_fresh(facts, _time.time() if now is None else now):
+        return _deny("PROVIDER_PRIVACY_EVIDENCE_STALE",
+                     "Sağlayıcı gizlilik kanıtı güncel değil; kanıt yenilenmeden bu sağlayıcı kullanılmaz.")
     if type(facts.get("trains_on_data")) is not bool:
         return _deny("PROVIDER_PRIVACY_TRAINING_UNKNOWN", "Verinin eğitimde kullanılıp kullanılmadığı bilinmiyor.")
     allowed = facts.get("allowed_routes")

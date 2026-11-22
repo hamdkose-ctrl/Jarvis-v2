@@ -15,7 +15,7 @@ class RoutingPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.now = 1_794_700_000.0
+        self.now = 1_796_083_200.0  # 2026-12-01: gizlilik kanıtı (2026-11-19) taze kalsın
         for name, value in [('_STORE', Path(self.tmp.name)), ('_HEALTH', {})]:
             p = patch.object(router, name, value); p.start(); self.addCleanup(p.stop)
         for target, name, value in [

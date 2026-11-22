@@ -14,7 +14,7 @@ class ObservedQuotaTests(unittest.TestCase):
         p = patch.object(usage_meter, '_dir', return_value=Path(self.tmp.name))
         p.start()
         self.addCleanup(p.stop)
-        self.stamp = 1_794_700_000.
+        self.stamp = 1_796_083_200.  # 2026-12-01: gizlilik kanıtı (2026-11-19) taze kalsın
         self.now = datetime.fromtimestamp(self.stamp, tz=timezone(timedelta(hours=3)))
 
     def store(self, row, *, owner='alice', provider='groq', model='m1'):

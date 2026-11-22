@@ -36,8 +36,9 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.assertEqual(result.text, 'gemini')
         self.assertEqual(self.ready('gemini')['state'], 'ok')
 
-    def test_ready_connections_and_gemini_vision_work_past_old_review_dates(self):
-        with patch('time.time', return_value=1_893_456_000), \
+    def test_ready_connections_work_with_fresh_evidence(self):
+        # P0-2: kanıt tazeyken (bugün) üç hazır bağlantı da çalışır.
+        with patch('time.time', return_value=1_796_083_200), \
              patch.object(llm, 'active_model', return_value='gemini-3.5-flash-lite'), \
              patch.object(llm, 'dispatch', return_value='OK') as send:
             for provider in ('gemini', 'groq', 'cloudflare'):
@@ -52,6 +53,16 @@ class ReadyProviderRoutingTests(unittest.TestCase):
             self.assertFalse(smart_router.plan(request).candidates)
             smart_router.configure('alice', gemini_scopes=['selected_content'])
             self.assertEqual([spec.provider for spec in smart_router.plan(request).candidates], ['gemini'])
+
+    def test_expired_privacy_evidence_closes_cloud_routes(self):
+        """Kanıt süresi dolunca bulut rotaları kapanır; sessizce çalışmaya devam etmez."""
+        later = max(facts['expires_at'] for facts in provider_privacy.PROVIDER_BUNDLE.values()) + 60
+        with patch('time.time', return_value=later):
+            for provider in ('gemini', 'groq', 'cloudflare'):
+                with self.subTest(provider=provider):
+                    self.assertFalse(provider_privacy.privacy_gate(provider, 'PUBLIC_RESEARCH')['ok'])
+                    self.assertNotEqual(self.ready(provider)['state'], 'ok')
+            self.assertEqual(smart_router.candidates('alice', 'chat'), ['ollama'])
 
     def test_provider_quota_is_visible_and_fallback_keeps_the_answering_model(self):
         smart_router.configure('alice', gemini_scopes=['conversation'])
