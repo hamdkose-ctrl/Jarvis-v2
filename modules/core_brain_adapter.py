@@ -499,6 +499,15 @@ def _handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                 return academic, row, None
             return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
                     "hiçbir işlem başlatmadım.", row, None)
+        # MODEL_UNAVAILABLE: sağlayıcı hatası da, öneri reddi de değil — model hiç yok.
+        # Canlı kusur (22 Kasım 2026 23:58): Yerel mod + Ollama kapalıyken "yapay zeka
+        # makaleleri ve haberleri araştır" bu dalda "model kullanılamıyor" diyordu;
+        # oysa arama açık API'lerden yapılabildiği için cevap verilebilir.
+        academic = _academic_outage_answer(command, _runtime_owner(runtime))
+        if academic is not None:
+            row = feedback(entry, result_status="handled", reason_code="ACADEMIC_MODEL_FREE_DELIVERY")
+            _LAST_FEEDBACK.set(row)
+            return academic, row, None
         return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
                 "güvenlik için işlem başlatmadım.", row, None)
     question = clarification(entry)
