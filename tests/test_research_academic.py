@@ -72,7 +72,7 @@ class AcademicRequestTests(unittest.TestCase):
         out = academic_listing(rows, "Yapay zeka makaleleri araştır")
         self.assertEqual(out["state"], "done")
         self.assertEqual(out["source"], "https://arxiv.org/abs/2209.15001v3")
-        self.assertIn("1) Dilated Neighborhood Attention (2022-09-29)", out["text"])
+        self.assertIn("1) Dilated Neighborhood Attention — 2022-09-29", out["text"])
         self.assertIn("https://arxiv.org/abs/2105.02723v1", out["text"])
         self.assertGreaterEqual(out["source_chars"], 80)
         self.assertTrue(out["academic_listing"])
