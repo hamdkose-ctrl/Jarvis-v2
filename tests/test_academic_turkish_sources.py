@@ -234,3 +234,20 @@ class PreviewPassThroughTests(unittest.TestCase):
         out = research_evidence.preview({'academic_listing': True, 'text': text})
         self.assertLessEqual(len(out), 1201)
         self.assertTrue(out.endswith('…'))
+
+
+class FreshnessOrderTests(unittest.TestCase):
+    """Kullanıcı "güncel" diyor: aynı isabet sınıfında en yeni kayıt önce gelmeli."""
+
+    def test_newest_titles_come_first_within_the_same_match_class(self):
+        payload = {'status': 'ok', 'message': {'items': [
+            {'title': ['Yapay Zeka Eski Çalışma'], 'DOI': '10.1/old', 'issued': {'date-parts': [[2019, 3]]}},
+            {'title': ['Yapay Zeka Yeni Çalışma'], 'DOI': '10.1/new', 'issued': {'date-parts': [[2026, 9, 12]]}},
+            {'title': ['Yapay Zeka Orta Çalışma'], 'DOI': '10.1/mid', 'issued': {'date-parts': [[2023]]}},
+        ]}}
+        with patch.object(rp.public_sources, 'fetch',
+                          return_value={'body': json.dumps(payload).encode(),
+                                        'url': 'https://api.crossref.org/works'}):
+            rows = rp.search_turkish('yapay zeka', limit=3)
+        self.assertEqual([row['title'] for row in rows],
+                         ['Yapay Zeka Yeni Çalışma', 'Yapay Zeka Orta Çalışma', 'Yapay Zeka Eski Çalışma'])

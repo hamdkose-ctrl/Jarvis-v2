@@ -174,6 +174,18 @@ _TOC_LIKE = re.compile(
 _TR_FOLD = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
 
 
+def _published_key(published) -> int:
+    """Tarihi sıralanabilir sayıya çevirir (YYYYMMDD); eksik tarih 0 sayılır."""
+    text = str(published or '').strip()
+    parts = text.split('-')
+    if not parts or not parts[0].isdigit() or len(parts[0]) != 4:
+        return 0
+    day = parts[0]
+    month = parts[1] if len(parts) > 1 and parts[1].isdigit() else '01'
+    rest = parts[2] if len(parts) > 2 and parts[2].isdigit() else '01'
+    return int(day) * 10000 + int(month) * 100 + int(rest)
+
+
 def turkish_text(value: str) -> bool:
     """Metin Türkçe mi? (Türkçe harf veya yaygın Türkçe sözcük.)"""
     text = str(value or '')
@@ -229,7 +241,8 @@ def _crossref_transport(request: dict) -> dict:
             break
     # Başlığında arama terimi geçenler önce; yalnız özette geçenler yalnız yer doldurmak
     # için arkadan eklenir (kullanıcı: "konudan çok saçma yazılar var").
-    results.sort(key=lambda row: row['rank'])
+    # "Güncel" isteğinde en yeni kayıt önce gelsin: isabet sınıfı, sonra tarih (yeniden eskiye).
+    results.sort(key=lambda row: (row['rank'], -_published_key(row.get('published'))))
     sonuc = [row for row in results if row['rank'] == 0][:request['limit']]
     if len(sonuc) < request['limit']:
         sonuc += [row for row in results if row['rank'] == 1][:request['limit'] - len(sonuc)]
