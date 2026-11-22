@@ -52,14 +52,30 @@ if(!NAV.some(n=>n[0]==='team'))NAV.push(['team','Ekip merkezi','grid']);
       </section>`;
   }
   let homePending=null,homeCache=null;
+  const homeJobGroups=[
+    {title:'Dikkat gerekiyor',states:['approval','question','blocked','pending','review','failed','incomplete','interrupted','unavailable']},
+    {title:'Devam eden işler',states:['running','queued','stopping']},
+    {title:'Tamamlanan işler',states:['done']},
+    {title:'Diğer işler',states:[]}
+  ];
   function owner(){return S.snap?.user?.slug||''}
   function refreshHome(host){
     const active=owner();
     if(!host||!active)return;
     const paint=(data)=>{
       if(!host.isConnected||data.owner!==active||active!==owner())return;
-      const jobs=data.jobs.slice(0,3);
-      host.innerHTML=jobs.length?jobs.map(job=>`<button type="button" class="home-job" data-act="teamHome" data-key="${esc(jobKey(job))}">${stateBadge(job.state)}<span>${esc(job.request||'Görev')}</span>${ic('chev')}</button>`).join(''):'<p class="mut">Henüz kayıtlı iş yok.</p>';
+      const groups=homeJobGroups.map(group=>({...group,jobs:[]}));
+      for(const job of data.jobs){
+        const group=groups.find(group=>group.states.includes(job.state))||groups[groups.length-1];
+        group.jobs.push(job);
+      }
+      let remaining=3;
+      host.innerHTML=groups.map(group=>{
+        const jobs=group.jobs.slice(0,remaining);
+        if(!jobs.length)return '';
+        remaining-=jobs.length;
+        return `<section class="home-job-group"><h3>${group.title}</h3>${jobs.map(job=>`<button type="button" class="home-job" data-act="teamHome" data-key="${esc(jobKey(job))}">${stateBadge(job.state)}<span>${esc(job.request||'Görev')}</span>${ic('chev')}</button>`).join('')}</section>`;
+      }).join('')||'<p class="mut">Henüz kayıtlı iş yok.</p>';
     };
     if(homeCache?.owner===active&&Date.now()-homeCache.at<4000){paint(homeCache.data);return}
     if(homePending?.owner!==active){

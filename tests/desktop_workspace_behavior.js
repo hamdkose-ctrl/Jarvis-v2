@@ -7,7 +7,7 @@ const slice=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.indexO
 for(const surface of ['.mnscene','.hscene','.apex-orb','JarvisBackdrop','hologram.js','seljuk-backdrop','renderPageDock']){
   assert(!entry.includes(surface)&&!source.includes(surface)&&!css.includes(surface),surface+' retired');
 }
-for(const asset of ['workspace-rings.webp','workspace-result.webp']){
+for(const asset of ['home-avatar.webp','workspace-result.webp']){
   assert(css.includes('/'+asset));
   assert(fs.existsSync(path.join(root,asset)));
 }

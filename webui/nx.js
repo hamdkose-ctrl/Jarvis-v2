@@ -135,7 +135,7 @@ async function say(text){
   // Ekli dosyalar tek istekte gider ('"a" "b" talimat'): sunucu karşılaştırma/birleştirme gibi işleri birlikte yapar,
   // diğer işleri dosya dosya yürütür. Sunucunun yankısı aynı metinle geldiği için balon tekrarlanmaz.
   const files=Array.isArray(S.att)?S.att:(S.att?[S.att]:[]);if(files.length){S.att=[];drawAtt()}
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
   const sends=files.length?[files.map(a=>`"${a.path}"`).join(' ')+' '+(text||(files.length>1?'dosyalarını kapsamlı analiz et':'dosyasını kapsamlı analiz et'))]:[text];
   for(const send of sends){
     S.live.push({role:'user',text:send,ts:Date.now()/1000,mine:true});S.waiting=true;drawMsgs();
@@ -210,7 +210,7 @@ async function upload(file,quiet){
 }
 async function doFile(path,action){
   const cmd=await tryApi('file_do',path,action);if(!cmd)return;
-  S.day=ymd(new Date());S.live.push({role:'user',text:cmd,ts:Date.now()/1000,mine:true});S.waiting=true;if(S.page!=='chat')go('chat');else drawMsgs();
+  S.day=ymd(new Date());S.live.push({role:'user',text:cmd,ts:Date.now()/1000,mine:true});S.waiting=true;if(S.page!=='home'&&S.page!=='chat')go('chat');else drawMsgs();
 }
 function menu(x,y,items){closeMenu();const m=document.createElement('div');m.className='menu';m.id='menu';
   m.innerHTML=items.map((it,i)=>it==='-'?'<hr>':`<button data-mi="${i}">${it[0]?ic(it[0]):''}${esc(it[1])}</button>`).join('');document.body.appendChild(m);
@@ -251,15 +251,15 @@ const shareBtns=()=>{const mode=(S.snap||{}).mode;return [['screen','monitor','E
 // ======================================================================= ANA SAYFA
 const PAGES={};
 
-const HOME_AREAS=[
-  ['files','folder','Dosyalar','Özet, çeviri, PDF → Excel / Word','blue'],
-  ['vision','monitor','Ekran ve PC','Ekran ve kamera analizi','copper'],
-  ['study','book','Çalışma','Hoca, matematik ve deneme','plum'],
-  ['tools','calendar','Günlük işler','Takvim, notlar ve telefon','green']
-];
 function updateHomeStatus(){
-  const status=$('#home-voice');if(status)status.textContent=heyTxt();
-  const warning=$('#home-connection'),sn=S.snap;
+  const status=$('#home-voice'),stage=$('.console-stage'),sn=S.snap;
+  const activity=S.orb==='idle'&&S.waiting?'thinking':S.orb;
+  if(status){
+    const label=activity==='idle'?heyTxt():(DOCK_ST[activity]||heyTxt());
+    if(status.textContent!==label)status.textContent=label;
+  }
+  if(stage)stage.dataset.state=DOCK_ST[activity]?activity:'idle';
+  const warning=$('#home-connection');
   if(warning)warning.hidden=!sn?.llm||!!sn.llm.key||sn.llm.provider==='ollama';
 }
 function updateHomeCalendar(){
@@ -270,25 +270,27 @@ function updateHomeCalendar(){
 }
 function updateHome(){updateHomeStatus();updateHomeCalendar();window.JarvisTeam?.refreshHome($('#home-jobs'))}
 PAGES.home=pg=>{
-  pg.innerHTML=`<div class="home-grid">
-    <div class="home-primary">
-      <section class="workspace-hero" aria-labelledby="home-title">
-        <div class="hero-copy"><h1 id="home-title">Bugün ne<br>yapalım?</h1><p>Yaz, konuş veya bir dosya ekle.</p>
-          <p class="hero-status" id="home-voice" role="status"></p>
-        </div><div id="dockhost"></div>
-      </section>
-      <button class="card home-connection" id="home-connection" data-act="keysetup" hidden>${ic('key')}<span>Gemini anahtarı yok · Model bağlantılarını aç</span>${ic('chev')}</button>
-      <section class="workspace-areas"><h2>Çalışma alanları</h2><div class="workspace-tiles">
-        ${HOME_AREAS.map(([page,glyph,title,description,color])=>`<button class="workspace-tile" ${page==='tools'?'data-act="tool" data-k="takvim"':`data-go="${page}"`}><span class="workspace-icon ${color}">${ic(glyph)}</span><span><b>${title}</b><small>${description}</small></span>${ic('chev')}</button>`).join('')}
-      </div></section>
-    </div>
-    <aside class="home-aside" aria-label="İş ve takvim özeti">
-      <section class="card workspace-summary"><div class="workspace-heading"><h2>Ekip Merkezi</h2><button class="link" data-go="team">Tüm işler →</button></div><div id="home-jobs" aria-live="polite"><p class="mut">İşler yükleniyor…</p></div></section>
-      <section class="card workspace-summary"><div class="workspace-heading"><h2>Bugün</h2><button class="link" data-act="tool" data-k="takvim">Takvimi aç →</button></div><div id="home-calendar"></div></section>
+  pg.innerHTML=`<div class="home-grid home-console">
+    <aside class="home-aside console-panel" aria-label="İş ve takvim özeti">
+      <section class="workspace-summary"><div class="workspace-heading"><h2>Ekip Merkezi</h2></div><div id="home-jobs" aria-live="polite"><p class="mut">İşler yükleniyor…</p></div><button class="link" data-go="team">Tüm işleri gör</button></section>
+      <section class="workspace-summary"><div class="workspace-heading"><h2>Bugün</h2><button class="link" data-act="tool" data-k="takvim">Takvim</button></div><div id="home-calendar"></div></section>
     </aside>
+    <section class="workspace-hero console-stage console-panel" aria-label="Jarvis ses durumu">
+      <div class="console-portrait" aria-hidden="true"><img class="console-avatar" src="/home-avatar.webp" alt=""><span class="console-mouth"></span></div>
+      <div class="console-voice"><p id="home-voice" role="status"></p><div class="console-wave" aria-hidden="true">${'<i></i>'.repeat(15)}</div></div>
+    </section>
+    <section class="console-conversation console-panel" aria-labelledby="home-title">
+      <div class="workspace-heading"><h1 id="home-title">Jarvis’e sor</h1></div>
+      <div id="home-messages" class="console-messages" role="log" aria-label="Ana ekran konuşması"></div>
+      <button class="link" id="home-open-chat" data-act="homechat">Sohbette aç</button>
+      <button class="link home-connection" id="home-connection" data-act="keysetup" hidden>Model bağlantılarını aç</button>
+      <div id="dockhost"></div>
+    </section>
   </div>`;
   updateHome();
+  drawHomeMessages();
 };
+ACT.homechat=()=>{S.day=ymd(new Date());go('chat')};
 ACT.goset=el=>{S.sset=el.dataset.k;S.tool='';go('settings')};
 ACT.research=()=>{go('chat');const input=$('.ask input');if(input){input.value='İnternette araştır: ';input.focus()}};
 
@@ -578,9 +580,9 @@ ACT.day=el=>{S.day=el.dataset.d;S.since=0;drawConvs();drawMsgs();drawSide()};
 ACT.newchat=async()=>{await tryApi('chat_reset');S.day=ymd(new Date());S.since=Date.now()/1000;S.live=[];drawConvs();drawMsgs();drawSide();toast('Yeni sohbet başladı.')};
 ACT.csearch=async ()=>{const q=await askText('Sohbetlerde ara:',S.cq||'');if(q!==null){S.cq=q;drawConvs()}};
 ACT.allconv=()=>{S.allConv=!S.allConv;render()};
-function curMsgs(){
-  const today=ymd(new Date());let rows=(S.hist||[]).filter(r=>(r.ts||'').slice(0,10)===S.day).map(r=>({role:r.role,text:r.text,ts:Date.parse(r.ts.replace(' ','T'))/1000,src:r.source}));
-  if(S.day===today){const seen=new Set(rows.map(r=>r.role+'|'+r.text));S.live.forEach(m=>{const k=m.role+'|'+m.text;if(!seen.has(k)){rows.push(m);seen.add(k)}})}
+function curMsgs(day=S.day){
+  const today=ymd(new Date());let rows=(S.hist||[]).filter(r=>(r.ts||'').slice(0,10)===day).map(r=>({role:r.role,text:r.text,ts:Date.parse(r.ts.replace(' ','T'))/1000,src:r.source,rid:r.rid}));
+  if(day===today){const seen=new Set(rows.map(r=>r.role+'|'+r.text));S.live.forEach(m=>{const k=m.role+'|'+m.text;if(!seen.has(k)){rows.push(m);seen.add(k)}})}
   if(S.since)rows=rows.filter(r=>r.ts>=S.since);
   return rows.sort((a,b)=>a.ts-b.ts);
 }
@@ -726,7 +728,7 @@ function onStep(m){
   taskSummaryTrack(card,rid);
   const keys=Object.keys(S.steps);if(keys.length>60)keys.slice(0,keys.length-60).forEach(k=>delete S.steps[k]);
   if(/ses(i)? (kapatıl|açıl)/i.test(String(m.t||''))&&status!=='working')loadPcMute();
-  if(S.page==='chat')drawMsgs();
+  if(S.page==='chat'||S.page==='home')drawMsgs();
 }
 // Mesaj başındaki tırnaklı dosya yolları ('"a.pdf" "b.xlsx" talimat') ve kalan talimat
 function msgFiles(t){const paths=[];let rest=t||'',x;while((x=rest.match(/^"([^"]*[\\/][^"]*\.\w{2,5})"\s+/))){paths.push(x[1]);rest=rest.slice(x[0].length)}return {paths,rest}}
@@ -734,7 +736,19 @@ const extOf=p=>(p.split('.').pop()||'').toLowerCase();
 const catOf=p=>{const e=extOf(p);return e==='pdf'?'pdf':/^docx?|odt|rtf$/.test(e)?'word':/^xlsx?|csv|ods$/.test(e)?'excel':/^(png|jpe?g|webp|bmp|gif|heic)$/.test(e)?'image':'other'};
 function stripHtml(){const A=window.JarvisActivityStrip;if(!A)return'';const st=A.stripState(S.snap,S.steps);if(!st.visible)return'';const rid=Object.keys(S.steps).pop();const it=A.activityItems(S.steps,rid).map(x=>`<small class="as-${x.status}">${esc(x.text)}${x.detail?' · '+esc(x.detail):''}</small>`).join('');return `<div class="actstrip"><b>${esc(st.label)}</b>${it}${st.stoppable?'<button data-act="stoptask" title="Durdur">Durdur</button>':''}</div>`}
 ACT.stoptask=async()=>{const rid=typeof taskSummaryActiveRid==='function'?taskSummaryActiveRid():null;const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');if(r.stopped===true&&typeof taskSummaryFinish==='function')taskSummaryFinish(rid,true);toast(r.msg||'Görev durduruldu.')};
+function drawHomeMessages(){
+  const host=$('#home-messages');if(!host)return;
+  const messages=curMsgs(ymd(new Date()));
+  const markup=messages.length?messages.map(msgHtml).join(''):'<p class="mut">Yaz, konuş veya bir dosya ekle.</p>';
+  if(host._markup!==markup){
+    const atEnd=host.scrollHeight-host.scrollTop-host.clientHeight<48;
+    host._markup=markup;host.innerHTML=markup;
+    if(atEnd)host.scrollTop=host.scrollHeight;
+  }
+  updateHomeStatus();
+}
 function drawMsgs(){
+  if(S.page==='home')return drawHomeMessages();
   const el=$('#msgs');if(!el)return;const ms=curMsgs(),first=ms.find(m=>m.role==='user');
   const ch=$('#chead');if(ch){const [i,c]=convIcon(first&&first.text);const files=new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]));
     ch.innerHTML=`<span class="ib ${c}" style="width:52px;height:52px;font-size:26px">${ic(i)}</span><div><b>${esc(first?convTitle(first.text):'Yeni Sohbet')}</b><small>${files.size?files.size+' dosya • ':''}${ms.length} mesaj • ${S.day===ymd(new Date())?'Bugün':S.day.split('-').reverse().join('.')}</small></div>
@@ -769,15 +783,18 @@ ACT.fpick=el=>{S.fsel=el.dataset.p;go('files')};
 // ======================================================================= DOSYALAR
 // "Dosyalarım" isteği tarayıcıda cevaplanır (model/Gemini çağrısı yok): son yüklenen dosyalar kartlarla sohbete düşer.
 async function showFileCards(text){
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
-  const now=Date.now()/1000;S.day=ymd(new Date());
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  const now=Date.now()/1000,owner=S.snap?.user?.slug;S.day=ymd(new Date());
   S.live.push({role:'user',text,ts:now,mine:true});drawMsgs();
   await loadFiles(true);
+  if(owner!==S.snap?.user?.slug)return;
   S.live.push({role:'files',text:'dosya kartları '+now,ts:now+.001});S.live=S.live.slice(-300);drawMsgs();
 }
 async function showAgendaCard(text){
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  const owner=S.snap?.user?.slug;
   try{await refresh()}catch(e){}
+  if(owner!==S.snap?.user?.slug)return;
   const now=Date.now()/1000;S.day=ymd(new Date());
   S.live.push({role:'user',text,ts:now,mine:true});S.live.push({role:'agenda',text:'takvim kartı '+now,ts:now+.001});S.live=S.live.slice(-300);drawMsgs();
 }
@@ -793,7 +810,11 @@ function filesHtml(){
     :'<p>Henüz yüklenmiş dosya yok. Soldaki + ile dosya ekleyebilirsin.</p>';
   return `<div class="m a"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}</div><div class="bb">${body}</div></div></div>`;
 }
-async function loadFiles(force=false){S.files=await tryApi('files_list',force)||{files:[],counts:{}}}
+async function loadFiles(force=false){
+  const owner=S.snap?.user?.slug;
+  const files=await tryApi('files_list',force);
+  if(owner===S.snap?.user?.slug)S.files=files||{files:[],counts:{}};
+}
 const FCATS=[['mine','Yüklediklerim'],['all','Tümü'],['pdf','PDF'],['word','Word'],['excel','Excel'],['image','Görsel'],['other','Diğer']];
 const FACTS={pdf:[['analiz','Analiz Et','b'],['excel','PDF → Excel','g'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']],word:[['cevir_tr','Türkçeye Çevir','b'],['cevir','İngilizceye Çevir','b'],['ozet','Özetle','o'],['pdf','Rapor','p'],['gorsellestir','Görselleştir','p']],
   excel:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Rapor Oluştur','p'],['gorsellestir','Görselleştir','p']],image:[['metin','Metne Çevir','p'],['gorsel','Analiz Et','b']],other:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']]};
@@ -1744,7 +1765,7 @@ function applyTheme(){const t=(S.ui||{}).nx_theme||'dark';const dark=t==='dark'|
 
 // ======================================================================= veri ve olaylar
 async function refresh(){const oldUser=((S.snap||{}).user||{}).name;try{S.snap=await api('snapshot')}catch(e){return}
-  if(oldUser&&oldUser!==((S.snap||{}).user||{}).name){S.filePreview=null;S.noteSelected=null;S.noteText='';S.noteTitle='';ACT.ntimageclear();document.querySelectorAll('.noteviewer').forEach(el=>el.click());S.hist=null;S.live=[];S.chat=[];S.day=null;S.since=0;S.waiting=false;S.sdoc=0;S.sans='';S.mathDraft='';S.mathAttachment='';S.mathResponse=null;S.studyPdfPage=null;S.studySelection=null;S.mathUploadBusy=false;S.slesson=null;S.sov=null;S.squiz=null;S.sres=null;S.smedia=null;S.quizBusy=false;S.mockBusy=false;S.studyLessonRequest=null;S.studyQuizRequest=null;S.studyMediaRequest=null;S.studyOverviewRequest=null;S.studyBusy=false;S._sovLoading=0;await loadHist();render()}
+  if(oldUser&&oldUser!==((S.snap||{}).user||{}).name){S.filePreview=null;S.files=null;S.noteSelected=null;S.noteText='';S.noteTitle='';ACT.ntimageclear();document.querySelectorAll('.noteviewer').forEach(el=>el.click());S.hist=null;S.live=[];S.chat=[];S.day=null;S.since=0;S.waiting=false;S.sdoc=0;S.sans='';S.mathDraft='';S.mathAttachment='';S.mathResponse=null;S.studyPdfPage=null;S.studySelection=null;S.mathUploadBusy=false;S.slesson=null;S.sov=null;S.squiz=null;S.sres=null;S.smedia=null;S.quizBusy=false;S.mockBusy=false;S.studyLessonRequest=null;S.studyQuizRequest=null;S.studyMediaRequest=null;S.studyOverviewRequest=null;S.studyBusy=false;S._sovLoading=0;await loadHist();render()}
   if(!S.snap)return;S.orb=S.snap.orb||'idle';dockState();
   {const pk=JSON.stringify(((S.snap.study||{}).pending)||[]);if(S.page==='study'&&S._spk!==undefined&&pk!==S._spk){const was=S._spk;S._spk=pk;S.sov=null;render();const pd=S.snap.study.pending||[];if(pd.some(x=>x.state==='error'))toast('Bir kaynak eklenemedi; ayrıntı listede.','bad');else if(pd.length<JSON.parse(was).length)toast('Çalışma kaynağı eklendi.')}S._spk=pk;
    clearTimeout(S._spt);if(pk!=='[]'&&pk.includes('running'))S._spt=setTimeout(refresh,3000)}renderTop();if(S.page==='chat'){drawSide();drawDevelopment()}if(S.page==='home')updateHome();
@@ -1757,14 +1778,14 @@ function onEvent(m){
   if(m.mid&&((S.hist||[]).some(r=>r.id===m.mid)||S.live.some(r=>r.id===m.mid)))return;
   if(typeof taskSummaryEvent==='function')taskSummaryEvent(m);
   if(k==='action'){Promise.all([refresh(),loadUi()]).then(()=>{S.files=null;S.sc=null;S.sov=null;if(S.page!=='chat')render()});return}
-  if(k==='reconcile'){loadHist().then(()=>{S.live=[];if(S.page==='chat'){drawMsgs();drawConvs()}});return}
+  if(k==='reconcile'){loadHist().then(()=>{S.live=[];drawMsgs();if(S.page==='chat')drawConvs()});return}
   if(k==='user'||k==='assistant'){const ts=m.ts||Date.now()/1000;
     if(k==='user'){const i=S.live.findIndex(x=>x.mine&&x.role==='user'&&x.text===m.t);if(i>=0)S.live.splice(i,1)}
     S.live.push({id:m.mid,role:k,text:m.t,ts,src:m.x,rid:m.rid});S.live=S.live.slice(-300);if(k==='assistant')S.waiting=false;
-    if(S.hist){const d=new Date(ts*1000),z=n=>String(n).padStart(2,'0');S.hist.push({id:m.mid,role:k,text:m.t,ts:`${ymd(d)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,source:m.x})}
-    if(S.page==='chat'){drawMsgs();drawConvs()}}
+    if(S.hist){const d=new Date(ts*1000),z=n=>String(n).padStart(2,'0');S.hist.push({id:m.mid,role:k,text:m.t,ts:`${ymd(d)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,source:m.x,rid:m.rid})}
+    drawMsgs();if(S.page==='chat')drawConvs()}
   else if(k==='step'){onStep(m);return}
-  else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;if(S.page==='chat')drawMsgs()}
+  else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;drawMsgs()}
   else if(k==='state'){
     S.orb=m.t||'idle';dockState();speechStateEvent(S.orb);updateHomeStatus();
     $$('.mic').forEach(button=>button.classList.toggle('live',S.orb==='listening'));
@@ -1785,7 +1806,7 @@ function connect(){
     const rows=await tryApi('history','',1500);if(closed)return;
     if(rows&&user===((S.snap||{}).user||{}).name){S.hist=rows;S.live=S.live.filter(r=>r.mine);S.waiting=S.orb==='thinking'}
     loading=false;const pending=buffer;buffer=[];pending.forEach(onEvent);
-    if(S.page==='chat'){drawMsgs();drawConvs()}
+    drawMsgs();if(S.page==='chat')drawConvs()
   };
   es.onmessage=ev=>{try{const m=JSON.parse(ev.data);if(loading)buffer.push(m);else onEvent(m)}catch(e){console.error(e)}};
   es.onerror=()=>{closed=true;es.close();setTimeout(connect,2500)};
