@@ -51,6 +51,27 @@ class AcademicRouteTests(unittest.TestCase):
             goal_executor._academic_route({"request": "makale araştır"}, "research", {"query": "x"}),
             ("research", {"query": "x"}))
 
+    def test_academic_listing_completes_every_goal_without_model_decision(self):
+        """Canlı hata (15:35): liste doğrulandı ama model hedefi kapatmadı."""
+        from unittest.mock import patch
+        job = {"id": "j1", "state": "running",
+               "goals": [{"text": "araştır", "state": "pending", "evidence": []},
+                         {"text": "sun", "state": "pending", "evidence": []}],
+               "steps": [{"id": "s1", "tool": "research"}], "outputs": {}}
+        with patch.object(goal_executor, "_save"):
+            self.assertTrue(goal_executor._complete_academic_listing(
+                job, job["steps"][0], {"state": "done", "academic_listing": True}))
+        self.assertEqual([g["state"] for g in job["goals"]], ["done", "done"])
+        self.assertEqual([g["evidence"] for g in job["goals"]], [["s1"], ["s1"]])
+
+    def test_non_listing_output_keeps_the_model_decision(self):
+        from unittest.mock import patch
+        job = {"id": "j2", "goals": [{"text": "araştır", "state": "pending", "evidence": []}]}
+        with patch.object(goal_executor, "_save"):
+            self.assertFalse(goal_executor._complete_academic_listing(
+                job, {"id": "s1"}, {"state": "done", "text": "cevap"}))
+        self.assertEqual(job["goals"][0]["state"], "pending")
+
     def test_research_step_never_requires_a_url_key(self):
         """Sorgu adımında 'url' olmayabilir; doğrudan indeksleme KeyError verir.
 
