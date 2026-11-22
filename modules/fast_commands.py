@@ -75,6 +75,14 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r'(onceki) (sarki|parca)'), ('media_action', {'action': 'prev'})),
     (re.compile(r'(muzigi )?(duraklat|devam et|oynat|durdur)'),
      ('media_action', {'action': 'play_pause'})),
+    # --- salt-okuma: hava, gündem, not sayısı (model gerekmez) ---
+    (re.compile(r'(hava (durumu )?nasil( bugun)?|bugun hava (durumu )?nasil|hava durumu)'),
+     ('weather', {})),
+    (re.compile(r'(bugun|bugunku) (ne var|neler var|planim ne|programim ne)'),
+     ('agenda_read', {'view': 'day_plan', 'period': 'today'})),
+    (re.compile(r'(yarin|yarinki) (ne var|neler var|planim ne|programim ne)'),
+     ('agenda_read', {'view': 'day_plan', 'period': 'tomorrow'})),
+    (re.compile(r'kac notum var'), ('notes_read', {'which': 'count'})),
     # --- ekran (salt okuma) ---
     (re.compile(r'(ekran goruntusu al|ekrani (yakala|goruntule))'), ('screen_capture', {})),
     # --- uygulama kapatma: yalnız onay sorusu açar (etki onaydan sonra) ---
