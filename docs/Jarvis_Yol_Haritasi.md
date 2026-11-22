@@ -122,7 +122,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 - Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
-- Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. Kalan: `source_verification` dalı boş)
+- Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan: 3-D alarm teslim başlığı canlı kabulü)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 modül üretimden çağrılıyor; kalan anahtar/kendi sunucu gerektiren arama sağlayıcıları, canlı OHLCV, CDP, 4G UIA pilotu, F-002 kabul PR'ları)
 - Faz 5: Güvenilirlik ve gözlem
 - Faz 6: Sandbox, skill, kod ajanı
@@ -263,7 +263,7 @@ Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel m
 
 Finance ve envanter ayrı domain sözleşmelerine bağlanır. Worker'ların okuyacağı veri alanları temizlenmeden worker'lar başlayamaz.
 
-- 🟡 (#362) `[1✓ 2✗ 3✗ 4✗]` Finance ayrı domain olarak sözleşmeye bağlanacak: veri, alarm, analiz, kaynak doğrulama dalları ve kod göçü planı. Karar belgesi var, kod hâlâ iletişim tarafında. Salt okuma, para hareketi yok.
+- 🟡 (#362) `[1✓ 2✓ 3✓ 4🔄]` Finance ayrı domain olarak sözleşmeye bağlanacak: veri, alarm, analiz, kaynak doğrulama dalları ve kod göçü planı. Karar belgesi var, kod hâlâ iletişim tarafında. Salt okuma, para hareketi yok. **`source_verification` dalı kapatıldı (22 Kasım 2026, PR #757):** dal sözleşmede vardı ama `modules: ()` ve giriş noktaları **başka dalın** dosyasını gösteriyordu (`modules/finance.py:dated_rate`, `_safe_xml`) — yani ayrı bir doğrulama dalı fiilen yoktu, kurallar `dated_rate` içinde satır arasındaydı ve `validate()` bunu yakalamıyordu. Doğrulama `modules/finance_verification.py:verify_rate_evidence/parse_rate_body` altına taşındı; `dated_rate` **aynı** fonksiyonu çağırıyor (kural ikinci kez yazılmıyor), dal artık kendi modülüne bağlı. `validate()` yeni kuralı: giriş noktası dalın modülünde değilse veya modülde tanımlı değilse hata — hayalet dal sessizce geri gelemez. Davranış değişmedi: 129 finance testi OK (`test_finance_source_verification.py` 10 yeni test: para birimi uyuşmazlığı, gelecek tarih, geçersiz kur, güvensiz adres/boş gövde, bozuk JSON, efekt yetkisi üretmeme, dal sözleşmesi).
   - ✅ 3-B `watcher._finance_price` → `finance.quote` (`modules/watcher.py:354-356`)
   - ✅ 3-C `watcher.finance_tick` ve yardımcıları → `finance_alert_tick.py` (`modules/watcher.py:359-361`)
   - 🟡 3-D alarm teslimi Communication'da, ntfy başlığı ayrılır (`finance_domain.BRANCHES['alarm']` alarm dallarını `notify/outbox` dışında tutuyor; teslim başlığı ayrımı canlı kabul bekliyor)

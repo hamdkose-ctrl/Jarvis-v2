@@ -68,8 +68,9 @@ BRANCHES = {
         'name': 'Kaynak, tarih ve evidence doğrulaması',
         'permission_class': 'read',
         'effect_policy': 'read_only',
-        'modules': (),
-        'entry_points': ('modules/finance.py:dated_rate', 'modules/finance.py:_safe_xml'),
+        'modules': ('modules/finance_verification.py',),
+        'entry_points': ('modules/finance_verification.py:verify_rate_evidence',
+                         'modules/finance_verification.py:parse_rate_body'),
         'invariants': (
             'Kaynak yanıtı istenen varlık/para birimi ve tarihle eşleşmezse sonuç reddedilir.',
             'Kanıt en az kaynak adresi, veri tarihi, okuma zamanı ve gövde özeti (sha256) taşır.',
@@ -145,6 +146,16 @@ def validate() -> list[str]:
             if path in seen:
                 errors.append(f'{path}: birden fazla dala bağlı.')
             seen.add(path)
+        # Giriş noktası kendi dalının modülünde olmalı: aksi hâlde dal fiilen boştur
+        # (source_verification bir süre başka dalın dosyasını gösteriyordu).
+        for entry in branch['entry_points']:
+            module_path, _, name = entry.partition(':')
+            if module_path not in branch['modules']:
+                errors.append(f'{entry}: giriş noktası bu dalın modülünde değil.')
+                continue
+            defined = _defined(Path(__file__).resolve().parents[1] / module_path)
+            if name and name not in defined:
+                errors.append(f'{entry}: giriş noktası modülde tanımlı değil.')
     for kind, row in BOUNDARY.items():
         if row['permission_class'] not in CLASSES:
             errors.append(f'{kind}: bilinmeyen izin sınıfı.')
