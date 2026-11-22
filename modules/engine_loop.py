@@ -620,6 +620,7 @@ def main(runtime, ui=None):
                         # provider wait lends the microphone back to the listener.
                         # This is NOT a second execution thread or full §5
                         # background transfer; subsequent commands remain queued.
+                        _t_anlama = runtime.time.time()
                         entry = _turn_with_listening_foreground(
                             voice_session,
                             lambda: brain_entry.prepare(
@@ -627,6 +628,10 @@ def main(runtime, ui=None):
                                 text=cmd, source=source, model_understanding=True,
                             ),
                         )
+                        # "Cevap hazırlama 1-27 sn" tek sayıydı; kayıp anlama mı
+                        # eller mi, ölçülsün. Salt log: davranış değişmiyor.
+                        runtime.log.info("Süre: anlama %.0f ms",
+                                         (runtime.time.time() - _t_anlama) * 1000)
                         from modules import brain_echo
                         brain_echo.present(runtime, entry)
 
@@ -692,6 +697,8 @@ def main(runtime, ui=None):
                                     runtime._cur_rid, entry.stage, brain_job_id or "-",
                                     brain_feedback["result_status"],
                                 )
+                            runtime.log.info("Süre: core eller %.0f ms",
+                                             (runtime.time.time() - t_cmd) * 1000)
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
                                 continue
                         except runtime.requests_state.Cancelled as exc:
