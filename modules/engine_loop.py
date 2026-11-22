@@ -144,7 +144,7 @@ def _fast_command_turn(runtime, cmd):
         hesap = fast_commands.compute(cmd)
         if hesap:
             runtime.log.info("hızlı yol: intent=fast_calc")
-            return (hesap, None, None)
+            return hesap
         return None
     intent, args = eslesme
     baslangic = runtime.time.time()
@@ -158,7 +158,9 @@ def _fast_command_turn(runtime, cmd):
         return None
     runtime.log.info("hızlı yol: intent=%s süre=%.0f ms", intent,
                      (runtime.time.time() - baslangic) * 1000)
-    return (str(metin), None, None)
+    # `explicit_read` düz metin taşır; demet dönerse ekrana/sese ham tuple sızar
+    # (canlı hata 11:39: "('Chrome penceresi açık...', None, None)").
+    return str(metin)
 
 
 def _log_core_feedback(runtime, entry):
