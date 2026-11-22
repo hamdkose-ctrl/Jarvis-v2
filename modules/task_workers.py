@@ -108,7 +108,7 @@ def _academic_query(query):
 
 
 def academic_listing(rows, request, *, translate=False):
-    """Akademik kayıtları kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
+    """Akademik kayıtları düzenli kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
 
     Canlı ölçüm (22 Kasım 15:01): "Yapay zeka makaleleri araştır" isteğinde arXiv
     kaynakları geldi ama soru-cevap doğrulaması ("kaynak soruyu yanıtlıyor mu")
@@ -116,24 +116,34 @@ def academic_listing(rows, request, *, translate=False):
     listesi isteyen kullanıcıya başlık, tarih, bağlantı ve kayıt özeti verilir;
     değer/alıntı iddiası üretilmez.
 
-    Kullanıcı geri bildirimi (22 Kasım 2026): "arXiv İngilizce, ben ne anlarım".
-    Türkçe kaynaklar (Crossref/DergiPark) olduğu gibi, İngilizce kayıtlar çevrilerek verilir.
+    Kullanıcı geri bildirimi (22 Kasım 2026):
+    * "arXiv İngilizce, ben ne anlarım" → Türkçe kaynak (Crossref/DergiPark) önce,
+      İngilizce kayıtların başlık/özeti Türkçeye çevrilir.
+    * "çıktıları bir düzene sokup verse, konudan çok saçma yazılar var" → çıktı
+      kaynak türüne göre bölümlenir, her kayıt tek satır başlık + bağlantı + özet
+      olarak hizalanır ve en çok 5 kayıt gösterilir.
     """
     rows = list(rows[:5])
     ingilizce = [index for index, row in enumerate(rows) if row.get('provider') == 'arxiv']
     ceviri = (_translate_listing_rows([rows[index] for index in ingilizce], ingilizce)
               if translate and ingilizce else None)
-    basliklar = []
-    if any(row.get('provider') == 'crossref' for row in rows):
-        basliklar.append('Crossref/DergiPark, Türkçe dergiler')
-    if ingilizce:
-        basliklar.append('arXiv, ön baskı arşivi')
-    satirlar = ['Bulduğum akademik kaynaklar (' + ' · '.join(basliklar) + '):'
-                if basliklar else 'Bulduğum akademik kaynaklar:']
+    turkce_var = any(row.get('provider') == 'crossref' for row in rows)
+    ozet_sayilari = (f'{len(rows)} kayıt'
+                     + (f' · Türkçe {sum(1 for row in rows if row.get("provider") == "crossref")}' if turkce_var else '')
+                     + (f' · arXiv {len(ingilizce)}' if ingilizce else ''))
+    satirlar = ['Bulduğum akademik kaynaklar (' + ozet_sayilari + '):']
     if ingilizce and ceviri is None:
         satirlar.append(_AKADEMIK_TANITIM)
     quotes = []
+    bolum = None
     for index, row in enumerate(rows):
+        kaynak_turu = 'arxiv' if row.get('provider') == 'arxiv' else 'turkce'
+        if kaynak_turu != bolum:
+            bolum = kaynak_turu
+            satirlar.append('')
+            satirlar.append('Türkçe kaynaklar (DergiPark/Crossref):' if bolum == 'turkce'
+                            else ('İngilizce kaynaklar (Türkçeye çevrildi):' if ceviri
+                                  else 'İngilizce kaynaklar (arXiv):'))
         baslik = str(row.get('title') or '').strip()
         url = str(row.get('url') or '').strip()
         tarih = str(row.get('published') or '').strip()
@@ -141,20 +151,20 @@ def academic_listing(rows, request, *, translate=False):
         if ceviri and index in ceviri:
             # Bağlantı her zaman kaydın kendi adresi; çeviri yalnız başlık/özet metnini verir.
             baslik, ozet = ceviri[index]
-        satirlar.append(f"{index + 1}) {baslik}" + (f" ({tarih})" if tarih else ''))
-        satirlar.append('   ' + url)
+        satirlar.append(f"{index + 1}) {baslik}" + (f" — {tarih}" if tarih else ''))
         dergi = ' '.join(str(row.get('journal') or '').split())[:120]
         if dergi:
-            satirlar.append('   Dergi: ' + dergi)
+            satirlar.append(f'   {dergi}')
+        satirlar.append(f'   {url}')
         if ozet:
-            satirlar.append('   ' + ozet)
+            satirlar.append('   Özet: ' + ozet)
             quotes.append(ozet)
-    if ceviri:
-        satirlar.append('İngilizce kayıtların başlık ve özetleri Türkçeye çevrildi; bağlantılar '
-                        'kaydın kendi adresine gider. Kaynaklar doğrulanmış iddia değildir.')
-    else:
-        satirlar.append('Başlık ve özetler kaynaktan; tam metin bağlantıda. Kaynaklar doğrulanmış iddia değildir.')
-    text = "\n".join(satirlar)
+    satirlar.append('')
+    satirlar.append('Bağlantılar kaydın kendi adresine gider; kaynaklar doğrulanmış iddia değildir.'
+                    if ceviri else
+                    'Bağlantılar kaydın kendi adresine gider; tam metin bağlantıda. '
+                    'Kaynaklar doğrulanmış iddia değildir.')
+    text = "\n".join(satirlar).strip()
     okunan = sum(len(str(row.get('snippet') or '')) for row in rows)
     return {'state': 'done', 'text': text, 'source': str(rows[0]['url']),
             # Sözleşme en az 80 karakter okunmuş kaynak metni ister; liste metni de

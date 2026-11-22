@@ -166,6 +166,11 @@ def search_academic(query: str, *, limit: int = 5) -> list[dict]:
 # doğrulamasına düşüyor, Google Akademik otomatik erişimi yasaklıyor, Akademist'in
 # arama akışı yalnız statik sayfa döndürüyor. DergiPark makalelerinin DOI'si
 # Crossref'te olduğu için Türkçe akademik kaynak **Crossref açık API'sinden** gelir.
+_TOC_LIKE = re.compile(
+    r'^(?:icindekiler|contents|onsoz|sunus|kisaltmalar|tablolar listesi|sekiller listesi)'
+    r'(?![0-9a-z])', re.I | re.ASCII)
+
+
 _TR_FOLD = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
 
 
@@ -199,6 +204,11 @@ def _crossref_transport(request: dict) -> dict:
             continue
         abstract = re.sub(r'<[^>]+>', ' ', str(item.get('abstract') or ''))
         abstract = ' '.join(abstract.split())[:600]
+        # İçindekiler/ön söz kayıtları makale değildir (canlı: "Mutfakta Yapay Zeka"
+        # kitabının içindekiler sayfası 1. sırada geldi).
+        # Türkçe büyük harf katlanır (İ -> i), sonra ASCII desenle bakılır.
+        if _TOC_LIKE.match(abstract.translate(_TR_FOLD).lower()):
+            continue
         # Alakasız kayıt gelmesin: sorgu terimlerinden biri başlıkta/özetinde geçmeli.
         blob = (title + ' ' + abstract).translate(_TR_FOLD).casefold()
         if terms and not any(term in blob for term in terms):
@@ -210,13 +220,22 @@ def _crossref_transport(request: dict) -> dict:
         containers = item.get('container-title') or []
         if isinstance(containers, list) and containers:
             journal = ' '.join(str(containers[0]).split())[:120]
-        results.append({'provider': 'crossref', 'url': 'https://doi.org/' + doi,
+        rank = 0 if any(term in title.translate(_TR_FOLD).casefold() for term in terms) else 1
+        results.append({'rank': rank, 'provider': 'crossref', 'url': 'https://doi.org/' + doi,
                         'title': title[:400], 'snippet': abstract, 'published': published[:10],
                         'journal': journal,
                         'language': 'tr' if (item.get('language') == 'tr' or turkish_text(title)) else 'en'})
-        if len(results) >= request['limit']:
+        if len(results) >= request['limit'] * 4:
             break
-    return {'results': results}
+    # Başlığında arama terimi geçenler önce; yalnız özette geçenler yalnız yer doldurmak
+    # için arkadan eklenir (kullanıcı: "konudan çok saçma yazılar var").
+    results.sort(key=lambda row: row['rank'])
+    sonuc = [row for row in results if row['rank'] == 0][:request['limit']]
+    if len(sonuc) < request['limit']:
+        sonuc += [row for row in results if row['rank'] == 1][:request['limit'] - len(sonuc)]
+    for row in sonuc:
+        row.pop('rank', None)
+    return {'results': sonuc}
 
 
 def search_turkish(query: str, *, limit: int = 5) -> list[dict]:

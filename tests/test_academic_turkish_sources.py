@@ -100,10 +100,10 @@ class MixedListingTests(unittest.TestCase):
             out = academic_listing(rows, 'yapay zeka makaleleri', translate=True)
         self.assertEqual(ask.call_count, 1)                   # yalnız İngilizce kayıt çevrilir
         self.assertIn('Yapay Zeka ve Hukuk', out['text'])      # Türkçe kayıt aynen
-        self.assertIn('Dergi: Hukuk ve Teknoloji', out['text'])
+        self.assertIn('Hukuk ve Teknoloji', out['text'])
         self.assertIn('Dikkat Yeterli', out['text'])           # arXiv çevrildi
         self.assertIn('https://arxiv.org/abs/1', out['text'])  # bağlantı kayıttan
-        self.assertIn('Crossref/DergiPark', out['text'])
+        self.assertIn('DergiPark/Crossref', out['text'])
         self.assertIn('arXiv', out['text'])
 
     def test_all_turkish_rows_need_no_model_call(self):
@@ -118,3 +118,57 @@ class MixedListingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RelevanceAndFormatTests(unittest.TestCase):
+    """Kullanıcı (22 Kasım 2026): "çıktıları bir düzene sokup verse, konudan çok saçma yazılar var"."""
+
+    def rows(self, items, limit=3):
+        payload = {'status': 'ok', 'message': {'items': items}}
+        with patch.object(rp.public_sources, 'fetch',
+                          return_value={'body': json.dumps(payload).encode(),
+                                        'url': 'https://api.crossref.org/works'}):
+            return rp.search_turkish('yapay zeka', limit=limit)
+
+    def test_table_of_contents_and_foreword_records_are_dropped(self):
+        rows = self.rows([
+            {'title': ['Mutfakta Yapay Zeka'], 'DOI': '10.1/toc', 'issued': {'date-parts': [[2025]]},
+             'abstract': 'İÇİNDEKİLER 1. Endüstriyel Mutfak Nedir? 2. YZ ve Mutfak'},
+            {'title': ['Yapay Zeka ve Eğitim'], 'DOI': '10.1/ok', 'issued': {'date-parts': [[2026]]},
+             'abstract': 'Bu çalışma yapay zeka araçlarının eğitimde kullanımını inceler.'},
+        ])
+        self.assertEqual([row['title'] for row in rows], ['Yapay Zeka ve Eğitim'])
+        for head in ('ÖNSÖZ Bu kitap', 'CONTENTS Chapter 1', 'KISALTMALAR ABD', 'SUNUŞ Merhaba'):
+            self.assertEqual(self.rows([{'title': ['Yapay Zeka Notları'], 'DOI': '10.1/x',
+                                        'abstract': head + ' yapay zeka'}]), [], head)
+
+    def test_title_matches_come_before_abstract_only_matches(self):
+        rows = self.rows([
+            {'title': ['Sağlıkta Dijital Dönüşüm'], 'DOI': '10.1/a',
+             'abstract': 'Yapay zeka ve sağlık verisi üzerine bir inceleme.'},
+            {'title': ['Yapay Zeka ile Teşhis'], 'DOI': '10.1/b',
+             'abstract': 'Teşhis süreçlerinde kullanım.'},
+        ])
+        self.assertEqual(rows[0]['title'], 'Yapay Zeka ile Teşhis')
+
+    def test_listing_is_sectioned_with_counts_and_aligned_links(self):
+        from modules.task_workers import academic_listing
+        rows = [
+            {'provider': 'crossref', 'title': 'Yapay Zeka ve Hukuk', 'url': 'https://doi.org/10.1/x',
+             'published': '2025-11', 'snippet': 'Hukuki sorumluluk tartışılıyor.',
+             'journal': 'Hukuk ve Teknoloji'},
+            {'provider': 'arxiv', 'title': 'Attention Is All You Need', 'url': 'https://arxiv.org/abs/1',
+             'published': '2017-06-12', 'snippet': 'We propose the Transformer.'},
+        ]
+        answer = '{"items":[{"no":1,"baslik":"Dikkat Yeterli","ozet":"Transformer öneriliyor."}]}'
+        with patch('modules.llm.ask', return_value=answer):
+            text = academic_listing(rows, 'yapay zeka makaleleri', translate=True)['text']
+        self.assertIn('2 kayıt · Türkçe 1 · arXiv 1', text)
+        self.assertIn('Türkçe kaynaklar (DergiPark/Crossref):', text)
+        self.assertIn('İngilizce kaynaklar (Türkçeye çevrildi):', text)
+        self.assertIn('1) Yapay Zeka ve Hukuk — 2025-11', text)
+        self.assertIn('   Hukuk ve Teknoloji', text)              # dergi satırı
+        self.assertIn('   https://doi.org/10.1/x', text)          # bağlantı hizalı
+        self.assertIn('   Özet: Hukuki sorumluluk', text)
+        self.assertIn('2) Dikkat Yeterli — 2017-06-12', text)
+        self.assertLess(text.index('Türkçe kaynaklar'), text.index('İngilizce kaynaklar'))
