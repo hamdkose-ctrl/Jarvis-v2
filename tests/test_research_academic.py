@@ -83,12 +83,12 @@ class AcademicRequestTests(unittest.TestCase):
     def test_research_worker_wires_academic_candidates_first(self):
         source = Path(__file__).resolve().parents[1].joinpath("modules/task_workers.py").read_text(
             encoding="utf-8")
-        self.assertIn("research_providers.search_academic(data['query'])", source)
+        self.assertIn("research_providers.search_academic(_academic_query(data['query']))", source)
         self.assertIn("research_providers.academic_requested(user_request)", source)
         # Akademik sonuç varken DDG engeli turu düşürmez.
         self.assertIn("modules/task_workers.py:research_public_search", source)
         # Makale listesi isteği model doğrulamasına düşmez (canlı hata 15:01).
-        self.assertIn("return academic_listing(academic, user_request)", source)
+        self.assertIn("return academic_listing(academic, user_request, translate=True)", source)
 
 
 if __name__ == "__main__":

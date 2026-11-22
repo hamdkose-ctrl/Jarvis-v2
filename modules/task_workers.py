@@ -21,37 +21,147 @@ def json_text(text):
     return json.loads(text)
 
 
-def academic_listing(rows, request):
-    """arXiv kayıtlarını kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
+_AKADEMIK_TANITIM = ('arXiv, akademik ön baskı (preprint) arşividir; kayıtların çoğu İngilizce yazılır. '
+                     'Bağlantı makalenin kendi sayfasına gider.')
+
+
+def _translate_listing_rows(rows, indexes=None):
+    """Verilen kayıtları Türkçeye çevirir; başaramazsa None döner.
+
+    Kullanıcı geri bildirimi (22 Kasım 2026): "araştırma sitesi İngilizce, ben ne anlarım".
+    Yalnız İngilizce kayıtlar çevrilir (Türkçe makaleler olduğu gibi kalır). Başlık/özet
+    Türkçeleşir; **bağlantılar modelden gelmez**, kaydın kendi adresi yazılır. Model yoksa
+    veya JSON bozuksa hiçbir şey değişmez.
+    """
+    if not rows:
+        return None
+    kalemler = []
+    for index, row in enumerate(rows, start=1):
+        baslik = ' '.join(str(row.get('title') or '').split())[:300]
+        ozet = ' '.join(str(row.get('snippet') or '').split())[:700]
+        if not baslik:
+            return None
+        kalemler.append(f'{index}) {baslik}' + (('\n' + ozet) if ozet else ''))
+    prompt = ('Şu akademik kayıtları Türkçeye çevir. Her kayıt için doğal bir Türkçe başlık ve en çok '
+              'iki cümlelik Türkçe özet ver. Kayıtta olmayan bilgi, sayı veya sonuç ekleme; bağlantı yazma.\n\n'
+              + '\n\n'.join(kalemler))
+    system = ('Yalnız JSON ver: {"items":[{"no":1,"baslik":"Türkçe başlık","ozet":"Türkçe özet"}]} . '
+              'Kayıt sayısı ve "no" değerleri girdiyle aynı kalmalı.')
+    try:
+        from modules import llm, privacy_sources
+        evidence = (privacy_sources.mark_public('public_page_reader', prompt),)
+        raw = llm.ask(prompt, system=system, max_tokens=900, profile='public_research', evidence=evidence)
+    except Exception:
+        _record_failure('modules/task_workers.py:academic_listing_translate')
+        return None
+    try:
+        data = json_text(raw)
+        items = data['items'] if isinstance(data, dict) else None
+        if not isinstance(items, list) or len(items) != len(kalemler):
+            return None
+        by_no = {}
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            no = item.get('no')
+            baslik = ' '.join(str(item.get('baslik') or '').split())
+            ozet = ' '.join(str(item.get('ozet') or '').split())
+            if type(no) is not int or no in by_no or not 1 <= no <= len(kalemler) or len(baslik) < 2:
+                return None
+            if 'http://' in baslik or 'https://' in baslik or 'http' in ozet:
+                return None
+            by_no[no] = (baslik[:300], ozet[:600])
+        if set(by_no) != set(range(1, len(kalemler) + 1)):
+            return None
+    except Exception:
+        _record_failure('modules/task_workers.py:academic_listing_translate_parse')
+        return None
+    # Çeviri sırası alt kümenin sırasıdır; gerçek satır indeksine çevrilir.
+    return {indexes[no - 1] if indexes else no - 1: by_no[no] for no in by_no}
+
+
+def _academic_query(query):
+    """arXiv araması İngilizce yapılır; Türkçe istek İngilizce terimlere çevrilir.
+
+    Canlı ölçüm (22 Kasım 2026): "Yapay zeka makaleleri araştır" isteği olduğu gibi arXiv'a
+    gitti ve alakasız bir "metayüzeylerde sürtünme" makalesi döndü; arXiv Türkçe terimi
+    eşleştirmiyor. Çeviri yapılamazsa sorgu olduğu gibi kalır.
+    """
+    text = str(query or '').strip()
+    if not text or len(text) > 300 or text.isascii():
+        return text
+    prompt = ('Şu Türkçe araştırma isteğini arXiv araması için İngilizce anahtar kelimelere çevir. '
+              'Yalnız 2-6 kelimelik arama terimi yaz; açıklama, tırnak veya noktalama ekleme.\n\nİstek: ' + text)
+    try:
+        from modules import llm, privacy_sources
+        evidence = (privacy_sources.mark_public('public_page_reader', prompt),)
+        answer = llm.ask(prompt, max_tokens=40, profile='public_research', evidence=evidence)
+    except Exception:
+        _record_failure('modules/task_workers.py:academic_query_translate')
+        return text
+    candidate = ' '.join(str(answer or '').split()).strip(' "\'.,;:')
+    if not candidate or not candidate.isascii() or len(candidate) > 120:
+        return text
+    if sum(ch.isalpha() for ch in candidate) < 2:
+        return text
+    return candidate
+
+
+def academic_listing(rows, request, *, translate=False):
+    """Akademik kayıtları kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
 
     Canlı ölçüm (22 Kasım 15:01): "Yapay zeka makaleleri araştır" isteğinde arXiv
     kaynakları geldi ama soru-cevap doğrulaması ("kaynak soruyu yanıtlıyor mu")
     makale listesi için anlamsız olduğu için üç adım da failed döndü. Makale
     listesi isteyen kullanıcıya başlık, tarih, bağlantı ve kayıt özeti verilir;
     değer/alıntı iddiası üretilmez.
+
+    Kullanıcı geri bildirimi (22 Kasım 2026): "arXiv İngilizce, ben ne anlarım".
+    Türkçe kaynaklar (Crossref/DergiPark) olduğu gibi, İngilizce kayıtlar çevrilerek verilir.
     """
-    satirlar = ['Bulduğum akademik kaynaklar (arXiv):']
+    rows = list(rows[:5])
+    ingilizce = [index for index, row in enumerate(rows) if row.get('provider') == 'arxiv']
+    ceviri = (_translate_listing_rows([rows[index] for index in ingilizce], ingilizce)
+              if translate and ingilizce else None)
+    basliklar = []
+    if any(row.get('provider') == 'crossref' for row in rows):
+        basliklar.append('Crossref/DergiPark, Türkçe dergiler')
+    if ingilizce:
+        basliklar.append('arXiv, ön baskı arşivi')
+    satirlar = ['Bulduğum akademik kaynaklar (' + ' · '.join(basliklar) + '):'
+                if basliklar else 'Bulduğum akademik kaynaklar:']
+    if ingilizce and ceviri is None:
+        satirlar.append(_AKADEMIK_TANITIM)
     quotes = []
-    for index, row in enumerate(rows[:5], start=1):
+    for index, row in enumerate(rows):
         baslik = str(row.get('title') or '').strip()
         url = str(row.get('url') or '').strip()
         tarih = str(row.get('published') or '').strip()
         ozet = ' '.join(str(row.get('snippet') or '').split())[:400]
-        satirlar.append(f"{index}) {baslik}" + (f" ({tarih})" if tarih else ''))
+        if ceviri and index in ceviri:
+            # Bağlantı her zaman kaydın kendi adresi; çeviri yalnız başlık/özet metnini verir.
+            baslik, ozet = ceviri[index]
+        satirlar.append(f"{index + 1}) {baslik}" + (f" ({tarih})" if tarih else ''))
         satirlar.append('   ' + url)
+        dergi = ' '.join(str(row.get('journal') or '').split())[:120]
+        if dergi:
+            satirlar.append('   Dergi: ' + dergi)
         if ozet:
             satirlar.append('   ' + ozet)
             quotes.append(ozet)
-    satirlar.append('Özetler arXiv kaydından; tam metin bağlantıda. Kaynaklar doğrulanmış iddia değildir.')
+    if ceviri:
+        satirlar.append('İngilizce kayıtların başlık ve özetleri Türkçeye çevrildi; bağlantılar '
+                        'kaydın kendi adresine gider. Kaynaklar doğrulanmış iddia değildir.')
+    else:
+        satirlar.append('Başlık ve özetler kaynaktan; tam metin bağlantıda. Kaynaklar doğrulanmış iddia değildir.')
     text = "\n".join(satirlar)
-    okunan = sum(len(str(row.get('snippet') or '')) for row in rows[:5])
+    okunan = sum(len(str(row.get('snippet') or '')) for row in rows)
     return {'state': 'done', 'text': text, 'source': str(rows[0]['url']),
             # Sözleşme en az 80 karakter okunmuş kaynak metni ister; liste metni de
-            # gerçek arXiv kayıtlarından üretildiği için kanıt sayılır.
+            # gerçek akademik kayıtlardan üretildiği için kanıt sayılır.
             'source_chars': max(okunan, len(text)),
             'source_quotes': quotes, 'academic_listing': True,
             'source_only': False}
-
 
 def browser_task(owner, data):
     from modules import browser_agent
@@ -298,8 +408,14 @@ def run(owner, task, dependencies):
         else:
             if news:
                 raise ValueError('Güncel haber araştırması doğrulanmış makale URL’siyle başlamalı.')
-            academic = (research_providers.search_academic(data['query'])
-                        if research_providers.academic_requested(user_request) else [])
+            akademik = research_providers.academic_requested(user_request)
+            # Türkçe kaynak önce gelir: kullanıcı Türkçe okuyor (22 Kasım 2026 geri bildirimi).
+            turkce = research_providers.search_turkish(data['query']) if akademik else []
+            academic = (research_providers.search_academic(_academic_query(data['query']))
+                        if akademik else [])
+            if turkce:
+                gorulen = {row['url'] for row in turkce}
+                academic = turkce + [row for row in academic if row['url'] not in gorulen]
             try:
                 candidates = research_providers.search_public(data['query'])
             except ValueError:
@@ -314,7 +430,7 @@ def run(owner, task, dependencies):
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
             if academic and not news:
                 # Makale listesi isteği: model doğrulaması yerine kayıt listesi.
-                return academic_listing(academic, user_request)
+                return academic_listing(academic, user_request, translate=True)
             url = _url(candidates[0]['url'])
         article=None
         if news:

@@ -7,6 +7,7 @@ keeps credentials outside model/context payloads.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import re
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, quote, quote_plus, urlsplit
@@ -156,6 +157,84 @@ def search_academic(query: str, *, limit: int = 5) -> list[dict]:
         return []
     except Exception:
         _record_failure("modules/research_providers.py:arxiv")
+        return []
+
+
+# --- Türkçe akademik kaynak: Crossref (anahtarsız açık API) --------------------
+# Kullanıcı kararı (22 Kasım 2026): "arXiv İngilizce, ben ne anlarım" + DergiPark /
+# Google Akademik / Akademist adresleri verildi. Ölçüm: DergiPark araması bot
+# doğrulamasına düşüyor, Google Akademik otomatik erişimi yasaklıyor, Akademist'in
+# arama akışı yalnız statik sayfa döndürüyor. DergiPark makalelerinin DOI'si
+# Crossref'te olduğu için Türkçe akademik kaynak **Crossref açık API'sinden** gelir.
+_TR_FOLD = str.maketrans('çğıöşüÇĞİÖŞÜ', 'cgiosuCGIOSU')
+
+
+def turkish_text(value: str) -> bool:
+    """Metin Türkçe mi? (Türkçe harf veya yaygın Türkçe sözcük.)"""
+    text = str(value or '')
+    return any(ch in text for ch in 'çğıöşüÇĞİÖŞÜ')
+
+
+def _crossref_transport(request: dict) -> dict:
+    response = public_sources.fetch(request['url'], max_bytes=1_500_000)
+    try:
+        payload = json.loads(response['body'])
+    except ValueError:
+        raise ValueError('Crossref yanıtı JSON değil.') from None
+    if not isinstance(payload, dict) or payload.get('status') != 'ok':
+        raise ValueError('Crossref yanıtı başarısız.')
+    items = ((payload.get('message') or {}).get('items')) or []
+    if not isinstance(items, list):
+        raise ValueError('Crossref sonuç listesi geçersiz.')
+    terms = [term.translate(_TR_FOLD).casefold()
+             for term in re.split(r'\s+', str(request['query'])) if len(term) >= 3]
+    results = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        titles = item.get('title') or []
+        title = ' '.join(str(titles[0]).split()) if isinstance(titles, list) and titles else ''
+        doi = str(item.get('DOI') or '').strip()
+        if not title or not doi or not re.fullmatch(r'10\.[^\s]{3,200}', doi):
+            continue
+        abstract = re.sub(r'<[^>]+>', ' ', str(item.get('abstract') or ''))
+        abstract = ' '.join(abstract.split())[:600]
+        # Alakasız kayıt gelmesin: sorgu terimlerinden biri başlıkta/özetinde geçmeli.
+        blob = (title + ' ' + abstract).translate(_TR_FOLD).casefold()
+        if terms and not any(term in blob for term in terms):
+            continue
+        issued = ((item.get('issued') or {}).get('date-parts') or [[None]])[0]
+        published = '-'.join(f'{int(part):02d}' if index else str(int(part))
+                             for index, part in enumerate(issued) if isinstance(part, int)) if issued else ''
+        journal = ''
+        containers = item.get('container-title') or []
+        if isinstance(containers, list) and containers:
+            journal = ' '.join(str(containers[0]).split())[:120]
+        results.append({'provider': 'crossref', 'url': 'https://doi.org/' + doi,
+                        'title': title[:400], 'snippet': abstract, 'published': published[:10],
+                        'journal': journal,
+                        'language': 'tr' if (item.get('language') == 'tr' or turkish_text(title)) else 'en'})
+        if len(results) >= request['limit']:
+            break
+    return {'results': results}
+
+
+def search_turkish(query: str, *, limit: int = 5) -> list[dict]:
+    """Türkçe akademik makale araması (Crossref açık API; DergiPark DOI'leri dahil).
+
+    Hata durumunda boş liste döner; tur düşmez. Bot korumalı siteler kazınmaz.
+    """
+    try:
+        query = _query(query)
+        limit = _limit(limit)
+        from urllib.parse import urlencode
+        url = 'https://api.crossref.org/works?' + urlencode(
+            {'query.bibliographic': query, 'rows': min(40, limit * 8)})
+        return _crossref_transport({'url': url, 'query': query, 'limit': limit})['results'][:limit]
+    except ValueError:
+        return []
+    except Exception:
+        _record_failure('modules/research_providers.py:crossref')
         return []
 
 
