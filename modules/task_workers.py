@@ -146,7 +146,7 @@ def _academic_query(query):
     return candidate
 
 
-def _akademik_blok(number, row, baslik, ozet):
+def _akademik_blok(number, row, baslik, ozet, etiket='Özet'):
     """Tek kaydın bloğu: sıra numarası, başlık — tarih, özet, kaynak."""
     tarih = str(row.get('_tarih') or '').strip()
     tur = ' · arXiv' if row.get('provider') == 'arxiv' else ''
@@ -154,7 +154,7 @@ def _akademik_blok(number, row, baslik, ozet):
     # numarayı yutuyordu (canlı: liste numarasız görünüyordu).
     satirlar = [f'**{number}.** {baslik}' + (f' — {tarih}' if tarih else '') + tur, '']
     if ozet:
-        satirlar.append('Özet: ' + ozet + ('…' if row.get('_kisa') else ''))
+        satirlar.append(etiket + ': ' + ozet + ('…' if row.get('_kisa') else ''))
     satirlar.append('Kaynak: ' + str(row.get('url') or '').strip())
     return satirlar
 
@@ -174,7 +174,74 @@ def search_academic_rows(query, user_request=''):
     return turkce + [row for row in academic if row['url'] not in gorulen]
 
 
-def academic_listing(rows, request, *, translate=False):
+_HABER_ADEDI = 3
+_HABER_BUTCESI = 900
+
+
+_NEWS_NAV = re.compile(r'tümünü gör|kategoriler|çerez|abone ol|gizlilik|copyright|reklam',
+                       re.I | re.ASCII)
+
+
+def _news_excerpt(quotes, request, title=''):
+    """Haber kanıtı olarak sayfanın gövde cümlesini seçer (menü/başlık tekrarı elenir).
+
+    Canlı kusur (22 Kasım 2026): kanıt satırı sayfa çerçevesiyle başlıyordu —
+    "| TCL'in Fabrikasında 3 Gün VLOG ... Tümünü Gör Kategoriler ...". Alıntılar zaten
+    parça parça geliyor; menü parçası ve başlığın tekrarı elenir, konu geçen gövde
+    cümlesi kalır (#439).
+    """
+    from modules import model_free_news
+    terimler = [term for term in model_free_news.terms(request) if len(term) > 3]
+    # Dikkat: 'İ'.lower() iki karaktere açılır; bu yüzden kısaltma eşit uzunluk varsaymaz,
+    # tam metinler küçültülüp önek karşılaştırması yapılır.
+    baslik = ' '.join(str(title or '').split()).strip().lower()
+    govde = []
+    for parca in quotes or []:
+        metin = ' '.join(str(parca).split()).strip()
+        if len(metin) < 40 or '|' in metin or _NEWS_NAV.search(metin):
+            continue                                  # sayfa çerçevesi
+        if baslik and metin.lower().startswith(baslik[:40]):
+            continue                                  # başlığın tekrarı kanıt sayılmaz
+        govde.append(metin)
+    secilen = next((metin for metin in govde
+                    if any(term in metin.lower() for term in terimler)),
+                   govde[0] if govde else '')
+    return secilen[:360].rstrip(' ,;:')
+
+
+def _news_date(value):
+    """ISO damgasını gün olarak göster (2026-11-22T15:00:00+03:00 → 2026-11-22)."""
+    text = str(value or '').strip()
+    return text[:10] if re.match(r'\d{4}-\d{2}-\d{2}T', text) else text
+
+
+def news_rows_for(request, owner):
+    """Son N günün doğrulanmış haberleri (modelsiz hat). Hata → boş liste.
+
+    Kullanıcı isteği (22 Kasım 2026): "makaleleri **ve haberleri**" — haber kısmı
+    sessizce atlanıyordu. Hat zaten modelsiz çalışıyor; yalnız sonuç satırları alınır.
+    """
+    from modules import news_pipeline
+    try:
+        result = news_pipeline.run(str(request or ''), owner=owner)
+    except Exception:
+        _record_failure('modules/task_workers.py:news_rows_for')
+        return [], None
+    rows = []
+    for row in result.get('verified') or []:
+        article = row.get('news_article') or {}
+        title = ' '.join(str(article.get('title') or '').split())
+        url = str(article.get('url') or '').strip()
+        if not title or not url:
+            continue
+        rows.append({'provider': 'news', 'title': title, 'url': url,
+                     'published': _news_date(article.get('published_at') or article.get('published')),
+                     'snippet': _news_excerpt(row.get('quotes'), request, title),
+                     'yayinci': row.get('source') or ''})
+    return rows[:_HABER_ADEDI], result
+
+
+def academic_listing(rows, request, *, translate=False, news_rows=None):
     """Akademik kayıtları sade kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
 
     Canlı ölçüm (22 Kasım 15:01): "Yapay zeka makaleleri araştır" isteğinde arXiv
@@ -192,7 +259,17 @@ def academic_listing(rows, request, *, translate=False):
       "Özet: …", "Kaynak: …". Sayaç gösterilen kayıt sayısıdır; yanıt önizleme
       bütçesi (1200) aşılmaz, liste ortadan kesilmez.
     """
-    rows = list(rows[:5])
+    # Aynı yayın birden çok DOI ile gelebiliyor (canlı: "YAPAY ZEKA VE RADYOLOJİNİN
+    # GELECEĞİ" iki kez). Başlık katlanarak tekilleştirilir; ilk kayıt korunur.
+    gorulen_baslik, tekil = set(), []
+    for row in rows:
+        key = re.sub(r'[^\w]+', ' ', str(row.get('title') or '').casefold()).strip()
+        if key and key in gorulen_baslik:
+            continue
+        if key:
+            gorulen_baslik.add(key)
+        tekil.append(row)
+    rows = tekil[:5]
     ingilizce = [index for index, row in enumerate(rows) if row.get('provider') == 'arxiv']
     for row in rows:
         row['_tarih'] = str(row.get('published') or '').strip()
@@ -206,7 +283,7 @@ def academic_listing(rows, request, *, translate=False):
         # Türkçe kayıtlarda da başlık/özet düzeni aynı olsun: tek çağrı, okunan metne dayalı.
         ceviri = _translate_listing_rows([rows[index] for index in okunmus], okunmus)
     kuyruk = ['', 'Kaynaklar doğrulanmış iddia değildir; bağlantılar kaydın kendi adresine gider.']
-    giris = [_AKADEMIK_TANITIM] if ingilizce and ceviri is None else []
+    giris = []          # arXiv tanıtımı yalnız gerçekten arXiv kaydı gösterilirse eklenir
     gosterilen, bloklar = [], []
     sabit = len('\n'.join([''] + giris + kuyruk))
     for index, row in enumerate(rows):
@@ -231,9 +308,34 @@ def academic_listing(rows, request, *, translate=False):
     sayim = (f'{len(gosterilen)} kayıt'
              + (f' · Türkçe {turkce_sayisi}' if turkce_sayisi else '')
              + (f' · arXiv {arxiv_sayisi}' if arxiv_sayisi else ''))
-    metin = ['Bulduğum akademik kaynaklar (' + sayim + '):'] + giris + bloklar + kuyruk
+    if ceviri is None and any(row.get('provider') == 'arxiv' for row in gosterilen):
+        giris = [_AKADEMIK_TANITIM]
+    metin = ['Bulduğum akademik kaynaklar (' + sayim + '):'] + giris + bloklar
     if len(gosterilen) < len(rows):
-        metin.insert(len(metin) - 1, f'(En ilgili {len(gosterilen)} kaynak gösterildi.)')
+        metin.append(f'(En ilgili {len(gosterilen)} kaynak gösterildi.)')
+    if news_rows is not None:
+        metin.append('')
+        if news_rows:
+            haber, gosterilen_haber = [], []
+            for index, row in enumerate(news_rows, start=1):
+                baslik = ' '.join(str(row.get('title') or '').split())
+                ozet = ' '.join(str(row.get('snippet') or '').split())
+                row['_tarih'] = str(row.get('published') or '').strip()
+                row['_kisa'] = len(ozet) > _OZET_KARAKTER
+                blok = _akademik_blok(index, row, baslik[:_BASLIK_KARAKTER]
+                                      + ('…' if len(baslik) > _BASLIK_KARAKTER else ''),
+                                      ozet[:_OZET_KARAKTER].rstrip(' ,;:'), etiket='Kanıt')
+                if len('\n'.join(haber + [''] + blok)) > _HABER_BUTCESI and haber:
+                    metin.append(f'(En ilgili {len(haber)} haber gösterildi.)')
+                    break
+                haber += ([''] if haber else []) + blok
+                gosterilen_haber.append(row)
+            metin.append(f'Son günlerin haberleri ({len(gosterilen_haber)}):')
+            metin += haber
+        else:
+            # Sessiz atlama yok: haber istenip bulunamadıysa söylenir.
+            metin.append('Son günlerde doğrulanmış haber bulunamadı.')
+    metin += kuyruk
     text = "\n".join(metin).strip()
     quotes = [' '.join(str(row.get('snippet') or '').split())[:180] for row in gosterilen
               if str(row.get('snippet') or '').strip()]
@@ -244,6 +346,7 @@ def academic_listing(rows, request, *, translate=False):
             # gerçek akademik kayıtlardan üretildiği için kanıt sayılır.
             'source_chars': max(okunan, len(text)),
             'source_quotes': quotes, 'academic_listing': True,
+            **({'news_rows': len(news_rows)} if news_rows else {}),
             'source_only': False}
 
 def browser_task(owner, data):
@@ -506,9 +609,11 @@ def run(owner, task, dependencies):
                 candidates = academic + [row for row in candidates if row['url'] not in seen]
             if not candidates:
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
-            if academic and not news:
+            if academic:
                 # Makale listesi isteği: model doğrulaması yerine kayıt listesi.
-                return academic_listing(academic, user_request, translate=True)
+                # Haber de istendiyse aynı turda verilir (kullanıcı: "makaleleri ve haberleri").
+                haber = news_rows_for(user_request, owner)[0] if news else None
+                return academic_listing(academic, user_request, translate=True, news_rows=haber)
             url = _url(candidates[0]['url'])
         article=None
         if news:

@@ -272,8 +272,10 @@ def preview(output):
         # satırı vardır; aşağıdaki tek-kaynaklı yol ilk "Kaynak:"ta kesip listeyi
         # tek kayda indiriyordu (canlı: "4 kayıt" yazıp 1 kayıt göründü).
         text = str(output.get('text') or '').strip()
-        if len(text) > 1200:
-            text = text[:1197].rsplit(' ', 1)[0] + '…'
+        # Haber bölümü de varsa liste daha uzun: iki bölüm de kesilmeden görünür.
+        limit = 2400 if output.get('news_rows') else 1200
+        if len(text) > limit:
+            text = text[:limit - 3].rsplit(' ', 1)[0] + '…'
         return text
     if output.get('source') and not output.get('news_article') and not output.get('news_report_evidence'):
         answer=str(output.get('text','')).split('\nKaynak:',1)[0].strip()

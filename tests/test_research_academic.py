@@ -91,7 +91,8 @@ class AcademicRequestTests(unittest.TestCase):
         # Akademik sonuç varken DDG engeli turu düşürmez.
         self.assertIn("modules/task_workers.py:research_public_search", source)
         # Makale listesi isteği model doğrulamasına düşmez (canlı hata 15:01).
-        self.assertIn("return academic_listing(academic, user_request, translate=True)", source)
+        self.assertIn("return academic_listing(academic, user_request, translate=True, news_rows=haber)",
+                      source)
 
 
 if __name__ == "__main__":
