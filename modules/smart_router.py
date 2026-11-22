@@ -617,6 +617,7 @@ def attempt_timeout_seconds() -> float | None:
         from config import load_settings
         raw = load_settings().get('attempt_timeout_s', 3.0)
     except Exception:
+        _record_failure('modules/smart_router.py:attempt_timeout_settings')
         return None
     if raw in (None, '', 0, '0', False):
         return None
@@ -677,6 +678,7 @@ def _call_with_attempt_timeout(request: ModelRequest, adapter: ProviderAdapter, 
     except Exception as exc:
         # SDK'ya özgü zaman aşımı/bağlantı tipleri de olabilir: sınırı biz kestiysek
         # bu bir sağlayıcı hatası değildir, sağlayıcı ceza almamalı.
+        _record_failure('modules/smart_router.py:attempt_timeout_provider')
         if time.monotonic() - basladi >= limit * 0.9:
             raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
         raise
