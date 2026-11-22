@@ -92,7 +92,7 @@ def search_public(query: str) -> list[dict]:
 
 # --- arXiv (anahtarsız, resmî Atom API) -------------------------------------
 _ACADEMIC_HINT = re.compile(
-    '(?:^|[^0-9A-Za-zÇĞİÖŞÜçğıöşü])(makale|makalesi|makaleler|akademik|paper|papers|arxiv|bilimsel|tez|çalışma|calisma|literatür|literatur)(?:[^0-9A-Za-zÇĞİÖŞÜçğıöşü]|$)', re.I)
+    '(?:^|[^0-9A-Za-zÇĞİÖŞÜçğıöşü])(makale[a-zçğıöşü]*|akademik|paper[a-z]*|arxiv|bilimsel|tez[a-z]*|çalışma|calisma|literatür|literatur)(?:[^0-9A-Za-zÇĞİÖŞÜçğıöşü]|$)', re.I)
 
 
 def academic_requested(text: str) -> bool:
