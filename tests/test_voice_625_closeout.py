@@ -99,7 +99,8 @@ class VoiceCloseoutTests(unittest.TestCase):
                 return result
         runtime=SimpleNamespace(
             stop_event=stop,pause_listening=threading.Event(),flags={'mic':True},WAKE_WORD='Jarvis',
-            mic_cancel=threading.Event(),time=SimpleNamespace(time=lambda:100.),
+            mic_cancel=threading.Event(),speech_pending=threading.Event(),
+            time=SimpleNamespace(time=lambda:100.),
             audio_lock=StopAtSecondLock(lane,stop),
             voice=SimpleNamespace(recognize=Mock(return_value='jarvis'),capture=Mock(return_value=b'first'),last_noise=1),
             _AnyAbort=lambda *events:None,find_wake=lambda text:0,_strip_wake=lambda text:'',

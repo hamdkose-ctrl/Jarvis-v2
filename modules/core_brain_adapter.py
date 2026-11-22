@@ -8,6 +8,7 @@ from contextvars import ContextVar
 from typing import Any, Mapping, TYPE_CHECKING
 
 from modules.brain_contracts import BrainFeedback
+from modules.diagnostics import record_failure as _record_failure
 
 # Core owns request-local legacy compatibility. The scopes only contain
 # detached JSON text, never live Brain EntryResult or feedback objects.
@@ -405,8 +406,7 @@ def _academic_outage_answer(command: str, owner=None):
     try:
         rows = task_workers.search_academic_rows(request, request)
     except Exception:
-        from modules import diagnostics
-        diagnostics.record_failure('modules/core_brain_adapter.py:academic_outage_search')
+        _record_failure('modules/core_brain_adapter.py:academic_outage_search')
         return None
     if not rows:
         return None
@@ -414,8 +414,7 @@ def _academic_outage_answer(command: str, owner=None):
     try:
         listing = task_workers.academic_listing(rows, request, news_rows=haber)
     except Exception:
-        from modules import diagnostics
-        diagnostics.record_failure('modules/core_brain_adapter.py:academic_outage_listing')
+        _record_failure('modules/core_brain_adapter.py:academic_outage_listing')
         return None
     text = str(listing.get('text') or '').strip()
     return text or None

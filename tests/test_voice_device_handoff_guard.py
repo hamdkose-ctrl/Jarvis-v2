@@ -107,6 +107,7 @@ class WakeFollowupRaceTests(TestCase):
         runtime = SimpleNamespace(
             stop_event=threading.Event(), pause_listening=threading.Event(),
             flags={"mic": True}, WAKE_WORD="Hey Jarvis", mic_cancel=threading.Event(),
+            speech_pending=threading.Event(),
             time=SimpleNamespace(time=lambda: 100.0),
             audio_lock=_RaceAtSecondMicLock(lane),
             voice=SimpleNamespace(recognize=Mock(return_value=""), capture=Mock()),
@@ -134,6 +135,7 @@ class WakeFollowupRaceTests(TestCase):
         runtime = SimpleNamespace(
             stop_event=stop, pause_listening=threading.Event(),
             flags={"mic": True}, WAKE_WORD="Hey Jarvis", mic_cancel=threading.Event(),
+            speech_pending=threading.Event(),
             time=SimpleNamespace(time=lambda: 100.0),
             audio_lock=_RaceAtSecondMicLock(lane, stop),
             voice=SimpleNamespace(
@@ -321,6 +323,7 @@ class ManualMicLockRaceTests(TestCase):
         return SimpleNamespace(
             audio_lock=lock, flags={"mic": True},
             stop_event=threading.Event(), mic_cancel=threading.Event(),
+            speech_pending=threading.Event(),
             emit=Mock(), voice=SimpleNamespace(capture=Mock(return_value=b"recorded")),
         )
 

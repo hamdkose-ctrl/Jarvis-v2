@@ -121,9 +121,9 @@ def get_youtube_key() -> str:
 
 def save_api_key(key: str) -> None:
     """Anahtarı korumalı yazar (Windows'ta yalnız bu kullanıcı hesabı çözebilir)."""
-    global API_KEY
+    global _API_KEY
     KEY_FILE.write_text(_privacy().protect(key.strip()), encoding="utf-8")
-    API_KEY = key.strip()
+    _API_KEY = key.strip()
 
 
 def get_api_key() -> str:
@@ -163,4 +163,18 @@ def legacy_key_protected() -> bool:
         record_failure('config.py:legacy_key_status')
         return False
 
-API_KEY = get_api_key()
+# Tembel API_KEY: config içe aktarılırken modules.privacy henüz yarı kurulmuş olabilir.
+# Canlı kusur (22 Kasım 2026): privacy -> config -> get_api_key -> privacy.unprotect
+# döngüsü `partially initialized module` hatası veriyordu; iki test bu yüzden tek
+# başına çalışmıyordu. Anahtar ilk okunuşta hesaplanır, sonra sabit kalır.
+_API_KEY: str | None = None
+
+
+def __getattr__(name):
+    """`config.API_KEY` erişimi tembel hesaplanır (döngü kırılır, değer sabit kalır)."""
+    if name == 'API_KEY':
+        global _API_KEY
+        if _API_KEY is None:
+            _API_KEY = get_api_key()
+        return _API_KEY
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
