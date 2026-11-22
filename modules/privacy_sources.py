@@ -19,7 +19,11 @@ A label proves where data came from, not what it contains. Producers must label 
 binding point (P0-3), and ``mark_public`` over content that was already PRIVATE (history, memory,
 a ``mark_private`` payload) is forbidden by design rule.
 
-This module is a contract; nothing in the request path calls it yet (wired by the Router, P0-3).
+Wired end to end (P0-1): the research worker labels the page text it actually read
+(``mark_public('public_page_reader' | 'news_pipeline', text)``) and hands that evidence to the
+model call; ``smart_router.request_route`` derives the route class from the evidence, so a
+PUBLIC claim that the evidence does not support is demoted to PRIVATE. ``llm.research`` uses the
+same authority for a whole labelled batch.
 """
 from __future__ import annotations
 

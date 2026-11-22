@@ -83,6 +83,10 @@ class ModelRequest:
     deadline: float | None = None
     cancelled: Any = None
     route: str | None = None
+    # Provenance of the items this request carries (privacy_sources labels). When supplied,
+    # it *is* the route authority: a PUBLIC claim without all-public evidence is demoted to
+    # PRIVATE, whatever the caller wrote in ``route``. ``None`` keeps the legacy caller route.
+    evidence: tuple[Any, ...] | None = None
     exclude_providers: frozenset[str] = frozenset()
     max_network_attempts: int = 2
 
@@ -207,6 +211,27 @@ def _skip(provider, reason, reason_code, seconds=0, model=''):
 
 def _route_of(route):
     return route if route in provider_privacy.ROUTES else _DEFAULT_ROUTE
+
+
+def request_route(request):
+    """Route class of a request: evidence provenance wins, caller route is the fallback.
+
+    Fail closed in one direction only: evidence that is not entirely genuine, allowlisted
+    PUBLIC can never produce PUBLIC_RESEARCH. Evidence is never upgraded to PUBLIC here.
+    """
+    evidence = getattr(request, 'evidence', None)
+    if evidence is None:
+        return _route_of(getattr(request, 'route', None))
+    from modules import privacy_sources
+    try:
+        items = tuple(evidence)
+    except TypeError:
+        return _DEFAULT_ROUTE
+    if not items:
+        return _DEFAULT_ROUTE
+    if privacy_sources.classify(items) is privacy_sources.RouteClass.PUBLIC:
+        return provider_privacy.ROUTE_PUBLIC_RESEARCH
+    return _DEFAULT_ROUTE
 
 
 def _health_key(owner,provider,model,*,connection_id=None,revision=None):
@@ -499,7 +524,7 @@ def _plan_request(request: ModelRequest) -> RoutePlan:
             or request.selection_mode not in ('configured','free','local_only')):
         raise ValueError('Router çağrı profili/veri kapsamı geçersiz.')
     task = 'vision' if 'vision' in request.features else 'text'
-    chosen = selection(request.owner, task, request.route,data_scope=request.data_scope)
+    chosen = selection(request.owner, task, request_route(request),data_scope=request.data_scope)
     if request.profile=='local_only' or request.selection_mode=='local_only':
         chosen={'candidates':[p for p in chosen['candidates'] if p=='ollama'],
                 'skipped':chosen['skipped']}

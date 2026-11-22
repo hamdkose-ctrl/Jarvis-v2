@@ -344,6 +344,10 @@ def run(owner, task, dependencies):
             url = source['url']
             text = source['text']
         if len(text)<80: raise ValueError('Sayfada yeterli metin bulunamadı.')
+        # Bağlama noktası (P0-1): kaynak metni gerçekten kamuya açık bir okuyucudan geldi.
+        # Etiket istek yoluna girer; rota sınıfını router kanıttan hesaplar, buradan seçilmez.
+        from modules import privacy_sources
+        public_evidence=(privacy_sources.mark_public('news_pipeline' if article else 'public_page_reader', text),)
         from modules import model_wait,research_evidence
         from datetime import datetime, timezone, timedelta
         today=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
@@ -360,7 +364,7 @@ def run(owner, task, dependencies):
                        '"scope":"istekte ve alıntıda açıkça bulunan yer/kapsam"}. '
                        'Yayın tarihi olay tarihi değildir. Olay tarihi ve kapsam aynı alıntıda açıkça bulunmalı. '
                        'Eksik bilgiyi veya yer bilgisini tahmin etme; destek yoksa supported:false ver.',
-                validator=event_evidence, profile='public_research')
+                validator=event_evidence, profile='public_research', evidence=public_evidence)
             evidence=event_evidence(answer)
             event_proof={'claim':json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip())),
                          'source_text':text,'request':user_request,'reference':reference.isoformat()}
@@ -378,7 +382,7 @@ def run(owner, task, dependencies):
                        'Soruya cevap yoksa supported:false, answer:"", quotes:[] ver. En çok 5 alıntı; alıntı gerçek kaynakta bulunmalı. '
                        'Güncel yıl/tarih istekte verilidir; eski yılı varsayma. Yayın tarihini uydurma, sayfada yoksa bilinmediğini belirt.',
                 validator=lambda value:research_evidence.parse(value,text,allow_unsupported=True),
-                profile='public_research')
+                profile='public_research', evidence=public_evidence)
             evidence=research_evidence.parse(answer,text)
         summary=(article['title']+'\nYayın tarihi: '+article['published']+'\n'+'\n'.join(evidence['quotes'])) if article else evidence['answer']
         source_claims=[]
