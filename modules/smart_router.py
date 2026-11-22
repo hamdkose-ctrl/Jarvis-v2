@@ -600,6 +600,61 @@ def _rejected_before_generation(attempts, limit):
     )
 
 
+class _AttemptTimeout(RuntimeError):
+    """Tek sağlayıcı denemesi kendi süre sınırını aştı; sıradaki sağlayıcı denenir.
+
+    İstek bütçesi (requests_state.LocalDeadline) ile karıştırılmaz: burada tur
+    iptal edilmez, yalnız yavaş sağlayıcı bırakılır. Sağlayıcı bu yüzden sağlık
+    cezası almaz (geçici yavaşlık, kalıcı hata değil).
+    """
+
+    reason_code = 'PROVIDER_ATTEMPT_TIMEOUT'
+
+
+def attempt_timeout_seconds() -> float | None:
+    """Ayarlanabilir deneme sınırı; 0/boş ise kapalı (eski davranış)."""
+    try:
+        from config import load_settings
+        raw = load_settings().get('attempt_timeout_s', 3.0)
+    except Exception:
+        return None
+    if raw in (None, '', 0, '0', False):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if 0.5 <= value <= 20 else None
+
+
+def _call_with_attempt_timeout(request: ModelRequest, adapter: ProviderAdapter, *, enabled: bool):
+    """Etkileşimli turda tek sağlayıcı denemesini sınırlar; alternatif yoksa beklemez."""
+    # Kapsam bilerek dar: yalnız konuşma cevabı. Anlama (brain_understanding)
+    # kendi 30 sn'lik bütçesini ve büyük istemini korur; uzun işler hiç kısılmaz.
+    if not enabled or request.profile != 'conversation' or request.work_class != 'interactive':
+        return adapter()
+    limit = attempt_timeout_seconds()
+    if limit is None:
+        return adapter()
+    from modules import requests_state
+    kalan = requests_state.budget_remaining()
+    if kalan is not None and kalan <= limit + 0.25:
+        return adapter()          # dış bütçe zaten daha sıkı; onu bozmayız
+    import requests as _requests
+    basladi = time.monotonic()
+    try:
+        with requests_state.budget(limit):
+            return adapter()
+    except requests_state.LocalDeadline as exc:
+        # Yalnız GERÇEKTEN bizim deneme sınırımız dolduysa yavaş sağlayıcı bırakılır.
+        # Dış istek bütçesinden gelen iptal/zaman aşımı aynen yukarı çıkar.
+        if time.monotonic() - basladi >= limit * 0.9:
+            raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
+        raise
+    except _requests.Timeout as exc:
+        raise _AttemptTimeout('Sağlayıcı denemesi süre sınırını aştı.') from exc
+
+
 def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 *, validator: Callable[[str], Any] | None = None, attempts=None, record=None) -> RouteResult:
     """Execute a plan with one authority for retry, repair and fallback.
@@ -668,10 +723,17 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
             if spec.provider in _CLOUD_PROVIDERS and spec.binding:
                 attempt['binding'] = spec.binding
             attempts.append(attempt)
+            # Sıradaki aday var mı? Ancak o zaman yavaş sağlayıcı bırakılabilir.
+            try:
+                _pos = next(i for i, item in enumerate(candidates) if item is spec)
+            except StopIteration:
+                _pos = len(candidates) - 1
+            alternatif = _pos < len(candidates) - 1 or bool(route_plan.deferred_local)
             try:
                 from modules import usage_meter
                 with usage_meter.capture_attempt(request.owner,request.request_id,attempt_id) as measured:
-                    response = adapter(spec)
+                    response = _call_with_attempt_timeout(
+                        request, lambda: adapter(spec), enabled=alternatif)
                 raw_usage=response.usage if isinstance(response,AdapterResponse) else measured['usage']
                 attempt['usage']={k:raw_usage.get(k) if type(raw_usage.get(k)) is int and raw_usage[k]>=0 else None for k in ('input_tokens','output_tokens','reasoning_tokens','cached_tokens','total_tokens')}
                 if spec.connection_id:
@@ -729,8 +791,14 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                         row['hint'] = 'ollama_missing'
                 if row['kind'] == 'quota':
                     row['reason_code'] = failure_policy.reason_code(classified)
+                if isinstance(classified, _AttemptTimeout):
+                    # Kullanıcıya "zaman aşımı" olarak görünsün; sağlayıcı hatası değil.
+                    row['kind'] = 'timeout'
+                    row['error'] = 'Timeout'
                 attempt.update(row,state='failed')
-                if not validation_error and not request_limit and type(exc).__name__ != 'ImageCapabilityError':
+                if (not validation_error and not request_limit
+                        and not isinstance(classified, _AttemptTimeout)
+                        and type(exc).__name__ != 'ImageCapabilityError'):
                     with _LOCK:
                         _HEALTH[_failure_health_key(request,spec,exc)] = {
                             'until': time.monotonic()+cooldown(spec.provider, exc), 'error': type(exc).__name__}
