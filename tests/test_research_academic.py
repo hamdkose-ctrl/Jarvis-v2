@@ -83,7 +83,10 @@ class AcademicRequestTests(unittest.TestCase):
     def test_research_worker_wires_academic_candidates_first(self):
         source = Path(__file__).resolve().parents[1].joinpath("modules/task_workers.py").read_text(
             encoding="utf-8")
-        self.assertIn("research_providers.search_academic(_academic_query(data['query']))", source)
+        # Arama kuralı tek tanımda (search_academic_rows): Türkçe önce, arXiv sonra.
+        self.assertIn("research_providers.search_turkish(query)", source)
+        self.assertIn("research_providers.search_academic(_academic_query(query))", source)
+        self.assertIn("academic = search_academic_rows(data['query'], user_request) if akademik else []", source)
         self.assertIn("research_providers.academic_requested(user_request)", source)
         # Akademik sonuç varken DDG engeli turu düşürmez.
         self.assertIn("modules/task_workers.py:research_public_search", source)

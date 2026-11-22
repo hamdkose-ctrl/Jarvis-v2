@@ -159,6 +159,21 @@ def _akademik_blok(number, row, baslik, ozet):
     return satirlar
 
 
+def search_academic_rows(query, user_request=''):
+    """Akademik kayıtları toplar: Türkçe kaynak (Crossref) önce, sonra arXiv.
+
+    Liste isteğinde ve model yokken aynı kural kullanılır; iki yerde ayrı sıralama
+    yazılmaz (canlı 22 Kasım 2026: model çöktüğünde istek boş mesajla düşüyordu).
+    """
+    from modules import research_providers
+    turkce = research_providers.search_turkish(query)
+    academic = research_providers.search_academic(_academic_query(query))
+    if not turkce:
+        return academic
+    gorulen = {row['url'] for row in turkce}
+    return turkce + [row for row in academic if row['url'] not in gorulen]
+
+
 def academic_listing(rows, request, *, translate=False):
     """Akademik kayıtları sade kaynak listesi olarak döndürür (soru-cevap doğrulaması yok).
 
@@ -478,12 +493,7 @@ def run(owner, task, dependencies):
                 raise ValueError('Güncel haber araştırması doğrulanmış makale URL’siyle başlamalı.')
             akademik = research_providers.academic_requested(user_request)
             # Türkçe kaynak önce gelir: kullanıcı Türkçe okuyor (22 Kasım 2026 geri bildirimi).
-            turkce = research_providers.search_turkish(data['query']) if akademik else []
-            academic = (research_providers.search_academic(_academic_query(data['query']))
-                        if akademik else [])
-            if turkce:
-                gorulen = {row['url'] for row in turkce}
-                academic = turkce + [row for row in academic if row['url'] not in gorulen]
+            academic = search_academic_rows(data['query'], user_request) if akademik else []
             try:
                 candidates = research_providers.search_public(data['query'])
             except ValueError:
