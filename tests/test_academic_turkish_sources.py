@@ -164,11 +164,11 @@ class RelevanceAndFormatTests(unittest.TestCase):
             text = academic_listing(rows, 'yapay zeka makaleleri', translate=True)['text']
         # Kullanıcının istediği düzen: numaralı sade blok — başlık, Özet, Kaynak.
         self.assertIn('2 kayıt · Türkçe 1 · arXiv 1', text)
-        self.assertIn('1) Yapay Zeka ve Hukuk — 2025-11', text)
+        self.assertIn('**1.** Yapay Zeka ve Hukuk — 2025-11', text)
         self.assertIn('\n\nÖzet: Hukuki sorumluluk tartışılıyor.\n', text)
         self.assertIn('Kaynak: https://doi.org/10.1/x', text)
-        self.assertIn('2) Dikkat Yeterli — 2017-06-12 · arXiv', text)
-        self.assertLess(text.index('1) Yapay Zeka ve Hukuk'), text.index('2) Dikkat Yeterli'))
+        self.assertIn('**2.** Dikkat Yeterli — 2017-06-12 · arXiv', text)
+        self.assertLess(text.index('**1.** Yapay Zeka ve Hukuk'), text.index('**2.** Dikkat Yeterli'))
 
 
 class BudgetAndRepeatTests(unittest.TestCase):
@@ -188,7 +188,7 @@ class BudgetAndRepeatTests(unittest.TestCase):
         out = academic_listing(self.long_rows(), 'yapay zeka makaleleri')
         self.assertLessEqual(len(out['text']), persona_contract.PREVIEW_CHARS['orta'])
         self.assertNotIn('Metnin devamı', out['text'])
-        shown = sum(1 for line in out['text'].splitlines() if line[:2] in {f'{n})' for n in range(1, 10)})
+        shown = sum(1 for line in out['text'].splitlines() if line.startswith(tuple(f'**{n}.**' for n in range(1, 10))))
         self.assertGreaterEqual(shown, 2)
         self.assertIn(f'{shown} kayıt', out['text'])
         self.assertIn('kaynak gösterildi', out['text'])       # kırpma sessiz değil
@@ -224,7 +224,7 @@ class PreviewPassThroughTests(unittest.TestCase):
                 'Kaynak: https://doi.org/10.1/b')
         out = research_evidence.preview({'academic_listing': True, 'text': text,
                                          'source': 'https://doi.org/10.1/a', 'state': 'done'})
-        self.assertIn('1) Birinci Makale', out)
+        self.assertIn('1) Birinci Makale', out)  # preview metni olduğu gibi
         self.assertIn('2) İkinci Makale', out)          # ikinci kayıt kaybolmaz
         self.assertIn('https://doi.org/10.1/b', out)
 
@@ -276,3 +276,29 @@ class RepeatedGoalLineTests(unittest.TestCase):
         self.assertNotIn('kaynakları doğrula', text)           # kanıtı zaten yazıldı
         self.assertNotIn('sonuçları raporla', text)
         self.assertEqual(text.count('Bulduğum akademik kaynaklar'), 1)
+
+
+class NumberingSurvivesMarkdownTests(unittest.TestCase):
+    """Canlı kusur (22 Kasım 2026): "numara olsun" dendi, numaralar ekranda görünmedi.
+
+    Sebep arayüzde: `webui/nx.js` markdown'ı `^\s*\d+[.)]\s+` satırını numaralı listeye
+    çevirip numarayı yutuyor; liste stili numarasız olduğu için ekranda hiç numara yok.
+    Numara artık kalın metin olarak yazılır (`**1.**`), markdown listeye çevirmez.
+    """
+
+    def test_numbers_are_bold_text_not_a_markdown_list(self):
+        from modules.task_workers import academic_listing
+        rows = [{'provider': 'crossref', 'title': 'Yapay Zeka ve Hukuk', 'url': 'https://doi.org/10.1/x',
+                 'published': '2025-11', 'snippet': 'Özet.'}]
+        text = academic_listing(rows, 'yapay zeka')['text']
+        self.assertIn('**1.** Yapay Zeka ve Hukuk — 2025-11', text)
+        for line in text.splitlines():
+            self.assertIsNone(__import__('re').match(r'\s*\d+[.)]\s+', line),
+                              'markdown listesine dönüşen satır: ' + line)
+
+    def test_ui_markdown_turns_plain_numbers_into_a_list(self):
+        """Kanıt: eski biçim gerçekten listeye dönüşüyordu (kusurun kaynağı)."""
+        import re
+        source = (Path(__file__).resolve().parents[1] / 'webui/nx.js').read_text(encoding='utf-8')
+        self.assertIn(r"/^\s*\d+[.)]\s+(.*)/", source)
+        self.assertTrue(re.match(r"\s*\d+[.)]\s+", '1) Başlık'))

@@ -116,7 +116,9 @@ def _akademik_blok(number, row, baslik, ozet):
     """Tek kaydın bloğu: sıra numarası, başlık — tarih, özet, kaynak."""
     tarih = str(row.get('_tarih') or '').strip()
     tur = ' · arXiv' if row.get('provider') == 'arxiv' else ''
-    satirlar = [f'{number}) {baslik}' + (f' — {tarih}' if tarih else '') + tur, '']
+    # Numara kalın yazılır: arayüz markdown'ı '1) ...' satırını listeye çevirip
+    # numarayı yutuyordu (canlı: liste numarasız görünüyordu).
+    satirlar = [f'**{number}.** {baslik}' + (f' — {tarih}' if tarih else '') + tur, '']
     if ozet:
         satirlar.append('Özet: ' + ozet + ('…' if row.get('_kisa') else ''))
     satirlar.append('Kaynak: ' + str(row.get('url') or '').strip())
