@@ -107,6 +107,27 @@ def _edge_catalog(runtime) -> VoiceCatalog:
     return VoiceCatalog(tuple(specs))
 
 
+def _sapi_catalog(runtime) -> VoiceCatalog | None:
+    """Kurulu Windows seslerinden katalog; hiç ses yoksa None (hat Edge'de kalır)."""
+    from modules import voice_sapi
+    voices = voice_sapi.installed_voices()
+    if not voices:
+        return None
+    specs = tuple(VoiceSpec(key, label, "sapi", asset) for key, label, asset in voices[:6])
+    return VoiceCatalog(specs) if specs else None
+
+
+def voice_engine() -> str:
+    """Kullanıcının seçtiği ses motoru: 'edge' (varsayılan) veya 'windows' (yerel)."""
+    try:
+        from config import load_settings
+        value = str(load_settings().get("voice_engine") or "edge").strip().lower()
+    except Exception:
+        _record_failure("modules/voice_runtime.py:voice_engine")
+        return "edge"
+    return value if value in ("edge", "windows") else "edge"
+
+
 def maybe_start(runtime):
     """Return (voice_lane, piper_enabled); the lane is the single active owner.
 
@@ -127,6 +148,19 @@ def maybe_start(runtime):
         # ses yine çalışır, yalnız ilk cümle yavaş olur.
         threading.Thread(target=_preload, args=(synthesizer,), name="jarvis-piper-preload",
                          daemon=True).start()
+    elif voice_engine() == "windows":
+        from modules import voice_sapi
+        catalog = _sapi_catalog(runtime)
+        if catalog is not None:
+            lane = VoiceLane(runtime, catalog, voice_sapi.SapiSynthesizer(), WavePlayer())
+            enabled = True
+            logging.getLogger("voice").info("ses motoru: Windows (yerel) · %d ses", len(catalog.choices()))
+        else:
+            # Windows'ta kurulu ses yok: sessizce başka ses uydurmak yerine Edge'e dön,
+            # ama neden döndüğünü kayda yaz (arayüz "Yerel" derken Edge çalmasın diye).
+            logging.getLogger("voice").warning("ses motoru 'windows' seçili ama kurulu Windows sesi yok; Edge kullanılıyor")
+            lane = VoiceLane(runtime, _edge_catalog(runtime), EdgeSynthesizer(), EdgePlayer())
+            enabled = False
     else:
         lane = VoiceLane(runtime, _edge_catalog(runtime), EdgeSynthesizer(), EdgePlayer())
         enabled = False
@@ -567,6 +601,12 @@ class VoiceLane:
         only known at synthesis, so it is never pre-blocked or substituted here.
         """
         spec = self.catalog.require(voice_id)
+        from modules import voice_sapi
+        if isinstance(self._synthesize, voice_sapi.SapiSynthesizer):
+            installed = {asset for _key, _label, asset in voice_sapi.installed_voices()}
+            if spec.asset_id not in installed:
+                raise ValueError("Seçilen Windows sesi artık kurulu değil.")
+            return spec
         if isinstance(self._synthesize, PiperSynthesizer):
             try:
                 model_path = self._synthesize._model(spec)

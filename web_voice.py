@@ -33,12 +33,17 @@ class WebVoice:
                 continue
             info = 'Yerel Piper' if spec.backend == 'piper' else 'Edge (çevrimiçi)'
             installed.append({'key': spec.voice_id, 'name': spec.label, 'info': info})
+        from modules import voice_runtime as _vr
+        engine = _vr.voice_engine()
         selected = pr.get('voice') or 'tr_erkek'
         rate_supported = any(item['key'] == selected for item in installed)
         return {
             'local': True, 'rate_supported': rate_supported,
             'voices': installed, 'voice': selected,
             'rate': rate if isinstance(rate, int) else 5,
+            'engine': engine,
+            'engines': [{'key': 'edge', 'name': 'Edge', 'info': 'Çevrimiçi · doğal ses'},
+                        {'key': 'windows', 'name': 'Windows', 'info': 'Yerel · internet gerekmez'}],
         }
 
     def voice_set(self, key: str) -> bool:
