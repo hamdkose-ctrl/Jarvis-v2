@@ -1314,3 +1314,11 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - `voice_runtime`: üç yerel hat `WaveSink()` kullanır.
 - Ölçüm (aynı üç cümle): toplam oran **1,51 → 1,11/1,08**; en büyük boşluk 49 → **0 ms**; underrun 0. Uçtan uca tek parça 137 karakter: 9,28 sn ses → 9,55 sn çalma (**1,03**).
 - Kanıt: `tests/test_voice_local_sink.py` (7 test), ses paketi 104 test OK. Canlı kurulum güncellendi, Jarvis yeniden başlatıldı (pid 10292).
+
+### 2026-11-23 — Smart Turn modeli kuruldu, ÖLÇÜLMEDEN açılmadı (PR bekliyor)
+
+- Referansın **aslı** açık: Stonic sesi Pipecat çatısı + **Silero VAD** (MIT) + **Smart Turn v3** (BSD-2-Clause) modelleriyle kuruyor. Bu ikisi indirildi: `~/.jarvis/turn_models/smart-turn-v3.0.onnx` (8,7 MB), `silero_vad.onnx` (2,2 MB).
+- `modules/voice_smart_turn.py`: modeli yükler, son 8 saniyelik sesten "konuşmacı bitirdi mi" **olasılığı** üretir. Girdi sözleşmesi: Whisper log-mel 80×800; `transformers` kuruluysa **referans** özellik çıkarımı, yoksa numpy sürümü. Model yoksa/bozuksa `None` → hat noktalama kuralına düşer, kilitlenmez.
+- **Açılmadı, çünkü ölçüm ayırt etmiyor:** sentetik (Piper TTS) sesle tam cümle 0,50 · yarım cümle 0,52 · sessizlik 0,73 — model insan sesiyle eğitildiği için TTS sesi dağılım dışı. Ayrıca elle yazılan numpy mel'in referansla hizalı korelasyonu 0,40 (filtre normalizasyonu farkı) → sayı ayrışmadıkça açmak "ölçmeden gönderme" olurdu.
+- Karar aracı: `scripts/turn_model_probe.py` — mikrofonla üç kayıt (tam / yarım / kısa) alıp olasılıkları yazar, hiçbir ses diske yazılmaz. Ayrışırsa model hatta bağlanır; ayrışmazsa noktalama kuralı kalır.
+- Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
