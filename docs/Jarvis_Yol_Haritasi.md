@@ -1344,3 +1344,9 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - `modules/fast_commands.py`: `chitchat(text)` — **kapalı sözlük + tam eşleşme** (merhaba, selam, günaydın, naber, nasılsın, teşekkürler, hoşça kal...). İçinde başka istek olan cümle ("merhaba, hava nasıl?") buradan geçmez, Brain'e gider. Cevaplar kısa, tek cümle, "yapay zeka" iddiası yok, saat+uzunlukla döner (aynı söz her seferinde aynı cevabı vermez).
 - `modules/engine_loop.py`: `_fast_command_turn` sırası **selamlama → hesap → hızlı komut**; hiçbiri eşleşmezse yol eskisi gibi.
 - Kanıt: `tests/test_fast_commands.py` 21 → **26 test** (selamlama cevaplanır, istek yutan cümle geçmez, uzun metin yok sayılır, determinizm, sıra bekçisi).
+
+
+### 2026-11-24 — Doğrulama süresi ve test hijyeni
+
+- **CI'da "başarısız" görünen şey hata değil, süre aşımıydı:** 23 Kasım 21:26 koşusu `unittest discover` 900 saniyede bitmediği için düştü; tek bir test hatası yoktu. Test sayısı ~7.1k'ya çıktı, koşucu makine Jarvis açıkken ve paralel iş varken yavaşlıyor. `modules/validation.py` varsayılan tavanı **900 → 1800 sn** (yine PASS sayılmaz; `JARVIS_VALIDATION_TIMEOUT` ile yönetilir).
+- **Testte ağ yok:** `test_finance_incomplete_request` gerçek TCMB/Frankfurter çağrısı yapıyordu; kur/piyasa fonksiyonları taklit edilerek test hızlı ve kararlı hâle getirildi (46 test 0,9 sn).

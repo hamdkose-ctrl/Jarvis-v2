@@ -6,6 +6,7 @@ oldu ve kullanıcı hiç cevap alamadı (log: finance.py:331:_asset_answer KeyEr
 Kural: eksik alan tahmin edilmez, tek cümleyle geri sorulur.
 """
 import unittest
+from unittest.mock import patch
 
 from modules import finance
 
@@ -29,9 +30,12 @@ class IncompleteRequest(unittest.TestCase):
         self.assertIn('anlayamadım', reply)
 
     def test_every_answer_is_a_string(self):
-        for request in ({}, {'asset': 'GOLD'}, {'asset': 'USD', 'kind': 'gram'},
-                        {'source': 'USD'}, {'list': []}):
-            self.assertIsInstance(finance.answer_request(request), str, request)
+        # Ağ yok: kur/piyasa gerçekten çekilirse test yavaş ve kararsız olur.
+        from decimal import Decimal
+        with patch.object(finance, "rates", return_value=({"USD": Decimal("40"), "TRY": Decimal(1)}, "test")),              patch.object(finance, "_asset_answer", return_value="tam"):
+            for request in ({}, {'asset': 'GOLD'}, {'asset': 'USD', 'kind': 'gram'},
+                            {'source': 'USD'}, {'list': []}):
+                self.assertIsInstance(finance.answer_request(request), str, request)
 
     def test_complete_asset_request_still_reaches_market_path(self):
         """Eksik alan kontrolü tam isteği engellemez: piyasa yoluna girer."""

@@ -18,14 +18,17 @@ SMOKE_GROUPS = ('headless_smoke', 'maintenance_smoke', 'voice_actions_smoke', 'p
 def python_timeout():
     """Tam Python testleri için fail-closed üst sınır (sn).
 
-    Windows'taki ~6.5k test geçici olarak eski 600 saniyelik tavana
-    takılabiliyor; 900 sn sadece tamamlanma payıdır, PASS sayılmaz.
-    JARVIS_VALIDATION_TIMEOUT ile aynı CI/gerçek PC watcher akışı yönetilir.
+    Windows'taki ~7.1k test 900 saniyelik tavanı aşabiliyor: koşucu makine
+    Jarvis açıkken ve başka bir CI işi paralel çalışırken yavaşlıyor, süre
+    aşımı "başarısız" gibi görünüyor (canlı: 23 Kasım 21:26 koşusu tam bu
+    nedenle düştü, tek bir test hatası yoktu). 1800 sn de PASS sayılmaz;
+    yalnızca tamamlanma payıdır. JARVIS_VALIDATION_TIMEOUT ile aynı akış
+    yönetilir.
     """
     try:
-        return max(60, int(os.environ.get('JARVIS_VALIDATION_TIMEOUT') or 900))
+        return max(60, int(os.environ.get('JARVIS_VALIDATION_TIMEOUT') or 1800))
     except ValueError:
-        return 900
+        return 1800
 
 
 def _record_failure(location):
