@@ -810,13 +810,15 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         s = config.load_settings()
         return {"mode": privacy.mode(), "modes": privacy.MODES, "redact": privacy.redact_enabled(),
                 "approve": bool(s.get("approve_sensitive", True)), "tray": bool(s.get("tray", True)),
+                "public_read": privacy.public_read_enabled(),
                 "key_protected": config.legacy_key_protected()}
 
     def privacy_set(self, data: dict) -> dict:
         ch: dict = {}
         if data.get("mode") in privacy.MODES:
             ch["privacy_mode"] = data["mode"]
-        for k, name in (("redact", "redact"), ("approve", "approve_sensitive"), ("tray", "tray")):
+        for k, name in (("redact", "redact"), ("approve", "approve_sensitive"), ("tray", "tray"),
+                        ("public_read", "public_read")):
             if k in data:
                 ch[name] = bool(data[k])
         config.save_settings(**ch)

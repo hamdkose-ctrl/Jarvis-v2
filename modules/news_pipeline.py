@@ -290,7 +290,8 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
             from modules import privacy, service_store
             service_store.identity(owner)
             if blocked := privacy.blocked('web'):
-                raise PermissionError(blocked)
+                if not privacy.public_read(str(url)):
+                    raise PermissionError(blocked)
         key = (owner, url, query or '')
         with _lock:
             hit = _CACHE.get(key)

@@ -1237,3 +1237,11 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 ### Masaüstü arayüzü — 21 Kasım 2026
 
 Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç sayfaları koyu lacivert temada birleşir. Ana ekranda cam halkalar görünür. Dosyalar sayfası seçili PDF’nin ilk sayfasını ve desteklenen görselleri yerelde önizler. Hologram, eski sahne, arka plan dosyaları ve dekoratif görünüm komutları kaldırılır. Teslim indirme aynı kullanıcı ve doğrulanmış iş/adım kanıtına bağlıdır. CI, PC ve fiziksel ses kabulü kaynak sürümüne göre ayrıca izlenir.
+
+
+### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
+
+- Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.
+- Çözüm tek kapıda: `modules/privacy.public_read(url)` = mod + `public_read` ayarı + alan adı izin listesi. İzin listesi arXiv, CrossRef, doi.org ve 19 haber sitesidir (`publisher_news.GENERAL_SOURCES` ile aynı). `modules/public_sources.fetch` kapıyı her yönlendirmede yeniden denetler; `modules/news_pipeline` ve `modules/model_free_news` aynı kararı kullanır.
+- Varsayılan **kapalı**: anahtar açılmadıkça eski davranış birebir korunur. İçerik buluta çıkmaz; yerel model okur. İzin listesi dışı adres, sahte alan adı (`arxiv.org.evil.com`) ve localhost engelli kalır.
+- Kanıt: `tests/test_privacy_public_read.py` (10 test) — mod/ayar/alan adı matrisi, yönlendirme kapısı, 19 kaynağın tamamı. Canlı (geçici ayar klasörü): mod=yerel + açık → 5 kayıt / 5 DOI linki; mod=yerel + kapalı → 0 kayıt. Tam doğrulama: `python -m modules.validation` → "Tüm test grupları başarılı."

@@ -167,7 +167,8 @@ def quotes(article,request):
 
 def receipt(article,request,*,source_only=True):
     """Seal already-read pipeline evidence; never fetch or call a provider."""
-    if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
+    url=str((article or {}).get('url') or '')
+    if (blocked:=privacy.blocked('web')) and not privacy.public_read(url):raise PermissionError(blocked)
     requests_state.check()
     research_evidence.news_date(article,request)
     evidence=quotes(article,request)
@@ -179,9 +180,9 @@ def receipt(article,request,*,source_only=True):
 
 def run(owner,data,request,*,source_only=False):
     """Fetch, verify and render one dated article without any LLM call."""
-    if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
-    requests_state.check()
     if not isinstance(data,dict) or not isinstance(data.get('url'),str):raise ValueError('Araştırma için haber adresi gerekli.')
+    if (blocked:=privacy.blocked('web')) and not privacy.public_read(data['url']):raise PermissionError(blocked)
+    requests_state.check()
     response=public_sources.fetch(data['url'])
     article=research_evidence.article(response)
     sealed=receipt(article,request or data.get('question',''),source_only=source_only)
