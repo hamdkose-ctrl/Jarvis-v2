@@ -1253,6 +1253,10 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Chromium akışları, 27 JavaScript grubu ve ilgili sözleşme testleri yerelde doğrulandı. Windows CI ve gerçek PC kabulü bu değişikliğin güncel commit’inde beklenir.
 
 
+### 2026-11-23 — Cloudflare Gemma 4 sohbet yanıtı
+
+Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.
+
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 
 - Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.
@@ -1331,6 +1335,9 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Karar aracı: `scripts/turn_model_probe.py` — mikrofonla üç kayıt (tam / yarım / kısa) alıp olasılıkları yazar, hiçbir ses diske yazılmaz. Ayrışırsa model hatta bağlanır; ayrışmazsa noktalama kuralı kalır.
 - Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
 
-### 2026-11-23 — Cloudflare Gemma 4 sohbet yanıtı
 
-Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.
+### 2026-11-23 — Cevapsız kalma zinciri: eksik alan çökmesi + yerel yedek
+
+- **Çökme (canlı 22:33):** kur/altın sorusunda model `asset` verdi ama `kind/target/amount` vermedi → `finance._asset_answer` **KeyError** → `CORE_HANDLER_FAILED` → kullanıcı **hiç cevap alamadı**. Aynı sınıf hata `request['list']` satırında da vardı. Düzeltme: eksik alan **tahmin edilmez**, tek cümleyle geri sorulur; hedef birim yoksa TL kastedilir; tam istek eskisi gibi piyasa yoluna gider. Kanıt: `tests/test_finance_incomplete_request.py` (6 test).
+- **Yerel yedek sıcak tutulur:** aynı saatlerde bulut sağlayıcıları tükendi (gemini 504/sunucu hatası, groq 429, cloudflare zaman aşımı) ve Ollama çağrısı **45 sn'de zaman aşımına** uğradı; ardından hiçbir aday kalmadı. Model 5 dakika boşta boşaltıldığı için soğuk yükleme cezası ödeniyordu. Düzeltme: `keep_alive="30m"`, yerel okuma süresi **45 → 90 sn**. Ölçüm: yerel cevap **1,5 sn**, model yüklü kalıyor (`expires_at` 30 dk ileri).
+- **Kullanıcı kararı:** Ollama kuruluysa kullanılır; kurulu değilse sistem ona bağlı kalmaz — yerel port yoklaması **0,4 sn** bağlantı aşımıyla hızlı biter, boş sonuç 20 sn önbelleğe alınır, aday listesinden düşer. Kanıt: `tests/test_ollama_optional.py` (5 test) + `tests/test_ollama_keep_alive.py` (2 test).

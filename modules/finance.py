@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, DecimalException, InvalidOperation, ROUND_HALF_UP
 
+from modules.diagnostics import record_failure as _record_failure
+
 TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml'
 FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/{code}/try'
 BTCTURK_URL = 'https://api.btcturk.com/api/v2/ticker?pairSymbol={pair}'
@@ -361,11 +363,24 @@ def _asset_answer(request) -> str:
 
 def answer_request(request) -> str:
     """Doğrulanmış isteği yanıtlar: yalnız veri çeker ve biçimlendirir; ham metin ayrıştırmaz."""
+    request = request if isinstance(request, dict) else {}
     if request.get('stock'):return _bist_answer(request)
-    if request.get('asset'):return _asset_answer(request)
+    if request.get('asset'):
+        # Canlı çökme (23 Kasım 22:33): model "asset" verdi ama "kind/target/amount"
+        # vermedi; `_asset_answer` KeyError attı ve tur TAMAMEN düştü (kullanıcı
+        # cevap alamadı). Eksik alan tahmin edilmez, tek cümleyle geri sorulur.
+        eksik = [alan for alan in ('asset', 'kind', 'target', 'amount') if alan not in request]
+        if eksik:
+            _record_failure('modules/finance.py:asset_incomplete')
+            return ('Altın/döviz isteğini tam anlayamadım; hangi varlık, hangi birim ve '
+                    '(varsa) hangi kur karşısında olduğunu söyler misin?')
+        return _asset_answer(request)
     from urllib3.exceptions import HTTPError
     from modules import ollama_hint
-    codes = request['list'] or [request['source'], request['target']]
+    codes = [kod for kod in (request.get('list') or [request.get('source'), request.get('target')]) if kod]
+    if not codes:
+        _record_failure('modules/finance.py:codes_missing')
+        return 'Hangi kur ya da kur listesini istediğini anlayamadım; örnek: “dolar kaç lira”.'
     try:
         table, label = rates(codes)
     except PermissionError as exc:
@@ -373,12 +388,15 @@ def answer_request(request) -> str:
     except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
         if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
         return 'Kur kaynaklarına (TCMB ve Frankfurter) şu an ulaşamadım, biraz sonra tekrar dene.'
-    if request['list']:
-        parts = [f'{_name(code)} {_rate_text(table[code])} TL' for code in request['list']]
+    istek_listesi = request.get('list') or []
+    if istek_listesi:
+        parts = [f'{_name(code)} {_rate_text(table[code])} TL' for code in istek_listesi]
         body = ', '.join(parts)
         body = body[0].upper() + body[1:]
     else:
-        source, target, amount = request['source'], request['target'], request['amount']
+        # Hedef verilmediyse TL kastedilir ("dolar kaç lira"); kaynak yoksa zaten
+        # yukarıdaki kod kontrolü geri sordu.
+        source, target, amount = request.get('source'), request.get('target') or 'TRY', request.get('amount')
         cross = table[source] / table[target]
         if amount is None and target == 'TRY':
             body = f'{_name(source)[0].upper()}{_name(source)[1:]} {_rate_text(cross)} TL'
