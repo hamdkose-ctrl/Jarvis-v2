@@ -122,6 +122,19 @@ def capture(timeout: int = 6, phrase_limit: int = 12, verbose: bool = False,
     return b"".join(frames)
 
 
+def _turn_reopen_enabled() -> bool:
+    """Yarım kalan cümlede mikrofonu bir kez daha açan yol açık mı?
+
+    Varsayılan **kapalı**: açılmadıkça eski davranış (tek kayıt, tek çeviri) aynen
+    sürer. Açıksa yazı yarım göründüğünde tek seferlik devam kaydı alınır.
+    """
+    try:
+        return bool(config.load_settings().get("voice_turn_reopen", False))
+    except Exception:
+        _record_failure('modules/voice.py:turn_reopen')
+        return False
+
+
 def listen(timeout: int = 6, phrase_limit: int = 12, announce_fail: bool = False,
            verbose: bool = False, abort=None, cheap: bool = False, gate: bool = False,
            local: bool = False, on_captured=None) -> str | None:
@@ -131,7 +144,22 @@ def listen(timeout: int = 6, phrase_limit: int = 12, announce_fail: bool = False
                   abort=abort, on_captured=on_captured)
     if raw is None:
         return None
-    return recognize(raw, announce_fail, cheap=cheap, gate=gate, local=local)
+    text = recognize(raw, announce_fail, cheap=cheap, gate=gate, local=local)
+    if not text or not _turn_reopen_enabled():
+        return text
+    # Cümle yarım görünüyorsa bir kez devam kaydı al ("elma ve ..." gibi kesilmeler).
+    # Karar `voice_turn` içinde; mikrofonu açıp kapatan yer burası.
+    from modules import voice_turn
+    if not voice_turn.complete(text):
+        more = capture(timeout=3, phrase_limit=6, verbose=verbose, abort=abort)
+        if more:
+            tail = recognize(more, False, cheap=cheap, gate=gate, local=local)
+            if tail:
+                joined = (text.rstrip() + " " + tail.strip()).strip()
+                _log.info("Sıra alma: yarım cümle birleştirildi (%d + %d karakter)",
+                          len(text), len(tail))
+                text = joined
+    return text
 
 
 HINTS: list[str] = []          # main.py doldurur: asistanın adı, kullanıcılar, kişiler, sık kelimeler
