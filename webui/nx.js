@@ -1368,7 +1368,7 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
    +sbox('vol','Sesli Yanıt','Cevapları sesli okuma ve konuşma sesi.',
       srow('mic','Yarım cümleyi tamamla','Söz yarım kaldıysa mikrofonu bir kez daha açar (deneysel)',sw('voice_turn_reopen',u.voice_turn_reopen))+
       srow('vol','Sesli yanıt','Cevapları sesli oku',sw1('speak',f.speak))+
-      field('Konuşma motoru',sel('veng',(vo.engines||[{key:'edge',name:'Edge',info:'Çevrimiçi'},{key:'windows',name:'Windows',info:'Yerel'}]).map(e=>[e.key,e.name+' · '+e.info]),vo.engine||'edge'),'Motor değişince Jarvis’i yeniden başlat. Windows (yerel) internet gerektirmez; kalite kurulu ses paketine bağlıdır.')+
+      field('Konuşma motoru',sel('veng',(vo.engines&&vo.engines.length?vo.engines:[{key:'edge',name:'Edge',info:'Çevrimiçi'}]).map(e=>[e.key,e.name+' · '+e.info]),vo.engine||'edge'),'Motor değişince Jarvis’i yeniden başlat. Yerel motorlar internet gerektirmez; Piper kurulu modele, Windows kurulu ses paketine bağlıdır.')+
       (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
       vresField(st,sel)+save)
    +sbox('user','Asistanın Adı','Uyanma ve konuşmada kullanılan ad.',

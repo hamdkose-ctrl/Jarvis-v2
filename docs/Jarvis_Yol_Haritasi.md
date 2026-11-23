@@ -1292,3 +1292,10 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Arayüz: Ayarlar → Ses → **Konuşma motoru** (Edge / Windows) + kurulu seslerin adı ve dili. Ayar `nx_set('voice_engine')` ile kaydedilir, yeniden başlatma notu gösterilir.
 - Dürüst sınır: kalite Windows'a kurulu ses paketine bağlı. Bu makinede yalnız `Microsoft Zira Desktop (İngilizce)` var → Türkçe metni aksanlı okur. Türkçe paket (Tolga) kurulunca etiket "Türkçe" olarak görünür.
 - Kanıt: `tests/test_voice_local_engine.py` (20 test) — açıklama ayrıştırma, anahtar üretimi, motor seçimi (varsayılan/geçersiz/okuma hatası), katalog sınırı, WAV doğrulama, iptal/boş metin, Windows dışı platform. Canlı ölçüm: SAPI 3,79 saniyelik cümleyi **0,11 saniyede** üretti (Edge ~2,1 sn).
+
+#### Aynı gün ek: Piper (yerel) motoru ve Türkçe ses
+
+- Motor listesine **Piper** eklendi: `<veri>/voice_models/*.onnx` içindeki kurulu modeller katalog olur (`piper_<model>` anahtarı, etiket "Yerel · Fahrettin (Türkçe)"). Ayarlar → Ses → Konuşma motoru listesi yalnız gerçekten kullanılabilir motorları gösterir (Edge her zaman; Windows kurulu ses varsa; Piper model varsa).
+- Motor değişince seçili ses o motorda yoksa **ilk kurulu ses** seçilir ve bu loglanır (`_reconcile_voice`). Aksi hâlde `catalog.require()` hata veriyor ve Jarvis hiç konuşmuyordu ("ses yok" şikâyetinin görünmez sebebi).
+- Ölçüm (kurulu `tr_TR-fahrettin-medium`, ön yükleme sonrası): 26 karakter **0,15 sn**, 67 karakter **0,27 sn** üretim (14-15 karakter/sn konuşma). Edge aynı boyutta ~2,1 sn. Piper tamamen yerel; internet gerekmez.
+- Kanıt: `tests/test_voice_local_engine.py` → 25 → **29 test** (etiket ayrıştırma, katalog, motor değeri, ses uyumu, boş katalog, hata kaydı).
