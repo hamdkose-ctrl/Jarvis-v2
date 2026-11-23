@@ -1368,6 +1368,7 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
    +sbox('vol','Sesli Yanıt','Cevapları sesli okuma ve konuşma sesi.',
       srow('mic','Yarım cümleyi tamamla','Söz yarım kaldıysa mikrofonu bir kez daha açar (deneysel)',sw('voice_turn_reopen',u.voice_turn_reopen))+
       srow('vol','Sesli yanıt','Cevapları sesli oku',sw1('speak',f.speak))+
+      field('Konuşma motoru',sel('veng',(vo.engines||[{key:'edge',name:'Edge',info:'Çevrimiçi'},{key:'windows',name:'Windows',info:'Yerel'}]).map(e=>[e.key,e.name+' · '+e.info]),vo.engine||'edge'),'Motor değişince Jarvis’i yeniden başlat. Windows (yerel) internet gerektirmez; kalite kurulu ses paketine bağlıdır.')+
       (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
       vresField(st,sel)+save)
    +sbox('user','Asistanın Adı','Uyanma ve konuşmada kullanılan ad.',
@@ -1550,6 +1551,7 @@ async function drawSettings(){
   const city=$('#city');if(city)city.onchange=()=>sAfter(api('pref_set','city',city.value.trim()).then(()=>toast('Kaydedildi.')));
   bindPersonaPreferences(el);
   const vs=$('#vsel');if(vs)vs.onchange=()=>tryApi('voice_set',vs.value);
+  const ve=$('#veng');if(ve)ve.onchange=()=>api('nx_set','voice_engine',ve.value).then(()=>toast('Motor kaydedildi. Jarvis’i yeniden başlat.')).catch(e=>toast(e.message,'bad'));
 }
 function connectionHelpProvider(title){
   return [['gemini',/^Gemini/],['github',/^GitHub/],['google',/^Gmail/],['groq',/^Groq/],['custom',/^Özel API/],['youtube',/^YouTube/],['ollama',/^Ollama/]].find(([,re])=>re.test(title))?.[0]||'';

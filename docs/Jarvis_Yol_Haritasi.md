@@ -1282,3 +1282,13 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Tek kapı: `voice_core.speech_chunks()` metni temizler; `engine_voice.spoken_answer()` kısa cevap yolunda da aynı kapıdan geçirir. Ekrandaki yazı değişmez.
 - Ölçüm (aynı cevap, aynı ses, canlı Edge): **48,9 sn → 20,4 sn**, hız **6,8 → 11,8 karakter/sn**.
 - Kanıt: `tests/test_voice_text_cleanup.py` (15 test) + `test_voice_core`, `test_voice_output_contract` dahil 95 test OK.
+
+
+### 2026-11-23 — S2: Windows (yerel) ses motoru ve motor seçimi (PR bekliyor)
+
+- Kusur: Jarvis'in sesi yalnız Edge (çevrimiçi). Ağ kopunca ya da gizlilik modu "yerel" iken **hiç ses çıkmıyordu**; `local_narration.py`'de yazılı SAPI yolu arayüzde yoktu.
+- Yeni `modules/voice_sapi.py`: kurulu Windows seslerini listeler, metni **yerelde** WAV'a çevirir (SAPI `SpFileStream`), Voice Core'un `sapi` arka ucuna bağlanır. Hiçbir metin dışarı gitmez.
+- Seçim: `modules/voice_runtime.voice_engine()` — varsayılan **Edge**; `voice_engine=windows` ise hat SAPI kataloğuna geçer. `windows` seçili ama kurulu ses yoksa **Edge'de kalır** ve neden kaldığı loglanır (sessizce başka ses uydurulmaz); geçersiz değer Edge sayılır.
+- Arayüz: Ayarlar → Ses → **Konuşma motoru** (Edge / Windows) + kurulu seslerin adı ve dili. Ayar `nx_set('voice_engine')` ile kaydedilir, yeniden başlatma notu gösterilir.
+- Dürüst sınır: kalite Windows'a kurulu ses paketine bağlı. Bu makinede yalnız `Microsoft Zira Desktop (İngilizce)` var → Türkçe metni aksanlı okur. Türkçe paket (Tolga) kurulunca etiket "Türkçe" olarak görünür.
+- Kanıt: `tests/test_voice_local_engine.py` (20 test) — açıklama ayrıştırma, anahtar üretimi, motor seçimi (varsayılan/geçersiz/okuma hatası), katalog sınırı, WAV doğrulama, iptal/boş metin, Windows dışı platform. Canlı ölçüm: SAPI 3,79 saniyelik cümleyi **0,11 saniyede** üretti (Edge ~2,1 sn).
