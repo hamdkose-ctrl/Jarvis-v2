@@ -181,7 +181,7 @@ class VisualConversationRoundTripTests(pr3b._RawDoorHarness):
             second, reply, _handle, feedback = self.turn("dosyadan olsun")
         self.assertTrue(second.state_gate.matched)
         self.assertEqual(second.state_gate.selection, "file")
-        self.assertIn("Dosyalar sayfasında", reply)
+        self.assertIn("Dosyayı sohbete ekle", reply)
         self.assertIsNone(self.ctx._session().pending_visual)
         self.assertEqual(feedback.result_status, "handled")
         generate.assert_not_called()

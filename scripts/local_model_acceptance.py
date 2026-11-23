@@ -80,11 +80,11 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
                       15_000, "Yapay zekâ ayar eylemi")
             browser_status = page.evaluate("api('llm_status')")
 
-            # Ana konsoldaki Ayarlar düğmesi, model ayarlarını açan iletişim kutusunu gösterir.
+            # Ana konsoldaki Ayarlar düğmesi, yapay zekâ ayarlarını sağ bölümde açar.
             page.locator('.jarvis-console [data-home-tool="settings"]').click(timeout=15_000)
-            page.locator('#info[open] [data-act="goset"][data-k="ai"]').click(timeout=15_000)
-            page.wait_for_selector("#spane", state="attached", timeout=15_000)
-            page.locator('#spane [data-act="aipick"][data-k="ollama"]').click(timeout=15_000)
+            settings = page.locator('.jarvis-console #right-workspace #spane')
+            settings.wait_for(state="visible", timeout=15_000)
+            settings.locator('[data-act="aipick"][data-k="ollama"]').click(timeout=15_000)
             page.wait_for_selector("#local-model-select", timeout=15_000)
             _wait_for(page,
                       "document.querySelector('#local-model-select') && "

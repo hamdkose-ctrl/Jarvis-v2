@@ -111,7 +111,7 @@ def _file_command(runtime, command: str) -> str | None:
         except ValueError as exc:
             return str(exc)
         runtime._session().last_visual = {'text': act, 'content': content, 'kind': kind}
-        return (f'{result.label.capitalize()} hazır, Dosyalar sayfasına kaydettim: {result.path}\n'
+        return (f'{result.label.capitalize()} hazır. Kaydedilen dosya: {result.path}\n'
                 'Beğenmezsen "yeniden dene" diyebilirsin.')
     if 'özetle' in act or 'özet' in act:
         result = runtime.docs.summarize(path)
