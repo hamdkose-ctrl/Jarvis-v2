@@ -1616,6 +1616,9 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     "fast.speech.stop": ("fast_speech_stop", {}),
     "fast.file.organize.undo": ("file_organize_undo", {}),
     "fast.mic.toggle": ("app_action", {"action": "set_flag", "params": {"name": "mic", "value": True}}),
+    # Ekran farkındalığı: yalnız okuma, yan etkisi yok (PC ajanı 1-2. dilim).
+    "fast.screen.summary": ("screen_summary", {}),
+    "fast.screen.controls": ("screen_controls", {}),
 }
 
 # session.pending_level.select: seviye zaten Core'un sorduğu soruda saklı; cevap yalnız özelliği seçer.

@@ -55,6 +55,20 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r'(tarih ne|bugun gunlerden ne|hangi gun(dayiz)?|bugun ayin kaci|tarih)'),
      ('fast_date', {})),
     (re.compile(r'(sistem durumu(nu goster)?|durum ne)'), ('fast_system_status', {})),
+    # Ekranı okumak yan etkisizdir: tıklama/yazma yok, yalnız Windows'tan okunur.
+    (re.compile(r'(ekranda (ne|neler) var|ekranda ne acik|ne goruyorsun)'), ('screen_summary', {})),
+    (re.compile(r'(hangi program(lar)? (acik|calisiyor)|acik (olan )?(program(lar)?|pencereler))'),
+     ('screen_summary', {})),
+    (re.compile(r'(ne ustunde calisiyorum|aktif (pencere|program) (ne|hangisi))'), ('screen_summary', {})),
+    # --- pencere içini okuma (2. dilim; yalnız okuma) ---
+    (re.compile(r'([a-z0-9 ]+?)\s*(?:penceresinde|ekraninda)\s+(ne var|neler var|ne yaziyor)'),
+     ('screen_controls', lambda m: {'window': m.group(1).strip()})),
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+hangi (dugme|dugmeler|ogeler|alanlar|sekmeler) var"),
+     ('screen_controls', lambda m: {'window': m.group(1).strip()})),
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(ne var|neler var)"),
+     ('screen_controls', lambda m: {'window': m.group(1).strip()})),
+    (re.compile(r'(hangi dugmeler var|dugmeler ne|bu pencerede ne var|pencerede ne var)'),
+     ('screen_controls', {})),
     # --- konuşma ---
     (re.compile(r'(sus|sessiz ol|kes sesini|konusmayi (durdur|kes))'), ('fast_speech_stop', {})),
     # --- ses denetimi (tek sahip: audio_action / level_set) ---

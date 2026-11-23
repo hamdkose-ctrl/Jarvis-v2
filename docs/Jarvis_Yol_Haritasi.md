@@ -1341,3 +1341,37 @@ Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.
 - **Çökme (canlı 22:33):** kur/altın sorusunda model `asset` verdi ama `kind/target/amount` vermedi → `finance._asset_answer` **KeyError** → `CORE_HANDLER_FAILED` → kullanıcı **hiç cevap alamadı**. Aynı sınıf hata `request['list']` satırında da vardı. Düzeltme: eksik alan **tahmin edilmez**, tek cümleyle geri sorulur; hedef birim yoksa TL kastedilir; tam istek eskisi gibi piyasa yoluna gider. Kanıt: `tests/test_finance_incomplete_request.py` (6 test).
 - **Yerel yedek sıcak tutulur:** aynı saatlerde bulut sağlayıcıları tükendi (gemini 504/sunucu hatası, groq 429, cloudflare zaman aşımı) ve Ollama çağrısı **45 sn'de zaman aşımına** uğradı; ardından hiçbir aday kalmadı. Model 5 dakika boşta boşaltıldığı için soğuk yükleme cezası ödeniyordu. Düzeltme: `keep_alive="30m"`, yerel okuma süresi **45 → 90 sn**. Ölçüm: yerel cevap **1,5 sn**, model yüklü kalıyor (`expires_at` 30 dk ileri).
 - **Kullanıcı kararı:** Ollama kuruluysa kullanılır; kurulu değilse sistem ona bağlı kalmaz — yerel port yoklaması **0,4 sn** bağlantı aşımıyla hızlı biter, boş sonuç 20 sn önbelleğe alınır, aday listesinden düşer. Kanıt: `tests/test_ollama_optional.py` (5 test) + `tests/test_ollama_keep_alive.py` (2 test).
+
+### 2026-11-23 — "Merhaba" modele gitmiyor (PR: selamlama hızlı yolu)
+
+- Canlı kusur (22:17): kullanıcı **"merhaba"** dedi, o anda tüm sağlayıcılar düştü (gemini 504 DEADLINE_EXCEEDED, groq 429 kota, cloudflare beklenmeyen yanıt biçimi) ve Jarvis "model kullanılamıyor" dedi. Bir selamlama için modele gidilmesi hem gecikme hem tek nokta arızası.
+- `modules/fast_commands.py`: `chitchat(text)` — **kapalı sözlük + tam eşleşme** (merhaba, selam, günaydın, naber, nasılsın, teşekkürler, hoşça kal...). İçinde başka istek olan cümle ("merhaba, hava nasıl?") buradan geçmez, Brain'e gider. Cevaplar kısa, tek cümle, "yapay zeka" iddiası yok, saat+uzunlukla döner (aynı söz her seferinde aynı cevabı vermez).
+- `modules/engine_loop.py`: `_fast_command_turn` sırası **selamlama → hesap → hızlı komut**; hiçbiri eşleşmezse yol eskisi gibi.
+- Kanıt: `tests/test_fast_commands.py` 21 → **26 test** (selamlama cevaplanır, istek yutan cümle geçmez, uzun metin yok sayılır, determinizm, sıra bekçisi).
+
+
+### 2026-11-24 — Doğrulama süresi ve test hijyeni
+
+- **CI'da "başarısız" görünen şey hata değil, süre aşımıydı:** 23 Kasım 21:26 koşusu `unittest discover` 900 saniyede bitmediği için düştü; tek bir test hatası yoktu. Test sayısı ~7.1k'ya çıktı, koşucu makine Jarvis açıkken ve paralel iş varken yavaşlıyor. `modules/validation.py` varsayılan tavanı **900 → 1800 sn** (yine PASS sayılmaz; `JARVIS_VALIDATION_TIMEOUT` ile yönetilir).
+- **Testte ağ yok:** `test_finance_incomplete_request` gerçek TCMB/Frankfurter çağrısı yapıyordu; kur/piyasa fonksiyonları taklit edilerek test hızlı ve kararlı hâle getirildi (46 test 0,9 sn).
+
+
+### 2026-11-24 — Ekran farkındalığı: "ekranda ne var" artık okunuyor (PC ajanı 1. dilim)
+
+- `modules/pc_awareness.py`: `snapshot()` (ön plandaki pencere + görünen pencereler + ekran ölçüsü), `summary()` (tek cümlelik Türkçe özet), `titles()`. **Yalnız okur**: tıklama, yazma, pencere değiştirme yok; Core onay kapısına girmez. Kaynak kopyalanmadı: mevcut `system_control._app_windows()` ve `GetForegroundWindow` kullanılır.
+- `modules/fast_commands.py`: "ekranda ne var", "hangi program açık", "ne üstünde çalışıyorum", "aktif pencere ne", "açık pencereler" → `screen_summary`. İçinde başka istek olan cümle ("ekranda ne var yaz") buraya girmez.
+- `modules/engine_intents.py`: `screen_summary` dalı model çağırmadan `pc_awareness.summary()` döndürür.
+- Canlı ölçüm (bu makine): 3 pencere okundu, ön plan `deepai code`, ekran 1920×1080; cevap tek cümle.
+- Kanıt: `tests/test_pc_awareness.py` (16 test) + `test_fast_commands` (26) → 39 test OK.
+>>>>>>> d4a886f0 (Ekran farkındalığı: "ekranda ne var" okunur, model çağrılmaz)
+
+
+### 2026-11-24 — Pencere içini okuma (PC ajanı 2. dilim, yalnız okuma)
+
+- `pc_awareness.find_window()`: pencerеyi adla bulur; **tahmin yok** — birden fazla eşleşmede tek soru sorar, ad verilmezse öndeki pencereyi okur ve bunu söyler ("Öndeki pencereyi okudum."). Türkçe iyelik/hâl ekleri ("not defterinin", "chrome'da") eşleşmeyi bozmaz.
+- `pc_awareness.controls()` / `describe_controls()`: mevcut `desktop_uia.DesktopUI.observe()` üzerinden kontrol listesi; UIA tür adları Türkçeleşir (düğme, metin alanı, menü…). En çok **40** kontrol okunur, liste 12'şer gruplanır.
+- **Şifre alanı içeriği hiç okunmaz**; yalnız "şifre alanı var; içeriğini okumuyorum" denir. Yetki hatasında dürüst cevap ("yönetici yetkisi gerekiyor olabilir").
+- Pencere **öne getirilmez**, imleç/odak değişmez.
+- `fast_commands`: "not defteri'nde ne var", "chrome'da hangi düğmeler var", "hesap makinesinde ne var" → `screen_controls`; `engine_intents` dalı model çağırmadan cevaplar.
+- Canlı ölçüm (bu makine): Chrome penceresi 8 öğe okundu, cevap tek paragraf.
+- Kanıt: `tests/test_pc_awareness.py` 16 → **29 test**, `test_fast_commands` 26 → toplam **46 test OK**.
