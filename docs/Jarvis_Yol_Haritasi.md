@@ -1260,3 +1260,11 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Ölçülmüş sabitler: `VAD_STOP_SECS=0.2`, `FINISHED_WAIT_SECS=1.2`, `MAX_WAIT_SECS=3.0`, `RESUME_GRACE_SECS=5.0`. Davranış deseni Stonic'in açık modüllerinden çıkarıldı; **kod alınmadı**.
 - Bu PR davranışı değiştirmez (hat bağlanmadı): karar ölçülebilir olsun diye ayrı modül. Kayıt döngüsüne bağlanması ayrı PR'da, tek anahtarla ve eski sabit korunarak yapılır.
 - Kanıt: `tests/test_voice_turn.py` (18 test) — noktalama, ulaç, kısa cevap, model ezme/hatası, kesme eşiği, devam penceresi.
+
+
+### 2026-11-23 — A1 hattı: yarım cümlede tek devam kaydı (PR bekliyor)
+
+- `modules/voice.py listen()` artık `voice_turn.complete()` kararına bakabiliyor: cümle yarım görünürse **bir kez** kısa devam kaydı alıp iki parçayı birleştiriyor. Böylece "elma ve …" gibi kesilmeler tek söze dönüşüyor.
+- **Varsayılan kapalı** (`voice_turn_reopen`): anahtar yoksa tek kayıt + tek çeviri, yani eski davranış birebir aynı. Açılınca bile tam cümlede mikrofon ikinci kez açılmaz; devam kaydı en çok 3 saniye ve en çok bir kez.
+- Devam kaydı boş dönerse ilk yazı korunur; söz kaybolmaz.
+- Kanıt: `tests/test_voice_turn_wiring.py` (8 test) — kapalı/açık, tam/yarım cümle, boş devam, süre sınırı, ayar okuma hatası.
