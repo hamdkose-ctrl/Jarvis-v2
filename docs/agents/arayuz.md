@@ -10,14 +10,11 @@ Hafıza ekranında sunumun9 kapalı tercihi mevcut Profile sahibine `pref_set` i
 
 ---
 
-## Sohbet kartlarının teması — 23 Kasım 2026
-
-İşlem adımları ve görev sonucu kartlarının zemin, kenarlık ve yazı renkleri konsol temasını izler. Genel görünüm açıkken de konsolun koyu zemini kullanılır.
-
 # Masaüstü arayüzü — 21 Kasım 2026
 
 - Masaüstü `/nx.html` üzerinden tek ana konsolla açılır. Sol sütun dünya haritasını ve bugünün takvimini, orta sütun çekirdeği ve hareketli ofisi, sağ sütun yazılı ve sesli iletişimi gösterir. Haber düğmesi aynı girişe bir komut hazırlar. Gönderimi kullanıcı başlatır.
 - Ana konsol mevcut sohbet, dosya ekleme, ses ve ekip sahiplerini kullanır. Sohbet geçmişi, ekip özeti ve notlara aynı konsoldan erişilir. Haritadaki işaretler sabit konumlardır. Ofis canlandırması yerel olarak çizilir; gerçek işler Uzman görünümündeki `team_snapshot` projeksiyonundan gelir.
+- Sohbette işlem adımları ve görev sonucu kartları seçili konsolun zemin, kenarlık ve metin renklerini kullanır.
 - Üst çubuktaki Tema seçimi tarayıcıda saklanır. Çekirdek, sol araçların rengi ve motorun ses durumuna tepki verir. Azaltılmış hareket tercihinde çizim durağandır. Önceki ana ekranın HTML'si, stili ve avatar dosyası kaldırıldı.
 - Ekip Merkezi seçili çalışmanın adımlarını yanında gösterir. İptal, devam, soru ve onay mevcut team_control ve aynı Core kimliğini kullanır. Form taslağı yalnız aynı işlemin kontrol imzası korunurken yenilemede saklanır. Kullanıcı değişince eski sonuçlar gösterilmez. Uzman, kaynak, kuyruk ve doğrulama araçları mevcut sözleşmelerle çalışır.
 - Teslim indirme, team_artifact üzerinden seçili işin etkin kullanıcıya ait kabul edilmiş adımını yeniden okur. Kanıt, benzersiz dosya adı, izinli kök ve okunan baytların özeti eşleşmesi gerekir. En çok 16 MB. İndirme sonucu işin durumunu değiştirmez.
