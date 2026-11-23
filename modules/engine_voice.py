@@ -123,7 +123,9 @@ def spoken_answer(text: str) -> tuple[str, str]:
     kaldığı yerden okunur. Kısa cevap hiç değişmez.
     """
     from modules.voice_core import SPEECH_REMAINDER_NOTE, speech_summary
+    from modules.voice_text import speakable
     spoken, remainder = speech_summary(text)
+    text = speakable(text) or text
     if not remainder:
         return text, ""
     return (spoken + " " + SPEECH_REMAINDER_NOTE).strip(), remainder
