@@ -1350,3 +1350,12 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - **CI'da "başarısız" görünen şey hata değil, süre aşımıydı:** 23 Kasım 21:26 koşusu `unittest discover` 900 saniyede bitmediği için düştü; tek bir test hatası yoktu. Test sayısı ~7.1k'ya çıktı, koşucu makine Jarvis açıkken ve paralel iş varken yavaşlıyor. `modules/validation.py` varsayılan tavanı **900 → 1800 sn** (yine PASS sayılmaz; `JARVIS_VALIDATION_TIMEOUT` ile yönetilir).
 - **Testte ağ yok:** `test_finance_incomplete_request` gerçek TCMB/Frankfurter çağrısı yapıyordu; kur/piyasa fonksiyonları taklit edilerek test hızlı ve kararlı hâle getirildi (46 test 0,9 sn).
+
+
+### 2026-11-24 — Ekran farkındalığı: "ekranda ne var" artık okunuyor (PC ajanı 1. dilim)
+
+- `modules/pc_awareness.py`: `snapshot()` (ön plandaki pencere + görünen pencereler + ekran ölçüsü), `summary()` (tek cümlelik Türkçe özet), `titles()`. **Yalnız okur**: tıklama, yazma, pencere değiştirme yok; Core onay kapısına girmez. Kaynak kopyalanmadı: mevcut `system_control._app_windows()` ve `GetForegroundWindow` kullanılır.
+- `modules/fast_commands.py`: "ekranda ne var", "hangi program açık", "ne üstünde çalışıyorum", "aktif pencere ne", "açık pencereler" → `screen_summary`. İçinde başka istek olan cümle ("ekranda ne var yaz") buraya girmez.
+- `modules/engine_intents.py`: `screen_summary` dalı model çağırmadan `pc_awareness.summary()` döndürür.
+- Canlı ölçüm (bu makine): 3 pencere okundu, ön plan `deepai code`, ekran 1920×1080; cevap tek cümle.
+- Kanıt: `tests/test_pc_awareness.py` (16 test) + `test_fast_commands` (26) → 39 test OK.
