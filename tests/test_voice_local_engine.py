@@ -8,6 +8,7 @@ Kilitlenen davranış:
 * Geçersiz ayar değeri Edge sayılır (fail closed, uydurma motor yok).
 * SAPI sentezi WAV döndürür; boş/kısa çıktı hata sayılır.
 """
+import importlib.util
 import io
 import sys
 import tempfile
@@ -121,6 +122,33 @@ class PiperCatalog(unittest.TestCase):
         with patch.object(voice_runtime, "_record_failure"):
             with patch("config.load_settings", return_value={"voice_engine": "piper"}):
                 self.assertEqual(voice_runtime.voice_engine(), "piper")
+
+
+class PiperEngineProbe(unittest.TestCase):
+    def test_cli_counts_as_available(self):
+        with patch('shutil.which', return_value='/usr/bin/piper'):
+            self.assertTrue(voice_runtime._piper_engine_available())
+
+    @unittest.skipUnless(importlib.util.find_spec('piper'), 'piper paketi bu ortamda kurulu değil')
+    def test_library_counts_as_available(self):
+        """CLI olmasa da süreç içi paket varsa motor kullanılabilir (canlı kusur).
+
+        CI'da piper kurulu olmayabilir; o ortamda test atlanır, sahte bir "var"
+        sonucu üretilmez.
+        """
+        with patch('shutil.which', return_value=None):
+            self.assertTrue(voice_runtime._piper_engine_available())
+
+    def test_missing_everything_is_unavailable(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == 'piper' or name.startswith('piper.'):
+                raise ImportError('yok')
+            return real_import(name, *a, **kw)
+        with patch('shutil.which', return_value=None), patch.object(builtins, '__import__', side_effect=fake_import):
+            self.assertFalse(voice_runtime._piper_engine_available())
 
 
 class Reconcile(unittest.TestCase):

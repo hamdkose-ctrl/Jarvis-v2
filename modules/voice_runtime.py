@@ -164,6 +164,25 @@ def voice_engine() -> str:
     return value if value in ("edge", "windows", "piper") else "edge"
 
 
+def _piper_engine_available() -> bool:
+    """Piper motoru kullanılabilir mi: süreç içi kütüphane ya da CLI.
+
+    Ses üretimi `PiperSynthesizer` içinde ÖNCE süreç içi `piper` paketiyle
+    denenir (ölçüm: 326-353 ms; CLI 2993 ms). Yalnız CLI'ya bakmak, kütüphane
+    kuruluyken sesi "kurulu değil" diye reddediyordu (canlı: seçim reddedildi).
+    """
+    if shutil.which("piper"):
+        return True
+    try:
+        from piper import PiperVoice  # noqa: F401
+    except ImportError:
+        return False
+    except Exception:
+        _record_failure("modules/voice_runtime.py:piper_probe")
+        return False
+    return True
+
+
 def _reconcile_voice(runtime, lane) -> None:
     """Motor değiştiğinde seçili ses o motorda yoksa ilk kurulu sesi seç.
 
@@ -694,7 +713,7 @@ class VoiceLane:
             metadata_path = Path(str(model_path) + ".json")
             if not metadata_path.is_file() or metadata_path.is_symlink():
                 raise ValueError("Seçilen Piper modelinin doğrulanmış .onnx.json metaverisi eksik.")
-            if not shutil.which("piper"):
+            if not _piper_engine_available():
                 raise ValueError("Seçilen Piper motoru kurulu değil.")
         return spec
 
