@@ -1,0 +1,559 @@
+/* Jarvis masaüstü konsolu */
+.jarvis-console {
+  color-scheme: dark;
+  --black: #080706;
+  --panel: #100b09;
+  --ledge: #1b100d;
+  --edge: #49221b;
+  --trace: #713429;
+  --red: #db7460;
+  --text: #e1d7ce;
+  --muted: #a99489;
+  --chat: #0e0d0f;
+  font: 13px/1.4 "Segoe UI", Arial, sans-serif;
+}
+
+.jarvis-console, .jarvis-console *, .jarvis-console *::before, .jarvis-console *::after { box-sizing: border-box; }
+.jarvis-console { min-height: 100vh; margin: 0; background: var(--black); color: var(--text); }
+.jarvis-console h1,.jarvis-console h2,.jarvis-console h3,.jarvis-console p,.jarvis-console ul,.jarvis-console ol,.jarvis-console dl,.jarvis-console dd { margin: 0; }
+.jarvis-console button,.jarvis-console input,.jarvis-console select,.jarvis-console textarea { font: inherit; }
+.jarvis-console button { color: inherit; cursor: pointer; }
+.jarvis-console button:disabled { opacity: .55; cursor: default; }
+.jarvis-console a { color: var(--red); }
+.jarvis-console :focus-visible { outline: 1px solid #eb927a; outline-offset: 2px; }
+.jarvis-console [hidden] { display: none !important; }
+
+.jarvis-console .topbar {
+  min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 10px; background: #0a0807; border-bottom: 1px solid #38201a;
+}
+.jarvis-console .top-left,.jarvis-console .top-right { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.jarvis-console .brand { color: #efc6b3; font-size: 13px; font-weight: 750; letter-spacing: .13em; }
+.jarvis-console .topbar button,.jarvis-console .topbar .tag { min-height: 23px; padding-block: 2px; font-size: 11px; }
+.jarvis-console .btn,.jarvis-console .tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 26px; padding: 4px 8px; color: #d1ad9e;
+  background: #21130f; border: 1px solid #542b22; border-radius: 3px; font-size: 11px;
+  font-weight: inherit; line-height: 1.25;
+}
+.jarvis-console .btn:is(.primary,.active,.selected,[aria-pressed="true"]),.jarvis-console .tab:is(.active,.selected,[aria-selected="true"]) {
+  color: #ffd5c0; background: #381d17; border-color: #9b4a38;
+}
+.jarvis-console .btn:hover,.jarvis-console .tab:hover { color: #ffe4d3; border-color: #c26852; background: #42231a; }
+.jarvis-console .btn.square { width: 26px; min-width: 26px; padding-inline: 2px; }
+.jarvis-console .btn.round { width: 30px; min-height: 30px; border-radius: 50%; }
+.jarvis-console .btn.alert,.jarvis-console .btn.send { color: #ffd9cc; border-color: #9a4535; background: #58271d; }
+.jarvis-console .tab[aria-pressed="true"] { color: #ffd5c0; background: #381d17; border-color: #9b4a38; }
+.jarvis-console .tag {
+  display: inline-block; width: fit-content; padding: 2px 5px; border: 1px solid #683829;
+  border-radius: 2px; background: #2a1710; color: #e8a47f; font-size: 10px; line-height: 1.2;
+}
+.jarvis-console .muted { color: var(--muted); }
+
+.jarvis-console .layout {
+  display: grid; grid-template-columns: minmax(178px,17fr) minmax(0,47fr) minmax(274px,34.5fr);
+  gap: 10px; min-height: 625px; height: calc(100dvh - 34px); padding: 9px 10px 10px;
+}
+.jarvis-console .center { display: grid; grid-template-rows: minmax(320px, 1.48fr) minmax(240px,1fr); gap: 9px; min-width: 0; min-height: 0; }
+.jarvis-console .feed,.jarvis-console .core-area,.jarvis-console .team-area,.jarvis-console .chat {
+  position: relative; min-width: 0; min-height: 0; border: 1px solid var(--edge);
+  background: var(--panel); box-shadow: inset 0 0 0 2px #110a08;
+}
+.jarvis-console .feed::before,.jarvis-console .core-area::before,.jarvis-console .team-area::before,.jarvis-console .chat::before {
+  position: absolute; z-index: 4; inset: -1px -1px auto; height: 9px; content: ""; pointer-events: none;
+  background: linear-gradient(135deg,#080706 5px,var(--trace) 5px,var(--trace) 6px,transparent 6px) left top / 10px 100% no-repeat,
+              linear-gradient(225deg,#080706 5px,var(--trace) 5px,var(--trace) 6px,transparent 6px) right top / 10px 100% no-repeat;
+}
+.jarvis-console .feed-heading,.jarvis-console .team-head,.jarvis-console .chat-head {
+  display: flex; min-width: 0; min-height: 31px; align-items: center; justify-content: space-between;
+  gap: 4px 8px; padding: 4px 9px; border-bottom: 1px solid var(--edge); background: #1a0f0c;
+}
+.jarvis-console .feed-heading :is(h1,h2,h3),.jarvis-console .team-head :is(h1,h2,h3),.jarvis-console .chat-head :is(h1,h2,h3) {
+  color: #e2af9a; font-size: 10.53px; font-weight: 700; letter-spacing: .055em;
+}
+.jarvis-console h2.feed-heading { color: #e2af9a; font-size: 10.92px; font-weight: 700; letter-spacing: .055em; }
+.jarvis-console .feed-heading + .feed-heading { border-top: 1px solid var(--edge); }
+.jarvis-console .feed { display: flex; flex-direction: column; overflow: auto; scrollbar-width: thin; }
+.jarvis-console .map-module { min-width: 0; padding: 6px; border-bottom: 1px solid var(--edge); }
+.jarvis-console .map-module :is(canvas,svg,img) {
+  display: block; width: 100%; height: auto; max-height: 320px; object-fit: contain;
+  border: 1px solid #3e2924; background: #0c0f0e;
+}
+.jarvis-console .map-head,.jarvis-console .map-toolbar,.jarvis-console .map-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 0;
+}
+.jarvis-console .map-head h3 { color: #d18a76; font-size: 10.27px; margin-inline-end: auto; }
+.jarvis-console .map-window { border: 1px solid #3e2924; background: #120c0a; }
+.jarvis-console .map-page { padding: 4px 6px; color: #d5afa1; background: #271611; font-size: 10px; }
+.jarvis-console .map-toolbar,.jarvis-console .map-filters { padding-inline: 4px; }
+.jarvis-console .map-toolbar .btn,.jarvis-console .map-filters .btn { min-height: 20px; padding: 2px 5px; font-size: 10px; }
+.jarvis-console .map-canvas { position: relative; }
+.jarvis-console .map-zoom { position: absolute; right: 4px; bottom: 4px; display: grid; gap: 3px; }
+.jarvis-console .map-zoom .btn { min-width: 21px; min-height: 21px; padding: 2px 4px; }
+.jarvis-console .map-nav { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); background: #1d100d; }
+.jarvis-console .map-nav button {
+  display: grid; justify-items: center; min-width: 0; min-height: 36px; padding: 4px 1px;
+  color: #c0a196; border: 0; background: transparent; font-size: 9px; overflow-wrap: anywhere;
+}
+.jarvis-console .map-nav button b { color: #d88772; font-size: 11px; }
+.jarvis-console .map-nav button:hover { background: #32201b; color: #ffddcb; }
+.jarvis-console .news { display: grid; align-content: start; padding: 0; list-style: none; overflow-wrap: anywhere; }
+.jarvis-console .news header {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  padding: 4px 6px; background: #1a100d; border-bottom: 1px solid var(--edge); color: #e2af9a;
+}
+.jarvis-console .news ol { padding: 0; list-style: none; }
+.jarvis-console .news :is(article,li,.news-item) { padding: 7px 8px; border-bottom: 1px solid #40211b; }
+.jarvis-console .news :is(h2,h3,b,strong) { font-size: 12px; font-weight: 650; line-height: 1.3; }
+.jarvis-console .news :is(time,small,.muted) { color: #b28d7d; font-size: 10px; }
+.jarvis-console .news button { width: 100%; background: none; border: 0; text-align: left; }
+.jarvis-console .news button:hover { background: #22130e; color: #f7c3ad; }
+
+.jarvis-console .core-area {
+  isolation: isolate; overflow: hidden;
+  background: radial-gradient(ellipse at 65% 48%,#25120d,#120907 47%,#0d0806 87%);
+}
+.jarvis-console .core-area #core-links { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+.jarvis-console .core-buttons {
+  position: absolute; z-index: 2; top: 46%; left: clamp(12px,6%,43px); translate: 0 -50%;
+  display: grid; width: clamp(91px,22%,155px); gap: 9px;
+}
+.jarvis-console .core-buttons button {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  min-height: 33px; width: 100%; padding: 4px 7px; color: var(--text); text-align: left;
+  background: linear-gradient(115deg,#2d1812,#170d0a); border: 1px solid var(--trace);
+  border-radius: 4px; overflow-wrap: anywhere;
+}
+.jarvis-console .core-buttons button:hover { border-color: #d17658; }
+.jarvis-console .core-buttons :is(svg,i,.node-dot,span) {
+  display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px;
+  color: var(--trace); font-size: 13px;
+}
+.jarvis-console .reactor {
+  position: absolute; left: 63%; top: 47%; translate: -50% -50%;
+  display: grid; place-items: center; width: min(53%, calc(100% - 136px)); height: min(83%,380px);
+}
+.jarvis-console .reactor #reactor-canvas { display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.jarvis-console .reactor-state {
+  position: absolute; left: 50%; bottom: 8%; translate: -50% 0; width: max-content; max-width: 95%;
+  color: #de8e72; text-align: center; font: 10px/1.4 "Cascadia Mono",Consolas,monospace;
+  letter-spacing: .085em;
+}
+.jarvis-console .reactor-state span + span { margin-inline-start: 4px; }
+.jarvis-console .reactor-actions {
+  position: absolute; z-index: 2; right: 9px; bottom: 8px; display: flex; flex-wrap: wrap;
+  justify-content: flex-end; gap: 5px; max-width: calc(100% - 18px);
+}
+.jarvis-console #home-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0b0908; }
+
+.jarvis-console .team-area { display: flex; flex-direction: column; overflow: hidden; }
+.jarvis-console .team-head { min-height: 30px; }
+.jarvis-console .team-head > :is(div,nav),.jarvis-console .agent-list,.jarvis-console .team-foot,.jarvis-console .room-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.jarvis-console .team-head nav { margin-inline-start: auto; }
+.jarvis-console .team-content,.jarvis-console .chat-main { flex: 1; min-height: 0; }
+.jarvis-console .team-content { display: flex; flex-direction: column; }
+.jarvis-console .agent-list { min-height: 32px; padding: 3px 7px; border-bottom: 1px solid var(--edge); background: #1a100d; }
+.jarvis-console .agent-list button { min-height: 22px; padding: 2px 6px; }
+.jarvis-console .agent-list :is(.dot,i) { display: inline-block; width: 6px; height: 6px; margin-inline-end: 4px; background: #c07a56; }
+.jarvis-console .office-wrap {
+  display: grid; grid-template: minmax(0,1fr) / minmax(0,1fr); place-items: center;
+  flex: 1; min-height: 0; overflow: hidden; background: #0e0a08;
+}
+.jarvis-console .office-wrap #office-map { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.jarvis-console .team-foot {
+  justify-content: space-between; min-height: 31px; padding: 4px 8px; border-top: 1px solid var(--edge);
+  background: #1b100d; color: #c9a78f; font-size: 11px;
+}
+
+.jarvis-console .chat { display: flex; flex-direction: column; overflow: hidden; background: var(--chat); box-shadow: none; }
+.jarvis-console .chat-head { justify-content: flex-start; gap: 5px; }
+.jarvis-console .chat-head .tab { min-height: 23px; }
+.jarvis-console .chat-head nav { display: flex; align-items: center; gap: 4px; }
+.jarvis-console .chat-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-inline-start: auto; }
+.jarvis-console #home-messages {
+  flex: 1; min-height: 0; padding: 11px 10px; overflow: auto;
+  scrollbar-width: thin; overscroll-behavior: contain;
+}
+.jarvis-console .turn { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.jarvis-console .turn + .turn { margin-top: 11px; }
+.jarvis-console .turn-role { color: #c99583; font-size: 10px; font-weight: 700; }
+.jarvis-console .message-body {
+  max-width: 92%; width: fit-content; padding: 7px 8px; border: 1px solid #363236;
+  border-radius: 4px; background: #242329; color: #e1dce0; white-space: pre-wrap;
+}
+.jarvis-console .turn:is([data-speaker="user"],[data-speaker="sen"],[data-speaker="Sen"]) { justify-items: end; }
+.jarvis-console .turn:is([data-speaker="user"],[data-speaker="sen"],[data-speaker="Sen"]) .turn-role { color: #9baabe; }
+.jarvis-console .turn:is([data-speaker="user"],[data-speaker="sen"],[data-speaker="Sen"]) .message-body {
+  background: #1a2435; border-color: #354358; color: #dce6f3;
+}
+.jarvis-console .chat-compose {
+  display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 5px;
+  padding: 7px 8px; border-top: 1px solid var(--edge); background: #151013;
+}
+.jarvis-console .chat-compose :is(input,textarea) {
+  min-height: 34px; max-height: 122px; width: 100%; min-width: 0; padding: 6px 7px;
+  color: #e6d8d5; background: #1c1a20; border: 1px solid #4a393a; border-radius: 3px;
+}
+.jarvis-console .chat-compose textarea { resize: vertical; }
+.jarvis-console .chat-compose :is(input,textarea)::placeholder { color: #ad9692; }
+.jarvis-console .chat-compose button[type="submit"] { margin-inline-start: auto; }
+.jarvis-console .chat-compose .attc { grid-column: 1 / -1; }
+.jarvis-console .option-pane,.jarvis-console .notes-panel { padding: 10px; }
+.jarvis-console .option-pane p + div,.jarvis-console .notes-panel textarea { margin-top: 7px; }
+.jarvis-console .notes-panel textarea { display: block; width: 100%; max-width: 100%; margin-bottom: 6px; }
+.jarvis-console .visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; white-space: nowrap; clip-path: inset(50%);
+}
+
+.jarvis-console dialog {
+  width: min(92vw,560px); padding: 13px; max-height: 86vh; color: var(--text);
+  background: #170e0b; border: 1px solid var(--trace); border-radius: 4px;
+}
+.jarvis-console dialog::backdrop { background: #090605cd; }
+.jarvis-console dialog h2 { font-size: 13.65px; margin-bottom: 6px; }
+.jarvis-console dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+
+@media(max-width: 900px) {
+  .jarvis-console .layout { min-height: 0; height: auto; grid-template-columns: minmax(0,1.15fr) minmax(237px,.85fr); }
+  .jarvis-console .feed { grid-column: 1 / -1; max-height: 380px; }
+  .jarvis-console .center { min-height: 680px; }
+  .jarvis-console .chat { min-height: 470px; max-height: 690px; }
+}
+@media(max-width: 550px) {
+  .jarvis-console .topbar,.jarvis-console .top-left,.jarvis-console .top-right { flex-wrap: wrap; }
+  .jarvis-console .topbar { padding: 5px 7px; }
+  .jarvis-console .layout { grid-template-columns: minmax(0,1fr); padding: 7px; }
+  .jarvis-console .feed { grid-column: 1; }
+  .jarvis-console .center { min-height: 615px; }
+}
+
+/* Desktop composition, independent of the browser's window controls. */
+.jarvis-console {
+  --black: #060607;
+  --panel: #180e0c;
+  --edge: #4e1d1b;
+  --trace: #922b29;
+  --red: #ff5154;
+  --text: #e8e4df;
+  --muted: #a49a97;
+  --chat: #180e0d;
+}
+.jarvis-console .topbar { background: #0b0b0d; border-color: #1c191a; }
+.jarvis-console .brand { display: inline-flex; align-items: center; gap: 6px; color: #e4dcd5; letter-spacing: .02em; }
+.jarvis-console .brand-mark {
+  --badge-shape: polygon(50% 0,92% 24%,92% 76%,50% 100%,8% 76%,8% 24%);
+  position: relative; display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px;
+  clip-path: var(--badge-shape);
+  background: linear-gradient(145deg,var(--theme-accent),color-mix(in srgb,var(--theme-accent) 40%,#151018));
+}
+.jarvis-console .brand-mark::before {
+  content: ""; position: absolute; inset: 1.4px; clip-path: var(--badge-shape);
+  background: radial-gradient(circle at 72% 26%,color-mix(in srgb,var(--theme-accent) 22%,#14141a),#0c0c10 78%);
+}
+.jarvis-console .brand-mark::after {
+  content: ""; position: relative; width: 10px; height: 11px; background: #f4ebe8;
+  clip-path: polygon(44% 0,100% 0,100% 23%,81% 23%,81% 71%,53% 100%,20% 100%,0 79%,17% 62%,33% 79%,47% 79%,58% 66%,58% 23%,44% 23%);
+}
+.jarvis-console .topbar .btn { color: #cbc1bd; border-color: #302726; background: #191617; border-radius: 6px; }
+.jarvis-console .layout { background: #050506; }
+.jarvis-console .feed,.jarvis-console .chat { border-radius: 17px 17px 14px 14px; background: linear-gradient(135deg,#1d100e,#160d0c 50%); }
+.jarvis-console .feed::before,.jarvis-console .chat::before { height: 17px;
+  background: linear-gradient(135deg,#050506 11px,#822828 11px,#822828 12px,transparent 12px) left top / 18px 100% no-repeat,
+              linear-gradient(225deg,#050506 11px,#822828 11px,#822828 12px,transparent 12px) right top / 18px 100% no-repeat;
+}
+.jarvis-console h2.feed-heading,.jarvis-console .news h2,.jarvis-console .team-head h2,.jarvis-console .chat-head [aria-pressed="true"] {
+  color: #ff484a; font-size: 11px; font-weight: 750;
+}
+.jarvis-console .chat-head [aria-pressed="true"] {
+  font-family: "Cascadia Mono",Consolas,monospace; text-transform: uppercase; letter-spacing: .13em;
+}
+.jarvis-console h2.feed-heading,.jarvis-console .team-head h2 { letter-spacing: normal; }
+.jarvis-console .feed-heading,.jarvis-console .news header,.jarvis-console .chat-head { background: transparent; border: 0; }
+.jarvis-console h2.feed-heading { padding-inline: 14px; }
+.jarvis-console .map-module { margin: 0 11px; padding: 0; border: 1px solid #312526; border-radius: 10px; overflow: hidden; background: #171717; }
+.jarvis-console .map-head { padding: 3px 6px; background: #130e0f; }
+.jarvis-console .map-head h3 { color: #ccc7c6; font-size: 10px; font-weight: 700; }
+.jarvis-console .map-head .alert { color: #ff5253; background: #200b0d; border-color: #6c2628; border-radius: 6px; }
+.jarvis-console .map-head .square,.jarvis-console .news header .square { width: 22px; min-width: 22px; height: 20px; min-height: 20px; }
+.jarvis-console .map-window { border: 0; background: #0e1011; }
+.jarvis-console .map-page { display: flex; align-items: end; min-height: 52px; padding: 0 6px; border-bottom: 1px solid #282a2b; background: #141516; }
+.jarvis-console .map-page span { color: #79f8ab; background: #142019; border: 1px solid #296740; padding: 2px 7px; }
+.jarvis-console .map-toolbar,.jarvis-console .map-filters { padding: 5px; border-bottom: 1px solid #252728; }
+.jarvis-console .map-toolbar { justify-content: center; }
+.jarvis-console .map-filters { justify-content: space-between; }
+.jarvis-console .map-module :is(canvas,svg,img) { border: 0; height: clamp(130px,25.5dvh,257px); }
+.jarvis-console .map-window .btn { color: #c7caca; border-color: #313333; background: #161719; }
+.jarvis-console .map-window .btn[aria-pressed="true"] { color: #0a2115; border-color: #56de97; background: #5ef3a0; }
+.jarvis-console .map-nav { background: #1a1a1b; }
+.jarvis-console .map-nav button,.jarvis-console .map-nav button b { color: #b3b0ae; }
+.jarvis-console .map-nav button:first-child { color: #eeeae5; }
+.jarvis-console .news { padding: 12px 12px 8px; }
+.jarvis-console .news header { padding: 0 1px 5px; }
+.jarvis-console .news ol { counter-reset: headline; }
+.jarvis-console .news li { padding: 5px 0; border: 0; counter-increment: headline; }
+.jarvis-console .news li button { position: relative; padding: 0 0 0 20px; color: #dcd4ce; font-size: 11px; line-height: 1.5; }
+.jarvis-console .news li button::before { content: counter(headline,decimal-leading-zero); position: absolute; left: 1px; top: 2px; color: #e04749; font: 9px/1.3 Consolas,monospace; }
+.jarvis-console .news li b { font-weight: 600; font-size: inherit; }
+.jarvis-console .news header .btn { color: #a19a95; background: transparent; border-color: transparent; }
+
+.jarvis-console .center { grid-template-rows: minmax(253px,.72fr) minmax(320px,1fr); gap: 15px; }
+.jarvis-console .core-area { background: #050506; border: 0; box-shadow: none; }
+.jarvis-console .core-area::before { display: none; }
+.jarvis-console .core-buttons { top: 50%; left: 2.2%; width: clamp(90px,21%,150px); gap: clamp(9px,2.3dvh,22px); }
+.jarvis-console .core-buttons button {
+  position: relative; min-height: 38px; padding: 4px 12px; overflow: hidden;
+  background: linear-gradient(110deg,#111719,color-mix(in srgb,var(--trace) 12%,#090909));
+  border-color: color-mix(in srgb,var(--trace) 44%,#0a0c0f);
+  clip-path: polygon(8px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 8px);
+  font: 750 12px/1.28 "Cascadia Mono",Consolas,monospace; text-transform: uppercase; letter-spacing: .07em;
+}
+.jarvis-console .core-buttons button span {
+  width: 26px; height: 26px; border: 1px solid color-mix(in srgb,var(--trace) 52%,#080b0e);
+  border-radius: 6px; background: color-mix(in srgb,var(--trace) 10%,#0a1216);
+}
+.jarvis-console .reactor {
+  --cut: 22px; --shape: polygon(var(--cut) 0,calc(100% - var(--cut)) 0,100% var(--cut),100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,var(--cut) 100%,0 calc(100% - var(--cut)),0 var(--cut));
+  left: auto; right: 3.4%; top: 0; translate: none; width: 44%; height: 100%; isolation: isolate;
+  background: linear-gradient(132deg,#632321,#361714 35%,#783027); clip-path: var(--shape);
+}
+.jarvis-console .reactor::before { position: absolute; z-index: -1; inset: 2px; content: ""; clip-path: var(--shape);
+  background: radial-gradient(ellipse at 58% 42%,#2f1613,#190e0d 69%,#10090a); }
+.jarvis-console .reactor-state {
+  top: 13px; bottom: auto; left: 19px; z-index: 2; translate: none; display: flex; align-items: center;
+  min-height: 27px; gap: 4px; color: #92a5ad; background: #151518bd; border: 1px solid #483334;
+  padding: 2px 8px; border-radius: 20px; text-transform: uppercase;
+}
+.jarvis-console .reactor-state i { width: 7px; height: 7px; background: #57abb5; border-radius: 50%; margin-inline-start: 2px; }
+.jarvis-console .reactor-actions { left: 0; right: 0; bottom: 11%; max-width: none; justify-content: center; align-items: center; }
+.jarvis-console .reactor-actions .alert { color: #ff7776; border-color: #913836; background: #2a1112; }
+.jarvis-console .reactor-actions .halt { min-width: min(45%,150px); padding-inline: 8px; border-radius: 12px 3px; text-transform: uppercase; font-weight: 750; letter-spacing: .12em; }
+.jarvis-console .reactor-actions .round { width: 29px; min-width: 29px; min-height: 29px; }
+.jarvis-console #home-media { object-fit: contain; }
+.jarvis-console .reactor:has(#home-media:not([hidden])) .reactor-actions { bottom: 5%; }
+
+.jarvis-console .team-area { background: #060b0e; border-radius: 16px; }
+.jarvis-console .team-area::before { display: none; }
+.jarvis-console .team-head { position: relative; background: #101116; border-color: #381e20; gap: 8px; min-height: 31px; }
+.jarvis-console .team-head > .tag { margin-right: auto; }
+.jarvis-console .team-head nav { position: absolute; left: 50%; translate: -50% 0; flex-wrap: nowrap; gap: 1px; white-space: nowrap; }
+.jarvis-console .team-head .tab,.jarvis-console .team-head .tag,.jarvis-console .team-head > .btn { color: #ada7a5; background: #18171a; border-color: #30292b; min-height: 21px; }
+.jarvis-console .team-head .tab[aria-pressed="true"] { color: #f2eeea; background: #2d2d34; border-color: #3a3940; }
+.jarvis-console .agent-list { justify-content: center; min-height: 38px; background: #060b0e; border: 0; }
+.jarvis-console .agent-list .agent {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 2px 5px;
+  background: #172124; color: #dfe5e3; border: 1px solid #344046; border-radius: 5px; font-size: 9px;
+}
+.jarvis-console .agent-list .agent[aria-pressed="true"] { border-color: #626e70; background: #252b2b; }
+.jarvis-console .agent-list .agent-face {
+  position: relative; display: inline-block; flex: none; width: 20px; height: 19px; background: var(--avatar-tone); border: 2px solid #5e5350;
+}
+.jarvis-console .agent-face::before,.jarvis-console .agent-face::after { position: absolute; content: ""; }
+.jarvis-console .agent-face::before { inset: 3px 2px 4px; border-top: 4px solid #523d3d; border-right: 2px solid #63463c; background: #d6a084; }
+.jarvis-console .agent-face::after { inset: 9px 5px auto; border-top: 2px dotted #3f3638; }
+.jarvis-console .agent-list .agent i,.jarvis-console .team-foot .tag i { height: 6px; width: 6px; background: #1ed4e1; border-radius: 50%; margin: 0 2px; }
+.jarvis-console .office-wrap { background: #060b0e; }
+.jarvis-console .team-foot { min-height: 28px; padding-block: 3px; border-color: #1f292e; background: #080d10; }
+.jarvis-console .team-foot .tag,.jarvis-console .team-foot .btn {
+  color: #c1b8b2; border-color: #354044; background: #1a2123; font-size: 10px; white-space: nowrap;
+}
+.jarvis-console .team-foot .tag i { display: inline-block; }
+.jarvis-console .team-foot .btn { min-height: 20px; padding: 2px 5px; }
+
+.jarvis-console .chat-head { padding: 8px 11px 3px; }
+.jarvis-console .chat-head .tab,.jarvis-console .chat-tools .btn { color: #a59b96; border-color: transparent; background: transparent; min-height: 21px; }
+.jarvis-console .chat-head .tab { padding-inline: 4px; font: 750 11px/1.3 "Cascadia Mono",Consolas,monospace; text-transform: uppercase; letter-spacing: .06em; }
+.jarvis-console .chat-head .tab[aria-pressed="true"] { color: #ff5354; background: #2b1314; }
+.jarvis-console .chat-head .btn { width: 21px; min-width: 21px; }
+.jarvis-console #home-messages { padding: 4px 10px 12px; }
+.jarvis-console .turn + .turn { margin-top: 9px; }
+.jarvis-console .turn .turn-role { color: #bdb2ad; text-transform: uppercase; letter-spacing: .08em; font-size: 9px; }
+.jarvis-console .turn[data-speaker="you"] { justify-items: end; }
+.jarvis-console .turn[data-speaker="jarvis"] .message-body,.jarvis-console .turn .module-row { width: 100%; max-width: 100%; }
+.jarvis-console .turn .message-body { padding: 10px; color: #e7e9ec; background: #12181d; border-color: #282f34; border-radius: 11px; line-height: 1.5; }
+.jarvis-console .turn[data-speaker="you"] .message-body { background: #1b2327; border-color: #353e41; }
+.jarvis-console .turn .module-row { padding: 5px 8px; color: #bdb0ac; border: 1px solid #3b2326; border-radius: 7px; background: #151719; font: 11px/1.3 Consolas,monospace; }
+.jarvis-console .chat-compose { margin: 3px 10px 10px; padding: 3px 4px; border: 1px solid #434148; border-radius: 13px; background: #292e35; }
+.jarvis-console .chat-compose textarea { min-height: 32px; border: 0; background: transparent; resize: none; }
+.jarvis-console .chat-compose textarea::placeholder { color: #b3b1b2; }
+.jarvis-console .chat-compose .btn { border: 0; background: transparent; color: #c9cdd0; }
+.jarvis-console .chat-compose .send { background: #3a4148; border-radius: 8px; }
+.jarvis-console .chat.is-expanded { position: fixed; inset: 45px 10px 10px auto; width: min(660px,calc(100vw - 20px)); min-height: 0; max-height: none; z-index: 12; box-shadow: 0 0 0 100vmax #000b; }
+.jarvis-console .map-module.is-expanded { position: fixed; inset: 7vh auto auto 50%; translate: -50% 0; width: min(760px,calc(100vw - 24px)); z-index: 12; margin: 0; box-shadow: 0 0 0 100vmax #000b; }
+.jarvis-console .map-module.is-expanded canvas { height: min(58dvh,530px); max-height: none; }
+
+@media(max-width: 1050px) {
+  .jarvis-console .team-head { flex-wrap: wrap; justify-content: flex-start; }
+  .jarvis-console .team-head nav { position: static; order: 1; left: auto; translate: none; margin: 0; flex: 1 0 95%; }
+  .jarvis-console .core-buttons button { font-size: 10px; padding-inline: 4px; gap: 3px; }
+  .jarvis-console .core-buttons button span { width: 20px; height: 21px; }
+}
+@media(max-width: 550px) {
+  .jarvis-console .center { grid-template-rows: minmax(245px,.72fr) minmax(320px,1fr); }
+  .jarvis-console .reactor { right: 0; width: 51%; }
+  .jarvis-console .team-foot { justify-content: flex-start; }
+}
+.jarvis-console .office-wrap #office-map { width: min(100%,61dvh); height: 100%; object-fit: fill; }
+@media(max-width: 900px) {
+  .jarvis-console .office-wrap #office-map { width: 100%; height: auto; max-height: 100%; }
+}
+.jarvis-console .turn .message-body { padding: 11px 10px; }
+.jarvis-console .turn + .turn { margin-top: 12px; }
+
+.jarvis-console {
+  --theme-accent: #ff6064;
+}
+.jarvis-console[data-theme="cyan"] {
+  --theme-deep: #071216;
+  --theme-raised: #112830;
+  --theme-accent: #69e0ef;
+  --text: #e5f6f8;
+  --muted: #a1bdc4;
+}
+.jarvis-console[data-theme="emerald"] {
+  --theme-deep: #07150f;
+  --theme-raised: #152b21;
+  --theme-accent: #78e9b0;
+  --text: #e8f5ee;
+  --muted: #a6bfb0;
+}
+.jarvis-console[data-theme="violet"] {
+  --theme-deep: #130d18;
+  --theme-raised: #261c34;
+  --theme-accent: #ceadff;
+  --text: #f0e9f6;
+  --muted: #bdb1ce;
+}
+.jarvis-console[data-theme="amber"] {
+  --theme-deep: #191106;
+  --theme-raised: #302315;
+  --theme-accent: #f6c478;
+  --text: #f7efe1;
+  --muted: #c6b5a2;
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) {
+  --black: var(--theme-deep);
+  --panel: color-mix(in srgb,var(--theme-raised),var(--theme-deep));
+  --edge: color-mix(in srgb,var(--theme-accent) 27%,var(--theme-deep));
+  --trace: color-mix(in srgb,var(--theme-accent) 46%,var(--theme-deep));
+  --red: var(--theme-accent);
+  --chat: var(--panel);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.layout,.core-area) { background: var(--black); }
+.jarvis-console[data-theme]:not([data-theme="red"]) .topbar { background: var(--panel); border-color: var(--edge); }
+.jarvis-console[data-theme]:not([data-theme="red"]) .brand { color: var(--text); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.feed,.chat) {
+  background: linear-gradient(135deg,var(--theme-raised),var(--panel) 60%);
+  box-shadow: none;
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.feed,.chat)::before {
+  background: linear-gradient(135deg,var(--black) 11px,var(--trace) 11px,var(--trace) 12px,transparent 12px) left top / 18px 100% no-repeat,
+              linear-gradient(225deg,var(--black) 11px,var(--trace) 11px,var(--trace) 12px,transparent 12px) right top / 18px 100% no-repeat;
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(h2.feed-heading,.news h2,.team-head h2),
+.jarvis-console[data-theme]:not([data-theme="red"]) .news li button::before { color: var(--theme-accent); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.news li button,.map-head h3) { color: var(--text); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.map-module,.map-window,.map-head,.map-page,.map-nav) {
+  background: var(--theme-deep); border-color: var(--edge);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.map-toolbar,.map-filters) { border-color: var(--edge); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.map-nav button,.map-nav button b,.news header .btn) { color: var(--muted); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.map-nav button:first-child,.map-nav button:hover) { color: var(--text); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.news li button:hover,.map-nav button:hover) { background: var(--theme-raised); }
+
+.jarvis-console[data-theme]:not([data-theme="red"]) .reactor {
+  background: linear-gradient(130deg,var(--trace),var(--theme-raised) 40%,var(--trace));
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .reactor::before {
+  background: radial-gradient(ellipse at 58% 42%,var(--theme-raised),var(--panel) 67%,var(--theme-deep));
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .reactor-state {
+  background: var(--theme-deep); border-color: var(--edge); color: var(--text);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .reactor-state i { background: var(--theme-accent); }
+
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.team-area,.office-wrap,.agent-list) { background: var(--theme-deep); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.team-head,.team-foot,.agent-list .agent) {
+  background: var(--panel); border-color: var(--edge); color: var(--text);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .agent-list .agent[aria-pressed="true"] {
+  border-color: var(--trace); background: var(--theme-raised);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.agent-list .agent i,.team-foot .tag i) { background: var(--theme-accent); }
+
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.topbar .btn,.map-window .btn,.map-head .alert,.team-head .tab,.team-head > .btn,.team-head .tag,.team-foot .tag,.team-foot .btn,.btn.primary,.reactor-actions .round) {
+  background: var(--theme-raised); border-color: var(--edge); color: var(--text);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.topbar .btn,.map-window .btn,.map-head .alert,.team-head .tab,.team-head > .btn,.team-foot .btn,.reactor-actions .round):hover {
+  border-color: var(--theme-accent); color: var(--theme-accent);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.map-window .btn[aria-pressed="true"],.map-page span,.team-head .tab[aria-pressed="true"],.reactor-actions .round[aria-pressed="true"]) {
+  background: color-mix(in srgb,var(--theme-accent) 16%,var(--theme-deep));
+  color: var(--theme-accent); border-color: var(--trace);
+}
+
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.chat-head .tab,.chat-tools .btn,.turn .turn-role) { color: var(--muted); }
+.jarvis-console[data-theme]:not([data-theme="red"]) .chat-head .tab[aria-pressed="true"] {
+  background: color-mix(in srgb,var(--theme-accent) 13%,var(--theme-deep)); color: var(--theme-accent);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .turn .message-body {
+  background: var(--theme-deep); color: var(--text); border-color: var(--edge);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .turn[data-speaker="you"] .message-body { background: var(--theme-raised); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :is(.turn .module-row,.chat-compose,.notes-panel textarea,dialog) {
+  background: var(--panel); color: var(--text); border-color: var(--edge);
+}
+.jarvis-console[data-theme]:not([data-theme="red"]) .chat-compose .send { background: var(--theme-raised); color: var(--theme-accent); }
+.jarvis-console[data-theme]:not([data-theme="red"]) .chat-compose textarea::placeholder { color: var(--muted); }
+.jarvis-console[data-theme]:not([data-theme="red"]) :focus-visible { outline-color: var(--theme-accent); }
+
+.jarvis-console .theme-current-swatch {
+  display: inline-block; flex: none; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--theme-accent);
+}
+.jarvis-console dialog:has(.theme-picker)::backdrop { background: rgb(5 5 7 / 42%); }
+.jarvis-console dialog:has(.theme-picker) #info-close {
+  color: var(--text); border-color: var(--edge); background: var(--panel);
+}
+.jarvis-console .reactor[data-reactor-task] .reactor-state i {
+  background: var(--reactor-accent);
+  box-shadow: 0 0 5px var(--reactor-glow);
+}
+.jarvis-console .theme-picker {
+  display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px;
+  min-inline-size: 0; border: 0; padding: 0; margin: 8px 0 3px;
+}
+.jarvis-console .theme-picker legend { margin-bottom: 7px; padding: 0; color: var(--muted); font-size: 11.7px; }
+.jarvis-console .theme-choice {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  min-width: 0; min-height: 42px; padding: 6px 8px; border: 1px solid var(--edge);
+  background: var(--panel); border-radius: 5px; cursor: pointer; overflow-wrap: anywhere;
+}
+.jarvis-console .theme-choice input {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; white-space: nowrap; clip-path: inset(50%);
+}
+.jarvis-console .theme-swatch {
+  flex: none; width: 26px; height: 18px; border: 1px solid var(--swatch); border-radius: 3px;
+  background: linear-gradient(100deg,color-mix(in srgb,var(--swatch) 27%,#0a1015) 0 58%,#0a1015 58%);
+}
+.jarvis-console .theme-choice:hover { border-color: var(--trace); }
+.jarvis-console .theme-choice:has(input:checked) { border-color: var(--theme-accent); color: var(--theme-accent); font-weight: 700; }
+.jarvis-console .theme-choice:has(input:focus-visible) { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+.jarvis-console .core-option[aria-current="true"] {
+  box-shadow: inset 0 0 0 1px var(--trace);
+  color: color-mix(in srgb,var(--trace) 62%,#fff);
+}
+@media (max-width: 430px) {
+  .jarvis-console .theme-picker { grid-template-columns: minmax(0,1fr); }
+}
+
+
+.jarvis-console .chat-compose .i, .jarvis-console .reactor-actions .i { width: 14px; height: 14px; }
+.jarvis-console .turn .message-body p + p { margin-top: 7px; }
+.jarvis-console .turn .message-body :is(ul,ol) { padding-inline-start: 20px; }
+.jarvis-console .turn .message-body pre { overflow: auto; }
+.jarvis-console .turn.saying .message-body { border-color: var(--theme-accent); }
+.jarvis-console #news-empty { padding: 6px 2px; }
+.jarvis-console #chat-agent #home-jobs { margin: 7px 0; }
+.jarvis-console :is(#home-notes,.console-history) { padding-inline-start: 0; list-style: none; }
+.jarvis-console :is(#home-notes,.console-history) li { margin-top: 5px; }
+.jarvis-console #home-notes p { white-space: pre-wrap; overflow-wrap: anywhere; }

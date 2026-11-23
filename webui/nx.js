@@ -18,7 +18,7 @@ async function api(name,...args){
 }
 async function tryApi(name,...a){try{return await api(name,...a)}catch(e){toast(e.message,'bad')}}
 function toast(msg,kind){if(kind!=='bad'&&S.ui&&S.ui.nx_notify===false)return;const d=document.createElement('div');if(kind)d.className=kind;d.textContent=msg;$('#toast').appendChild(d);setTimeout(()=>d.remove(),kind==='bad'?6500:4000)}
-const S={snap:null,ui:null,page:store.get('page','home'),orb:'idle',speech:null,chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
+const S={snap:null,ui:null,page:'home',orb:'idle',speech:null,chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
 const DAYS=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'],MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const pad=n=>String(n).padStart(2,'0');
 const hm=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+':'+pad(d.getMinutes())};
@@ -34,20 +34,16 @@ const NAV=[
   ['map','Harita','globe']
 ];
 function renderTop(){
+  const top=$('#top'),home=S.page==='home';
+  top.closest?.('.workspace')?.classList.toggle('workspace-console',home);
+  if(home){top.innerHTML='';return}
   const sn=S.snap||{}, n=needCount(), win=sn.winctl!==false;
   const name=(sn.user||{}).name||'Kullanıcı';
-  const home=S.page==='home',top=$('#top'),openPages=top.querySelector?.('.home-pages')?.open;
-  top.closest?.('.workspace')?.classList.toggle('workspace-home',home);
   $('#workspace-nav').innerHTML=NAV.filter(([key])=>key!=='map').map(([key,label,glyph])=>
     `<button type="button" data-go="${key}" ${S.page===key?'aria-current="page"':''}>${ic(glyph)}<span>${label}</span></button>`).join('');
   $('#workspace-profile').innerHTML=`<button type="button" data-act="user" aria-label="Kullanıcı değiştir"><span class="profile-mark">${esc(name.charAt(0))}</span><span><b>${esc(name)}</b><small>Profil ve ayarlar</small></span>${ic('chev')}</button>`;
-  const homeActions=home?`<button class="ab home-top-link" data-act="homechat">Sohbeti aç</button>
-    <details class="home-pages" ${openPages?'open':''}><summary>Ekranlar</summary><nav aria-label="Diğer ekranlar">
-    ${NAV.filter(([key])=>['files','vision','team','study','tools'].includes(key)).map(([key,label])=>`<button type="button" data-go="${key}">${label}</button>`).join('')}
-    <button type="button" data-act="user">Kullanıcı değiştir</button></nav></details>
-    <button class="ab home-top-link" data-act="goset" data-k="ai">Ayarlar</button>`:'';
-  top.innerHTML=`${home?'<strong class="home-wordmark">Jarvis</strong>':`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>`}
-   <div class="top-actions">${homeActions}<span id="clock" aria-hidden="true"></span>
+  top.innerHTML=`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
+   <div class="top-actions"><span id="clock" aria-hidden="true"></span>
     <button class="ab" data-act="notif" aria-label="Bildirimler">${ic('bell')}${n?`<span class="notice-count">${n}</span>`:''}</button>
     ${win?`<button class="ab" data-act="wmin" aria-label="Pencereyi küçült">−</button><button class="ab" data-act="wfull" aria-label="Tam ekran veya pencere">□</button><button class="ab" data-act="wclose" aria-label="Pencereyi kapat">×</button>`:''}
    </div>`;
@@ -72,7 +68,7 @@ function go(p){
     api('development_disable').then(result=>{if(!result.ok)throw new Error(result.message||'Geliştirme ekranından çıkılamadı.');S.snap.development.enabled=false;S.snap.development.unlocked=false;go(p);refreshSoon()}).catch(e=>toast(e.message,'bad')).finally(()=>{S.leavingDevelopment=false});return;
   }
   S.sq='';
-  S.page=p;store.set('page',p);render();
+  S.page=p;render();
 }
 
 function render(){
@@ -81,21 +77,26 @@ function render(){
   if(dock)dock.remove();
   renderTop();
   pg.className='page p-'+S.page;
+  if(S.page==='home'){
+    if(!pg.querySelector('.jarvis-console')){pg.innerHTML='';PAGES.home(pg)}
+    else{updateHome();drawHomeMessages()}
+    drawAtt();drawMiniPreview();
+    return;
+  }
+  window.JarvisHome?.destroy();
   pg.innerHTML='';
   if(S.page==='team'&&!PAGES.team)return;
-  (PAGES[S.page]||PAGES.home)(pg);
+  PAGES[S.page](pg);
   drawDock(dock);drawAtt();drawMiniPreview();if(focused)$('#dock input')?.focus();
 }
 document.addEventListener('click',e=>{
-  const homePages=$('.home-pages[open]');
-  if(homePages&&!e.target.closest('.home-pages'))homePages.open=false;
-  const g=e.target.closest('[data-go]');if(g){e.preventDefault();if(g.closest('#workspace-nav, .home-pages')){S.tool='';if(g.dataset.go==='tools')S.sset='takvim';if(g.dataset.go==='settings')S.sset='ai'}go(g.dataset.go);return}
+  const g=e.target.closest('[data-go]');if(g){e.preventDefault();if(g.closest('#workspace-nav')){S.tool='';if(g.dataset.go==='tools')S.sset='takvim';if(g.dataset.go==='settings')S.sset='ai'}go(g.dataset.go);return}
   const sy=e.target.closest('[data-say]');if(sy){e.preventDefault();const v=sy.dataset.say;if(v.startsWith('#'))return go(v.slice(1));say(v);return}
   // Önce açık menüyü kapat, sonra düğmenin işini yap: yoksa profil/bildirim menüsü açılır açılmaz kapanıyordu.
   const a=e.target.closest('[data-act]');if(a&&ACT[a.dataset.act]){e.preventDefault();closeMenu();Promise.resolve(ACT[a.dataset.act](a,e)).catch(err=>toast(err.message||String(err),'bad'));return}
   if(!e.target.closest('.menu'))closeMenu();
 });
-document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('.ask input')){e.preventDefault();if(S.attPending)return toast('Dosyanın yüklenmesini bekle.');const v=e.target.value.trim();if(v||atts().length){e.target.value='';say(v)}}if(e.key==='Escape'){closeMenu();const pages=$('.home-pages[open]');if(pages){pages.open=false;pages.querySelector('summary').focus()}if(S.orb==='speaking'||S.sspeaking)ACT.dstop()}});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('.ask input')){e.preventDefault();if(S.attPending)return toast('Dosyanın yüklenmesini bekle.');const v=e.target.value.trim();if(v||atts().length){e.target.value='';say(v)}}if(e.key==='Escape'){closeMenu();if(S.orb==='speaking'||S.sspeaking)ACT.dstop()}});
 
 // ======================================================================= arayüze uygun soru pencereleri (tarayıcının gri kutusu yerine)
 function _dlg(title,msg,input,def){return new Promise(res=>{const o=document.createElement('div');o.className='jdlg';
@@ -165,13 +166,13 @@ async function attachChatFile(file){
   if(!r||owner!==S.snap?.user?.name)return;
   S.att=[...atts(),{path:r.path,name:file.name}];S.files=null;
   toast(`${file.name} eklendi. Ne yapmamı istediğini yazıp gönder.`);
-  $('.ask input')?.focus();
+  ($('.ask input')||$('.jarvis-console #message'))?.focus();
  }finally{S.attPending=Math.max(0,(S.attPending||0)-1);drawAtt()}
 }
 const MAX_ATT=10,MAX_ATT_BYTES=200_000_000;
 const atts=()=>Array.isArray(S.att)?S.att:(S.att?[S.att]:[]);
 function pasteChatImage(e){
- if(!['chat','home'].includes(S.page)||!e.target.matches?.('.ask input'))return;
+ if(!['chat','home'].includes(S.page)||!e.target.matches?.('.ask input, .jarvis-console #message'))return;
  const items=Array.from(e.clipboardData?.items||[]);
  const item=items.find(x=>x.kind==='file'&&x.type.startsWith('image/'));
  const image=item?.getAsFile()||Array.from(e.clipboardData?.files||[]).find(x=>x.type.startsWith('image/'));
@@ -196,7 +197,7 @@ function droppedFiles(dt){
 }
 async function dropToChat(files,folders,text){
  if(folders)toast('Klasör eklenemez; klasörün içindeki dosyaları seçip bırak.','bad');
- if(!files.length){if(text){const i=$('.ask input');if(i){i.value=(i.value?i.value+' ':'')+text.trim();i.focus()}}return}
+ if(!files.length){if(text){const i=$('.ask input')||$('.jarvis-console #message');if(i){i.value=(i.value?i.value+' ':'')+text.trim();i.focus()}}return}
  if(!['chat','home'].includes(S.page)){S.day=ymd(new Date());go('chat')}
  for(const f of files)await attachChatFile(f);
 }
@@ -242,7 +243,7 @@ function drawPcMute(){$$('[data-act="pcmute"]').forEach(b=>{b.outerHTML=pcMuteBt
 function loadPcMute(){api('pc_mute_state').then(r=>{S.pcMuted=r&&typeof r.muted==='boolean'?r.muted:null;drawPcMute()}).catch(()=>{})}
 ACT.pcmute=async()=>{if(S.pcMuteBusy)return;S.pcMuteBusy=true;try{const r=await tryApi('pc_mute',S.pcMuted!==true);if(r&&typeof r==='object'){S.pcMuted=r.muted===true;toast(S.pcMuted?'Bilgisayarın tüm sesi kapatıldı.':'Bilgisayarın sesi açıldı.');drawPcMute()}}finally{S.pcMuteBusy=false}};
 const muteBtn=(cls='ab')=>{const off=((S.snap||{}).flags||{}).speak===false;return `<button class="${cls} amute ${off?'off':''}" data-act="mute" title="${off?'Jarvis’in sesini aç':'Jarvis’i sustur (yazıyla cevap verir)'}">${ic(off?'volx':'vol')}</button>`};
-const DOCK_PH={home:'Jarvis’e yaz…',vision:'Ekran Ya Da Görsel Hakkında Bir Şey Sor...',files:'Dosyalar Hakkında Bir Şey Sor...',study:'Çalışma Konusu Hakkında Sor...',settings:'Bir Şey Söyle Veya Yaz...'};
+const DOCK_PH={vision:'Ekran Ya Da Görsel Hakkında Bir Şey Sor...',files:'Dosyalar Hakkında Bir Şey Sor...',study:'Çalışma Konusu Hakkında Sor...',settings:'Bir Şey Söyle Veya Yaz...'};
 const DOCK_ST={idle:'Hazır',listening:'Dinliyor',thinking:'Düşünüyor',working:'Çalışıyor',speaking:'Konuşuyor'};
 function drawDock(previous=null){
   const host=$('#dockhost')||$('#workspace-composer');
@@ -260,92 +261,9 @@ const shareBtns=()=>{const mode=(S.snap||{}).mode;return [['screen','monitor','E
 // ======================================================================= ANA SAYFA
 const PAGES={};
 
-function updateHomeStatus(){
-  const status=$('#home-voice'),stage=$('.console-stage'),sn=S.snap;
-  const activity=S.orb==='idle'&&S.waiting?'thinking':S.orb;
-  if(status){
-    const label=activity==='idle'?heyTxt():(DOCK_ST[activity]||heyTxt());
-    if(status.textContent!==label)status.textContent=label;
-  }
-  if(stage)stage.dataset.state=DOCK_ST[activity]?activity:'idle';
-  const audio=$('#home-audio'),flags=sn?.flags;
-  if(audio&&flags){
-    const statusText=(label,on)=>`<span data-active="${on===true}">${label} ${on===true?'açık':'kapalı'}</span>`;
-    const markup=statusText('Mikrofon',flags.mic)+statusText('Jarvis sesi',flags.speak);
-    if(audio._markup!==markup){audio._markup=markup;audio.innerHTML=markup}
-  }
-  const warning=$('#home-connection');
-  if(warning)warning.hidden=!sn?.llm||!!sn.llm.key||sn.llm.provider==='ollama';
-}
-function updateHomeCalendar(){
-  const container=$('#home-calendar');if(!container)return;
-  const now=ymd(new Date()), sn=S.snap||{};
-  const events=(sn.all_events||sn.events||[]).filter(entry=>String(entry.when||'').startsWith(now)).sort((a,b)=>a.when.localeCompare(b.when)).slice(0,3);
-  container.innerHTML=events.length?events.map(event=>`<div class="home-event">${ic('calendar')}<span>${event.when.length>10?`<time>${esc(event.when.slice(11,16))}</time> · `:''}${esc(event.title||'Etkinlik')}</span></div>`).join(''):'<p class="mut">Bugün için etkinlik yok.</p>';
-}
-function updateHomeReadouts(){
-  const weather=$('#home-weather-data'),system=$('#home-system-data'),sn=S.snap;
-  if(weather){
-    const wx=sn?.weather;
-    const reading=Number.isFinite(wx?.temp)&&typeof wx.city==='string'&&wx.city.trim();
-    const details=reading?[
-      Number.isFinite(wx.feels)?`Hissedilen ${wx.feels}°`:'',
-      Number.isFinite(wx.min)&&Number.isFinite(wx.max)?`${wx.min}° / ${wx.max}°`:'',
-      Number.isFinite(wx.rain)?`Yağış %${wx.rain}`:'',
-    ].filter(Boolean):[];
-    const markup=reading?`<div class="home-weather-grid"><strong>${wx.temp}°</strong><div><b>${esc(wx.city)}</b><p>${esc(wx.desc||'')}</p></div></div>${details.length?`<p class="home-weather-meta">${details.join(' · ')}</p>`:''}`
-      :`<p class="mut">${sn?'Hava durumu verisi bekleniyor.':'Hava durumu yükleniyor…'}</p>`;
-    if(weather._markup!==markup){weather._markup=markup;weather.innerHTML=markup}
-  }
-  if(system){
-    const sys=sn?.sys;
-    const usage=(label,reading)=>{
-      const value=Number.isFinite(reading)?Math.max(0,Math.min(100,Math.round(reading))):null;
-      return `<div class="home-meter"><span>${label}</span><strong>${value===null?'—':`<span class="home-unit">%</span>${value}`}</strong></div>`;
-    };
-    const online=sys?.online;
-    const network=online===false?'Bağlantı yok':online===true&&Number.isFinite(sys?.ping)?'Bağlı':'—';
-    const ping=online&&Number.isFinite(sys?.ping)?`<small>${sys.ping} ms</small>`:'';
-    const markup=usage('CPU',sys?.cpu)+usage('RAM',sys?.mem)+usage('Disk',sys?.disk_total>0?sys.disk:null)
-      +`<div class="home-network"><span>Ağ</span><strong>${network}</strong>${ping}</div>`;
-    if(system._markup!==markup){system._markup=markup;system.innerHTML=markup}
-  }
-}
-function updateHome(){updateHomeStatus();updateHomeCalendar();updateHomeReadouts();window.JarvisTeam?.refreshHome($('#home-jobs'))}
-PAGES.home=pg=>{
-  pg.innerHTML=`<div class="home-grid home-console">
-    <aside class="home-aside console-panel" aria-label="İş ve takvim özeti">
-      <section class="workspace-summary"><div class="workspace-heading"><h2>Ekip Merkezi</h2></div><div id="home-jobs" aria-live="polite"><p class="mut">İşler yükleniyor…</p></div><button class="link" data-go="team">Tüm işleri gör</button></section>
-      <section class="workspace-summary"><div class="workspace-heading"><h2>Bugün</h2><button class="link" data-act="tool" data-k="takvim">Takvim</button></div><div id="home-calendar"></div></section>
-      <section class="workspace-summary home-weather"><div class="workspace-heading"><h2>Hava durumu</h2><button class="link" data-act="goset" data-k="genel">Şehir</button></div><div id="home-weather-data"></div></section>
-    </aside>
-    <section class="workspace-hero console-stage console-panel" aria-label="Jarvis ses durumu">
-      <div class="home-audio-strip" id="home-audio" aria-label="Mikrofon ve Jarvis sesi"></div>
-      <div class="console-grid" aria-hidden="true"></div>
-      <div class="console-portrait" aria-hidden="true"><img class="console-avatar" src="/home-avatar.webp" alt=""><span class="console-mouth"></span></div>
-      <div class="console-voice"><p id="home-voice" role="status"></p><div class="console-wave" aria-hidden="true">${'<i></i>'.repeat(15)}</div></div>
-    </section>
-    <section class="console-conversation console-panel" aria-labelledby="home-title">
-      <div class="workspace-heading"><h1 id="home-title">Jarvis’e sor</h1></div>
-      <div id="home-messages" class="console-messages" role="log" aria-label="Ana ekran konuşması"></div>
-      <button class="link" id="home-open-chat" data-act="homechat">Sohbette aç</button>
-      <button class="link home-connection" id="home-connection" data-act="keysetup" hidden>Model bağlantılarını aç</button>
-      <div class="home-shortcuts" aria-label="Hazır komutlar">
-        <button type="button" data-act="prefill" data-t="Bugünkü haberleri özetle">Haberleri özetle</button>
-        <button type="button" data-act="prefill" data-t="Takvimim">Takvimim</button>
-        <button type="button" data-act="prefill" data-t="Dosyalarımı göster">Dosyalarım</button>
-      </div>
-      <div id="dockhost"></div>
-    </section>
-    <section class="home-system console-panel" aria-labelledby="home-system-title">
-      <h2 id="home-system-title">Sistem durumu</h2>
-      <div class="home-system-grid" id="home-system-data"></div>
-    </section>
-  </div>`;
-  updateHome();
-  drawHomeMessages();
-};
-ACT.homechat=()=>{S.day=ymd(new Date());go('chat')};
+function updateHomeStatus(){window.JarvisHome?.updateStatus()}
+function updateHome(){window.JarvisHome?.refresh()}
+PAGES.home=pg=>{window.JarvisHome.mount(pg);drawHomeMessages()};
 ACT.goset=el=>{S.sset=el.dataset.k;S.tool='';go('settings')};
 ACT.research=()=>{go('chat');const input=$('.ask input');if(input){input.value='İnternette araştır: ';input.focus()}};
 
@@ -635,10 +553,10 @@ ACT.day=el=>{S.day=el.dataset.d;S.since=0;drawConvs();drawMsgs();drawSide()};
 ACT.newchat=async()=>{await tryApi('chat_reset');S.day=ymd(new Date());S.since=Date.now()/1000;S.live=[];drawConvs();drawMsgs();drawSide();toast('Yeni sohbet başladı.')};
 ACT.csearch=async ()=>{const q=await askText('Sohbetlerde ara:',S.cq||'');if(q!==null){S.cq=q;drawConvs()}};
 ACT.allconv=()=>{S.allConv=!S.allConv;render()};
-function curMsgs(day=S.day){
+function curMsgs(day=S.day,since=S.since){
   const today=ymd(new Date());let rows=(S.hist||[]).filter(r=>(r.ts||'').slice(0,10)===day).map(r=>({role:r.role,text:r.text,ts:Date.parse(r.ts.replace(' ','T'))/1000,src:r.source,rid:r.rid}));
   if(day===today){const seen=new Set(rows.map(r=>r.role+'|'+r.text));S.live.forEach(m=>{const k=m.role+'|'+m.text;if(!seen.has(k)){rows.push(m);seen.add(k)}})}
-  if(S.since)rows=rows.filter(r=>r.ts>=S.since);
+  if(since)rows=rows.filter(r=>r.ts>=since);
   return rows.sort((a,b)=>a.ts-b.ts);
 }
 function chatImageHtml(label,url){
@@ -692,7 +610,7 @@ function taskGoalId(item){const area=String((item||{}).area||'');const match=/^G
 function speechTaskClass(goal){const id=S.speech||{};return goal&&(id.goal_id===goal||id.event_id===goal)?' saying':''}
 function applySpeechHighlight(){
   const id=S.speech||{};
-  $$('.m.a').forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
+  [...$$('.m.a'),...$$('.jarvis-console .turn[data-speaker="jarvis"]')].forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
   // Görev kartı yalnız kendi işi seslendirildiğinde işaretlenir: kartın kimliği
   // çizimdeki aktivite kaydından gelir, seslendirmenin sonuç kimliğiyle (iş/hedef)
   // karşılaştırılır. Kimliksiz seslendirme hiçbir kartı boyamaz.
@@ -705,9 +623,11 @@ function msgHtml(m){
   if(m.role==='user'){const fm=msgFiles(m.text);
     const body=fm.paths.length?`${esc(fm.rest.replace(/^dosyalarını |^dosyasını |^görselini |^görselindeki /,'').replace(/^./,c=>c.toUpperCase()))}${fm.paths.map(f=>`<div class="fchip"><span class="fi ${catOf(f)}">${extOf(f).toUpperCase().slice(0,4)}</span><span><b>${esc(f.split(/[\\/]/).pop())}</b><small>${esc(extOf(f).toUpperCase())}</small></span></div>`).join('')}`:md(m.text);
     const heard=m.src==='ses'?`<div class="heard">${ic('mic')}Anladığım</div>`:'';
+    if(m.home)return `<article class="turn" data-speaker="you"><div class="turn-role">Sen •</div><div class="message-body">${heard}${body}</div></article>`;
     return `<div class="m u"><div class="bb">${heard}${body}<time class="t">${hm(m.ts)}</time></div><span class="av">${esc(((S.snap||{}).user||{}).name?.[0]||'S')}</span></div>`}
   if(m.role==='system')return `<div class="m s">${esc(m.text)}</div>`;
   if(m.role==='step')return stepsHtml(S.steps[m.rid]);
+  if(m.home)return `<article class="turn${speechClassFor(m)}" data-speaker="jarvis" data-rid="${esc(m.rid||'')}"><div class="turn-role">• ${esc(S.snap?.aname||'Jarvis')}</div><div class="message-body">${md(m.text)}</div></article>`;
   return `<div class="m a${speechClassFor(m)}" data-rid="${esc(m.rid||'')}"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}<time>${hm(m.ts)}</time></div><div class="bb">${md(m.text)}</div></div></div>`;
 }
 function stepsHtml(card){
@@ -793,8 +713,9 @@ function stripHtml(){const A=window.JarvisActivityStrip;if(!A)return'';const st=
 ACT.stoptask=async()=>{const rid=typeof taskSummaryActiveRid==='function'?taskSummaryActiveRid():null;const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');if(r.stopped===true&&typeof taskSummaryFinish==='function')taskSummaryFinish(rid,true);toast(r.msg||'Görev durduruldu.')};
 function drawHomeMessages(){
   const host=$('#home-messages');if(!host)return;
-  const messages=curMsgs(ymd(new Date()));
-  const markup=messages.length?messages.map(msgHtml).join(''):'<p class="mut">Yaz, konuş veya bir dosya ekle.</p>';
+  const today=ymd(new Date()),day=window.JarvisHome?.day()||today;
+  const messages=curMsgs(day,day===today?S.since:0);
+  const markup=messages.length?messages.map(message=>msgHtml({...message,home:true})).join(''):'<p class="mut">Yaz, konuş veya bir dosya ekle.</p>';
   if(host._markup!==markup){
     const atEnd=host.scrollHeight-host.scrollTop-host.clientHeight<48;
     host._markup=markup;host.innerHTML=markup;
@@ -1083,10 +1004,11 @@ ACT.capture=async()=>{
 
 // Paylaşım açıkken sohbetin köşesinde küçük canlı önizleme (Ekran sayfasında gizlenir). Görüntü yalnız yerelde alınır; model çağrısı yoktur.
 let miniTimer=null,miniBusy=false;
-function miniHidden(){return S.page==='vision'||((S.page==='settings'||S.page==='tools')&&S.sset==='ekran')}
+function miniHidden(){return S.page==='home'||S.page==='vision'||((S.page==='settings'||S.page==='tools')&&S.sset==='ekran')}
 function drawMiniPreview(){
   const mode=(S.snap||{}).mode;let box=$('#vprev');
   $$('.hb2[data-a^="act:share:"]').forEach(b=>{const m=b.dataset.a.slice(10),on=mode===m;b.classList.toggle('live',on);b.title=on?(m==='camera'?'Kamerayı kapat':'Ekran paylaşımını kapat'):(m==='camera'?'Kamerayı aç':'Ekranı paylaş')});
+  if(S.page==='home')updateHomeStatus();
   if(!mode||miniHidden()){if(box)box.remove();clearTimeout(miniTimer);miniTimer=null;return}
   if(!box){box=document.createElement('div');box.id='vprev';box.className='vprev'+(S.vmini?' mini':'');box.innerHTML=`<div class="vph"><span></span><div class="vbtns"><button data-act="vmin" title="Küçült / büyüt">${ic('chevd')}</button><button data-act="vis" title="Kapat">${ic('x')}</button></div></div><img alt="Canlı önizleme"><p class="mut">Görüntü bekleniyor…</p>`;document.body.appendChild(box)}
   box.querySelector('span').textContent=mode==='camera'?'Canlı kamera':'Ekran paylaşımı';box.querySelector('[data-act="vis"]').dataset.a='act:share:'+mode;
@@ -1132,7 +1054,7 @@ async function harita_set_policy(tool,action,old,next,control){
 PAGES.map=async pg=>{
   pg.innerHTML=`<div class="harita-wrap"><div class="empty">Harita yükleniyor…</div></div>`;
   const d=await tryApi('map');
-  pg.innerHTML=harita_render(d);
+  if(S.page==='map')pg.innerHTML=harita_render(d);
 };
 if(typeof document!=='undefined')document.addEventListener('change',e=>{
   const s=e.target&&e.target.closest&&e.target.closest('select[data-map-tool]');if(!s)return;

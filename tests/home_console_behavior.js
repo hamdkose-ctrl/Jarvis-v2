@@ -8,11 +8,10 @@ const nodes = new Map();
 const listeners = new Map();
 const requests = [];
 const visited = [];
+const homeCalls = [];
 const snapshot = {
   user: {name: 'Hamdi', slug: 'hamdi'},
   flags: {mic: true, speak: false},
-  sys: {cpu: 37, mem: 64, disk: 52, disk_total: 1000, online: true, ping: 18},
-  weather: {city: 'Ankara <merkez>', temp: 12, feels: 10, min: 5, max: 14, rain: 0, desc: 'Parçalı bulutlu'},
   all_events: [{title: 'Proje görüşmesi', when: '2099-01-01T14:00'}],
 };
 const results = {
@@ -34,7 +33,12 @@ const context = vm.createContext({
     querySelector: selector => nodes.get(selector) || null,
     querySelectorAll: () => [],
   },
-  window: {},
+  window: {JarvisHome: {
+    mount: node => {assert.equal(node,page);homeCalls.push('mount');},
+    day: () => '',
+    updateStatus: () => homeCalls.push('status'),
+    refresh: () => homeCalls.push('refresh'),
+  }},
   ic: () => '',
   setTimeout: () => 1,
   clearTimeout: () => {},
@@ -50,7 +54,7 @@ const context = vm.createContext({
     visited.push(name);
     nodes.clear();
     const selectors = name === 'home'
-      ? ['#home-messages', '#home-voice', '#home-connection', '#home-calendar', '#home-weather-data', '#home-system-data', '#home-audio', '.console-stage']
+      ? ['#home-messages']
       : ['#msgs'];
     for (const selector of [...selectors, '#workspace-nav', '#workspace-profile', '#top']) {
       nodes.set(selector, {innerHTML: '', textContent: '', dataset: {}});
@@ -90,20 +94,10 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const homeMessages = () => nodes.get('#home-messages').innerHTML;
 
 async function main() {
-  assert.match(page.innerHTML, /data-act="homechat"/);
-  assert.doesNotMatch(homeMessages(), /Yanıt hazır/);
-  assert.equal(nodes.get('#home-voice').textContent, 'Hazır');
-  assert.match(nodes.get('#home-weather-data').innerHTML, /Ankara &lt;merkez&gt;/);
-  assert.match(nodes.get('#home-weather-data').innerHTML, /Yağış %0/);
-  assert.match(nodes.get('#home-system-data').innerHTML, /home-unit">%<\/span>37/);
-  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /<meter/);
-  assert.match(nodes.get('#home-system-data').innerHTML, /18 ms/);
-  assert.match(nodes.get('#home-audio').innerHTML, /Mikrofon açık/);
-  assert.match(nodes.get('#home-audio').innerHTML, /Jarvis sesi kapalı/);
-  evaluate('S.snap={...snapshot, weather:null, sys:{disk_total:0, disk:0}}; updateHome()');
-  assert.match(nodes.get('#home-weather-data').innerHTML, /verisi bekleniyor/);
-  assert.doesNotMatch(nodes.get('#home-system-data').innerHTML, /home-unit/);
-  evaluate('S.snap=snapshot; updateHome()');
+  assert.deepEqual(homeCalls, ['mount', 'status']);
+  assert.match(homeMessages(), /Yaz, konuş veya bir dosya ekle/);
+  evaluate('updateHome()');
+  assert.equal(homeCalls.at(-1), 'refresh');
   const input = {value: 'Belgeyi özetle'};
   send(input);
   await flush();
@@ -118,7 +112,7 @@ async function main() {
   assert.ok(rid);
   assert.match(homeMessages(), /Belgeyi özetle/);
   assert.equal(evaluate('S.waiting'), true);
-  assert.equal(nodes.get('.console-stage').dataset.state, 'thinking');
+  assert.equal(homeCalls.at(-1), 'status');
 
   function emit(kind, text, props = {}) {
     context.message = {k: kind, t: text, user: snapshot.user.slug, rid, ts: Date.now() / 1000, ...props};
@@ -126,8 +120,7 @@ async function main() {
   }
   emit('state', 'listening');
   assert.equal(evaluate('S.orb'), 'listening');
-  assert.match(nodes.get('#home-voice').textContent, /Dinliyor/);
-  assert.equal(nodes.get('.console-stage').dataset.state, 'listening');
+  assert.equal(homeCalls.at(-1), 'status');
   emit('user', text, {mid: 'user-message'});
   assert.equal((homeMessages().match(/Belgeyi özetle/g) || []).length, 1);
   emit('step', 'Belge okundu', {x: 'done|extract'});
@@ -148,13 +141,13 @@ async function main() {
   }
   assert.deepEqual(requests.map(([action]) => action), ['send', 'files_list', 'snapshot']);
 
-  click('homechat');
+  evaluate("S.day=ymd(new Date());go('chat')");
   assert.equal(evaluate('S.page'), 'chat');
   assert.equal(evaluate('S.day'), evaluate('ymd(new Date())'));
   assert.equal(evaluate('S.since'), 0);
   assert.match(nodes.get('#msgs').innerHTML, /Yanıt hazır &lt;metin&gt;/);
   assert.deepEqual(visited, ['home', 'chat']);
-  console.log('Ana ekran gönderimi, canlı yanıt, durum ve Sohbete geçiş doğrulandı.');
+  console.log('Konsola giriş, aynı ekranda gönderim ve canlı yanıt, dosya ve takvim kartları doğrulandı.');
 }
 
 main().catch(error => {

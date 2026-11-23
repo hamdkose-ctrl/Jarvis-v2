@@ -5,15 +5,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 JS = (ROOT / "webui" / "nx.js").read_text(encoding="utf-8")
 CSS = (ROOT / "webui" / "nx.css").read_text(encoding="utf-8")
+HOME = (ROOT / "webui" / "home-console.js").read_text(encoding="utf-8")
+HOME_CSS = (ROOT / "webui" / "home-console.css").read_text(encoding="utf-8")
 WEB = (ROOT / "web.py").read_text(encoding="utf-8")
 
 
 class CommandCenterTests(unittest.TestCase):
     def test_home_uses_live_jobs_calendar_and_composer(self):
         home = JS[JS.index("PAGES.home="):JS.index("ACT.goset=")]
-        for target in ("dockhost", "home-jobs", "home-calendar"):
-            self.assertIn(f'id="{target}"', home)
-        self.assertIn("JarvisTeam?.refreshHome", JS)
+        self.assertIn("JarvisHome.mount(pg)", home)
+        for target in ("compose", "home-jobs", "news-list", "home-messages"):
+            self.assertIn(f'id="{target}"', HOME)
+        self.assertIn("JarvisTeam?.refreshHome", HOME)
+        self.assertIn("void say(text)", HOME)
+        self.assertNotIn("console-portrait", CSS + JS)
 
     def test_desktop_has_profile_notifications_and_clock(self):
         top = JS[JS.index("function renderTop()"):JS.index("function needCount()")]
@@ -31,8 +36,10 @@ class CommandCenterTests(unittest.TestCase):
         self.assertIn('"github": github_state', WEB)
 
     def test_command_center_responsive_rules_exist(self):
-        for text in (".workspace-hero", ".workspace-settings", "@media(max-width:620px)"):
-            self.assertIn(text, CSS)
+        self.assertIn(".workspace-console", CSS)
+        self.assertIn(".workspace-settings", CSS)
+        self.assertIn(".jarvis-console .layout", HOME_CSS)
+        self.assertIn("@media(max-width: 900px)", HOME_CSS)
 
 
 if __name__ == "__main__":
