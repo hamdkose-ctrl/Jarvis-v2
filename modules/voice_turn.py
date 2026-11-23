@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import re
 
+from modules.diagnostics import record_failure as _record_failure
+
 # Ölçülmüş sabitler (Stonic settings.toml [turn]; kopyalanan kod değil, sayı).
 VAD_START_SECS = 0.2          # ses başladı sayılmak için gereken konuşma
 VAD_STOP_SECS = 0.2           # "sustu" demek için gereken sessizlik
@@ -139,6 +141,7 @@ class TurnDecision:
                 verdict = self._model(self.text)
                 self._model_says = verdict if isinstance(verdict, bool) else None
             except Exception:       # model hatası sıra kararını kilitlemesin
+                _record_failure('modules/voice_turn.py:model')
                 self._model_says = None
         self._wait = turn_wait(self.text, self._model_says)
         if now is not None:
