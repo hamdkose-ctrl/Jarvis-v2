@@ -302,7 +302,9 @@ class PcmSink:
     """
 
     def __init__(self, *, latency: float = 0.35, frames_per_write: int = 1024,
-                 idle_seconds: float = 25.0, join_silence_ms: float = 120.0):
+                 idle_seconds: float = 25.0, join_silence_ms: float = 120.0,
+                 device=None):
+        self.device = device
         self.latency = latency
         self.frames_per_write = frames_per_write
         self.idle_seconds = idle_seconds
@@ -358,7 +360,7 @@ class PcmSink:
         basladi = time.monotonic()
         self._stream = sd.RawOutputStream(samplerate=rate, channels=channels, dtype="int16",
                                           latency=self.latency, blocksize=self.frames_per_write,
-                                          callback=self._callback)
+                                          device=self.device, callback=self._callback)
         self._stream.start()
         self._rate, self._channels = rate, channels
         return (time.monotonic() - basladi) * 1000
