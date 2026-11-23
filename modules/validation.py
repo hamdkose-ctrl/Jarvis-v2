@@ -21,14 +21,16 @@ def python_timeout():
     Windows'taki ~7.1k test 900 saniyelik tavanı aşabiliyor: koşucu makine
     Jarvis açıkken ve başka bir CI işi paralel çalışırken yavaşlıyor, süre
     aşımı "başarısız" gibi görünüyor (canlı: 23 Kasım 21:26 koşusu tam bu
-    nedenle düştü, tek bir test hatası yoktu). 1800 sn de PASS sayılmaz;
+    nedenle düştü, tek bir test hatası yoktu). Koşucu başka bir işle
+    paylaşılınca paket 30 dakikayı da aşabiliyor (canlı: 24 Kasım 01:37).
+    Tavan 3600 sn; yine de PASS sayılmaz, yalnızca tamamlanma payıdır.
     yalnızca tamamlanma payıdır. JARVIS_VALIDATION_TIMEOUT ile aynı akış
     yönetilir.
     """
     try:
-        return max(60, int(os.environ.get('JARVIS_VALIDATION_TIMEOUT') or 1800))
+        return max(60, int(os.environ.get('JARVIS_VALIDATION_TIMEOUT') or 3600))
     except ValueError:
-        return 1800
+        return 3600
 
 
 def _record_failure(location):
