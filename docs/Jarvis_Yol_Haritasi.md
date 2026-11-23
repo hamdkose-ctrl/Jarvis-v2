@@ -1249,6 +1249,7 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - Tek konsol sağda sohbeti, küre menülerini ve uzman ayarlarını açar. Eski Sohbet ve Dosyalar ekranlarının çizimi, stilleri ve gezinmesi kaldırıldı. Eski adresler ana konsola döner.
 - Dosya ve görsel işlemleri sohbet eklerinden başlatılır. Uzman ayarları seçili uzman kimliğine bağlıdır. Çalışma Modu tek soru alanı ve açılır bölüm seçimi kullanır. Sohbet adımları ile görev sonucu kartları konsol temasını izler.
+- Yerel model kabulünde Ayarlar düğmesi sağdaki yapay zekâ ayarlarını açar. Betik Ollama kartını bu bölümde seçer ve görünür model listesini arka uç verisiyle karşılaştırır.
 - Chromium akışları, 27 JavaScript grubu ve ilgili sözleşme testleri yerelde doğrulandı. Windows CI ve gerçek PC kabulü bu değişikliğin güncel commit’inde beklenir.
 
 
