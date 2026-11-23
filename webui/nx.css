@@ -32,46 +32,15 @@ a { color:var(--blue) }
 .i { width:20px; height:20px; flex:none; vertical-align:middle }
 .mut,.empty { color:var(--mut) }
 .empty { padding:14px 5px }
-.workspace { display:grid; min-height:100vh; grid-template-columns:218px minmax(0,1fr) }
-.workspace-sidebar {
-  position:sticky; top:0; height:100vh; min-height:0; overflow:auto; display:flex; flex-direction:column;
-  padding:25px 14px 15px; color:var(--sidebar-text); background:var(--sidebar); border-right:1px solid #2c4657;
-}
-.workspace-brand { border:0; display:flex; background:none; color:#fff; align-items:center; gap:10px; padding:4px 12px 30px; width:max-content }
-.workspace-brand b { font-size:26px; letter-spacing:-.055em }
-.brand-mark { width:35px; height:35px; background:linear-gradient(145deg,#ffd0af,#cc7951); border-radius:9px; display:flex; align-items:center; justify-content:center; gap:3px }
-.brand-mark i { width:3px; height:9px; border-radius:2px; background:#172b36 }
-.brand-mark i:nth-child(2) { height:17px }
-.brand-mark i:nth-child(3) { height:12px }
-#workspace-nav { display:grid; gap:5px }
-#workspace-nav button { display:flex; align-items:center; gap:12px; text-align:left; min-height:45px; border:0; border-radius:8px; background:none; color:inherit; padding:9px 12px; font-weight:650 }
-#workspace-nav button:hover,#workspace-nav button[aria-current] { color:#fff; background:var(--nav-active) }
-#workspace-nav button[aria-current] { box-shadow:inset 3px 0 #f59471 }
-#workspace-nav button[aria-current] .i { color:#fa9d78 }
-#workspace-profile { margin-top:auto; border-top:1px solid #34454f; padding-top:13px }
-#workspace-profile button { display:flex; gap:10px; align-items:center; width:100%; text-align:left; padding:4px; background:none; color:#fff; border:0 }
-#workspace-profile .i { margin-left:auto; width:16px }
-#workspace-profile small { display:block; color:#b1c3cd; font-size:11px }
-.profile-mark { width:36px; height:36px; border-radius:50%; display:grid; place-items:center; flex:none; background:#344c5a; color:#ffd4bc; font-weight:750 }
-.workspace-main { min-width:0; display:flex; flex-direction:column }
-.workspace-top { display:flex; justify-content:space-between; align-items:center; padding:0 clamp(16px,3vw,48px); min-height:61px; border-bottom:1px solid var(--line) }
-.top-actions { display:flex; gap:4px; align-items:center }
-.top-actions .ab { position:relative }
-.top-actions #clock { font-variant-numeric:tabular-nums; color:var(--mut); margin-right:7px }
-.notice-count { position:absolute; top:0; right:0; min-width:14px; padding:0 2px; font-size:10px; background:var(--control); border-radius:9px; color:var(--control-text) }
 .page { width:min(100%,1570px); margin:0 auto; padding:27px clamp(16px,3vw,48px); min-width:0; flex:1 }
 .pagehead { display:flex; gap:14px; justify-content:space-between; align-items:start; margin-bottom:18px }
 .pagehead h1,.team-head h1 { font-size:clamp(28px,3vw,42px); line-height:1.1; letter-spacing:-.055em }
 .pagehead p,.team-head p { color:var(--mut); margin-top:5px }
-.workspace.workspace-console { grid-template-columns:minmax(0,1fr) }
-.workspace-console > .workspace-sidebar,
-.workspace-console > .workspace-main > :is(#top,#workspace-composer) { display:none }
-.workspace-console #page.p-home { width:100%; max-width:none; min-height:100dvh; margin:0; padding:0; background:none }
-.file-heading,.team-hero {
+.team-hero {
   position:relative; isolation:isolate; overflow:hidden; color:#f1f6fa; border:1px solid #466c81;
   border-radius:13px; background:radial-gradient(ellipse at top left,#16364b,var(--hero) 68%); box-shadow:var(--shadow);
 }
-.file-heading::before,.team-hero::before {
+.team-hero::before {
   content:""; position:absolute; z-index:-1; pointer-events:none; inset:0 0 8% 43%;
   mask-image:linear-gradient(to right,transparent,#000 17%,#000 94%,transparent),
              linear-gradient(to bottom,transparent,#000 12%,#000 89%,transparent);
@@ -126,10 +95,10 @@ a { color:var(--blue) }
 .card,.sbox,.team-config { border:1px solid var(--line); border-radius:12px; background:var(--panel); box-shadow:var(--shadow); min-width:0 }
 .card,.team-config { padding:14px }
 .card + .card,.sbox + .sbox,.team-config + .team-config { margin-top:12px }
-.ch,.convh,.chead,.sethead,.ftool,.shead,.study-source-head,.team-head,.team-actions,.team-queued {
+.ch,.sethead,.ftool,.shead,.study-source-head,.team-head,.team-actions,.team-queued {
   display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:space-between;
 }
-.ch,.convh,.chead { margin-bottom:10px }
+.ch { margin-bottom:10px }
 .ct,.srow2 .l b { font-weight:800 }
 .btn,.qchip,.qbtn,.ac,.seg button,.tabs button,.chip,.newc,.calday,.jno,.noteselect {
   display:inline-flex; align-items:center; justify-content:center; min-height:33px; border:1px solid var(--line2);
@@ -148,11 +117,9 @@ a { color:var(--blue) }
 .search { display:flex; align-items:center; gap:5px; min-width:0; border:1px solid var(--line2); border-radius:7px; padding:0 8px; background:var(--panel) }
 .search input { border:0; flex:1; width:100% }
 .search .i { color:var(--mut) }
-.grid2,.grid3,.agrid,.fgrid,.apgrid,.planner-top { display:grid; gap:12px; min-width:0 }
+.grid2,.grid3,.agrid,.apgrid,.planner-top { display:grid; gap:12px; min-width:0 }
 .grid2,.planner-top { grid-template-columns:repeat(2,minmax(0,1fr)) }
 .grid3,.agrid,.apgrid { grid-template-columns:repeat(3,minmax(0,1fr)) }
-.fgrid { grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr); align-items:start }
-.fgrid > .card { margin:0 }
 .srow,.frow,.tool,.acard,.srow2,.sh { display:flex; gap:9px; align-items:center; min-width:0; text-align:left }
 .srow,.frow,.srow2 { padding:9px 10px; border-bottom:1px solid var(--line); overflow-wrap:anywhere }
 .srow small,.srow2 small,.tool small,.acard small,.nm small { display:block; color:var(--mut) }
@@ -204,61 +171,10 @@ a { color:var(--blue) }
 .calday.today { font-weight:800; border-style:dashed }
 .noterow { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line) }
 .notepreview img { max-width:140px; max-height:105px; object-fit:contain }
-.file-heading { min-height:152px; padding:24px; align-items:center; margin-bottom:16px }
-.file-heading::before { inset:0 4% 0 auto; width:min(40%,295px); background:url("/workspace-result.webp") center / auto 145% no-repeat }
-.file-heading > div { max-width:66% }
-.file-heading p { color:#b9d0de }
-.file-searchbar,.file-quick,.file-tools-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
-.file-searchbar .search { flex:1 1 170px }
-.filelist #fchips { margin:12px 0 }
-.filelist #fchips small { color:var(--mut) }
-.filelist-scroll { overflow:auto; max-height:57vh }
-.ft { width:100%; min-width:370px; border-collapse:collapse; text-align:left; font-size:13px }
-.ft td,.ft th { border-bottom:1px solid var(--line); vertical-align:middle; padding:9px 6px }
-.ft :is(td,th):not(:first-child) { white-space:nowrap }
-.ft tr.on { background:var(--selection); box-shadow:inset 3px 0 var(--accent) }
-.ft tr[data-act] { cursor:pointer }
-.ft tr[data-act]:not(.on):hover { background:var(--panel2) }
-.file-name { display:flex; align-items:center; gap:9px; text-align:left; background:none; border:none; padding:3px; max-width:100%; overflow-wrap:anywhere }
-.file-name small { display:block; color:var(--mut); margin-top:2px }
 .fi { display:inline-grid; place-items:center; border-radius:5px; padding:3px 4px; background:var(--panel2); font-size:10px; color:var(--blue); font-weight:800 }
-.file-name .fi { min-width:31px; min-height:32px; flex:none; background:#23475c; color:#e8f6ff }
-.file-name .fi.pdf { background:#693f3e; color:#ffe4de }
-.file-name .fi.excel { background:#245346; color:#d7fff0 }
-.file-name .fi.image { background:#4c4071; color:#f4e9ff }
 .nm { display:flex; align-items:center; gap:6px; overflow-wrap:anywhere; min-width:115px }
-.fpager { display:flex; justify-content:space-between; gap:4px; margin-top:10px; align-items:center; color:var(--mut); font-size:12px }
-.fpager button { background:var(--panel2); border:1px solid var(--line2); border-radius:5px; padding:2px 6px }
-.file-detail-head { margin:0 0 12px; overflow-wrap:anywhere }
-.file-detail-head h2 { font-size:clamp(18px,2.1vw,27px); letter-spacing:-.035em; line-height:1.15; margin-bottom:4px }
-.file-preview { min-height:144px; max-height:390px; display:grid; gap:7px; justify-items:center; align-content:center; overflow:hidden; padding:12px; border:1px solid var(--line); background:var(--bg); border-radius:8px; color:var(--mut); text-align:center }
-.file-preview img { display:block; max-width:100%; max-height:365px; object-fit:contain; border-radius:5px }
-.detail .tabs { margin:0 0 12px }
-.file-quick { margin-top:10px }
-.file-info,.file-tools { margin-top:14px }
-.file-tools { border-top:1px solid var(--line); padding-top:10px }
-.file-info summary,.file-tools summary { cursor:pointer; font-weight:700 }
-.file-info .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 8px; margin-top:8px; color:var(--mut); overflow-wrap:anywhere }
-.file-tools-bar { margin:10px 0 }
-.file-tools .tool { margin:0 }
-
-.chatp { display:grid; grid-template-columns:minmax(190px,255px) minmax(0,1fr); gap:13px; min-height:56vh }
-.chatp > .card { margin:0 }
-.convs,.chatc { min-width:0 }
-.chatc { display:flex; flex-direction:column }
-.clist { display:grid; gap:4px; max-height:60vh; overflow:auto; padding:5px 0 }
-.convwrap { display:flex; gap:3px; min-width:0 }
-.conv { display:flex; align-items:center; gap:7px; text-align:left; min-width:0; flex:1; border:1px solid transparent; border-radius:8px; background:none; padding:6px }
-.conv:hover,.conv.on { background:var(--panel2); border-color:var(--line) }
-.conv b,.conv small { display:block; overflow-wrap:anywhere }
-.msgs { flex:1; display:grid; align-content:start; gap:11px; min-height:240px; max-height:59vh; overflow:auto; padding:5px 2px; }
 .m { min-width:0; overflow-wrap:anywhere; max-width:100% }
-.bubble { border:1px solid var(--line); border-radius:10px; max-width:100%; padding:11px; background:var(--panel2); overflow-wrap:anywhere }
-.m.user .bubble,.m.u .bubble { background:var(--user-bubble); color:var(--text) }
-.m img,.bubble img { max-width:100%; max-height:390px; object-fit:contain; }
-.msgs pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--panel2); padding:10px; border-radius:7px }
-.msgs table { display:block; overflow:auto; max-width:100%; border-collapse:collapse }
-.msgs table :is(th,td) { padding:6px; border:1px solid var(--line) }
+.m img,.turn img { max-width:100%; max-height:390px; object-fit:contain; }
 .m .artifact,.m .steps,.task-summary { border:1px solid var(--line); padding:10px; border-radius:8px; background:var(--panel2) }
 .task-summary { display:block; color:var(--text) }
 .step { display:flex; gap:8px; padding:3px 0 }
@@ -267,7 +183,6 @@ a { color:var(--blue) }
 .step.error .sm { color:var(--red) }
 .speech-turn-active { outline:1px solid var(--blue) }
 .speech-chunk-active { background:#f7e1d6; color:#572a19; border-radius:4px }
-.chatask { margin-top:10px }
 .devstatus { margin-bottom:5px; color:var(--gold) }
 .study-heading { margin-bottom:12px }
 .study-split { grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) }
@@ -339,30 +254,14 @@ a { color:var(--blue) }
 .harita-card,.harita-item { border:1px solid var(--line); padding:10px; border-radius:8px; background:var(--panel); min-width:0; overflow-wrap:anywhere }
 .harita-wizard { padding:12px; display:grid; gap:7px }
 
-@media(max-width:1120px) {
-  .workspace { grid-template-columns:183px minmax(0,1fr) }
-}
 @media(max-width:890px) {
-  .workspace { grid-template-columns:145px minmax(0,1fr) }
-  .workspace-sidebar { padding-inline:8px }
-  #workspace-nav button { gap:7px; padding-inline:7px; font-size:13px }
-  .team-columns,.workspace-settings,.fgrid { grid-template-columns:minmax(0,1fr) }
+  .team-columns,.workspace-settings { grid-template-columns:minmax(0,1fr) }
   .workspace-settings-nav { display:flex; flex-wrap:wrap }
-  .grid3,.agrid,.apgrid,.chatp { grid-template-columns:repeat(2,minmax(0,1fr)) }
+  .grid3,.agrid,.apgrid { grid-template-columns:repeat(2,minmax(0,1fr)) }
 }
 @media(max-width:620px) {
-  .workspace { display:block }
-  .workspace-sidebar { position:static; height:auto; padding:7px }
-  .workspace-brand { padding:3px 4px 8px }
-  #workspace-nav { display:flex; overflow-x:auto; white-space:nowrap }
-  #workspace-nav button { min-height:37px }
-  #workspace-profile { border:0; padding:3px 0 0 }
-  #workspace-profile button { width:auto }
-  #workspace-profile small { display:none }
   .page { padding:13px 10px }
-  .file-heading { min-height:120px; padding:14px }
-  .file-heading::before { background-size:contain }
-  .grid2,.grid3,.agrid,.apgrid,.chatp,.planner-top { grid-template-columns:minmax(0,1fr) }
+  .grid2,.grid3,.agrid,.apgrid,.planner-top { grid-template-columns:minmax(0,1fr) }
   .hsend > span { display:none }
 }
 
@@ -382,8 +281,6 @@ a { color:var(--blue) }
   position:absolute; z-index:12; display:flex; padding:5px; bottom:calc(100% + 8px);
   right:0; background:var(--panel); box-shadow:var(--shadow); border:1px solid var(--line2); border-radius:8px;
 }
-#dockhost { position:relative; z-index:2 }
-.chatask #dockhost { margin-top:8px }
 .vprev { position:fixed; right:17px; bottom:82px; z-index:10; width:min(290px,52vw); background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden }
 .vprev .vph { display:flex; align-items:center; justify-content:space-between; padding:7px; gap:6px; font-size:12px }
 .vprev .vbtns { display:flex; gap:4px }
@@ -391,9 +288,7 @@ a { color:var(--blue) }
 .vprev img { width:100%; height:auto; display:block }
 .vprev p { padding:5px; color:var(--mut); font-size:12px }
 .vprev.mini :is(p,img) { display:none!important }
-.m.a.saying .bb,.task.saying { outline:2px solid #bb593d; outline-offset:2px }
-.m.a .bb,.m.u .bb { padding:10px 14px; background:var(--panel2); border-radius:9px; overflow-wrap:anywhere }
-.m.u .bb { background:var(--user-bubble); color:var(--text) }
+.m.a .bb { padding:10px 14px; background:var(--panel2); border-radius:9px; overflow-wrap:anywhere }
 .team-jobbody .team-steps { list-style:none; padding-left:3px; margin-top:15px }
 .team-jobbody .team-steps li { position:relative; display:grid; grid-template-columns:auto 1fr; align-items:baseline; gap:9px; padding:10px 0 }
 .team-jobbody .team-steps li > div { margin-top:0 }

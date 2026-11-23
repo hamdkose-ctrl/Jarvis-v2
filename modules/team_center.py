@@ -193,7 +193,7 @@ def artifact(owner, kind, job_id, step_id, name):
     with allowed.open('rb') as source:
         data = source.read(_ARTIFACT_LIMIT + 1)
     if len(data) > _ARTIFACT_LIMIT:
-        raise ValueError('Dosya 16 MB indirme sınırını aşıyor. Dosyalar ekranından açabilirsin.')
+        raise ValueError('Dosya 16 MB indirme sınırını aşıyor. Teslimi bilgisayarındaki kayıt konumundan açabilirsin.')
     if not data or hashlib.sha256(data).hexdigest() != digest:
         raise ValueError('Dosya, doğrulanan teslimden farklı.')
     return {'owner':owner,'name':name,'content':base64.b64encode(data).decode('ascii')}

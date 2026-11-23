@@ -1,5 +1,7 @@
 # Hoca modu (AGENTS.md alan notları)
 
+- **Masaüstü görünümü (23 Kasım):** Çalışma Modu sağ bölmede tek soru girişi, kaynak önizlemesi ve çalışma bölümü seçicisiyle açılır. Kitap ve çıkmış soru mevcut çalışma deposuna eklenir.
+
 Plan: `raporlar/hoca-modu-plan-2026-10-18.md` (Hamdi 2026-10-18: seçenek B; önce A kısmı küçük PR'larla, altyazı ayrı PR). Hiçbiri PC'de denenmedi.
 
 ## Hoca çalışma alanı — tasarım kararı, 25 Ekim 2026

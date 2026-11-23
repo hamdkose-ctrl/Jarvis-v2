@@ -8,7 +8,7 @@ const ctx={S,ACT,$:id=>nodes[id]||null,ic:n=>`[${n}]`,esc:x=>String(x==null?'':x
 vm.createContext(ctx);
 vm.runInContext(src.slice(src.indexOf('function hocaHtml('),src.indexOf('function wrongHtml(')),ctx);
 for(const n of ['hocasay','hocastart','hocaans','hocatoggle']){const i=src.indexOf('ACT.'+n+'=');assert(i>=0,n);vm.runInContext(src.slice(i,src.indexOf('\n',i)),ctx)}
-assert(src.includes("['hoca','Hoca','spark']"));assert(src.includes("S.stab==='hoca')body=hocaHtml(ov)"));
+assert(src.includes("['hoca','Hoca']"));assert(src.includes("S.stab==='hoca')body=hocaHtml(ov)"));
 
 // Ders yokken: başlatma formu, zayıf konu boş durumu
 let html=ctx.hocaHtml({});

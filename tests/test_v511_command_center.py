@@ -11,20 +11,22 @@ WEB = (ROOT / "web.py").read_text(encoding="utf-8")
 
 
 class CommandCenterTests(unittest.TestCase):
-    def test_home_uses_live_jobs_calendar_and_composer(self):
+    def test_home_uses_live_specialists_calendar_and_composer(self):
         home = JS[JS.index("PAGES.home="):JS.index("ACT.goset=")]
         self.assertIn("JarvisHome.mount(pg)", home)
-        for target in ("compose", "home-jobs", "news-list", "home-messages"):
+        for target in ("compose", "home-expert", "news-list", "home-messages"):
             self.assertIn(f'id="{target}"', HOME)
-        self.assertIn("JarvisTeam?.refreshHome", HOME)
-        self.assertIn("void say(text)", HOME)
+        self.assertIn("team_snapshot", HOME)
+        self.assertIn("void say(text, true)", HOME)
         self.assertNotIn("console-portrait", CSS + JS)
 
-    def test_desktop_has_profile_notifications_and_clock(self):
-        top = JS[JS.index("function renderTop()"):JS.index("function needCount()")]
-        self.assertIn('data-act="user"', top)
-        self.assertIn('data-act="notif"', top)
-        self.assertIn('id="clock"', top)
+    def test_console_keeps_settings_and_profile_inside_one_screen(self):
+        for target in ("conversation-modes", "home-office", "home-workspace"):
+            self.assertIn(f'id="{target}"', HOME)
+        self.assertIn('data-act="user"', HOME)
+        self.assertIn('data-act="notif"', HOME)
+        self.assertIn('window.JarvisHome.showWorkspace(S.page,navigation)', JS)
+        self.assertNotIn('workspace-sidebar', (ROOT / "webui" / "nx.html").read_text(encoding="utf-8"))
 
     def test_home_github_button_uses_existing_safe_action(self):
         self.assertIn('data-act="ghpublish"', JS)
@@ -36,7 +38,7 @@ class CommandCenterTests(unittest.TestCase):
         self.assertIn('"github": github_state', WEB)
 
     def test_command_center_responsive_rules_exist(self):
-        self.assertIn(".workspace-console", CSS)
+        self.assertIn("#home-workspace", HOME_CSS)
         self.assertIn(".workspace-settings", CSS)
         self.assertIn(".jarvis-console .layout", HOME_CSS)
         self.assertIn("@media(max-width: 900px)", HOME_CSS)

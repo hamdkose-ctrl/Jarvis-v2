@@ -38,12 +38,13 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
     def test_browser_acceptance_opens_ollama_from_the_home_console(self):
         src = SCRIPT.read_text(encoding="utf-8")
         console_settings = '.jarvis-console [data-home-tool="settings"]'
-        open_settings = '#info[open] [data-act="goset"][data-k="ai"]'
-        wait_panel = 'page.wait_for_selector("#spane"'
-        select_ollama = '#spane [data-act="aipick"][data-k="ollama"]'
-        self.assertLess(src.index(console_settings), src.index(open_settings))
-        self.assertLess(src.index(open_settings), src.index(wait_panel))
+        settings_panel = '.jarvis-console #right-workspace #spane'
+        wait_panel = 'settings.wait_for(state="visible"'
+        select_ollama = 'settings.locator(\'[data-act="aipick"][data-k="ollama"]\')'
+        self.assertLess(src.index(console_settings), src.index(settings_panel))
+        self.assertLess(src.index(settings_panel), src.index(wait_panel))
         self.assertLess(src.index(wait_panel), src.index(select_ollama))
+        self.assertNotIn('#info[open]', src)
         self.assertNotIn('#workspace-nav [data-go="settings"]', src)
         self.assertNotIn('mnopen', src)
         self.assertNotIn("page.wait_for_timeout(800)", src)
