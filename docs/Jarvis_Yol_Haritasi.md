@@ -1242,6 +1242,7 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - `/nx.html` yeni konsolla açılır. Harita ve gündem solda, çekirdek ve hareketli ekip ofisi ortada, sohbet, ekip kayıtları ve notlar sağdadır. Kamera ve ekran paylaşımı önizlemesi çekirdek alanında görünür. Önceki ana ekranın çizimi, stili ve avatarı kaldırıldı.
 - `modules.validation` artık `home_console_behavior` grubunu zorunlu çalıştırır. Test, ana ekranda komut gönderimini, canlı yanıtı, profil ayrımını ve dosya ile takvim kartlarının aynı ekranda açılmasını kapsar. Windows CI ve gerçek PC kabulü ilgili commit üzerinden takip edilir.
+- Yerel model kabul betiği Ollama kartına ana konsoldaki Ayarlar üzerinden ulaşır. Gizlilikteki açık kaynak okuma kartı kendi ayar bölümünde oluşturulur. Chromium’da test verisiyle aktif model, kurulu modeller ve eski tercih uyarısı doğrulandı.
 
 
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
