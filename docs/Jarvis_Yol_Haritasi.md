@@ -1322,3 +1322,11 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - **Açılmadı, çünkü ölçüm ayırt etmiyor:** sentetik (Piper TTS) sesle tam cümle 0,50 · yarım cümle 0,52 · sessizlik 0,73 — model insan sesiyle eğitildiği için TTS sesi dağılım dışı. Ayrıca elle yazılan numpy mel'in referansla hizalı korelasyonu 0,40 (filtre normalizasyonu farkı) → sayı ayrışmadıkça açmak "ölçmeden gönderme" olurdu.
 - Karar aracı: `scripts/turn_model_probe.py` — mikrofonla üç kayıt (tam / yarım / kısa) alıp olasılıkları yazar, hiçbir ses diske yazılmaz. Ayrışırsa model hatta bağlanır; ayrışmazsa noktalama kuralı kalır.
 - Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
+
+
+### 2026-11-23 — "Merhaba" modele gitmiyor (PR: selamlama hızlı yolu)
+
+- Canlı kusur (22:17): kullanıcı **"merhaba"** dedi, o anda tüm sağlayıcılar düştü (gemini 504 DEADLINE_EXCEEDED, groq 429 kota, cloudflare beklenmeyen yanıt biçimi) ve Jarvis "model kullanılamıyor" dedi. Bir selamlama için modele gidilmesi hem gecikme hem tek nokta arızası.
+- `modules/fast_commands.py`: `chitchat(text)` — **kapalı sözlük + tam eşleşme** (merhaba, selam, günaydın, naber, nasılsın, teşekkürler, hoşça kal...). İçinde başka istek olan cümle ("merhaba, hava nasıl?") buradan geçmez, Brain'e gider. Cevaplar kısa, tek cümle, "yapay zeka" iddiası yok, saat+uzunlukla döner (aynı söz her seferinde aynı cevabı vermez).
+- `modules/engine_loop.py`: `_fast_command_turn` sırası **selamlama → hesap → hızlı komut**; hiçbiri eşleşmezse yol eskisi gibi.
+- Kanıt: `tests/test_fast_commands.py` 21 → **26 test** (selamlama cevaplanır, istek yutan cümle geçmez, uzun metin yok sayılır, determinizm, sıra bekçisi).

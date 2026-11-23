@@ -180,3 +180,40 @@ class FastPathReadTests(unittest.TestCase):
     def test_open_ended_questions_still_go_to_the_model(self):
         for metin in ('hava nasıl olacak yarın', 'bugün ne yapmalıyım'):
             self.assertIsNone(resolve(metin), metin)
+
+
+class Chitchat(unittest.TestCase):
+    """Selamlama modele gitmez: sağlayıcı düşükken de cevap çıkar."""
+
+    def test_greetings_are_answered(self):
+        from modules import fast_commands
+        for text in ("merhaba", "Merhaba!", "selam", "günaydın", "hey jarvis",
+                     "naber", "nasılsın?", "teşekkürler", "hoşça kal"):
+            reply = fast_commands.chitchat(text, hour=10)
+            self.assertTrue(reply, text)
+            self.assertLessEqual(len(reply), 60)
+            self.assertNotIn("yapay zeka", reply.lower())
+
+    def test_requests_are_not_swallowed(self):
+        from modules import fast_commands
+        for text in ("merhaba, hava nasıl?", "selam saat kaç",
+                     "teşekkürler ama defteri aç", "naber yarın toplantı var mı"):
+            self.assertIsNone(fast_commands.chitchat(text, hour=10), text)
+
+    def test_long_text_is_ignored(self):
+        from modules import fast_commands
+        self.assertIsNone(fast_commands.chitchat("merhaba " * 20, hour=10))
+
+    def test_reply_is_deterministic_per_hour(self):
+        from modules import fast_commands
+        first = fast_commands.chitchat("merhaba", hour=9)
+        second = fast_commands.chitchat("merhaba", hour=9)
+        self.assertEqual(first, second)
+
+    def test_turn_uses_chitchat_before_model(self):
+        from pathlib import Path
+        import modules
+        source = Path(modules.__file__).with_name("engine_loop.py").read_text(encoding="utf-8")
+        body = source[source.index("def _fast_command_turn"):]
+        self.assertIn("chitchat(cmd)", body)
+        self.assertLess(body.index("chitchat(cmd)"), body.index("fast_commands.compute(cmd)"))
