@@ -118,10 +118,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if not Path(saved).is_file() or Path(saved).stat().st_size == 0:
                 return "Kayıt dosyasını doğrulayamadım; kaydedildi demiyorum."
             return f"Çıktıyı kaydettim: {saved}"
-        case "screen_summary":
-            # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
-            from modules import pc_awareness
-            return pc_awareness.summary()
         case "system_diagnose":
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
