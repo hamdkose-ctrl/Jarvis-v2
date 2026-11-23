@@ -1253,6 +1253,10 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Chromium akışları, 27 JavaScript grubu ve ilgili sözleşme testleri yerelde doğrulandı. Windows CI ve gerçek PC kabulü bu değişikliğin güncel commit’inde beklenir.
 
 
+### 2026-11-23 — Cloudflare Gemma 4 sohbet yanıtı
+
+Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.
+
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 
 - Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.

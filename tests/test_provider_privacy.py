@@ -137,6 +137,21 @@ class CloudflareChatTests(unittest.TestCase):
         self.assertEqual(body["messages"][1], {"role": "user", "content": "selam"})
         self.assertEqual(body["max_tokens"], 64)
 
+    def test_reads_gemma_chat_completion_text_and_usage(self):
+        completion = {
+            "choices": [{"message": {"role": "assistant", "content": "Merhaba!",
+                                      "reasoning_content": "İç düşünce"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+        }
+        for payload in ({"success": True, "result": completion}, completion):
+            with self.subTest(payload=payload):
+                session = _Session(_Resp(payload=payload))
+                with cloudflare_chat.usage_meter.capture_attempt("alice", "r1", "a1") as attempt:
+                    self.assertEqual(self.run_chat(session), "Merhaba!")
+                self.assertEqual(attempt["finish_reason"], "stop")
+                self.assertEqual(attempt["usage"]["total_tokens"], 10)
+                self.assertEqual(len(session.calls), 1)
+
     def assert_error(self, session, code):
         with self.assertRaises(cloudflare_chat.CloudflareChatError) as ctx:
             self.run_chat(session)
@@ -148,9 +163,13 @@ class CloudflareChatTests(unittest.TestCase):
         self.assert_error(_Session(_Resp(500)), "PROVIDER_ERROR")
         self.assert_error(_Session(error=TimeoutError("t")), "NETWORK_ERROR")
         self.assert_error(_Session(_Resp(payload={"result": {}})), "UNEXPECTED_FORMAT")
+        self.assert_error(_Session(_Resp(payload={"result": {"choices": []}})), "UNEXPECTED_FORMAT")
         self.assert_error(_Session(_Resp(payload=None)), "UNEXPECTED_FORMAT")
         self.assert_error(_Session(_Resp(payload={"result": {"response": "  "}})), "EMPTY_RESPONSE")
         self.assert_error(_Session(_Resp(payload={"result": {"response": 5}})), "EMPTY_RESPONSE")
+        self.assert_error(_Session(_Resp(payload={"result": {"choices": [
+            {"message": {"content": None, "reasoning_content": "İç düşünce"}},
+        ]}})), "EMPTY_RESPONSE")
 
     def test_physical_http_attempt_has_exactly_one_owner_meter_entry(self):
         cases = [
