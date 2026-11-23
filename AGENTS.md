@@ -17,7 +17,6 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 - **Program ledger:** Yeni işe başlamadan önce `docs/architecture/JARVIS_PROGRAM_LEDGER_V1.md` ve güncel açık PR durumunu oku; merge edilmiş işi yeniden açma.
 - **PC watcher:** PC kabulü açık PR'a bağlıdır; `gpt/*`, `codex/*`, `claude/*` ve bakım dalları desteklenir. Sonuç yorumu başarısızsa arşivlenen exact-SHA raporu tekrar yayımlanır, tanı `scripts/pc_test_watcher.py --status`. Windows PID sorgusu salt okunur. Ayrıntı: `docs/PC_TEST_WATCHER.md`.
 - **Android'e dokunma:** `android/` ayrı bir sohbette geliştirilir.
-- **Tek konsol:** Ekip kontrolleri ofis başlığında, küre menüleri sağda açılır. Dosya işlemleri sohbet eklerine, Çalışma Modu tek girişli çalışma görünümüne bağlıdır. Eski Sohbet ve Dosyalar sayfalarının kodu kaldırıldı. Sohbet adımları ve görev sonucu seçili konsol temasını kullanır. Ayrıntı: `docs/agents/arayuz.md`.
 - **Kişisel veri depoya girmez:** `%USERPROFILE%\.jarvis` (ayarlar, kullanıcılar, anahtarlar, günlük), `.venv` ve model dosyaları depoya eklenmez.
 - **Anahtarlar kullanıcıya özeldir:** Her kullanıcı kendi Gemini/Groq anahtarını kullanır, kullanıcılar arasında yedeğe düşülmez (`docs/MIMARI_KURALLAR_v5.7.md`). Ücretli sağlayıcılar otomatik havuza girmez.
 - **Ses değişikliklerinde temkinli ol:** Gürültü, TV/YouTube ve hoparlör yankısı gerçek ortamda kolay ters teper. Yeni davranış ayarla açılır olmalı. Gereksiz Gemini çağrısı eklenmez (kota).

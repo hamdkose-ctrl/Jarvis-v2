@@ -1245,6 +1245,13 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Yerel model kabul betiği Ollama kartına ana konsoldaki Ayarlar üzerinden ulaşır. Gizlilikteki açık kaynak okuma kartı kendi ayar bölümünde oluşturulur. Chromium’da test verisiyle aktif model, kurulu modeller ve eski tercih uyarısı doğrulandı.
 
 
+### 2026-11-23 — Eski masaüstü ekranlarının kaldırılması (PR #788)
+
+- Tek konsol sağda sohbeti, küre menülerini ve uzman ayarlarını açar. Eski Sohbet ve Dosyalar ekranlarının çizimi, stilleri ve gezinmesi kaldırıldı. Eski adresler ana konsola döner.
+- Dosya ve görsel işlemleri sohbet eklerinden başlatılır. Uzman ayarları seçili uzman kimliğine bağlıdır. Çalışma Modu tek soru alanı ve açılır bölüm seçimi kullanır. Sohbet adımları ile görev sonucu kartları konsol temasını izler.
+- Chromium akışları, 27 JavaScript grubu ve ilgili sözleşme testleri yerelde doğrulandı. Windows CI ve gerçek PC kabulü bu değişikliğin güncel commit’inde beklenir.
+
+
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 
 - Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.
