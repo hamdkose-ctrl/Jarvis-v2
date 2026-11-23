@@ -1332,6 +1332,12 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
 
 
+### 2026-11-23 — Cevapsız kalma zinciri: eksik alan çökmesi + yerel yedek
+
+- **Çökme (canlı 22:33):** kur/altın sorusunda model `asset` verdi ama `kind/target/amount` vermedi → `finance._asset_answer` **KeyError** → `CORE_HANDLER_FAILED` → kullanıcı **hiç cevap alamadı**. Aynı sınıf hata `request['list']` satırında da vardı. Düzeltme: eksik alan **tahmin edilmez**, tek cümleyle geri sorulur; hedef birim yoksa TL kastedilir; tam istek eskisi gibi piyasa yoluna gider. Kanıt: `tests/test_finance_incomplete_request.py` (6 test).
+- **Yerel yedek sıcak tutulur:** aynı saatlerde bulut sağlayıcıları tükendi (gemini 504/sunucu hatası, groq 429, cloudflare zaman aşımı) ve Ollama çağrısı **45 sn'de zaman aşımına** uğradı; ardından hiçbir aday kalmadı. Model 5 dakika boşta boşaltıldığı için soğuk yükleme cezası ödeniyordu. Düzeltme: `keep_alive="30m"`, yerel okuma süresi **45 → 90 sn**. Ölçüm: yerel cevap **1,5 sn**, model yüklü kalıyor (`expires_at` 30 dk ileri).
+- **Kullanıcı kararı:** Ollama kuruluysa kullanılır; kurulu değilse sistem ona bağlı kalmaz — yerel port yoklaması **0,4 sn** bağlantı aşımıyla hızlı biter, boş sonuç 20 sn önbelleğe alınır, aday listesinden düşer. Kanıt: `tests/test_ollama_optional.py` (5 test) + `tests/test_ollama_keep_alive.py` (2 test).
+
 ### 2026-11-23 — "Merhaba" modele gitmiyor (PR: selamlama hızlı yolu)
 
 - Canlı kusur (22:17): kullanıcı **"merhaba"** dedi, o anda tüm sağlayıcılar düştü (gemini 504 DEADLINE_EXCEEDED, groq 429 kota, cloudflare beklenmeyen yanıt biçimi) ve Jarvis "model kullanılamıyor" dedi. Bir selamlama için modele gidilmesi hem gecikme hem tek nokta arızası.

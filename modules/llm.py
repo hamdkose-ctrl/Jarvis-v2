@@ -457,8 +457,14 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     if images:
         msgs[-1] = {**msgs[-1], "images": images}
     try:
-        r = requests.post(c["url"] + "/api/chat", timeout=transport_timeouts(5, 45),
+        # `keep_alive`: Ollama modeli 5 dakika boşta boşaltıyor; sonraki turda
+        # soğuk yükleme CPU yükü altında 45 sn'lik okuma süresini aşıyor ve yerel
+        # yedek TAM O ANDA kaybediliyor (canlı: 23 Kasım 22:22 "Ollama yanıtı
+        # zaman aşımına uğradı", ardından sağlayıcılar tükendi). Modeli yarım saat
+        # sıcak tutmak soğuk yükleme cezasını kaldırır.
+        r = requests.post(c["url"] + "/api/chat", timeout=transport_timeouts(5, 90),
                           json={"model": model, "messages": msgs, "stream": False,
+                                "keep_alive": "30m",
                                 "options": {"num_predict": max_tokens}})
     except requests.Timeout as e:
         usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
