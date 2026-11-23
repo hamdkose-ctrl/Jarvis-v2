@@ -6,6 +6,8 @@
 
 ## Merkezi router deneme bütçesi — 9 Kasım 2026
 
+- Cloudflare Gemma 4 sohbet yanıtı `choices[0].message.content` alanından okunur. Workers AI `result` zarfı ve eski `response` alanı desteklenir. Kullanım ve bitiş nedeni sağlayıcının bildirdiği yanıttan alınır.
+
 - Yeni çağrı sözleşmesi `smart_router.ModelRequest`, `ModelSpec`, `RoutePlan` ve `RouteResult` tiplerini kullanır. Çağıran gerekli özellikleri, çıktı üst sınırını, deadline/iptali ve rotayı bildirir; router açık aday planını kurar. Prompt içeriğinden niyet, görev türü veya model kalitesi tahmini yapılmaz.
 - `run_request` en fazla **iki üretim adapter denemesi** yapar; yerel model keşif istekleri bu sayaçta değildir. Hatalı şema yanıtı da başarısız denemedir; provider fallback veya tekrar için ayrı bir sayaç yoktur. Adapter geç yanıtı routerın `requests_state.check()` denetiminden sonra ancak kabul edilir; deadline/iptal edilmiş yanıt kullanılmaz. Fiziksel HTTP iptali garanti edilmez.
 - Router üzerinden geçen metin çağrısında Gemini/Groq/Ollama taşıyıcıları seçilen tek modeli çağırır. Açık yerel seçim ve görüntü gibi doğrudan/uyumluluk yolları ayrıca sürer; bunlarda aynı seçim ve deneme bütçesinin tümüyle birleştiği iddia edilmez.
