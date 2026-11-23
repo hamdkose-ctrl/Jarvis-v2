@@ -1299,3 +1299,8 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Motor değişince seçili ses o motorda yoksa **ilk kurulu ses** seçilir ve bu loglanır (`_reconcile_voice`). Aksi hâlde `catalog.require()` hata veriyor ve Jarvis hiç konuşmuyordu ("ses yok" şikâyetinin görünmez sebebi).
 - Ölçüm (kurulu `tr_TR-fahrettin-medium`, ön yükleme sonrası): 26 karakter **0,15 sn**, 67 karakter **0,27 sn** üretim (14-15 karakter/sn konuşma). Edge aynı boyutta ~2,1 sn. Piper tamamen yerel; internet gerekmez.
 - Kanıt: `tests/test_voice_local_engine.py` → 25 → **29 test** (etiket ayrıştırma, katalog, motor değeri, ses uyumu, boş katalog, hata kaydı).
+
+#### Piper seçimi düzeltmesi (canlı kusur)
+
+- Canlıda görüldü: motor Piper'a geçti ("ses motoru: Piper (yerel) · 1 model") ama ses seçimi **reddedildi** → Jarvis sessiz kalıyordu. Sebep: `check_voice()` yalnız `piper` **CLI**'sına bakıyordu; oysa sentez önce süreç içi `piper` paketiyle yapılıyor ve bu makinede CLI yok.
+- Düzeltme: `_piper_engine_available()` — CLI **veya** süreç içi paket varsa motor kullanılabilir. Kanıt: `tests/test_voice_local_engine.py` (3 yeni test).

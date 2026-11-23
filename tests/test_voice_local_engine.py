@@ -123,6 +123,28 @@ class PiperCatalog(unittest.TestCase):
                 self.assertEqual(voice_runtime.voice_engine(), "piper")
 
 
+class PiperEngineProbe(unittest.TestCase):
+    def test_cli_counts_as_available(self):
+        with patch('shutil.which', return_value='/usr/bin/piper'):
+            self.assertTrue(voice_runtime._piper_engine_available())
+
+    def test_library_counts_as_available(self):
+        """CLI olmasa da süreç içi paket varsa motor kullanılabilir (canlı kusur)."""
+        with patch('shutil.which', return_value=None):
+            self.assertTrue(voice_runtime._piper_engine_available())
+
+    def test_missing_everything_is_unavailable(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == 'piper' or name.startswith('piper.'):
+                raise ImportError('yok')
+            return real_import(name, *a, **kw)
+        with patch('shutil.which', return_value=None), patch.object(builtins, '__import__', side_effect=fake_import):
+            self.assertFalse(voice_runtime._piper_engine_available())
+
+
 class Reconcile(unittest.TestCase):
     class _Owner:
         def __init__(self, voice):
