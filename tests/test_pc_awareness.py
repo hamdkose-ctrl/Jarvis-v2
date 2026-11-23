@@ -110,3 +110,95 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowTargeting(unittest.TestCase):
+    """2. dilim: pencereyi bul ve içini oku — tahmin yok, dokunma yok."""
+
+    def _windows(self):
+        return [
+            {"hwnd": 1, "title": "Not Defteri - belge.txt", "app": "notepad"},
+            {"hwnd": 2, "title": "YouTube - Google Chrome", "app": "chrome"},
+            {"hwnd": 3, "title": "Gmail - Google Chrome", "app": "chrome"},
+        ]
+
+    def test_unique_match_is_used(self):
+        found = pc_awareness.find_window("not defteri", self._windows())
+        self.assertEqual(found["reason"], "unique")
+        self.assertEqual(found["match"]["hwnd"], 1)
+
+    def test_ambiguous_never_guesses(self):
+        found = pc_awareness.find_window("chrome", self._windows())
+        self.assertEqual(found["reason"], "ambiguous")
+        self.assertIsNone(found["match"])
+        self.assertEqual(len(found["candidates"]), 2)
+
+    def test_missing_window_is_reported(self):
+        self.assertEqual(pc_awareness.find_window("excel", self._windows())["reason"], "missing")
+
+    def test_no_name_uses_foreground(self):
+        with patch.object(pc_awareness, "snapshot", return_value={
+                "foreground": {"hwnd": 2, "title": "YouTube", "app": "chrome"},
+                "windows": self._windows()}):
+            found = pc_awareness.find_window("")
+        self.assertEqual(found["reason"], "foreground")
+        self.assertEqual(found["match"]["hwnd"], 2)
+
+    def test_possessive_suffix_still_matches(self):
+        self.assertEqual(pc_awareness.find_window("not defterinin", self._windows())["reason"],
+                         "unique")
+
+    def test_ambiguous_answer_asks_one_question(self):
+        with patch.object(pc_awareness, "find_window", return_value={
+                "reason": "ambiguous", "match": None, "query": "chrome",
+                "candidates": self._windows()[1:]}):
+            reply = pc_awareness.describe_window("chrome")
+        self.assertEqual(reply["reason"], "ambiguous")
+        self.assertIn("Hangisini", reply["text"])
+
+    def test_missing_window_answer_is_honest(self):
+        with patch.object(pc_awareness, "find_window", return_value={
+                "reason": "missing", "match": None, "query": "excel", "candidates": []}):
+            self.assertIn("göremiyorum", pc_awareness.describe_window("excel")["text"])
+
+    def test_password_field_is_never_read(self):
+        rows = [{"name": "Kullanıcı adı", "type": "ControlType.Edit"},
+                {"name": "Şifre", "type": "ControlType.Edit"}]
+        with patch.object(pc_awareness, "find_window", return_value={
+                "reason": "unique", "match": self._windows()[0], "query": "not defteri",
+                "candidates": []}), \
+             patch("modules.desktop_uia.DesktopUI") as ui:
+            ui.return_value.observe.return_value = {
+                "title": "Not Defteri", "app": "notepad", "controls": rows}
+            reply = pc_awareness.describe_window("not defteri")
+        self.assertIn("içeriğini okumuyorum", reply["text"])
+        self.assertNotIn("gizli123", reply["text"])
+
+    def test_permission_error_is_explained(self):
+        with patch.object(pc_awareness, "find_window", return_value={
+                "reason": "unique", "match": self._windows()[0], "query": "not defteri",
+                "candidates": []}), \
+             patch("modules.desktop_uia.DesktopUI") as ui:
+            ui.return_value.observe.side_effect = PermissionError("denied")
+            reply = pc_awareness.describe_window("not defteri")
+        self.assertIn("okuyamadım", reply["text"])
+
+    def test_control_list_is_capped(self):
+        rows = [{"name": f"düğme {i}", "type": "ControlType.Button"} for i in range(80)]
+        with patch("modules.desktop_uia.DesktopUI") as ui:
+            ui.return_value.observe.return_value = {"title": "T", "app": "x", "controls": rows}
+            result = pc_awareness.controls({"title": "T", "hwnd": 1})
+        self.assertLessEqual(len(result["controls"]), pc_awareness.MAX_CONTROLS)
+
+    def test_kind_names_are_turkish(self):
+        self.assertEqual(pc_awareness._kind_label("ControlType.Button"), "düğme")
+        self.assertEqual(pc_awareness._kind_label("ControlType.Edit"), "metin alanı")
+
+    def test_intent_is_wired(self):
+        from pathlib import Path
+        import modules
+        source = Path(modules.__file__).with_name("engine_intents.py").read_text(encoding="utf-8")
+        self.assertIn('case "screen_controls"', source)
+        match = fast_commands.resolve("not defteri'nde ne var")
+        self.assertEqual(match[0], "screen_controls")
+        self.assertEqual(match[1]["window"], "not defteri")

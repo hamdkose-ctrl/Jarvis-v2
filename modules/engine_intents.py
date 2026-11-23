@@ -122,6 +122,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
             from modules import pc_awareness
             return pc_awareness.summary()
+        case "screen_controls":
+            # 2. dilim: pencere içini okumak da yalnız okumadır; model çağrılmaz.
+            from modules import pc_awareness
+            return pc_awareness.describe_window(str(a.get("window") or ""))["text"]
         case "system_diagnose":
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))

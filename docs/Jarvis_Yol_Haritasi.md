@@ -1360,3 +1360,14 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Canlı ölçüm (bu makine): 3 pencere okundu, ön plan `deepai code`, ekran 1920×1080; cevap tek cümle.
 - Kanıt: `tests/test_pc_awareness.py` (16 test) + `test_fast_commands` (26) → 39 test OK.
 >>>>>>> d4a886f0 (Ekran farkındalığı: "ekranda ne var" okunur, model çağrılmaz)
+
+
+### 2026-11-24 — Pencere içini okuma (PC ajanı 2. dilim, yalnız okuma)
+
+- `pc_awareness.find_window()`: pencerеyi adla bulur; **tahmin yok** — birden fazla eşleşmede tek soru sorar, ad verilmezse öndeki pencereyi okur ve bunu söyler ("Öndeki pencereyi okudum."). Türkçe iyelik/hâl ekleri ("not defterinin", "chrome'da") eşleşmeyi bozmaz.
+- `pc_awareness.controls()` / `describe_controls()`: mevcut `desktop_uia.DesktopUI.observe()` üzerinden kontrol listesi; UIA tür adları Türkçeleşir (düğme, metin alanı, menü…). En çok **40** kontrol okunur, liste 12'şer gruplanır.
+- **Şifre alanı içeriği hiç okunmaz**; yalnız "şifre alanı var; içeriğini okumuyorum" denir. Yetki hatasında dürüst cevap ("yönetici yetkisi gerekiyor olabilir").
+- Pencere **öne getirilmez**, imleç/odak değişmez.
+- `fast_commands`: "not defteri'nde ne var", "chrome'da hangi düğmeler var", "hesap makinesinde ne var" → `screen_controls`; `engine_intents` dalı model çağırmadan cevaplar.
+- Canlı ölçüm (bu makine): Chrome penceresi 8 öğe okundu, cevap tek paragraf.
+- Kanıt: `tests/test_pc_awareness.py` 16 → **29 test**, `test_fast_commands` 26 → toplam **46 test OK**.

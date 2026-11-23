@@ -101,3 +101,143 @@ def titles(state: dict | None = None) -> list[str]:
     if foreground:
         rows.sort(key=lambda row: 0 if row["hwnd"] == foreground["hwnd"] else 1)
     return [_clean_title(row["title"]) for row in rows]
+
+
+# --- 2. dilim: hedef pencereyi bul ve içini oku (yine yalnız okuma) -------
+
+MAX_CONTROLS = 40
+MAX_LISTED_CONTROLS = 12
+
+# Şifre alanı: içeriği ASLA okunmaz, yalnız varlığı söylenir.
+_SECRET_HINTS = ("password", "şifre", "sifre", "parola", "pin")
+
+# UIA kontrol türleri İngilizce gelir; seslenebilir Türkçe karşılığı kullanılır.
+_KIND_TR = {
+    "controltype.button": "düğme", "controltype.menuitem": "menü",
+    "controltype.edit": "metin alanı", "controltype.document": "belge",
+    "controltype.text": "yazı", "controltype.tabitem": "sekme",
+    "controltype.list": "liste", "controltype.listitem": "liste öğesi",
+    "controltype.checkbox": "onay kutusu", "controltype.radiobutton": "seçenek",
+    "controltype.combobox": "açılır liste", "controltype.window": "pencere",
+    "controltype.pane": "bölme", "controltype.toolbar": "araç çubuğu",
+    "controltype.image": "görsel", "controltype.hyperlink": "bağlantı",
+    "controltype.slider": "kaydırıcı", "controltype.tree": "ağaç",
+    "controltype.treeitem": "ağaç öğesi", "controltype.datagrid": "tablo",
+}
+
+
+def _kind_label(kind: str) -> str:
+    """UIA tür adını Türkçeleştirir; tanınmayan tür olduğu gibi kalır."""
+    text = str(kind or "").strip()
+    return _KIND_TR.get(text.casefold(), text or "öğe")
+
+
+def find_window(query: str, windows: list[dict] | None = None) -> dict:
+    """Ada göre pencere bulur: {'match': tek pencere | None, 'candidates': [...], 'query': ...}.
+
+    Tahmin yok: birden fazla eşleşme varsa `match` None kalır ve çağıran tek
+    soru sorar. Ad verilmediyse (`query` boş) öndeki pencere döner.
+    """
+    rows = list(windows if windows is not None else snapshot()["windows"])
+    text = " ".join(str(query or "").split()).casefold()
+    if not text:
+        foreground = (snapshot() if windows is None else {}).get("foreground")
+        return {"match": foreground, "candidates": [], "query": text, "reason": "foreground"}
+    def _fold(value: str) -> str:
+        table = str.maketrans("ıİşŞçÇğĞüÜöÖ", "iissccgguuoo")
+        return " ".join(str(value or "").casefold().translate(table).split())
+    needle = _fold(text)
+    # Türkçe iyelik/hâl ekleri: "not defterinin", "chrome'un" → "not defteri", "chrome".
+    variants = [needle]
+    for suffix in ("nin", "nun", "nın", "nün", "in", "un", "ın", "ün", "si", "sı"):
+        if needle.endswith(suffix) and len(needle) - len(suffix) >= 3:
+            variants.append(needle[: -len(suffix)].strip())
+    hits: list[dict] = []
+    for candidate in variants:
+        hits = [row for row in rows
+                if candidate in _fold(row.get("title")) or candidate in _fold(row.get("app"))]
+        if hits:
+            break
+    if len(hits) == 1:
+        return {"match": hits[0], "candidates": [], "query": text, "reason": "unique"}
+    if len(hits) > 1:
+        return {"match": None, "candidates": hits, "query": text, "reason": "ambiguous"}
+    return {"match": None, "candidates": [], "query": text, "reason": "missing"}
+
+
+def _secret(control: dict) -> bool:
+    label = str(control.get("name") or control.get("label") or "").casefold()
+    kind = str(control.get("type") or control.get("role") or "").casefold()
+    return "edit" in kind or "text" in kind and any(hint in label for hint in _SECRET_HINTS)
+
+
+def controls(window: dict) -> dict:
+    """Pencerenin okunabilen kontrolleri (yalnız okuma, pencere öne getirilmez)."""
+    title = str(window.get("title") or "")
+    try:
+        from modules.desktop_uia import DesktopUI
+        observed = DesktopUI().observe(title, hwnd=window.get("hwnd"))
+    except Exception as exc:
+        _record_failure("modules/pc_awareness.py:controls")
+        return {"title": title, "controls": [], "error": type(exc).__name__}
+    raw = list(observed.get("controls") or [])
+    cleaned, seen = [], set()
+    for row in raw[:MAX_CONTROLS]:
+        if not isinstance(row, dict):
+            continue
+        name = " ".join(str(row.get("name") or row.get("label") or "").split())
+        kind = str(row.get("type") or row.get("role") or "öğe")
+        if not name:
+            continue
+        key = (kind, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append({"name": name[:60], "type": kind, "secret": _secret(row)})
+    return {"title": observed.get("title") or title, "app": observed.get("app"),
+            "controls": cleaned, "error": None, "total": len(raw)}
+
+
+def describe_controls(result: dict) -> str:
+    """Kontrol listesini tek paragraflık, seslenebilir Türkçe özete çevirir."""
+    title = _clean_title(result.get("title") or "")
+    if result.get("error"):
+        return (f"“{title}” penceresini okuyamadım; yönetici yetkisi gerekiyor olabilir.")
+    rows = result.get("controls") or []
+    if not rows:
+        return f"“{title}” penceresinde okunabilen bir düğme ya da alan göremiyorum."
+    groups: dict[str, list[str]] = {}
+    secret_note = False
+    for row in rows:
+        if row.get("secret"):
+            secret_note = True
+        groups.setdefault(_kind_label(str(row.get("type") or "")), []).append(row["name"])
+    parts = []
+    for kind, names in list(groups.items())[:6]:
+        shown = "; ".join(names[:MAX_LISTED_CONTROLS])
+        extra = len(names) - MAX_LISTED_CONTROLS
+        parts.append(f"{kind}: {shown}" + (f" (+{extra})" if extra > 0 else ""))
+    text = f"“{title}” penceresinde {len(rows)} okunabilir öğe var. " + " | ".join(parts)
+    if secret_note:
+        text += " Şifre alanı var; içeriğini okumuyorum."
+    return text
+
+
+def describe_window(query: str = "") -> dict:
+    """Soruya göre pencereyi bulup özetler: {'text': ..., 'reason': ..., 'candidates': ...}."""
+    found = find_window(query)
+    if found["reason"] == "ambiguous":
+        names = "; ".join(_clean_title(row["title"]) for row in found["candidates"][:5])
+        return {"text": f"Birden fazla pencere eşleşti: {names}. Hangisini okuyayım?",
+                "reason": "ambiguous", "candidates": found["candidates"]}
+    if found["reason"] == "missing":
+        return {"text": f"Açık bir “{query}” penceresi göremiyorum.", "reason": "missing",
+                "candidates": []}
+    window = found["match"]
+    if not window:
+        return {"text": "Hangi pencereyi okuyacağımı bilmiyorum; adını söyler misin?",
+                "reason": "missing", "candidates": []}
+    result = controls(window)
+    prefix = "Öndeki pencereyi okudum. " if found["reason"] == "foreground" else ""
+    return {"text": prefix + describe_controls(result), "reason": found["reason"],
+            "candidates": [], "window": window}
