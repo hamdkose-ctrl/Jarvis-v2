@@ -51,17 +51,20 @@
       </div>
 
       <section class="team-area" id="team-area" aria-label="Hareketli ekip ofisi">
-        <header class="team-head"><h2>● Ekip Ofisi</h2><span class="tag">Hazır</span><nav role="group" aria-label="Ofis görünümleri"><button class="tab" type="button" data-team-tab="agents" aria-pressed="true">Uzmanlar</button><button class="tab" type="button" data-team-tab="visual" aria-pressed="false">Görsel Alan</button><button class="tab" type="button" data-team-tab="motion" aria-pressed="false">Hareket</button></nav><button class="btn square" type="button" id="team-pause" aria-label="Ofisi duraklat">⏸</button></header>
+        <header class="team-head"><h2>● Ekip Ofisi</h2><span class="tag">Hazır</span><nav role="group" aria-label="Ofis görünümleri"><button class="tab" type="button" data-team-tab="agents" aria-pressed="true">Uzmanlar</button><button class="tab" type="button" data-team-tab="visual" aria-pressed="false">Görsel Alan</button><button class="tab" type="button" data-go="tools" data-home-tool-tab="phone">Telefon</button></nav><button class="btn" type="button" id="team-jobs" data-go="team">Ekip İşleri</button><button class="btn square" type="button" id="team-pause" title="Hareketi Duraklat" aria-label="Hareketi Duraklat">Ⅱ</button></header>
         <div id="team-agents" class="team-content">
-          <div class="agent-list" id="agent-list" role="group" aria-label="Uzmanı seç"></div>
-          <div class="office-wrap"><canvas id="office-map" aria-label="Karakterlerin odalar arasında yürüdüğü piksel ofis"></canvas></div>
+          <div id="home-office">
+            <div class="agent-list" id="agent-list" role="group" aria-label="Uzmanı seç"></div>
+            <div class="office-wrap"><canvas id="office-map" aria-label="Karakterlerin odalar arasında yürüdüğü piksel ofis"></canvas></div>
+          </div>
+          <div id="home-workspace" hidden>
+            <div class="workspace-return"><button class="btn" type="button" data-go="home">Ofise Dön</button></div><div id="page" class="page"></div>
+            <div id="workspace-composer"></div>
+          </div>
         </div>
         <div id="team-visual" class="team-content option-pane" hidden>
-          <p>Kamera veya ekranı çekirdek alanında görüntüle.</p><div><button class="btn" type="button" id="camera" data-act="vis" data-a="act:share:camera">Kamerayı aç</button><button class="btn" type="button" id="screen" data-act="vis" data-a="act:share:screen">Ekranı paylaş</button></div>
+          <p>Kamera Veya Ekran Paylaşımını Küre Alanında Görüntüle.</p><div><button class="btn" type="button" id="camera" data-act="vis" data-a="act:share:camera">Kamerayı Aç</button><button class="btn" type="button" id="screen" data-act="vis" data-a="act:share:screen">Ekranı Paylaş</button></div>
           <p id="media-notice" role="status"></p>
-        </div>
-        <div id="team-motion" class="team-content option-pane" hidden>
-          <p id="movement-state"></p><div><button class="btn" type="button" id="motion-toggle">Hareketi duraklat</button></div>
         </div>
         <footer class="team-foot"><span class="tag"><i></i>Yerel</span><button class="btn" type="button" id="home-connection" data-act="keysetup" hidden>Gemini anahtarı yok</button><span id="team-status" class="muted" aria-live="polite"></span><div class="room-buttons" role="group" aria-label="Uzmanı odaya gönder"><button class="btn" type="button" data-room="arastirma">Araştırma</button><button class="btn" type="button" data-room="belge">Belge</button><button class="btn" type="button" data-room="kontrol">Kontrol</button></div></footer>
       </section>
@@ -69,13 +72,32 @@
 
     <section class="chat" id="chat" aria-label="İletişim">
       <header class="chat-head">
-        <nav role="group" aria-label="İletişim görünümleri"><button class="tab" type="button" data-chat="voice" aria-pressed="true">Ses</button><button class="tab" type="button" data-chat="agent" aria-pressed="false">Uzman</button><button class="tab" type="button" data-chat="notes" aria-pressed="false">Notlar</button></nav>
-        <div class="chat-tools"><button class="btn square" type="button" id="new-thread" data-act="newchat" aria-label="Yeni konuşma">＋</button><button class="btn square" type="button" id="history" data-home-action="history" aria-label="Sohbet geçmişini aç">↶</button><button class="btn square" type="button" data-home-action="commands" aria-label="Komutlar">›_</button><button class="btn square" type="button" id="chat-expand" aria-label="Konuşmayı büyüt" aria-expanded="false">⛶</button></div>
+        <nav role="group" aria-label="İletişim görünümleri"><button class="tab" type="button" data-chat="voice" aria-pressed="true">Sohbet</button><button class="tab" type="button" data-chat="agent" aria-pressed="false">Uzmanlar</button><button class="tab" type="button" data-chat="notes" aria-pressed="false">Notlar</button></nav>
+        <div class="chat-tools"><button class="btn square" type="button" id="new-thread" data-act="newchat" aria-label="Yeni konuşma">＋</button><button class="btn square" type="button" id="history" data-home-action="history" aria-label="Sohbet geçmişini aç">↶</button><button class="btn square" type="button" data-act="cmore" aria-label="Komutlar">›_</button><button class="btn square" type="button" id="chat-expand" aria-label="Konuşmayı büyüt" aria-expanded="false">⛶</button></div>
       </header>
+      <div id="conversation-modes" role="group" aria-label="Sohbet Görünümleri">
+        <button class="btn" type="button" id="conversation-back" data-go="home" hidden>← Sohbete Dön</button>
+        <button class="btn" type="button" id="study-open" data-go="study">Çalışma Modu</button>
+        <button class="btn" type="button" id="settings-user" data-act="user" hidden>Kullanıcı Değiştir</button>
+        <button class="btn" type="button" id="settings-notifications" data-act="notif" hidden>Bildirimler</button>
+      </div>
+      <div id="right-workspace" class="chat-main" hidden></div>
       <div id="home-messages" class="chat-main" role="log" tabindex="0" aria-label="Jarvis konuşması"></div>
-      <div id="chat-agent" class="chat-main option-pane" hidden><h3>Ekip Merkezi</h3><div id="home-jobs" aria-live="polite"></div><button class="btn" type="button" data-go="team">Ekip Merkezi’ni aç</button></div>
-      <div id="chat-notes" class="chat-main notes-panel" hidden><label for="note">Notun</label><textarea id="note" rows="7" placeholder="Notunu yaz…"></textarea><button class="btn" type="button" id="note-save">Kaydet</button><p id="note-state" role="status"></p><ul id="home-notes"></ul></div>
-      <form class="chat-compose" id="compose"><label class="visually-hidden" for="message">Jarvis’e yaz</label><textarea id="message" rows="1" placeholder="Asistana yaz…"></textarea><button class="btn square" type="button" id="attach" data-act="attach" aria-label="Dosya ekle">${ic("clip")}</button><button class="btn square send" type="submit" aria-label="Gönder">↑</button><span class="attc"></span></form>
+      <div id="chat-agent" class="chat-main option-pane" hidden aria-label="Uzman Ayarları">
+        <h3>Uzman Ayarları</h3><p class="muted">Ayarlarını Düzenlemek İçin Bir Uzman Seç.</p>
+        <div id="home-expert" aria-live="polite"></div>
+      </div>
+      <div id="chat-notes" class="chat-main notes-panel" hidden><label for="note">Notun</label><textarea id="note" rows="7" placeholder="Notunu Yaz…"></textarea><button class="btn" type="button" id="note-save">Kaydet</button><p id="note-state" role="status"></p><ul id="home-notes"></ul></div>
+      <div class="devstatus" id="dev-status" hidden></div><div class="qrow" id="qrow" hidden></div>
+      <form class="chat-compose" id="compose">
+        <span class="attc" aria-live="polite"></span>
+        <div id="attachment-actions" role="group" aria-label="Ekli Dosya İşlemleri" hidden>
+          <button class="btn" type="button" data-attachment-prompt="özetle">Özetle</button>
+          <button class="btn" type="button" data-attachment-prompt="analiz et">Analiz Et</button>
+          <button class="btn" type="button" data-attachment-prompt="önemli yerleri tablo yap">Tabloya Dönüştür</button>
+          <button class="btn" type="button" data-attachment-prompt="görselleştir">Görselleştir</button>
+          <button class="btn" type="button" id="compare-attachments" data-attachment-prompt="dosyaları karşılaştır" hidden>Karşılaştır</button>
+        </div><label class="visually-hidden" for="message">Jarvis’e Yaz</label><textarea id="message" rows="1" placeholder="Jarvis’e Yaz…"></textarea><button class="btn square" type="button" id="attach" data-act="attach" aria-label="Dosya ekle">${ic("clip")}</button><button class="btn square send" type="submit" aria-label="Gönder">↑</button></form>
     </section>
   </div>
 <dialog id="info" aria-labelledby="info-title"><header><h2 id="info-title"></h2><button class="btn" id="info-close" type="button">Kapat</button></header><div id="info-body"></div></dialog>`;
@@ -84,12 +106,15 @@
     ['red', 'Kırmızı', '#ff5154'], ['cyan', 'Turkuaz', '#44ddef'],
     ['emerald', 'Yeşil', '#4cdc92'], ['violet', 'Mor', '#b894ff'], ['amber', 'Kehribar', '#ffc15c'],
   ];
-  const panels = {
-    memory: ['Hafıza', '<button class="btn" data-act="goset" data-k="hafiza">Hafızayı aç</button>'],
-    skills: ['Yetenekler', '<button class="btn" data-go="map">Yetenek haritası</button> <button class="btn" data-go="files">Dosyalar</button> <button class="btn" data-go="study">Çalışma</button> <button class="btn" data-go="vision">Ekran ve PC</button>'],
-    character: ['Karakter', '<button class="btn" data-act="goset" data-k="ses">Ses ve asistan adı</button>'],
-    settings: ['Ayarlar', '<button class="btn" data-act="goset" data-k="ai">Ayarları aç</button> <button class="btn" data-act="user">Kullanıcı değiştir</button> <button class="btn" data-act="notif">Bildirimler</button>'],
-    commands: ['Komutlar', '<button class="btn" data-home-prompt="Bugünkü haberleri özetle">Haberleri sor</button> <button class="btn" data-home-prompt="Takvimim">Takvimim</button> <button class="btn" data-home-prompt="Dosyalarımı göster">Dosyalarım</button>'],
+  const titleStyle=text=>text.replace(/(^|\s)([\p{Ll}])/gu,(_,space,letter)=>space+letter.toLocaleUpperCase('tr'));
+  const capabilityNames={
+    research:'Araştırma', document:'Belge İşleme', writer:'Metin Yazma', data:'Veri Analizi',
+    verify:'Sonuç Doğrulama', media:'Medya Üretimi', browser:'Tarayıcı', coder:'Kodlama',
+    monitor:'Kaynak Takibi', publish:'İçerik Yayınlama', account:'Hesap Bilgilerini Okuma',
+    finance:'Finans Analizi', file:'Dosya Okuma', computer:'Pencere Gözlemi', desktop:'Masaüstü Görevi',
+    action:'Jarvis İşlemleri', observe:'Ekran Ve Kamera İnceleme', application:'Uygulamalar',
+    diagnose:'Sistem Tanılama', sharing:'Ekran Ve Kamera Paylaşımı', schedule:'İş Zamanlama',
+    system:'Bilgisayar Ayarları', capability:'Bağlantı Keşfi',
   };
   let current = null;
 
@@ -110,6 +135,7 @@
     const input = find('#message');
     let owner = S.snap?.user?.slug;
     let visuals, officePaused = false, reactorPaused = false, chat = 'voice', notePending = null, historyDay = '';
+    let officeState, roster, rosterLoading, expertSave, selectedExpert;
     let previewMode = null, previewTimer = null, previewPending = null;
 
     function openDialog(title, content) {
@@ -137,46 +163,136 @@
 
     function setChat(next) {
       chat = next;
+      const work = !isConversation(S.page) && !inOffice(S.page);
+      find('#conversation-modes').hidden = next !== 'voice';
+      find('#right-workspace').hidden = next !== 'voice' || !work;
       for (const [key, selector] of [['voice','#home-messages'], ['agent','#chat-agent'], ['notes','#chat-notes']]) {
-        find(selector).hidden = next !== key;
+        find(selector).hidden = next !== key || (key === 'voice' && work);
       }
-      find('#compose').hidden = next !== 'voice';
+      find('#compose').hidden = next !== 'voice' || work;
+      for(const selector of ['#dev-status','#qrow'])find(selector).hidden=next!=='voice'||work||!S.snap?.development?.enabled;
       for (const button of root.querySelectorAll('[data-chat]')) {
         button.setAttribute('aria-pressed', String(button.dataset.chat === next));
       }
+      if (next === 'agent' && !find('#expert-form')) { loadExperts(); drawExpert(); }
       updatePanels();
     }
 
     function prefill(text) {
       if (dialog.open) dialog.close();
-      setChat('voice');
+      openConversation();
       input.value = text;
       input.focus();
     }
 
+    const isConversation = page => page === 'home' || page === 'chat';
+    const inOffice = page => page === 'tools' && S.tool === 'telefon';
+
+    function openConversation() {
+      if (!isConversation(S.page) && !inOffice(S.page)) go('home');
+      setChat('voice');
+    }
+
+    function showWorkspace(page, navigation) {
+      if (dialog.open) dialog.close();
+      const phone = inOffice(page);
+      const work = !isConversation(page) && !phone;
+      const pane = find('#home-workspace');
+      const parent = find(work ? '#right-workspace' : '#team-agents');
+      if (pane.parentElement !== parent) parent.appendChild(pane);
+      find('#home-office').hidden = phone;
+      pane.hidden = isConversation(page);
+      if (navigation) pane.scrollTop = 0;
+      find('#conversation-back').hidden = !work;
+      find('#study-open').hidden = work;
+      const generalSettings = page === 'settings' && !S.consoleSection;
+      find('#settings-user').hidden = !generalSettings;
+      find('#settings-notifications').hidden = !generalSettings;
+      if (phone || find('[data-home-tool-tab="phone"]').getAttribute('aria-pressed') === 'true') {
+        setTeam(phone ? 'phone' : 'agents');
+      }
+      if (page !== 'settings' && page !== 'map') {
+        find('.core-option[aria-current]')?.removeAttribute('aria-current');
+        visuals?.setTask(null);
+      }
+      setChat(work && navigation ? 'voice' : chat);
+    }
+
     function setTeam(next) {
-      for (const key of ['agents','visual','motion']) find('#team-' + key).hidden = key !== next;
+      const visual = next === 'visual';
+      find('#team-agents').hidden = visual;
+      find('#team-visual').hidden = !visual;
+      find('[data-home-tool-tab="phone"]').setAttribute('aria-pressed', String(next === 'phone'));
       for (const button of root.querySelectorAll('[data-team-tab]')) {
         button.setAttribute('aria-pressed', String(button.dataset.teamTab === next));
       }
     }
 
-    function renderOffice(state) {
-      const host = find('#agent-list');
-      const active = state.people[state.selected];
-      if (!host.children.length) {
-        host.innerHTML = state.people.map((person, index) =>
-          `<button class="agent" type="button" data-office-person="${index}" title="${esc(person.role)}"><span class="agent-face" aria-hidden="true" style="--avatar-tone:${esc(person.color)}"></span><span>${esc(person.role)}</span><i aria-hidden="true"></i></button>`
-        ).join('');
+    function officeMembers() {
+      return ['research','production','development','operations'].map(id => roster?.members.find(member=>member.id===id));
+    }
+
+    async function loadExperts() {
+      if (!owner || roster || rosterLoading) return;
+      const expected = owner;
+      const request = api('team_snapshot');
+      rosterLoading = request;
+      try {
+        const data = await request;
+        if (signal.aborted || expected!==owner || expected!==data.owner || rosterLoading!==request) return;
+        roster = data;
+        if (officeState) renderOffice(officeState);
+        if (chat==='agent') drawExpert();
+      } catch (error) {
+        if (!signal.aborted && expected===owner && chat==='agent') find('#home-expert').textContent=error.message;
+      } finally {
+        if (rosterLoading===request) rosterLoading=null;
       }
+    }
+
+    function drawExpert() {
+      const host = find('#home-expert');
+      const officeMember = officeMembers()[officeState?.selected ?? 0];
+      const member = roster?.members.find(item=>item.id===selectedExpert) || officeMember || roster?.members[0];
+      if (!member) {
+        host.textContent = roster ? 'Kayıtlı Uzman Bulunamadı.' : 'Uzmanlar Yükleniyor…';
+        return;
+      }
+      const options = roster.members.map(item=>`<button class="btn" type="button" data-expert-id="${esc(item.id)}" aria-pressed="${item.id===member.id}">${esc(item.name)}</button>`).join('');
+      const capabilities = roster.capabilities.filter(tool=>member.tools.includes(tool.id) || (tool.scope && tool.description));
+      const enabled = tool => member.tools.includes(tool.id);
+      const toolRow = tool => `<label class="expert-check"><input name="tools" type="checkbox" value="${esc(tool.id)}" ${enabled(tool)?'checked':''}><span><b>${esc(capabilityNames[tool.id]||tool.id)}</b><small>${esc(titleStyle(tool.description||''))}</small></span></label>`;
+      const otherTools = capabilities.filter(tool=>!enabled(tool));
+      host.innerHTML = `<div class="expert-picker" role="group" aria-label="Uzman Seç">${options}</div>
+        <h4>${esc(member.name)}</h4>
+        <form id="expert-form" data-id="${esc(member.id)}">
+          <label>Uzman Adı<input name="name" maxlength="80" required value="${esc(member.name)}"></label>
+          <label>Anahtar Sözcükler<input name="tags" maxlength="600" value="${esc(member.tags.join(', '))}"></label>
+          <label class="expert-check"><input name="enabled" type="checkbox" ${member.enabled===false?'':'checked'}> Yeni Görevlere Açık</label>
+          <fieldset><legend>Yetenekler</legend><p class="muted">Uzmanın Görevlerinde Kullanabileceği Araçları Seç.</p>
+            ${capabilities.filter(enabled).map(toolRow).join('')}
+            ${otherTools.length?`<details><summary>Diğer Yetenekler</summary>${otherTools.map(toolRow).join('')}</details>`:''}
+          </fieldset>
+          <button class="btn primary" type="submit">Uzmanı Kaydet</button><p id="expert-state" role="status"></p>
+        </form>`;
+    }
+
+    function renderOffice(state) {
+      officeState = state;
+      const host = find('#agent-list'), members = officeMembers();
+      const active = state.people[state.selected], name = members[state.selected]?.name || active.role;
+      const markup = state.people.map((person, index) =>
+        `<button class="agent" type="button" data-office-person="${index}" title="${esc(members[index]?.name||person.role)}"><span class="agent-face" aria-hidden="true" style="--avatar-tone:${esc(person.color)}"></span><span>${esc(members[index]?.name||person.role)}</span><i aria-hidden="true"></i></button>`
+      ).join('');
+      if (host._markup!==markup) { host._markup=markup; host.innerHTML=markup; }
       Array.from(host.children).forEach((button, index) => button.setAttribute('aria-pressed', String(index === state.selected)));
-      find('#team-status').textContent = active.destination ? active.role + ' · ' + active.destination + ' odasına gidiyor' : active.role + ' · ' + active.room;
+      find('#team-status').textContent = active.destination ? name + ' · ' + active.destination + ' Odasına Gidiyor' : name + ' · ' + active.room;
       officePaused = state.paused;
-      const pause = find('#team-pause');
-      pause.textContent = officePaused ? '▶' : '⏸';
-      pause.setAttribute('aria-label', officePaused ? 'Ofis hareketini başlat' : 'Ofis hareketini duraklat');
-      find('#movement-state').textContent = officePaused ? 'Ofis canlandırması duraklatıldı.' : 'Sanal ofiste karakterler odalar arasında hareket ediyor.';
-      find('#motion-toggle').textContent = officePaused ? 'Hareketi başlat' : 'Hareketi duraklat';
+      const motion = find('#team-pause');
+      const label = officePaused ? 'Hareketi Başlat' : 'Hareketi Duraklat';
+      motion.title = label;
+      motion.setAttribute('aria-label',label);
+      motion.textContent = officePaused ? '▶' : 'Ⅱ';
     }
 
     function drawAgenda() {
@@ -192,7 +308,7 @@
     }
 
     function updatePanels() {
-      if (chat === 'agent') window.JarvisTeam?.refreshHome(find('#home-jobs'));
+
       if (chat === 'notes') {
         const notes = (S.snap?.notes || []).slice(-12).reverse();
         const markup = notes.map(note =>
@@ -247,7 +363,7 @@
         previewImage(null);
       }
       for (const [kind, selector, onText, offText] of [
-        ['camera','#camera','Kamerayı aç','Kamerayı kapat'], ['screen','#screen','Ekranı paylaş','Paylaşımı kapat'],
+        ['camera','#camera','Kamerayı Aç','Kamerayı Kapat'], ['screen','#screen','Ekranı Paylaş','Paylaşımı Kapat'],
       ]) {
         const button = find(selector);
         button.textContent = mode === kind ? offText : onText;
@@ -261,7 +377,9 @@
       find('#halt').textContent = mode ? 'Paylaşımı kapat' : reactorPaused && !active ? 'Başlat' : 'Durdur';
       const mic = find('#mic-toggle');
       mic.setAttribute('aria-pressed', String(state === 'listening'));
-      mic.title = S.snap?.flags?.mic === false ? 'Mikrofon kapalı' : 'Konuş';
+      const development=S.page==='chat'&&S.snap?.development?.enabled&&S.snap.development.unlocked;
+      mic.disabled=!!development;
+      mic.title = development?'Geliştirme Modunda Mikrofon Kapalı':S.snap?.flags?.mic === false ? 'Mikrofon kapalı' : 'Konuş';
       visuals?.setState(mode || (reactorPaused && !active) ? 'stopped' : state);
       schedulePreview();
     }
@@ -277,7 +395,9 @@
         find('#note-save').disabled = false;
         find('#note').value = '';
         input.value = '';
-        find('#home-jobs').replaceChildren();
+        roster = rosterLoading = expertSave = selectedExpert = null;
+        find('#home-expert').replaceChildren();
+        if(chat==='agent') {loadExperts();drawExpert();}
         find('#home-notes').replaceChildren();
         find('#home-notes')._markup = null;
         find('#note-state').textContent = '';
@@ -286,7 +406,11 @@
       const sn = S.snap, warning = find('#home-connection');
       warning.hidden = !sn?.llm || !!sn.llm.key || sn.llm.provider === 'ollama';
       warning.textContent = sn?.llm?.provider && sn.llm.provider !== 'gemini' ? 'Model bağlantılarını aç' : 'Gemini anahtarı yok';
+      if(!roster) loadExperts();
       updateStatus();
+      const editing=!find('#compose').hidden&&!!sn?.development?.enabled;
+      find('#dev-status').hidden=!editing;
+      find('#qrow').hidden=!editing;
       drawAgenda();
       updatePanels();
     }
@@ -320,25 +444,49 @@
       if (homeDay) {
         historyDay = homeDay;
         dialog.close();
-        setChat('voice');
+        openConversation();
         drawHomeMessages();
       }
-      if (act === 'newchat') { historyDay = ''; setChat('voice'); }
+      if (act === 'newchat') { historyDay = ''; openConversation(); }
       if (dialog.open && ['user','notif'].includes(act)) dialog.close();
-      if (homeAction === 'commands') openDialog(...panels.commands);
+      if (button.dataset.homeToolTab === 'phone') S.tool='telefon';
       if (homeTool) {
         root.querySelector('.core-option[aria-current]')?.removeAttribute('aria-current');
         button.setAttribute('aria-current','true');
         visuals?.setTask(homeTool);
-        const [title, content] = panels[homeTool];
-        const audio = homeTool === 'settings' ? '<p>' + micToggleBtn('btn') + muteBtn('btn') + pcMuteBtn('btn') + '</p>' : '';
-        openDialog(title, content + audio);
+        S.tool='';
+        S.consoleSection=homeTool==='settings'?null:homeTool;
+        S.sset=homeTool==='memory'?'hafiza':homeTool==='character'?'kullanici':'ai';
+        go(homeTool==='skills'?'map':'settings');
       }
       if (homePrompt) prefill(homePrompt);
-      if (chatTab) setChat(chatTab);
-      if (teamTab) setTeam(teamTab);
-      if (officePerson !== undefined) visuals?.office?.select(Number(officePerson));
+      if (chatTab === 'voice') openConversation();
+      else if (chatTab) setChat(chatTab);
+      if (button.dataset.expertId) {
+        selectedExpert=button.dataset.expertId;
+        const index=officeMembers().findIndex(member=>member?.id===selectedExpert);
+        if(index>=0)visuals?.office?.select(index);
+        drawExpert();
+        find(`[data-expert-id="${CSS.escape(selectedExpert)}"]`)?.focus();
+      }
+      if (button.dataset.attachmentPrompt) {
+        const prompt=button.dataset.attachmentPrompt;
+        const draft=input.value.trim();
+        input.value=draft ? draft + '\n' + prompt : prompt;
+        input.focus();
+      }
+      if (teamTab) {
+        if (inOffice(S.page)) go('home');
+        setTeam(teamTab);
+      }
+      if (officePerson !== undefined) {
+        visuals?.office?.select(Number(officePerson));
+        selectedExpert=officeMembers()[Number(officePerson)]?.id;
+        drawExpert();
+        setChat('agent');
+      }
       if (room) {
+        if (inOffice(S.page)) go('home');
         setTeam('agents');
         visuals?.office?.move(room);
       }
@@ -355,7 +503,6 @@
       find('#chat-expand').focus();
     }, {signal});
     on('#team-pause','click',()=>visuals?.office?.setPaused(!officePaused));
-    on('#motion-toggle','click',()=>visuals?.office?.setPaused(!officePaused));
     on('#halt','click',()=>{
       if (previewMode) return void ACT.vis({dataset:{a:'act:share:'+previewMode}});
       if (S.orb === 'speaking' || S.sspeaking) return void ACT.dstop();
@@ -376,7 +523,7 @@
       if (!text && !atts().length) return;
       input.value = '';
       historyDay = '';
-      void say(text);
+      void say(text, true);
     });
     on('#note-save','click',async event=>{
       const text = find('#note').value.trim();
@@ -404,10 +551,51 @@
         }
       }
     });
+    on('#home-expert','submit',async event=>{
+      const form=event.target;
+      if(form.id!=='expert-form')return;
+      event.preventDefault();
+      const expected=owner, data=roster, button=form.querySelector('[type=submit]');
+      if(!data || data.owner!==expected)return;
+      if(expertSave){form.querySelector('#expert-state').textContent='Önceki Kayıt Tamamlanıyor…';return;}
+      const selected=data.members.find(member=>member.id===form.dataset.id);
+      if(!selected)return;
+      const values=new FormData(form);
+      const name=String(values.get('name')||'').trim(), tools=values.getAll('tools');
+      const status=form.querySelector('#expert-state');
+      if(!name||!tools.length){status.textContent='Bir Ad Ve En Az Bir Yetenek Seç.';return}
+      const tags=String(values.get('tags')||'').split(',').map(tag=>tag.trim()).filter(Boolean);
+      const members=data.members.map(member=>member.id===selected.id?{...member,name,tags,tools,enabled:values.has('enabled')}:member);
+      const request=Symbol();
+      expertSave=request;
+      button.disabled=true;
+      status.textContent='Kaydediliyor…';
+      try {
+        await api('team_save',members,data.revision);
+        if(signal.aborted||expected!==owner||expertSave!==request)return;
+        roster=null;
+        await loadExperts();
+        const visibleForm=find('#expert-form');
+        if(!signal.aborted&&expected===owner&&expertSave===request&&visibleForm?.dataset.id===selected.id){
+          visibleForm.querySelector('#expert-state').textContent='Uzman Kaydedildi.';
+        }
+      } catch(error) {
+        if(!signal.aborted&&expected===owner&&form.isConnected)status.textContent=error.message;
+      } finally {
+        if(expertSave===request)expertSave=null;
+        button.disabled=false;
+      }
+    });
     document.addEventListener('visibilitychange',schedulePreview,{signal});
 
+    function updateAttachments(count) {
+      find('#attachment-actions').hidden = count === 0;
+      find('#compare-attachments').hidden = count < 2;
+    }
+
     current = {
-      update, updateStatus, day: () => historyDay,
+      update, updateStatus, updateAttachments, openConversation, showWorkspace, showConversation:()=>setChat('voice'), day: () => historyDay,
+      forgetHistoryDay(day) { if(!day||historyDay===day)historyDay=''; },
       destroy() {
         abort.abort();
         clearTimeout(previewTimer);
@@ -419,6 +607,7 @@
     };
     setTeam('agents');
     update();
+    loadExperts();
   }
 
   function destroy() {
@@ -426,5 +615,5 @@
     current = null;
   }
 
-  window.JarvisHome = {mount, destroy, day:()=>current?.day(), refresh:()=>current?.update(), updateStatus:()=>current?.updateStatus()};
+  window.JarvisHome = {mount, destroy, showWorkspace:(page,navigation)=>current?.showWorkspace(page,navigation), day:()=>current?.day(), refresh:()=>current?.update(), updateAttachments:count=>current?.updateAttachments(count), openConversation:()=>current?.openConversation(), showConversation:()=>current?.showConversation(), forgetHistoryDay:day=>current?.forgetHistoryDay(day), updateStatus:()=>current?.updateStatus()};
 })();

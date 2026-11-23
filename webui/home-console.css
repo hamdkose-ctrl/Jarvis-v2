@@ -552,8 +552,192 @@
 .jarvis-console .turn .message-body :is(ul,ol) { padding-inline-start: 20px; }
 .jarvis-console .turn .message-body pre { overflow: auto; }
 .jarvis-console .turn.saying .message-body { border-color: var(--theme-accent); }
+.jarvis-console #home-messages :is(.stepcard, .task-summary) { margin-block-start: 6px; }
+.jarvis-console #home-messages :is(.stepcard .steps, .task-summary) {
+  background: var(--theme-deep, #12181d);
+  border-color: var(--edge);
+  color: var(--text);
+}
+.jarvis-console #home-messages :is(.stepcard, .task-summary) small { color: var(--muted); }
+.jarvis-console #home-messages .step.done .sm { color: #8bd5aa; }
+.jarvis-console #home-messages .step.error .sm { color: #f69b95; }
 .jarvis-console #news-empty { padding: 6px 2px; }
-.jarvis-console #chat-agent #home-jobs { margin: 7px 0; }
 .jarvis-console :is(#home-notes,.console-history) { padding-inline-start: 0; list-style: none; }
 .jarvis-console :is(#home-notes,.console-history) li { margin-top: 5px; }
 .jarvis-console #home-notes p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The application panes live in the same console as the map and conversation. */
+.jarvis-console #home-office {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.jarvis-console #home-workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  container-type: inline-size;
+  --bg: var(--black);
+  --panel: color-mix(in srgb, var(--theme-accent) 8%, #111319);
+  --panel2: color-mix(in srgb, var(--theme-accent) 12%, #1a1d22);
+  --line: var(--edge);
+  --line2: color-mix(in srgb, var(--theme-accent) 34%, #28282c);
+  --mut: var(--muted);
+  --accent: var(--theme-accent);
+  --blue: #a5cedf;
+  --control: var(--theme-accent);
+  --control-hover: color-mix(in srgb, var(--theme-accent) 80%, white);
+  --control-text: #17131a;
+  --selection: var(--panel2);
+  --user-bubble: var(--panel2);
+  --output: var(--panel2);
+}
+.jarvis-console #home-workspace .page { padding: 12px; }
+.jarvis-console #home-workspace .pagehead { flex-wrap: wrap; margin-block-end: 10px; }
+.jarvis-console #home-workspace .pagehead h1,
+.jarvis-console #home-workspace .team-head h1 { font-size: 21px; letter-spacing: normal; }
+.jarvis-console #home-workspace .team-head nav { position: static; translate: none; }
+.jarvis-console #home-workspace .team-head h2 { color: var(--text); }
+.jarvis-console #home-workspace .workspace-settings { grid-template-columns: minmax(0,1fr); gap: 9px; }
+.jarvis-console #home-workspace .workspace-settings-nav { display: flex; flex-wrap: wrap; }
+.jarvis-console #home-workspace .workspace-settings-nav button { padding: 4px 7px; }
+.jarvis-console #home-workspace #workspace-composer { padding: 0 12px 12px; }
+@container (max-width: 650px) {
+  .jarvis-console #home-workspace :is(.grid3,.agrid,.apgrid,.team-columns) {
+    grid-template-columns: minmax(0,1fr);
+  }
+}
+
+.jarvis-console :is(.core-buttons button,.chat-head .tab,.reactor-state,.reactor-actions .halt) {
+  text-transform: none;
+}
+.jarvis-console :is(#conversation-modes,.workspace-return) {
+  display:flex;
+  flex:none;
+  flex-wrap:wrap;
+  gap:6px;
+  padding:7px 9px;
+  border-bottom:1px solid var(--edge);
+}
+.jarvis-console #right-workspace { overflow:auto; display:flex; flex-direction:column; }
+.jarvis-console #right-workspace .workspace-return { display:none; }
+.jarvis-console :is(#conversation-modes [aria-pressed=true],[data-home-tool-tab][aria-pressed=true]) {
+  color:var(--theme-accent); border-color:var(--theme-accent);
+}
+.jarvis-console #chat-agent {
+  min-height:0;
+  overflow:auto;
+  padding:14px;
+}
+.jarvis-console #chat-agent > h3 { font-size:16px; margin-bottom:4px; }
+.jarvis-console #home-expert {
+  display:grid; gap:6px; margin-top:14px;
+}
+.jarvis-console #expert-form {
+  display:grid; gap:10px;
+  border:1px solid var(--edge); border-radius:8px; padding:12px;
+}
+.jarvis-console #expert-form > label:not(.expert-check) { display:grid; gap:4px; }
+.jarvis-console #expert-form fieldset {
+  min-width:0; margin:0; padding:8px 10px; border:1px solid var(--edge); border-radius:5px;
+}
+.jarvis-console #expert-form fieldset > p { margin-bottom:6px; }
+.jarvis-console #expert-form .expert-check {
+  display:flex; align-items:flex-start; gap:8px; padding-block:5px;
+}
+.jarvis-console #expert-form .expert-check input { margin-top:4px; accent-color:var(--theme-accent); }
+.jarvis-console #expert-form .expert-check small { display:block; color:var(--muted); }
+.jarvis-console #expert-form button { justify-self:start; }
+.jarvis-console #home-expert :is(select,input:not([type=checkbox])) {
+  width:100%; min-width:0; padding:6px 8px; border:1px solid var(--trace);
+  background:var(--black); color:var(--text); border-radius:4px;
+}
+
+.jarvis-console #team-area > .team-head {
+  flex-wrap: wrap;
+}
+.jarvis-console #team-area > .team-head nav {
+  position: static;
+  translate: none;
+  margin-inline: auto;
+  flex: 0 1 auto;
+  order: 0;
+}
+.jarvis-console #team-jobs, .jarvis-console #team-pause { white-space: nowrap; }
+.jarvis-console #right-workspace { padding: 0; }
+.jarvis-console #attachment-actions, .jarvis-console .expert-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.jarvis-console #attachment-actions { grid-column: 1 / -1; }
+.jarvis-console .expert-picker [aria-pressed="true"] {
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+.jarvis-console #home-expert h4 { margin-block: 8px 0; }
+
+.jarvis-console .study-compact { display: grid; gap: 12px; }
+.jarvis-console .study-compact-head,
+.jarvis-console .study-compact-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.jarvis-console .study-compact-head { justify-content: space-between; align-items: flex-start; }
+.jarvis-console .study-compact-head h1 { font-size: 21px; line-height: 1.2; }
+.jarvis-console .study-compact-head p { margin-top: 4px; color: var(--muted); }
+.jarvis-console .study-compact select {
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--panel);
+}
+.jarvis-console .study-compact .study-source {
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.jarvis-console .study-compact .study-source > summary {
+  padding: 8px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.jarvis-console .study-compact .study-source-body { padding: 0 8px 8px; }
+.jarvis-console .study-compact .study-lesson { min-width: 0; }
+.jarvis-console .study-compact .study-question-row { flex-wrap: wrap; }
+.jarvis-console .study-compact .study-question-row textarea {
+  flex-basis: 100%;
+  min-height: 66px;
+  background: var(--panel);
+}
+.jarvis-console .study-compact .study-question-row .pri { margin-inline-start: auto; }
+
+.jarvis-console #chat :is(#dev-status,#qrow) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--edge);
+}
+.jarvis-console #dev-status b { color: var(--text); }
+.jarvis-console #chat #qrow .qchip {
+  border-color: var(--edge);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.jarvis-console #home-messages .actstrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  margin-block-start: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.jarvis-console #home-messages .actstrip small { color: var(--muted); }

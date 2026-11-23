@@ -675,7 +675,7 @@ class StatePrecedenceTests(unittest.TestCase):
 
     def test_visual_source_inflections_use_the_gate_selection(self):
         fake_result = SimpleNamespace(label="zihin haritası", path="C:/tmp/x.png")
-        for answer, expected in (("belgeyi", "Dosyalar sayfasında"), ("konuşmayı", "Zihin haritası")):
+        for answer, expected in (("belgeyi", "Dosyayı sohbete ekle"), ("konuşmayı", "Zihin haritası")):
             with self.subTest(answer=answer):
                 session = self.ctx._session()
                 session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}

@@ -1,4 +1,4 @@
-// Menü yan sayfası "Ekran ve kamera": önizleme, anahtarlar, PC işlemleri, görsel analiz, son görseller ve renkli durum satırı.
+// Menü yan sayfası "Ekran ve kamera": önizleme, anahtarlar, PC işlemleri, görsel analiz ve renkli durum satırı.
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),'utf8');
 const calls=[];
@@ -15,14 +15,14 @@ vm.runInContext(src.slice(src.indexOf('function pcOperationsBox('),src.indexOf('
 const blocks=h=>[...h.matchAll(/<blk t="([^"]+)">/g)].map(m=>m[1]);
 const part=(h,title)=>{const a=h.indexOf('<blk t="'+title+'">');return h.slice(a,h.indexOf('</blk>',a))};
 let html=c.screenFilesPanel();
-assert.deepEqual(blocks(html),['Ekran Paylaşımı','Kamera','Ekranı İncele','Ekran Görüntüsü Al','PC İşlemleri','Görsel Analiz','Son Görseller'],'her işlev ayrı blok: yan sayfada her biri kendi orbunu alır (dosya işlemleri Dosyalar sayfasındadır)');
+assert.deepEqual(blocks(html),['Ekran Paylaşımı','Kamera','Ekranı İncele','Ekran Görüntüsü Al','PC İşlemleri','Görsel Analiz'],'ekran ayarları dosya gezintisi açmaz');
 assert(part(html,'Ekran Paylaşımı').includes('sfp-state off')&&part(html,'Ekran Paylaşımı').includes('Ekran paylaşımı kapalı'),'kapalıyken kırmızı durum');
 assert(!html.includes('id="sfp-img"')&&html.includes('Önizleme için paylaşımı aç'),'paylaşım kapalıyken canlı önizleme yok');
 assert(part(html,'PC İşlemleri').includes('pcguide')&&part(html,'PC İşlemleri').includes('pctask')&&part(html,'PC İşlemleri').includes('açık pencereleri listele'),'PC işlemleri');
 assert(part(html,'Görsel Analiz').includes('act:image')&&part(html,'Görsel Analiz').includes('act:ocr'),'görsel analiz işlevleri');
 assert(part(html,'Ekranı İncele').includes('Ekranı incele')&&part(html,'Ekran Görüntüsü Al').includes('Görüntü al'),'eylemler');
-const sg=part(html,'Son Görseller');assert(sg.indexOf('foto-yeni.jpg')<sg.indexOf('foto-eski.png')&&!sg.includes('eski.docx'),'yalnız görseller, yenisi üstte');
-assert(/data-a="gorsel"/.test(sg)&&/data-a="metin"/.test(sg),'görsel için Analiz Et ve Metin işlemleri');
+assert(!html.includes('foto-yeni.jpg')&&!html.includes('foto-eski.png')&&!html.includes('eski.docx'));
+assert.deepEqual(calls,[],'Ekran ayarları dosyaları taramaz');
 S.snap.mode='screen';html=c.screenFilesPanel();assert(part(html,'Ekran Paylaşımı').includes('sfp-state on')&&part(html,'Ekran Paylaşımı').includes('id="sfp-img"')&&!part(html,'Kamera').includes('sfp-img'),'ekran açıkken önizleme ekran bloğunda');
 S.snap.mode='camera';html=c.screenFilesPanel();assert(part(html,'Kamera').includes('Kamera açık')&&part(html,'Kamera').includes('id="sfp-img"')&&!part(html,'Ekran Paylaşımı').includes('sfp-img'),'kamera açıkken önizleme kamera bloğunda');
-console.log('Ekran ve kamera paneli: önizleme, anahtarlar, PC işlemleri, görsel analiz, son görseller ve renkli durum geçti.');
+console.log('Ekran ve kamera paneli: önizleme, anahtarlar, PC işlemleri, görsel analiz ve renkli durum geçti.');

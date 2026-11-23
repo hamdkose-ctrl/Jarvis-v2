@@ -3,12 +3,10 @@ bağlayan ince katman. `command_manager.dispatch` içinden çağrılır, tıpkı
 `desktop_agent`/`task_agents` gibi — None dönerse normal akış sürer.
 
 Hamdi ile netleşen tasarım (bkz. `docs/agents/gorsel-komutlar.md`):
-- Dosyalar ekranındaysa (bu modülün dışında, `main_documents._file_command`
-  üzerinden) içerik otomatik alınır, soru sorulmaz.
-- Sohbetteyse "sohbetten mi, dosyadan mı?" sorulur: "sohbet" son konuşma
-  geçmişini kullanır; "dosya" kullanıcıyı Dosyalar ekranındaki ilgili
-  düğmeye yönlendirir (dosya adı çözümleme burada tekrar kurulmaz —
-  tek bir yerde, Dosyalar ekranında yapılır).
+- Sohbete eklenen dosya için Görselleştir işlemi, seçilen dosyayı
+  `main_documents._file_command` üzerinden kullanır.
+- Sohbette kaynağı sorulan görsel, seçime göre konuşma geçmişini kullanır
+  veya kullanıcıyı sohbet ekindeki Görselleştir işlemine yönlendirir.
 - Kötü sonuçta "yeniden dene" aynı içerikle tekrar üretir.
 """
 from __future__ import annotations
@@ -51,7 +49,7 @@ def _generate(context, owner: str, text: str, content: str, kind: str) -> str:
     except ValueError as exc:
         return str(exc)
     context.session.last_visual = {"text": text, "content": content, "kind": kind}
-    return (f"{result.label.capitalize()} hazır, Dosyalar sayfasına kaydettim: {result.path}\n"
+    return (f"{result.label.capitalize()} hazır. Kaydedilen dosya: {result.path}\n"
             'Beğenmezsen "yeniden dene" diyebilirsin.')
 
 
@@ -95,8 +93,7 @@ def handle(context, command: str, normalized: str) -> str | None:
                 return _generate(context, owner, pending["text"], _history_text(context, owner), pending["kind"])
             if selected == "file" or (selected is None and file_mentioned):
                 session.pending_visual = None
-                return ('Dosyalar sayfasında ilgili dosyayı seç, sonra o dosyanın yanındaki '
-                        '"Görselleştir" düğmesine bas — içerik oradan otomatik alınır.')
+                return 'Dosyayı sohbete ekle, Görselleştir’i seç ve gönder.'
             return 'Sohbetten mi, dosyadan mı? "sohbet" veya "dosya" yazabilirsin.'
         session.pending_visual = None   # tanınmayan aşama: kilitlenmesin, normal akışa düşsün
 

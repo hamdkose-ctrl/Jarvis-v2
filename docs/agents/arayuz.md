@@ -1,3 +1,11 @@
+# Tek konsol görünümü — 23 Kasım 2026
+
+- Ekip İşleri ve hareket düğmesi ofis başlığında. Ekip İşleri, Hafıza, Yetenekler, Karakter ve Ayarlar mevcut sağ bölmede açılır. Telefon ofiste kendi görünümünü kullanır.
+- Sağdaki Uzmanlar her uzmanın adını, anahtar sözcüklerini, etkinliğini ve araçlarını uzman kimliğine göre düzenler. Kaydetme mevcut profil ve ekip revizyonu üzerinden yapılır.
+- Eski Sohbet ve Dosyalar sayfalarının HTML üretimi, stilleri ve arama arayüzü kaldırıldı. Eski adresler ana konsola döner. Sohbet geçmişi, mesaj vurgusu ve şifreli geliştirme ana sohbet alanında çalışır. Sohbet ekleri geldikçe hızlı işlem seçenekleri gösterilir. Düğme girdiyi hazırlar. Gönder düğmesi mevcut dosya komutunu çalıştırır.
+- Çalışma Modu tek konu veya soru girişine sahiptir. Kaynak önizlemesi açılır, çalışma bölümleri bir seçim kutusunda toplanır. Mevcut çalışma, soru ve kaynak kayıtları kullanılır.
+- Sohbette işlem adımları ve görev sonucu kartlarının zemin, kenarlık ve yazı renkleri konsol temasından gelir. Genel görünüm açıkken de seçili konsol rengi kullanılır.
+
 # BRAIN-10 sonuç görünürlüğü — 14 Kasım 2026
 
 Ekip merkezinin query projection'ı mevcut Core result_presentation servisini kullanır: kontrol edilen done adım, artifact ve receipt gösterilir; değişmiş/eksik/yanlış owner kanıtı unavailable/incomplete görünür. Projection özgün journal'ı değiştirmez. Butonların terminal kararı ve control fingerprint'i özgün record_state/kayıttan gelir; yalnız görünüm eksildi diye kapanmış task'a continue/stop önerilmez. İncomplete işler dikkat sayacına ve açık ayrıntıya dahil edilir. Kanıtı kontrol et butonu aynı Core/query sahibine gider; UI verifier, worker veya ikinci GoalState değildir.
