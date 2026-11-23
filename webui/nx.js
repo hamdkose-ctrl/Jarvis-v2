@@ -1772,7 +1772,7 @@ function onEvent(m){
   else if(k==='nav'){navTo(m.t);return}
   else if(k==='study_start'){const owner=((S.snap||{}).user||{}).name;S.stab='learn';go('study');loadStudy().then(()=>{if(S.page==='study'&&owner===((S.snap||{}).user||{}).name){render();ACT.studystart()}});return}
   else if(k==='study_media'){if(S.page!=='study'){S.stab='learn';go('study')}S.swin=1;S.swtab='wiki';setTimeout(()=>showMedia(m.t),S.page==='study'?0:400);return}
-  else if(k==='quit'){document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:#7396ae;font-family:sans-serif">Jarvis kapandı. Bu pencereyi kapatabilirsin.</div>';return}
+  else if(k==='quit'){window.JarvisHome?.destroy();document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:#7396ae;font-family:sans-serif">Jarvis kapandı. Bu pencereyi kapatabilirsin.</div>';return}
   refreshSoon();
 }
 function navTo(h){const[t,s]=String(h||'home').replace(/^#/,'').split(/[|/]/);if(t==='settings'&&['ai','baglanti'].includes(s)){S.sset=s;S.tool='aihub';go('tools');return}if(t==='settings'&&s)S.sset=s;if(t==='tools'){if(s==='kb')return go('files');S.tool=s||'';if(!s)S.sset='takvim'}go(t)}

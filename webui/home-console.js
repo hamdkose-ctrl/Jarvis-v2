@@ -63,7 +63,7 @@
         <div id="team-motion" class="team-content option-pane" hidden>
           <p id="movement-state"></p><div><button class="btn" type="button" id="motion-toggle">Hareketi duraklat</button></div>
         </div>
-        <footer class="team-foot"><span class="tag"><i></i>Yerel</span><button class="btn" type="button" id="home-connection" data-act="keysetup" hidden>Model bağlantıları</button><span id="team-status" class="muted" aria-live="polite"></span><div class="room-buttons" role="group" aria-label="Uzmanı odaya gönder"><button class="btn" type="button" data-room="arastirma">Araştırma</button><button class="btn" type="button" data-room="belge">Belge</button><button class="btn" type="button" data-room="kontrol">Kontrol</button></div></footer>
+        <footer class="team-foot"><span class="tag"><i></i>Yerel</span><button class="btn" type="button" id="home-connection" data-act="keysetup" hidden>Gemini anahtarı yok</button><span id="team-status" class="muted" aria-live="polite"></span><div class="room-buttons" role="group" aria-label="Uzmanı odaya gönder"><button class="btn" type="button" data-room="arastirma">Araştırma</button><button class="btn" type="button" data-room="belge">Belge</button><button class="btn" type="button" data-room="kontrol">Kontrol</button></div></footer>
       </section>
     </section>
 
@@ -285,6 +285,7 @@
       }
       const sn = S.snap, warning = find('#home-connection');
       warning.hidden = !sn?.llm || !!sn.llm.key || sn.llm.provider === 'ollama';
+      warning.textContent = sn?.llm?.provider && sn.llm.provider !== 'gemini' ? 'Model bağlantılarını aç' : 'Gemini anahtarı yok';
       updateStatus();
       drawAgenda();
       updatePanels();
