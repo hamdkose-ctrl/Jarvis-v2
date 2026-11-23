@@ -78,7 +78,7 @@ class SourceAnswerTests(unittest.TestCase):
         ctx = _ctx(session)
         with patch("modules.visual_commands.create_visual") as gen:
             reply = visual_chat.handle(ctx, "dosyadan olsun", "dosyadan olsun")
-        self.assertIn("Dosyalar sayfasında", reply)
+        self.assertIn("Dosyayı sohbete ekle", reply)
         self.assertIsNone(ctx.session.pending_visual)
         gen.assert_not_called()
 

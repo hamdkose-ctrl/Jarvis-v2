@@ -1,6 +1,5 @@
 /* Team view: existing engine journals, not simulated activity. */
 'use strict';
-if(!NAV.some(n=>n[0]==='team'))NAV.push(['team','Ekip merkezi','grid']);
 (() => {
   let current=null, timer=null, generation=0;
   const labels={running:'Çalışıyor',queued:'Sırada',done:'Tamamlandı',failed:'Başarısız',blocked:'Engellendi',approval:'Onay bekliyor',question:'Yanıt bekliyor',paused:'Durakladı',review:'Kontrol gerekiyor',cancelled:'İptal edildi',incomplete:'Eksik',stopping:'İptal bekleniyor',unavailable:'Kullanılamıyor',interrupted:'Kesildi',pending:'Bekliyor'};

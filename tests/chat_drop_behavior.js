@@ -13,6 +13,7 @@ function dropEvent(items,{types=['Files'],text='',prevented=false,target={}}={})
  // Drag and drop: files join the chat attachments instead of opening in a new browser tab.
  const handlers={},notices=[],uploads=[],input={value:'',focus(){}};
  const c={S:{page:'study',att:[],attPending:0,snap:{user:{name:'Hamdi'}}},ACT:{},esc,ic:()=>'',ymd:()=>'2026-10-10',
+  window:{JarvisHome:{openConversation(){c.S.page='home'}}},
   document:{addEventListener:(n,f)=>{handlers[n]=f},body:{appendChild(){}},createElement:()=>({})},
   $:s=>s==='.ask input'?input:null,$$:()=>[],drawAtt(){},go(p){c.S.page=p},toast:(m)=>notices.push(m),
   upload:async f=>{uploads.push(f.name);return {path:'C:/Users/H/Documents/Jarvis Dosyaları/'+f.name}}};
@@ -23,7 +24,7 @@ function dropEvent(items,{types=['Files'],text='',prevented=false,target={}}={})
  const drop=dropEvent([fileItem(file('a.pdf')),fileItem(file('b.xlsx')),fileItem(file('klasor'),true)]);
  handlers.drop(drop);assert.equal(drop.prevented,1);
  await new Promise(r=>setTimeout(r,0));await new Promise(r=>setTimeout(r,0));
- assert.deepEqual(uploads,['a.pdf','b.xlsx']);assert.equal(c.S.att.length,2);assert.equal(c.S.page,'chat');
+ assert.deepEqual(uploads,['a.pdf','b.xlsx']);assert.equal(c.S.att.length,2);assert.equal(c.S.page,'home');
  assert(notices.some(m=>m.includes('Klasör eklenemez')));
  // A drop zone that already handled the files (e.g. Math) is not uploaded twice.
  handlers.drop(dropEvent([fileItem(file('math.png'))],{prevented:true}));await new Promise(r=>setTimeout(r,0));
@@ -42,7 +43,7 @@ function dropEvent(items,{types=['Files'],text='',prevented=false,target={}}={})
  // Several attachments: one request carrying every path, the bubble text matches the server echo.
  const sent=[];const s={S:{page:'chat',att:[{path:'C:/x/a.pdf',name:'a.pdf'},{path:'C:/x/b.pdf',name:'b.pdf'}],attPending:0,live:[]},
   atts:()=>s.S.att,drawAtt(){},drawMsgs(){},go(){},ymd:()=>'',toast(){},api:async(n,t)=>{sent.push([n,t]);return true}};
- vm.createContext(s);load(s,'async function say(text){','ACT.send=');
+ vm.createContext(s);load(s,'async function say(text, keepWorkspace=false){','ACT.send=');
  await s.say('özetle');
  assert.deepEqual(sent.map(x=>x[1]),['"C:/x/a.pdf" "C:/x/b.pdf" özetle']);assert.equal(s.S.att.length,0);
  assert.deepEqual(s.S.live.map(m=>m.text),['"C:/x/a.pdf" "C:/x/b.pdf" özetle']);
