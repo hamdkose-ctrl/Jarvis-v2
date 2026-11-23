@@ -1304,3 +1304,13 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - Canlıda görüldü: motor Piper'a geçti ("ses motoru: Piper (yerel) · 1 model") ama ses seçimi **reddedildi** → Jarvis sessiz kalıyordu. Sebep: `check_voice()` yalnız `piper` **CLI**'sına bakıyordu; oysa sentez önce süreç içi `piper` paketiyle yapılıyor ve bu makinede CLI yok.
 - Düzeltme: `_piper_engine_available()` — CLI **veya** süreç içi paket varsa motor kullanılabilir. Kanıt: `tests/test_voice_local_engine.py` (3 yeni test).
+
+
+### 2026-11-23 — Yerel ses takılması düzeltildi (PR #789)
+
+- Kullanıcı "ses takılıyor" dedi; log doğruladı: Piper'da 2,6 sn ses 3,8 sn sürüyordu (oran **1,48**), cümle içi boşluk **440 ms**, underrun 0.
+- Sebep ses üretimi değil **cihaz yönetimiydi**: yerel hatlar `WavePlayer` ile her cümle için hoparlörü yeniden açıp kapatıyordu (~300 ms açılış + ~350 ms boşaltma). Aynı kusur Edge hattında 22 Kasım'da `PcmSink` ile çözülmüştü; yerel hatlar o çözüme bağlanmamıştı.
+- `modules/voice_offline.py`: **`WaveSink`** — Piper ve Windows SAPI cevap boyunca **açık tek akıştan** çalar; cümle arasına 120 ms nefes payı, boşta akışı bırakır. `PcmSink`'e `device` eklendi. `WavePlayer` silinmedi (kabul testi + geri dönüş yolu).
+- `voice_runtime`: üç yerel hat `WaveSink()` kullanır.
+- Ölçüm (aynı üç cümle): toplam oran **1,51 → 1,11/1,08**; en büyük boşluk 49 → **0 ms**; underrun 0. Uçtan uca tek parça 137 karakter: 9,28 sn ses → 9,55 sn çalma (**1,03**).
+- Kanıt: `tests/test_voice_local_sink.py` (7 test), ses paketi 104 test OK. Canlı kurulum güncellendi, Jarvis yeniden başlatıldı (pid 10292).
