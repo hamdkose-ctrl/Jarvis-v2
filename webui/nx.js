@@ -1366,6 +1366,7 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
       srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('wake_beep',u.wake_beep))+
       field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+save)
    +sbox('vol','Sesli Yanıt','Cevapları sesli okuma ve konuşma sesi.',
+      srow('mic','Yarım cümleyi tamamla','Söz yarım kaldıysa mikrofonu bir kez daha açar (deneysel)',sw('voice_turn_reopen',u.voice_turn_reopen))+
       srow('vol','Sesli yanıt','Cevapları sesli oku',sw1('speak',f.speak))+
       (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
       vresField(st,sel)+save)

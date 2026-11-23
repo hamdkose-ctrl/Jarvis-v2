@@ -1268,3 +1268,8 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - **Varsayılan kapalı** (`voice_turn_reopen`): anahtar yoksa tek kayıt + tek çeviri, yani eski davranış birebir aynı. Açılınca bile tam cümlede mikrofon ikinci kez açılmaz; devam kaydı en çok 3 saniye ve en çok bir kez.
 - Devam kaydı boş dönerse ilk yazı korunur; söz kaybolmaz.
 - Kanıt: `tests/test_voice_turn_wiring.py` (8 test) — kapalı/açık, tam/yarım cümle, boş devam, süre sınırı, ayar okuma hatası.
+
+#### Aynı gün ek: ayar anahtarı arayüzde
+
+- `voice_turn_reopen` artık Ayarlar → Ses → **"Yarım cümleyi tamamla"** anahtarıyla açılıp kapanıyor (varsayılan kapalı). `modules/nxapi.py` bu anahtarı tanır; bilinmeyen anahtarlar eskisi gibi reddedilir.
+- Kanıt: `tests/test_nxapi_turn_reopen.py` (4 test).

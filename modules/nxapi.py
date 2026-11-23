@@ -496,7 +496,7 @@ def autostart_set(on: bool) -> bool:
 
 
 # ------------------------------------------------------------------ arayüz ayarları
-DEFAULTS = {"nx_theme": "dark", "nx_notify": True, "ai_mode": "auto"}
+DEFAULTS = {"nx_theme": "dark", "nx_notify": True, "ai_mode": "auto", "voice_turn_reopen": False}
 
 
 def ui_settings() -> dict:
@@ -511,6 +511,7 @@ def ui_settings() -> dict:
     out["learn_from_chat"] = learning.enabled(personalization.Profile(personalization.get_active()))
     out["widget_on"] = s.get("widget_on", True) is not False
     out["proactive_suggestions"] = s.get("proactive_suggestions", True) is not False
+    out["voice_turn_reopen"] = s.get("voice_turn_reopen", False) is True
     return out
 
 
@@ -523,7 +524,7 @@ def ui_set(key: str, value) -> dict:
     elif key == "learn_from_chat":
         from modules import personalization
         personalization.Profile(personalization.get_active()).set_pref(key, bool(value))
-    elif key in ("nx_notify", "tray", "wake_beep", "proactive_suggestions"):
+    elif key in ("nx_notify", "tray", "wake_beep", "proactive_suggestions", "voice_turn_reopen"):
         save_settings(**{key: bool(value)})
     elif key == "wake_sensitivity":
         save_settings(wake_sensitivity=max(1, min(5, int(value))))
