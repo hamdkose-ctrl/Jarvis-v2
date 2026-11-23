@@ -1251,3 +1251,12 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Çözüm tek kapıda: `modules/privacy.public_read(url)` = mod + `public_read` ayarı + alan adı izin listesi. İzin listesi arXiv, CrossRef, doi.org ve 19 haber sitesidir (`publisher_news.GENERAL_SOURCES` ile aynı). `modules/public_sources.fetch` kapıyı her yönlendirmede yeniden denetler; `modules/news_pipeline` ve `modules/model_free_news` aynı kararı kullanır.
 - Varsayılan **kapalı**: anahtar açılmadıkça eski davranış birebir korunur. İçerik buluta çıkmaz; yerel model okur. İzin listesi dışı adres, sahte alan adı (`arxiv.org.evil.com`) ve localhost engelli kalır.
 - Kanıt: `tests/test_privacy_public_read.py` (10 test) — mod/ayar/alan adı matrisi, yönlendirme kapısı, 19 kaynağın tamamı. Canlı (geçici ayar klasörü): mod=yerel + açık → 5 kayıt / 5 DOI linki; mod=yerel + kapalı → 0 kayıt. Tam doğrulama: `python -m modules.validation` → "Tüm test grupları başarılı."
+
+
+### 2026-11-23 — A1 temeli: sıra alma kararı `modules/voice_turn.py` (PR bekliyor)
+
+- Kusur: mikrofon kaydı tek kurala bakıyordu — **1 saniye sessizlik = cümle bitti**. Cümle ortasında nefes alınca kesiyor, cümle bittiğinde boşuna bekliyor. Cümlenin gerçekten bitip bitmediğine bakan bir katman yoktu.
+- Yeni modül karar verir, ses açıp kapatmaz: `turn_wait(text, model_complete)` → tamam ise **1,2 sn**, yarım ise **3,0 sn**. "..." cümleyi kapatmaz; bağlaç/edat/virgül ve `-ıp/-ip` ulaçları yarım sayılır; kısa tam cevaplar ("evet", "tamam") kesilmez. Yerel "cümle tamam" modeli varsa kararı o verir; model "yarım" dese bile yazı noktalamayla bitiyorsa bekleme uzatılmaz (model İngilizce eğitildi, kısa Türkçe cümleyi sık yarım sanıyor).
+- Ölçülmüş sabitler: `VAD_STOP_SECS=0.2`, `FINISHED_WAIT_SECS=1.2`, `MAX_WAIT_SECS=3.0`, `RESUME_GRACE_SECS=5.0`. Davranış deseni Stonic'in açık modüllerinden çıkarıldı; **kod alınmadı**.
+- Bu PR davranışı değiştirmez (hat bağlanmadı): karar ölçülebilir olsun diye ayrı modül. Kayıt döngüsüne bağlanması ayrı PR'da, tek anahtarla ve eski sabit korunarak yapılır.
+- Kanıt: `tests/test_voice_turn.py` (18 test) — noktalama, ulaç, kısa cevap, model ezme/hatası, kesme eşiği, devam penceresi.
