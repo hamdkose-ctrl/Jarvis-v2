@@ -142,11 +142,11 @@ async function main() {
   assert.deepEqual(requests.map(([action]) => action), ['send', 'files_list', 'snapshot']);
 
   evaluate("S.day=ymd(new Date());go('chat')");
-  assert.equal(evaluate('S.page'), 'chat');
+  assert.equal(evaluate('S.page'), 'home');
   assert.equal(evaluate('S.day'), evaluate('ymd(new Date())'));
   assert.equal(evaluate('S.since'), 0);
-  assert.match(nodes.get('#msgs').innerHTML, /Yanıt hazır &lt;metin&gt;/);
-  assert.deepEqual(visited, ['home', 'chat']);
+  assert.match(homeMessages(), /Yanıt hazır &lt;metin&gt;/);
+  assert.deepEqual(visited, ['home', 'home']);
   console.log('Konsola giriş, aynı ekranda gönderim ve canlı yanıt, dosya ve takvim kartları doğrulandı.');
 }
 

@@ -6,7 +6,7 @@ const c={S,ACT,TV,$,Date,console,ic:()=>'',esc:x=>String(x??'').replace(/</g,'&l
 function load(a,b){vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b,src.indexOf(a))),c)}
 (async()=>{
 load('ACT.studyask=async()=>','\nACT.studyanalyze=');await ACT.studyask();assert.deepEqual(calls[0],['study_answer_with_context','','source',4]);assert.equal($('#studya').innerHTML,'Yanıt');
-load('ACT.convdelete=async el=>','\nACT.day=');
+load('ACT.convdelete=async el=>','\nACT.newchat=');
 c.ask=async()=>false;const beforeDelete=calls.length;await ACT.convdelete({dataset:{d:'2026-10-07'}});assert.equal(calls.length,beforeDelete);
 c.ask=async()=>true;c.loadHist=async()=>{};c.drawConvs=()=>{};c.drawMsgs=()=>{};c.drawSide=()=>{};S.day='2026-10-06';
 await ACT.convdelete({dataset:{d:'2026-10-06'}});assert.deepEqual(calls[calls.length-1],['history_delete_conversation','2026-10-06']);
