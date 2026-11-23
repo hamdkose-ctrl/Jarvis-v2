@@ -1,6 +1,34 @@
 """UI bridge operations with explicit owning-runtime dependencies."""
 from __future__ import annotations
 
+from pathlib import Path
+
+from modules.diagnostics import record_failure as _record_failure
+
+
+def _engine_choices() -> list[dict]:
+    """Arayüzde görünecek ses motorları: yalnız gerçekten kullanılabilir olanlar."""
+    from modules import voice_runtime, voice_sapi
+    rows = [{'key': 'edge', 'name': 'Edge', 'info': 'Çevrimiçi · doğal ses'}]
+    try:
+        if voice_sapi.installed_voices():
+            rows.append({'key': 'windows', 'name': 'Windows', 'info': 'Yerel · internet gerekmez'})
+    except Exception:
+        _record_failure('web_voice.py:engine_choices_sapi')
+    try:
+        if voice_runtime._piper_catalog(_RuntimeProbe()) is not None:
+            rows.append({'key': 'piper', 'name': 'Piper', 'info': 'Yerel model · internet gerekmez'})
+    except Exception:
+        _record_failure('web_voice.py:engine_choices_piper')
+    return rows
+
+
+class _RuntimeProbe:
+    """Katalog sorgusu için veri klasörü (tam runtime yerine yalnız DATA_DIR)."""
+
+    DATA_DIR = Path.home() / '.jarvis'
+
+
 class WebVoice:
 
     def local_stt_status(self) -> dict:
@@ -42,8 +70,7 @@ class WebVoice:
             'voices': installed, 'voice': selected,
             'rate': rate if isinstance(rate, int) else 5,
             'engine': engine,
-            'engines': [{'key': 'edge', 'name': 'Edge', 'info': 'Çevrimiçi · doğal ses'},
-                        {'key': 'windows', 'name': 'Windows', 'info': 'Yerel · internet gerekmez'}],
+            'engines': _engine_choices(),
         }
 
     def voice_set(self, key: str) -> bool:

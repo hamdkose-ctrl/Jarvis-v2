@@ -10,6 +10,7 @@ Kilitlenen davranış:
 """
 import io
 import sys
+import tempfile
 import threading
 import unittest
 import wave
@@ -83,6 +84,104 @@ class Catalog(unittest.TestCase):
         with patch.object(voice_sapi, "installed_voices", return_value=rows):
             catalog = voice_runtime._sapi_catalog(object())
         self.assertLessEqual(len(catalog.choices()), 6)
+
+
+class PiperCatalog(unittest.TestCase):
+    def test_label_reads_speaker_and_language(self):
+        self.assertEqual(voice_runtime._piper_label(Path("tr_TR-fahrettin-medium.onnx")),
+                         "Yerel · Fahrettin (Türkçe)")
+        self.assertEqual(voice_runtime._piper_label(Path("en_US-amy-low.onnx")),
+                         "Yerel · Amy (İngilizce)")
+
+    def test_unknown_shape_still_labelled(self):
+        self.assertTrue(voice_runtime._piper_label(Path("ozel.onnx")).startswith("Yerel · "))
+
+    def test_catalog_from_models_dir(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "voice_models"
+            root.mkdir()
+            (root / "tr_TR-fahrettin-medium.onnx").write_bytes(b"x")
+            (root / "en_US-amy-low.onnx").write_bytes(b"x")
+
+            class Runtime:
+                DATA_DIR = Path(folder)
+            catalog = voice_runtime._piper_catalog(Runtime())
+        specs = catalog.choices()
+        self.assertEqual(len(specs), 2)
+        self.assertTrue(all(spec.backend == "piper" for spec in specs))
+        self.assertEqual(specs[0].asset_id, "en_US-amy-low.onnx")
+
+    def test_missing_dir_means_no_catalog(self):
+        with tempfile.TemporaryDirectory() as folder:
+            class Runtime:
+                DATA_DIR = Path(folder)
+            self.assertIsNone(voice_runtime._piper_catalog(Runtime()))
+
+    def test_piper_engine_value_accepted(self):
+        with patch.object(voice_runtime, "_record_failure"):
+            with patch("config.load_settings", return_value={"voice_engine": "piper"}):
+                self.assertEqual(voice_runtime.voice_engine(), "piper")
+
+
+class Reconcile(unittest.TestCase):
+    class _Owner:
+        def __init__(self, voice):
+            self.data = {"prefs": {"voice": voice}}
+
+    class _Catalog:
+        def __init__(self, keys):
+            self._keys = keys
+        def require(self, key):
+            if key not in self._keys:
+                raise ValueError("yok")
+            return key
+        def choices(self):
+            return [VoiceSpec(k, k, "piper", k + ".onnx") for k in self._keys]
+
+    class _Lane:
+        def __init__(self, keys):
+            self.catalog = Reconcile._Catalog(keys)
+
+    def test_missing_voice_is_replaced_with_first_installed(self):
+        owner = self._Owner("tr_kadin")
+        lane = self._Lane(["piper_tr", "piper_en"])
+
+        class Runtime:
+            DATA_DIR = Path(".")
+            def pc_profile(self):
+                return owner
+        with patch("modules.engine_context.set_profile_voice", return_value=(True, "x")) as setter:
+            voice_runtime._reconcile_voice(Runtime(), lane)
+        setter.assert_called_once()
+        self.assertEqual(setter.call_args.args[1], "piper_tr")
+
+    def test_installed_voice_is_kept(self):
+        owner = self._Owner("piper_tr")
+        lane = self._Lane(["piper_tr"])
+        class Runtime:
+            def pc_profile(self):
+                return owner
+        with patch("modules.engine_context.set_profile_voice") as setter:
+            voice_runtime._reconcile_voice(Runtime(), lane)
+        setter.assert_not_called()
+
+    def test_empty_catalog_changes_nothing(self):
+        owner = self._Owner("tr_kadin")
+        lane = self._Lane([])
+        class Runtime:
+            def pc_profile(self):
+                return owner
+        with patch("modules.engine_context.set_profile_voice") as setter:
+            voice_runtime._reconcile_voice(Runtime(), lane)
+        setter.assert_not_called()
+
+    def test_error_is_recorded_not_raised(self):
+        class Runtime:
+            def pc_profile(self):
+                raise RuntimeError("profil yok")
+        with patch.object(voice_runtime, "_record_failure") as record:
+            voice_runtime._reconcile_voice(Runtime(), self._Lane(["a"]))
+        record.assert_called()
 
 
 class Synthesis(unittest.TestCase):

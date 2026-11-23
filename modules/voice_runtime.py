@@ -117,15 +117,79 @@ def _sapi_catalog(runtime) -> VoiceCatalog | None:
     return VoiceCatalog(specs) if specs else None
 
 
+_LANG_LABELS = {"tr": "Türkçe", "en": "İngilizce", "de": "Almanca", "fr": "Fransızca",
+                "es": "İspanyolca", "it": "İtalyanca", "ru": "Rusça", "ar": "Arapça"}
+
+
+def _piper_label(model: Path) -> str:
+    """`tr_TR-fahrettin-medium.onnx` → "Yerel · Fahrettin (Türkçe)"."""
+    stem = model.stem                              # tr_TR-fahrettin-medium
+    head, *tail = stem.split("-")
+    lang = head.split("_")[0]
+    speaker = tail[0] if tail else head.split("_")[-1]
+    label = f"Yerel · {speaker.strip().capitalize()}"
+    if lang in _LANG_LABELS:
+        label += f" ({_LANG_LABELS[lang]})"
+    return label
+
+
+def _piper_catalog(runtime) -> VoiceCatalog | None:
+    """Kurulu yerel modellerden katalog: `<veri>/voice_models/*.onnx`.
+
+    Kullanıcı Ayarlar'dan "Piper" motorunu seçtiğinde bu liste kullanılır; model
+    yoksa None döner ve hat Edge'de kalır (uydurma ses yok).
+    """
+    data_dir = getattr(runtime, "DATA_DIR", None)
+    if not isinstance(data_dir, Path):
+        return None
+    root = data_dir / "voice_models"
+    if not root.is_dir():
+        return None
+    specs = []
+    for model in sorted(root.glob("*.onnx"))[:6]:
+        if model.is_symlink() or not model.is_file():
+            continue
+        specs.append(VoiceSpec("piper_" + model.stem[:30], _piper_label(model), "piper", model.name))
+    return VoiceCatalog(tuple(specs)) if specs else None
+
+
 def voice_engine() -> str:
-    """Kullanıcının seçtiği ses motoru: 'edge' (varsayılan) veya 'windows' (yerel)."""
+    """Kullanıcının seçtiği ses motoru: 'edge' (varsayılan), 'windows' veya 'piper'."""
     try:
         from config import load_settings
         value = str(load_settings().get("voice_engine") or "edge").strip().lower()
     except Exception:
         _record_failure("modules/voice_runtime.py:voice_engine")
         return "edge"
-    return value if value in ("edge", "windows") else "edge"
+    return value if value in ("edge", "windows", "piper") else "edge"
+
+
+def _reconcile_voice(runtime, lane) -> None:
+    """Motor değiştiğinde seçili ses o motorda yoksa ilk kurulu sesi seç.
+
+    Aksi hâlde `catalog.require()` hata verir ve Jarvis hiç konuşmaz (kullanıcı
+    "ses yok" der, sebep görünmez). Seçim sessizce yapılmaz: loglanır ve arayüzde
+    yeni ses "seçili" görünür.
+    """
+    try:
+        owner = runtime.pc_profile()
+        key = str(owner.data["prefs"].get("voice") or "tr_erkek")
+        try:
+            lane.catalog.require(key)
+            return
+        except ValueError:
+            pass
+        choices = lane.catalog.choices()
+        if not choices:
+            return
+        first = choices[0]
+        from modules.engine_context import set_profile_voice
+        accepted, _label = set_profile_voice(owner, first.voice_id, lane=lane)
+        logging.getLogger("voice").warning(
+            "seçili ses '%s' bu motorda yok; %s seçildi (%s)", key,
+            first.voice_id, "kabul" if accepted else "reddedildi")
+    except Exception:
+        _record_failure("modules/voice_runtime.py:voice_reconcile")
 
 
 def maybe_start(runtime):
@@ -148,6 +212,20 @@ def maybe_start(runtime):
         # ses yine çalışır, yalnız ilk cümle yavaş olur.
         threading.Thread(target=_preload, args=(synthesizer,), name="jarvis-piper-preload",
                          daemon=True).start()
+    elif voice_engine() == "piper":
+        catalog = _piper_catalog(runtime)
+        if catalog is not None:
+            synthesizer = PiperSynthesizer(Path(runtime.DATA_DIR) / "voice_models")
+            lane = VoiceLane(runtime, catalog, synthesizer, WavePlayer())
+            enabled = True
+            threading.Thread(target=_preload, args=(synthesizer,), name="jarvis-piper-preload",
+                             daemon=True).start()
+            logging.getLogger("voice").info("ses motoru: Piper (yerel) · %d model", len(catalog.choices()))
+            _reconcile_voice(runtime, lane)
+        else:
+            logging.getLogger("voice").warning("ses motoru 'piper' seçili ama kurulu model yok; Edge kullanılıyor")
+            lane = VoiceLane(runtime, _edge_catalog(runtime), EdgeSynthesizer(), EdgePlayer())
+            enabled = False
     elif voice_engine() == "windows":
         from modules import voice_sapi
         catalog = _sapi_catalog(runtime)
@@ -155,6 +233,7 @@ def maybe_start(runtime):
             lane = VoiceLane(runtime, catalog, voice_sapi.SapiSynthesizer(), WavePlayer())
             enabled = True
             logging.getLogger("voice").info("ses motoru: Windows (yerel) · %d ses", len(catalog.choices()))
+            _reconcile_voice(runtime, lane)
         else:
             # Windows'ta kurulu ses yok: sessizce başka ses uydurmak yerine Edge'e dön,
             # ama neden döndüğünü kayda yaz (arayüz "Yerel" derken Edge çalmasın diye).
