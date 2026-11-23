@@ -239,6 +239,13 @@ def speech_chunks(text: str, open_early_at: int = 0) -> tuple[str, ...]:
     """
     if not isinstance(text, str) or not text.strip():
         return ()
+    # Ses metni temizlenir: adres/DOI/markdown okunmaz, tarih ve yüzde Türkçe
+    # okunuşa çevrilir. Ekrandaki yazı değişmez; yalnız seslendirilen hâli.
+    from modules.voice_text import speakable
+    cleaned = speakable(text)
+    if not cleaned:
+        return ()            # seslendirilecek bir şey kalmadı (ör. yalnız adres)
+    text = cleaned
     sentences = _sentences(text)
     if not sentences:
         return ()

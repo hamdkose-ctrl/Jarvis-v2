@@ -1273,3 +1273,12 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - `voice_turn_reopen` artık Ayarlar → Ses → **"Yarım cümleyi tamamla"** anahtarıyla açılıp kapanıyor (varsayılan kapalı). `modules/nxapi.py` bu anahtarı tanır; bilinmeyen anahtarlar eskisi gibi reddedilir.
 - Kanıt: `tests/test_nxapi_turn_reopen.py` (4 test).
+
+
+### 2026-11-23 — S3: ses için metin temizliği (PR bekliyor)
+
+- Ölçülen kusur: akademik cevapta ses, yazının **işaretlerini** okuyordu. Aynı cevabın seslendirilen kısmı 331 karakterdi ama **48,9 saniye** sürüyordu (6,8 karakter/sn); normal hız 11-14. Sebep: `**1.**`, `https://doi.org/10.70269/...`, `— 2026-06` parçalarının tek tek okunması.
+- Yeni `modules/voice_text.speakable()`: adres/DOI/e-posta okunmaz; markdown işaretleri, tablo çizgileri ve kod seslenmez; `2026-06` → "Haziran iki bin yirmi altı"; `12.03.2026` → "on iki Mart iki bin yirmi altı"; `%12,5` → "yüzde on iki virgül beş"; `1.250` → "bin iki yüz elli"; `[3]` ve `(2021)` atıfları düşer. Düz sayı ve saat (`14:00`) **olduğu gibi** kalır — ses motoru onları zaten doğru okuyor.
+- Tek kapı: `voice_core.speech_chunks()` metni temizler; `engine_voice.spoken_answer()` kısa cevap yolunda da aynı kapıdan geçirir. Ekrandaki yazı değişmez.
+- Ölçüm (aynı cevap, aynı ses, canlı Edge): **48,9 sn → 20,4 sn**, hız **6,8 → 11,8 karakter/sn**.
+- Kanıt: `tests/test_voice_text_cleanup.py` (15 test) + `test_voice_core`, `test_voice_output_contract` dahil 95 test OK.
