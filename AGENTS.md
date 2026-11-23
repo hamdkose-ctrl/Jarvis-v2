@@ -16,6 +16,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 - **"Bitti" kuralı:** Bir faz ya da madde ancak dördü birden sağlanınca "tamamlandı" sayılır: (1) sözleşme / arayüz yazıldı, (2) eski kod göçü tamamlandı, (3) yeni kod kullanıcı akışına bağlandı (yalnız testten çağrılması yetmez), (4) eski kod / legacy kısım kaldırıldı. Merge edilmiş PR tek başına "bitti" değildir. PR açıklaması hangi koşulları kapattığını yazar; durum `docs/Jarvis_Yol_Haritasi.md`'de bu koşullara göre işaretlenir.
 - **Program ledger:** Yeni işe başlamadan önce `docs/architecture/JARVIS_PROGRAM_LEDGER_V1.md` ve güncel açık PR durumunu oku; merge edilmiş işi yeniden açma.
 - **PC watcher:** PC kabulü açık PR'a bağlıdır; `gpt/*`, `codex/*`, `claude/*` ve bakım dalları desteklenir. Sonuç yorumu başarısızsa arşivlenen exact-SHA raporu tekrar yayımlanır, tanı `scripts/pc_test_watcher.py --status`. Windows PID sorgusu salt okunur. Ayrıntı: `docs/PC_TEST_WATCHER.md`.
+- **Masaüstü Sohbeti:** İşlem adımları ve görev sonucu kartları konsol temasını kullanır. Ayrıntı `docs/agents/arayuz.md` içinde.
 - **Android'e dokunma:** `android/` ayrı bir sohbette geliştirilir.
 - **Kişisel veri depoya girmez:** `%USERPROFILE%\.jarvis` (ayarlar, kullanıcılar, anahtarlar, günlük), `.venv` ve model dosyaları depoya eklenmez.
 - **Anahtarlar kullanıcıya özeldir:** Her kullanıcı kendi Gemini/Groq anahtarını kullanır, kullanıcılar arasında yedeğe düşülmez (`docs/MIMARI_KURALLAR_v5.7.md`). Ücretli sağlayıcılar otomatik havuza girmez.

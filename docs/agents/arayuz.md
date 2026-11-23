@@ -10,6 +10,10 @@ Hafıza ekranında sunumun9 kapalı tercihi mevcut Profile sahibine `pref_set` i
 
 ---
 
+## Sohbet kartlarının teması — 23 Kasım 2026
+
+İşlem adımları ve görev sonucu kartlarının zemin, kenarlık ve yazı renkleri konsol temasını izler. Genel görünüm açıkken de konsolun koyu zemini kullanılır.
+
 # Masaüstü arayüzü — 21 Kasım 2026
 
 - Masaüstü `/nx.html` üzerinden tek ana konsolla açılır. Sol sütun dünya haritasını ve bugünün takvimini, orta sütun çekirdeği ve hareketli ofisi, sağ sütun yazılı ve sesli iletişimi gösterir. Haber düğmesi aynı girişe bir komut hazırlar. Gönderimi kullanıcı başlatır.

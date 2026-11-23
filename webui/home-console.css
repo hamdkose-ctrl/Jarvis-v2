@@ -552,6 +552,15 @@
 .jarvis-console .turn .message-body :is(ul,ol) { padding-inline-start: 20px; }
 .jarvis-console .turn .message-body pre { overflow: auto; }
 .jarvis-console .turn.saying .message-body { border-color: var(--theme-accent); }
+.jarvis-console #home-messages :is(.stepcard, .task-summary) { margin-block-start: 6px; }
+.jarvis-console #home-messages :is(.stepcard .steps, .task-summary) {
+  background: var(--theme-deep, #12181d);
+  border-color: var(--edge);
+  color: var(--text);
+}
+.jarvis-console #home-messages :is(.stepcard, .task-summary) small { color: var(--muted); }
+.jarvis-console #home-messages .step.done .sm { color: #8bd5aa; }
+.jarvis-console #home-messages .step.error .sm { color: #f69b95; }
 .jarvis-console #news-empty { padding: 6px 2px; }
 .jarvis-console #chat-agent #home-jobs { margin: 7px 0; }
 .jarvis-console :is(#home-notes,.console-history) { padding-inline-start: 0; list-style: none; }
