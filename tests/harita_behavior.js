@@ -5,7 +5,7 @@ const start=src.indexOf('// HARITA START'),end=src.indexOf('// HARITA END');
 assert(start>=0&&end>start,'HARITA bloğu henüz yok');
 const calls=[],notices=[];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const context={PAGES:{},ACT:{stoptask(){calls.push(['stop'])}},esc,ic:n=>`<i>${esc(n)}</i>`,menuOrbSvg:()=>'<svg class="fake-orb"></svg>',toast:(m,k)=>notices.push([m,k]),
+const context={S:{page:'map'},PAGES:{},ACT:{stoptask(){calls.push(['stop'])}},esc,ic:n=>`<i>${esc(n)}</i>`,menuOrbSvg:()=>'<svg class="fake-orb"></svg>',toast:(m,k)=>notices.push([m,k]),
   tryApi:async(...args)=>{calls.push(args);return context.apiResult},apiResult:{ok:true},console};
 vm.createContext(context);
 vm.runInContext(src.slice(start,end+'// HARITA END'.length)+'\nglobalThis.__harita={harita_render,harita_set_policy,PAGES};',context);
@@ -59,5 +59,10 @@ assert(H.harita_render(null).includes('Harita bu sürümde yok'));
   assert.deepEqual(calls[0],['map']);
   assert(pg.innerHTML.includes('Harita bu sürümde yok'));
   assert(!pg.innerHTML.includes('3D &lt;Yazıcı&gt;'));
+  const pending=H.PAGES.map(pg);
+  context.S.page='home';
+  pg.innerHTML='Yeni konsol';
+  await pending;
+  assert.equal(pg.innerHTML,'Yeni konsol');
   console.log('harita behavior ok');
 })().catch(e=>{console.error(e);process.exitCode=1});

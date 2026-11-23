@@ -10,7 +10,7 @@ import release_guard as guard
 from modules import validation_lock
 
 JS_GROUPS = ('desktop_flows', 'files_in_chat_behavior', 'chat_drop_behavior', 'mobile_behavior', 'continuity_behavior', 'fieldnotes_behavior', 'desktop_auth_behavior', 'paid_provider_behavior', 'developer_behavior', 'router_behavior', 'study_behavior', 'navigation_start_behavior', 'local_stt_behavior', 'ai_page_behavior', 'screen_files_panel_behavior', 'ses_boxes_behavior', 'files_search_behavior', 'mini_preview_behavior')
-JS_GROUPS += ('desktop_workspace_behavior', 'team_center_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior', 'harita_behavior')
+JS_GROUPS += ('desktop_workspace_behavior', 'home_console_behavior', 'team_center_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior', 'harita_behavior')
 JS_GROUPS += ('harita_wizard_behavior', 'voice_speech_highlight_behavior')
 JS_GROUPS += ('persona_preferences_behavior',)
 SMOKE_GROUPS = ('headless_smoke', 'maintenance_smoke', 'voice_actions_smoke', 'paid_provider_smoke', 'developer_smoke', 'router_agents_smoke', 'stability_contracts')

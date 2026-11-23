@@ -174,15 +174,25 @@ class Sampler:
         self.battery: dict | None = None
         self.online = True
         self.latency_ms: int | None = None
-        self.weather: dict | None = None
+        self._weather_data: dict | None = None
         self._wx_time = 0.0
-        self._wx_city = None
+        self._wx_key: tuple[str, str | None] | None = None
+        self._wx_generation = 0
+        self._wx_lock = threading.Lock()
         self._net_time = 0.0
         self._disk_time = 0.0
 
     def invalidate_weather(self) -> None:
         """Refresh weather after a preference change."""
-        self._wx_time = 0.0
+        with self._wx_lock:
+            self._wx_time = 0.0
+            self._wx_key = None
+            self._weather_data = None
+            self._wx_generation += 1
+
+    def weather_for(self, owner: str, city: str | None) -> dict | None:
+        with self._wx_lock:
+            return self._weather_data if self._wx_key == (owner, city) else None
 
     def start(self) -> None:
         psutil.cpu_percent(None)
@@ -210,10 +220,8 @@ class Sampler:
                 if now - self._net_time > 20:
                     self._net_time = now
                     threading.Thread(target=self._ping, daemon=True).start()
-                city = _p().data["prefs"].get("city") or None
-                if now - self._wx_time > 1200 or city != self._wx_city:
-                    self._wx_time, self._wx_city = now, city
-                    threading.Thread(target=self._weather, args=(city,), daemon=True).start()
+                profile = _p()
+                self._refresh_weather(profile.slug, profile.data["prefs"].get("city") or None, now)
             except Exception:       # ölçüm hatası arayüzü bozmasın
                 _record_failure('web.py:_loop')
                 pass
@@ -231,14 +239,30 @@ class Sampler:
                 continue
         self.online, self.latency_ms = False, None
 
-    def _weather(self, city) -> None:
+    def _refresh_weather(self, owner: str, city: str | None, now: float) -> None:
+        key = (owner, city)
+        with self._wx_lock:
+            if key != self._wx_key:
+                self._wx_key = key
+                self._weather_data = None
+            elif now - self._wx_time <= 1200:
+                return
+            self._wx_time = now
+            self._wx_generation += 1
+            generation = self._wx_generation
+        threading.Thread(target=self._weather, args=(city, generation), daemon=True).start()
+
+    def _weather(self, city: str | None, generation: int) -> None:
         wx = weather_struct(city)
         if not wx and not city:
             wx = weather_struct("İstanbul")      # IP'den konum bulunamazsa (şirket ağı vb.) varsayılan şehir
-        if wx:
-            self.weather = wx
-        else:
-            self._wx_time = time.time() - 1200 + 60   # alınamadı: 20 dk değil 1 dk sonra yeniden dene
+        with self._wx_lock:
+            if generation != self._wx_generation:
+                return
+            if wx:
+                self._weather_data = wx
+            else:
+                self._wx_time = time.time() - 1200 + 60   # alınamadı: 20 dk değil 1 dk sonra yeniden dene
 
 
 def weather_struct(city: str | None) -> dict | None:
@@ -402,7 +426,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                     "online": sampler.online, "ping": sampler.latency_ms, "cores": psutil.cpu_count() or 0,
                     "ram_total": psutil.virtual_memory().total, "disk_total": sampler.disk_total,
                     "os": sys.platform},
-            "weather": sampler.weather,
+            "weather": sampler.weather_for(p.slug, d["prefs"].get("city") or None),
             "agents": ag,
             "tasks": [dict(t) for t in (d.get("tasks") or [])], "task_counts": [done, total],
             "events": up, "all_events": evs[-200:],

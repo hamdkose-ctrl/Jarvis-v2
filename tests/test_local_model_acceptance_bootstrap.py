@@ -35,13 +35,16 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("modules", proc.stdout.splitlines())
 
-    def test_browser_acceptance_uses_sidebar_before_ollama_provider_card(self):
+    def test_browser_acceptance_opens_ollama_from_the_home_console(self):
         src = SCRIPT.read_text(encoding="utf-8")
-        open_settings = '#workspace-nav [data-go="settings"]'
+        console_settings = '.jarvis-console [data-home-tool="settings"]'
+        open_settings = '#info[open] [data-act="goset"][data-k="ai"]'
         wait_panel = 'page.wait_for_selector("#spane"'
         select_ollama = '#spane [data-act="aipick"][data-k="ollama"]'
+        self.assertLess(src.index(console_settings), src.index(open_settings))
         self.assertLess(src.index(open_settings), src.index(wait_panel))
         self.assertLess(src.index(wait_panel), src.index(select_ollama))
+        self.assertNotIn('#workspace-nav [data-go="settings"]', src)
         self.assertNotIn('mnopen', src)
         self.assertNotIn("page.wait_for_timeout(800)", src)
 

@@ -1238,6 +1238,12 @@ Eski `task_agents.py` kalıcı kuyruk/recovery işlevleri bu fazda **silinmez**.
 
 Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç sayfaları koyu lacivert temada birleşir. Ana ekranda cam halkalar görünür. Dosyalar sayfası seçili PDF’nin ilk sayfasını ve desteklenen görselleri yerelde önizler. Hologram, eski sahne, arka plan dosyaları ve dekoratif görünüm komutları kaldırılır. Teslim indirme aynı kullanıcı ve doğrulanmış iş/adım kanıtına bağlıdır. CI, PC ve fiziksel ses kabulü kaynak sürümüne göre ayrıca izlenir.
 
+### 2026-11-23 — Jarvis’in tek masaüstü ana ekranı (PR #776)
+
+- `/nx.html` yeni konsolla açılır. Harita ve gündem solda, çekirdek ve hareketli ekip ofisi ortada, sohbet, ekip kayıtları ve notlar sağdadır. Kamera ve ekran paylaşımı önizlemesi çekirdek alanında görünür. Önceki ana ekranın çizimi, stili ve avatarı kaldırıldı.
+- `modules.validation` artık `home_console_behavior` grubunu zorunlu çalıştırır. Test, ana ekranda komut gönderimini, canlı yanıtı, profil ayrımını ve dosya ile takvim kartlarının aynı ekranda açılmasını kapsar. Windows CI ve gerçek PC kabulü ilgili commit üzerinden takip edilir.
+- Yerel model kabul betiği Ollama kartına ana konsoldaki Ayarlar üzerinden ulaşır. Gizlilikteki açık kaynak okuma kartı kendi ayar bölümünde oluşturulur. Chromium’da test verisiyle aktif model, kurulu modeller ve eski tercih uyarısı doğrulandı.
+
 
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 

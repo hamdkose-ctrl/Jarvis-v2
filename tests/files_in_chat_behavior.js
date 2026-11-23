@@ -35,4 +35,4 @@ assert(src.includes("tools:['telefon','mesaj']")&&src.includes("tools:['takvim']
 assert(!src.includes('const t=TOOLS.find(x=>x[0]===v)'),'eski Araçlar listesi sayfası kalkmalı');
 console.log('Sohbette dosya kartları: istek yakalama, kota harcamama, geliştirme erişimi ve kopyalama geçti.');
 assert(src.includes("performance.now()<20000"),'api() açılışta geçici bağlantı hatasını yeniden denemeli');
-assert(src.includes("warning.hidden=!sn"),'anlık durum gelmeden bağlantı uyarısı gösterilmez');
+assert(fs.readFileSync(path.join(__dirname,'../webui/home-console.js'),'utf8').includes("warning.hidden = !sn?.llm"),'anlık durum gelmeden bağlantı uyarısı gösterilmez');

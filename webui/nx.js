@@ -18,7 +18,7 @@ async function api(name,...args){
 }
 async function tryApi(name,...a){try{return await api(name,...a)}catch(e){toast(e.message,'bad')}}
 function toast(msg,kind){if(kind!=='bad'&&S.ui&&S.ui.nx_notify===false)return;const d=document.createElement('div');if(kind)d.className=kind;d.textContent=msg;$('#toast').appendChild(d);setTimeout(()=>d.remove(),kind==='bad'?6500:4000)}
-const S={snap:null,ui:null,page:store.get('page','home'),orb:'idle',speech:null,chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
+const S={snap:null,ui:null,page:'home',orb:'idle',speech:null,chat:[],live:[],hist:null,day:null,since:0,files:null,fsel:null,fcat:'all',fq:'',sset:'ai',waiting:false,sc:null,ftab:'genel',att:[],attPending:0,steps:{},pcMuted:null};
 const DAYS=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'],MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const pad=n=>String(n).padStart(2,'0');
 const hm=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+':'+pad(d.getMinutes())};
@@ -34,12 +34,15 @@ const NAV=[
   ['map','Harita','globe']
 ];
 function renderTop(){
+  const top=$('#top'),home=S.page==='home';
+  top.closest?.('.workspace')?.classList.toggle('workspace-console',home);
+  if(home){top.innerHTML='';return}
   const sn=S.snap||{}, n=needCount(), win=sn.winctl!==false;
   const name=(sn.user||{}).name||'Kullanıcı';
   $('#workspace-nav').innerHTML=NAV.filter(([key])=>key!=='map').map(([key,label,glyph])=>
     `<button type="button" data-go="${key}" ${S.page===key?'aria-current="page"':''}>${ic(glyph)}<span>${label}</span></button>`).join('');
   $('#workspace-profile').innerHTML=`<button type="button" data-act="user" aria-label="Kullanıcı değiştir"><span class="profile-mark">${esc(name.charAt(0))}</span><span><b>${esc(name)}</b><small>Profil ve ayarlar</small></span>${ic('chev')}</button>`;
-  $('#top').innerHTML=`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
+  top.innerHTML=`<strong>${esc(NAV.find(([key])=>key===S.page)?.[1]||'Jarvis')}</strong>
    <div class="top-actions"><span id="clock" aria-hidden="true"></span>
     <button class="ab" data-act="notif" aria-label="Bildirimler">${ic('bell')}${n?`<span class="notice-count">${n}</span>`:''}</button>
     ${win?`<button class="ab" data-act="wmin" aria-label="Pencereyi küçült">−</button><button class="ab" data-act="wfull" aria-label="Tam ekran veya pencere">□</button><button class="ab" data-act="wclose" aria-label="Pencereyi kapat">×</button>`:''}
@@ -65,7 +68,7 @@ function go(p){
     api('development_disable').then(result=>{if(!result.ok)throw new Error(result.message||'Geliştirme ekranından çıkılamadı.');S.snap.development.enabled=false;S.snap.development.unlocked=false;go(p);refreshSoon()}).catch(e=>toast(e.message,'bad')).finally(()=>{S.leavingDevelopment=false});return;
   }
   S.sq='';
-  S.page=p;store.set('page',p);render();
+  S.page=p;render();
 }
 
 function render(){
@@ -74,9 +77,16 @@ function render(){
   if(dock)dock.remove();
   renderTop();
   pg.className='page p-'+S.page;
+  if(S.page==='home'){
+    if(!pg.querySelector('.jarvis-console')){pg.innerHTML='';PAGES.home(pg)}
+    else{updateHome();drawHomeMessages()}
+    drawAtt();drawMiniPreview();
+    return;
+  }
+  window.JarvisHome?.destroy();
   pg.innerHTML='';
   if(S.page==='team'&&!PAGES.team)return;
-  (PAGES[S.page]||PAGES.home)(pg);
+  PAGES[S.page](pg);
   drawDock(dock);drawAtt();drawMiniPreview();if(focused)$('#dock input')?.focus();
 }
 document.addEventListener('click',e=>{
@@ -122,8 +132,8 @@ ACT.devpassword=async()=>{
  const r=await api('development_password_change',old,next);toast(r.message,r.ok?'':'bad');
 };
 ACT.homenote=()=>{S.tool='gorev';go('tools');setTimeout(()=>{const editor=$('#nti')?.closest('details');if(editor)editor.open=true;$('#nti')?.focus()},50)};
-ACT.mute=async el=>{const on=((S.snap||{}).flags||{}).speak!==false;if(on)tryApi('stop_speaking');const f=await tryApi('set_flag','speak',!on);if(f===null||f===undefined)return;if(S.snap){S.snap.flags={...(S.snap.flags||{}),...((f&&typeof f==='object')?f:{}),speak:!on}}toast(on?'Jarvis susturuldu. Yazıyla cevap vermeye devam eder.':'Jarvis’in sesi açıldı.');$$('[data-act="mute"]').forEach(b=>{const c=b.classList.contains('hb2')?'hb2':'ab';b.outerHTML=muteBtn(c)})};
-ACT.mictoggle=async()=>{if(S.page==='chat'&&S.snap?.development?.enabled&&S.snap?.development?.unlocked)return toast('Geliştirme ekranında ses kapalı; yazıyla devam et.');if(S.micToggling||!S.snap)return;const on=S.snap?.flags?.mic!==false,owner=S.snap?.user?.name;S.micToggling=true;try{const flags=await tryApi('set_flag','mic',!on);if(owner!==S.snap?.user?.name||!flags||typeof flags.mic!=='boolean')return;S.snap.flags={...(S.snap.flags||{}),...flags};$$('[data-act="mictoggle"]').forEach(b=>{b.outerHTML=micToggleBtn(b.classList.contains('hb2')?'hb2':'ab')});toast(flags.mic?'Mikrofon açıldı.':'Mikrofon kapatıldı.')}finally{S.micToggling=false}};
+ACT.mute=async el=>{const on=((S.snap||{}).flags||{}).speak!==false;if(on)tryApi('stop_speaking');const f=await tryApi('set_flag','speak',!on);if(f===null||f===undefined)return;if(S.snap){S.snap.flags={...(S.snap.flags||{}),...((f&&typeof f==='object')?f:{}),speak:!on}}toast(on?'Jarvis susturuldu. Yazıyla cevap vermeye devam eder.':'Jarvis’in sesi açıldı.');$$('[data-act="mute"]').forEach(b=>{const c=b.classList.contains('hb2')?'hb2':'ab';b.outerHTML=muteBtn(c)});if(S.page==='home')updateHomeStatus()};
+ACT.mictoggle=async()=>{if(S.page==='chat'&&S.snap?.development?.enabled&&S.snap?.development?.unlocked)return toast('Geliştirme ekranında ses kapalı; yazıyla devam et.');if(S.micToggling||!S.snap)return;const on=S.snap?.flags?.mic!==false,owner=S.snap?.user?.name;S.micToggling=true;try{const flags=await tryApi('set_flag','mic',!on);if(owner!==S.snap?.user?.name||!flags||typeof flags.mic!=='boolean')return;S.snap.flags={...(S.snap.flags||{}),...flags};$$('[data-act="mictoggle"]').forEach(b=>{b.outerHTML=micToggleBtn(b.classList.contains('hb2')?'hb2':'ab')});toast(flags.mic?'Mikrofon açıldı.':'Mikrofon kapatıldı.');if(S.page==='home')updateHomeStatus()}finally{S.micToggling=false}};
 ACT.wmin=()=>tryApi('win','min');ACT.wfull=()=>tryApi('win','full');ACT.wclose=async ()=>{if(await ask('Jarvis kapatılsın mı?'))tryApi('shutdown')};
 function openAiHub(tab='ai'){S.sset=tab;S.tool='aihub';go('tools')}
 ACT.keysetup=()=>openAiHub('baglanti');
@@ -135,7 +145,7 @@ async function say(text){
   // Ekli dosyalar tek istekte gider ('"a" "b" talimat'): sunucu karşılaştırma/birleştirme gibi işleri birlikte yapar,
   // diğer işleri dosya dosya yürütür. Sunucunun yankısı aynı metinle geldiği için balon tekrarlanmaz.
   const files=Array.isArray(S.att)?S.att:(S.att?[S.att]:[]);if(files.length){S.att=[];drawAtt()}
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
   const sends=files.length?[files.map(a=>`"${a.path}"`).join(' ')+' '+(text||(files.length>1?'dosyalarını kapsamlı analiz et':'dosyasını kapsamlı analiz et'))]:[text];
   for(const send of sends){
     S.live.push({role:'user',text:send,ts:Date.now()/1000,mine:true});S.waiting=true;drawMsgs();
@@ -156,13 +166,13 @@ async function attachChatFile(file){
   if(!r||owner!==S.snap?.user?.name)return;
   S.att=[...atts(),{path:r.path,name:file.name}];S.files=null;
   toast(`${file.name} eklendi. Ne yapmamı istediğini yazıp gönder.`);
-  $('.ask input')?.focus();
+  ($('.ask input')||$('.jarvis-console #message'))?.focus();
  }finally{S.attPending=Math.max(0,(S.attPending||0)-1);drawAtt()}
 }
 const MAX_ATT=10,MAX_ATT_BYTES=200_000_000;
 const atts=()=>Array.isArray(S.att)?S.att:(S.att?[S.att]:[]);
 function pasteChatImage(e){
- if(!['chat','home'].includes(S.page)||!e.target.matches?.('.ask input'))return;
+ if(!['chat','home'].includes(S.page)||!e.target.matches?.('.ask input, .jarvis-console #message'))return;
  const items=Array.from(e.clipboardData?.items||[]);
  const item=items.find(x=>x.kind==='file'&&x.type.startsWith('image/'));
  const image=item?.getAsFile()||Array.from(e.clipboardData?.files||[]).find(x=>x.type.startsWith('image/'));
@@ -187,7 +197,7 @@ function droppedFiles(dt){
 }
 async function dropToChat(files,folders,text){
  if(folders)toast('Klasör eklenemez; klasörün içindeki dosyaları seçip bırak.','bad');
- if(!files.length){if(text){const i=$('.ask input');if(i){i.value=(i.value?i.value+' ':'')+text.trim();i.focus()}}return}
+ if(!files.length){if(text){const i=$('.ask input')||$('.jarvis-console #message');if(i){i.value=(i.value?i.value+' ':'')+text.trim();i.focus()}}return}
  if(!['chat','home'].includes(S.page)){S.day=ymd(new Date());go('chat')}
  for(const f of files)await attachChatFile(f);
 }
@@ -210,7 +220,7 @@ async function upload(file,quiet){
 }
 async function doFile(path,action){
   const cmd=await tryApi('file_do',path,action);if(!cmd)return;
-  S.day=ymd(new Date());S.live.push({role:'user',text:cmd,ts:Date.now()/1000,mine:true});S.waiting=true;if(S.page!=='chat')go('chat');else drawMsgs();
+  S.day=ymd(new Date());S.live.push({role:'user',text:cmd,ts:Date.now()/1000,mine:true});S.waiting=true;if(S.page!=='home'&&S.page!=='chat')go('chat');else drawMsgs();
 }
 function menu(x,y,items){closeMenu();const m=document.createElement('div');m.className='menu';m.id='menu';
   m.innerHTML=items.map((it,i)=>it==='-'?'<hr>':`<button data-mi="${i}">${it[0]?ic(it[0]):''}${esc(it[1])}</button>`).join('');document.body.appendChild(m);
@@ -233,7 +243,7 @@ function drawPcMute(){$$('[data-act="pcmute"]').forEach(b=>{b.outerHTML=pcMuteBt
 function loadPcMute(){api('pc_mute_state').then(r=>{S.pcMuted=r&&typeof r.muted==='boolean'?r.muted:null;drawPcMute()}).catch(()=>{})}
 ACT.pcmute=async()=>{if(S.pcMuteBusy)return;S.pcMuteBusy=true;try{const r=await tryApi('pc_mute',S.pcMuted!==true);if(r&&typeof r==='object'){S.pcMuted=r.muted===true;toast(S.pcMuted?'Bilgisayarın tüm sesi kapatıldı.':'Bilgisayarın sesi açıldı.');drawPcMute()}}finally{S.pcMuteBusy=false}};
 const muteBtn=(cls='ab')=>{const off=((S.snap||{}).flags||{}).speak===false;return `<button class="${cls} amute ${off?'off':''}" data-act="mute" title="${off?'Jarvis’in sesini aç':'Jarvis’i sustur (yazıyla cevap verir)'}">${ic(off?'volx':'vol')}</button>`};
-const DOCK_PH={home:'Jarvis’e yaz…',vision:'Ekran Ya Da Görsel Hakkında Bir Şey Sor...',files:'Dosyalar Hakkında Bir Şey Sor...',study:'Çalışma Konusu Hakkında Sor...',settings:'Bir Şey Söyle Veya Yaz...'};
+const DOCK_PH={vision:'Ekran Ya Da Görsel Hakkında Bir Şey Sor...',files:'Dosyalar Hakkında Bir Şey Sor...',study:'Çalışma Konusu Hakkında Sor...',settings:'Bir Şey Söyle Veya Yaz...'};
 const DOCK_ST={idle:'Hazır',listening:'Dinliyor',thinking:'Düşünüyor',working:'Çalışıyor',speaking:'Konuşuyor'};
 function drawDock(previous=null){
   const host=$('#dockhost')||$('#workspace-composer');
@@ -251,44 +261,9 @@ const shareBtns=()=>{const mode=(S.snap||{}).mode;return [['screen','monitor','E
 // ======================================================================= ANA SAYFA
 const PAGES={};
 
-const HOME_AREAS=[
-  ['files','folder','Dosyalar','Özet, çeviri, PDF → Excel / Word','blue'],
-  ['vision','monitor','Ekran ve PC','Ekran ve kamera analizi','copper'],
-  ['study','book','Çalışma','Hoca, matematik ve deneme','plum'],
-  ['tools','calendar','Günlük işler','Takvim, notlar ve telefon','green']
-];
-function updateHomeStatus(){
-  const status=$('#home-voice');if(status)status.textContent=heyTxt();
-  const warning=$('#home-connection'),sn=S.snap;
-  if(warning)warning.hidden=!sn?.llm||!!sn.llm.key||sn.llm.provider==='ollama';
-}
-function updateHomeCalendar(){
-  const container=$('#home-calendar');if(!container)return;
-  const now=ymd(new Date()), sn=S.snap||{};
-  const events=(sn.all_events||sn.events||[]).filter(entry=>String(entry.when||'').startsWith(now)).sort((a,b)=>a.when.localeCompare(b.when)).slice(0,3);
-  container.innerHTML=events.length?events.map(event=>`<div class="home-event">${ic('calendar')}<span>${event.when.length>10?`<time>${esc(event.when.slice(11,16))}</time> · `:''}${esc(event.title||'Etkinlik')}</span></div>`).join(''):'<p class="mut">Bugün için etkinlik yok.</p>';
-}
-function updateHome(){updateHomeStatus();updateHomeCalendar();window.JarvisTeam?.refreshHome($('#home-jobs'))}
-PAGES.home=pg=>{
-  pg.innerHTML=`<div class="home-grid">
-    <div class="home-primary">
-      <section class="workspace-hero" aria-labelledby="home-title">
-        <div class="hero-copy"><h1 id="home-title">Bugün ne<br>yapalım?</h1><p>Yaz, konuş veya bir dosya ekle.</p>
-          <p class="hero-status" id="home-voice" role="status"></p>
-        </div><div id="dockhost"></div>
-      </section>
-      <button class="card home-connection" id="home-connection" data-act="keysetup" hidden>${ic('key')}<span>Gemini anahtarı yok · Model bağlantılarını aç</span>${ic('chev')}</button>
-      <section class="workspace-areas"><h2>Çalışma alanları</h2><div class="workspace-tiles">
-        ${HOME_AREAS.map(([page,glyph,title,description,color])=>`<button class="workspace-tile" ${page==='tools'?'data-act="tool" data-k="takvim"':`data-go="${page}"`}><span class="workspace-icon ${color}">${ic(glyph)}</span><span><b>${title}</b><small>${description}</small></span>${ic('chev')}</button>`).join('')}
-      </div></section>
-    </div>
-    <aside class="home-aside" aria-label="İş ve takvim özeti">
-      <section class="card workspace-summary"><div class="workspace-heading"><h2>Ekip Merkezi</h2><button class="link" data-go="team">Tüm işler →</button></div><div id="home-jobs" aria-live="polite"><p class="mut">İşler yükleniyor…</p></div></section>
-      <section class="card workspace-summary"><div class="workspace-heading"><h2>Bugün</h2><button class="link" data-act="tool" data-k="takvim">Takvimi aç →</button></div><div id="home-calendar"></div></section>
-    </aside>
-  </div>`;
-  updateHome();
-};
+function updateHomeStatus(){window.JarvisHome?.updateStatus()}
+function updateHome(){window.JarvisHome?.refresh()}
+PAGES.home=pg=>{window.JarvisHome.mount(pg);drawHomeMessages()};
 ACT.goset=el=>{S.sset=el.dataset.k;S.tool='';go('settings')};
 ACT.research=()=>{go('chat');const input=$('.ask input');if(input){input.value='İnternette araştır: ';input.focus()}};
 
@@ -578,10 +553,10 @@ ACT.day=el=>{S.day=el.dataset.d;S.since=0;drawConvs();drawMsgs();drawSide()};
 ACT.newchat=async()=>{await tryApi('chat_reset');S.day=ymd(new Date());S.since=Date.now()/1000;S.live=[];drawConvs();drawMsgs();drawSide();toast('Yeni sohbet başladı.')};
 ACT.csearch=async ()=>{const q=await askText('Sohbetlerde ara:',S.cq||'');if(q!==null){S.cq=q;drawConvs()}};
 ACT.allconv=()=>{S.allConv=!S.allConv;render()};
-function curMsgs(){
-  const today=ymd(new Date());let rows=(S.hist||[]).filter(r=>(r.ts||'').slice(0,10)===S.day).map(r=>({role:r.role,text:r.text,ts:Date.parse(r.ts.replace(' ','T'))/1000,src:r.source}));
-  if(S.day===today){const seen=new Set(rows.map(r=>r.role+'|'+r.text));S.live.forEach(m=>{const k=m.role+'|'+m.text;if(!seen.has(k)){rows.push(m);seen.add(k)}})}
-  if(S.since)rows=rows.filter(r=>r.ts>=S.since);
+function curMsgs(day=S.day,since=S.since){
+  const today=ymd(new Date());let rows=(S.hist||[]).filter(r=>(r.ts||'').slice(0,10)===day).map(r=>({role:r.role,text:r.text,ts:Date.parse(r.ts.replace(' ','T'))/1000,src:r.source,rid:r.rid}));
+  if(day===today){const seen=new Set(rows.map(r=>r.role+'|'+r.text));S.live.forEach(m=>{const k=m.role+'|'+m.text;if(!seen.has(k)){rows.push(m);seen.add(k)}})}
+  if(since)rows=rows.filter(r=>r.ts>=since);
   return rows.sort((a,b)=>a.ts-b.ts);
 }
 function chatImageHtml(label,url){
@@ -635,7 +610,7 @@ function taskGoalId(item){const area=String((item||{}).area||'');const match=/^G
 function speechTaskClass(goal){const id=S.speech||{};return goal&&(id.goal_id===goal||id.event_id===goal)?' saying':''}
 function applySpeechHighlight(){
   const id=S.speech||{};
-  $$('.m.a').forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
+  [...$$('.m.a'),...$$('.jarvis-console .turn[data-speaker="jarvis"]')].forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
   // Görev kartı yalnız kendi işi seslendirildiğinde işaretlenir: kartın kimliği
   // çizimdeki aktivite kaydından gelir, seslendirmenin sonuç kimliğiyle (iş/hedef)
   // karşılaştırılır. Kimliksiz seslendirme hiçbir kartı boyamaz.
@@ -648,9 +623,11 @@ function msgHtml(m){
   if(m.role==='user'){const fm=msgFiles(m.text);
     const body=fm.paths.length?`${esc(fm.rest.replace(/^dosyalarını |^dosyasını |^görselini |^görselindeki /,'').replace(/^./,c=>c.toUpperCase()))}${fm.paths.map(f=>`<div class="fchip"><span class="fi ${catOf(f)}">${extOf(f).toUpperCase().slice(0,4)}</span><span><b>${esc(f.split(/[\\/]/).pop())}</b><small>${esc(extOf(f).toUpperCase())}</small></span></div>`).join('')}`:md(m.text);
     const heard=m.src==='ses'?`<div class="heard">${ic('mic')}Anladığım</div>`:'';
+    if(m.home)return `<article class="turn" data-speaker="you"><div class="turn-role">Sen •</div><div class="message-body">${heard}${body}</div></article>`;
     return `<div class="m u"><div class="bb">${heard}${body}<time class="t">${hm(m.ts)}</time></div><span class="av">${esc(((S.snap||{}).user||{}).name?.[0]||'S')}</span></div>`}
   if(m.role==='system')return `<div class="m s">${esc(m.text)}</div>`;
   if(m.role==='step')return stepsHtml(S.steps[m.rid]);
+  if(m.home)return `<article class="turn${speechClassFor(m)}" data-speaker="jarvis" data-rid="${esc(m.rid||'')}"><div class="turn-role">• ${esc(S.snap?.aname||'Jarvis')}</div><div class="message-body">${md(m.text)}</div></article>`;
   return `<div class="m a${speechClassFor(m)}" data-rid="${esc(m.rid||'')}"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}<time>${hm(m.ts)}</time></div><div class="bb">${md(m.text)}</div></div></div>`;
 }
 function stepsHtml(card){
@@ -726,7 +703,7 @@ function onStep(m){
   taskSummaryTrack(card,rid);
   const keys=Object.keys(S.steps);if(keys.length>60)keys.slice(0,keys.length-60).forEach(k=>delete S.steps[k]);
   if(/ses(i)? (kapatıl|açıl)/i.test(String(m.t||''))&&status!=='working')loadPcMute();
-  if(S.page==='chat')drawMsgs();
+  if(S.page==='chat'||S.page==='home')drawMsgs();
 }
 // Mesaj başındaki tırnaklı dosya yolları ('"a.pdf" "b.xlsx" talimat') ve kalan talimat
 function msgFiles(t){const paths=[];let rest=t||'',x;while((x=rest.match(/^"([^"]*[\\/][^"]*\.\w{2,5})"\s+/))){paths.push(x[1]);rest=rest.slice(x[0].length)}return {paths,rest}}
@@ -734,7 +711,20 @@ const extOf=p=>(p.split('.').pop()||'').toLowerCase();
 const catOf=p=>{const e=extOf(p);return e==='pdf'?'pdf':/^docx?|odt|rtf$/.test(e)?'word':/^xlsx?|csv|ods$/.test(e)?'excel':/^(png|jpe?g|webp|bmp|gif|heic)$/.test(e)?'image':'other'};
 function stripHtml(){const A=window.JarvisActivityStrip;if(!A)return'';const st=A.stripState(S.snap,S.steps);if(!st.visible)return'';const rid=Object.keys(S.steps).pop();const it=A.activityItems(S.steps,rid).map(x=>`<small class="as-${x.status}">${esc(x.text)}${x.detail?' · '+esc(x.detail):''}</small>`).join('');return `<div class="actstrip"><b>${esc(st.label)}</b>${it}${st.stoppable?'<button data-act="stoptask" title="Durdur">Durdur</button>':''}</div>`}
 ACT.stoptask=async()=>{const rid=typeof taskSummaryActiveRid==='function'?taskSummaryActiveRid():null;const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');if(r.stopped===true&&typeof taskSummaryFinish==='function')taskSummaryFinish(rid,true);toast(r.msg||'Görev durduruldu.')};
+function drawHomeMessages(){
+  const host=$('#home-messages');if(!host)return;
+  const today=ymd(new Date()),day=window.JarvisHome?.day()||today;
+  const messages=curMsgs(day,day===today?S.since:0);
+  const markup=messages.length?messages.map(message=>msgHtml({...message,home:true})).join(''):'<p class="mut">Yaz, konuş veya bir dosya ekle.</p>';
+  if(host._markup!==markup){
+    const atEnd=host.scrollHeight-host.scrollTop-host.clientHeight<48;
+    host._markup=markup;host.innerHTML=markup;
+    if(atEnd)host.scrollTop=host.scrollHeight;
+  }
+  updateHomeStatus();
+}
 function drawMsgs(){
+  if(S.page==='home')return drawHomeMessages();
   const el=$('#msgs');if(!el)return;const ms=curMsgs(),first=ms.find(m=>m.role==='user');
   const ch=$('#chead');if(ch){const [i,c]=convIcon(first&&first.text);const files=new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]));
     ch.innerHTML=`<span class="ib ${c}" style="width:52px;height:52px;font-size:26px">${ic(i)}</span><div><b>${esc(first?convTitle(first.text):'Yeni Sohbet')}</b><small>${files.size?files.size+' dosya • ':''}${ms.length} mesaj • ${S.day===ymd(new Date())?'Bugün':S.day.split('-').reverse().join('.')}</small></div>
@@ -769,15 +759,18 @@ ACT.fpick=el=>{S.fsel=el.dataset.p;go('files')};
 // ======================================================================= DOSYALAR
 // "Dosyalarım" isteği tarayıcıda cevaplanır (model/Gemini çağrısı yok): son yüklenen dosyalar kartlarla sohbete düşer.
 async function showFileCards(text){
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
-  const now=Date.now()/1000;S.day=ymd(new Date());
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  const now=Date.now()/1000,owner=S.snap?.user?.slug;S.day=ymd(new Date());
   S.live.push({role:'user',text,ts:now,mine:true});drawMsgs();
   await loadFiles(true);
+  if(owner!==S.snap?.user?.slug)return;
   S.live.push({role:'files',text:'dosya kartları '+now,ts:now+.001});S.live=S.live.slice(-300);drawMsgs();
 }
 async function showAgendaCard(text){
-  if(S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  if(S.page!=='home'&&S.page!=='chat'){S.day=ymd(new Date());go('chat')}
+  const owner=S.snap?.user?.slug;
   try{await refresh()}catch(e){}
+  if(owner!==S.snap?.user?.slug)return;
   const now=Date.now()/1000;S.day=ymd(new Date());
   S.live.push({role:'user',text,ts:now,mine:true});S.live.push({role:'agenda',text:'takvim kartı '+now,ts:now+.001});S.live=S.live.slice(-300);drawMsgs();
 }
@@ -793,7 +786,11 @@ function filesHtml(){
     :'<p>Henüz yüklenmiş dosya yok. Soldaki + ile dosya ekleyebilirsin.</p>';
   return `<div class="m a"><span class="orb">${ic('mic')}</span><div><div class="nm">${esc(((S.snap||{}).aname||'JARVIS').toUpperCase())}</div><div class="bb">${body}</div></div></div>`;
 }
-async function loadFiles(force=false){S.files=await tryApi('files_list',force)||{files:[],counts:{}}}
+async function loadFiles(force=false){
+  const owner=S.snap?.user?.slug;
+  const files=await tryApi('files_list',force);
+  if(owner===S.snap?.user?.slug)S.files=files||{files:[],counts:{}};
+}
 const FCATS=[['mine','Yüklediklerim'],['all','Tümü'],['pdf','PDF'],['word','Word'],['excel','Excel'],['image','Görsel'],['other','Diğer']];
 const FACTS={pdf:[['analiz','Analiz Et','b'],['excel','PDF → Excel','g'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']],word:[['cevir_tr','Türkçeye Çevir','b'],['cevir','İngilizceye Çevir','b'],['ozet','Özetle','o'],['pdf','Rapor','p'],['gorsellestir','Görselleştir','p']],
   excel:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Rapor Oluştur','p'],['gorsellestir','Görselleştir','p']],image:[['metin','Metne Çevir','p'],['gorsel','Analiz Et','b']],other:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']]};
@@ -1007,10 +1004,11 @@ ACT.capture=async()=>{
 
 // Paylaşım açıkken sohbetin köşesinde küçük canlı önizleme (Ekran sayfasında gizlenir). Görüntü yalnız yerelde alınır; model çağrısı yoktur.
 let miniTimer=null,miniBusy=false;
-function miniHidden(){return S.page==='vision'||((S.page==='settings'||S.page==='tools')&&S.sset==='ekran')}
+function miniHidden(){return S.page==='home'||S.page==='vision'||((S.page==='settings'||S.page==='tools')&&S.sset==='ekran')}
 function drawMiniPreview(){
   const mode=(S.snap||{}).mode;let box=$('#vprev');
   $$('.hb2[data-a^="act:share:"]').forEach(b=>{const m=b.dataset.a.slice(10),on=mode===m;b.classList.toggle('live',on);b.title=on?(m==='camera'?'Kamerayı kapat':'Ekran paylaşımını kapat'):(m==='camera'?'Kamerayı aç':'Ekranı paylaş')});
+  if(S.page==='home')updateHomeStatus();
   if(!mode||miniHidden()){if(box)box.remove();clearTimeout(miniTimer);miniTimer=null;return}
   if(!box){box=document.createElement('div');box.id='vprev';box.className='vprev'+(S.vmini?' mini':'');box.innerHTML=`<div class="vph"><span></span><div class="vbtns"><button data-act="vmin" title="Küçült / büyüt">${ic('chevd')}</button><button data-act="vis" title="Kapat">${ic('x')}</button></div></div><img alt="Canlı önizleme"><p class="mut">Görüntü bekleniyor…</p>`;document.body.appendChild(box)}
   box.querySelector('span').textContent=mode==='camera'?'Canlı kamera':'Ekran paylaşımı';box.querySelector('[data-act="vis"]').dataset.a='act:share:'+mode;
@@ -1056,7 +1054,7 @@ async function harita_set_policy(tool,action,old,next,control){
 PAGES.map=async pg=>{
   pg.innerHTML=`<div class="harita-wrap"><div class="empty">Harita yükleniyor…</div></div>`;
   const d=await tryApi('map');
-  pg.innerHTML=harita_render(d);
+  if(S.page==='map')pg.innerHTML=harita_render(d);
 };
 if(typeof document!=='undefined')document.addEventListener('change',e=>{
   const s=e.target&&e.target.closest&&e.target.closest('select[data-map-tool]');if(!s)return;
@@ -1525,8 +1523,9 @@ async function drawSettings(){
       sbox('lock','Koruma','',srow('eye','Hassas bilgiyi gizle','Anahtar, e-posta, kart, IBAN, telefon buluta gitmeden maskelenir',`<button class="sw ${d.redact?'on':''}" data-act="ptog" data-k="redact" data-v="${d.redact?0:1}"></button>`)+
         srow('check','Hassas işlemlerde onay iste','Mesaj gönderme, bilgisayarı kapatma, dosya taşıma',`<button class="sw ${d.approve?'on':''}" data-act="ptog" data-k="approve" data-v="${d.approve?0:1}"></button>`)+
         srow('key','API anahtarı',d.key_protected?'Windows hesabınla şifreli saklanıyor':'Korumalı değil; Bağlantılar’da yeniden kaydet',`<span class="pill ${d.key_protected?'good':'warn'}">${d.key_protected?'Korumalı':'Düz'}</span>`)+
-        srow('lock','Yerel veriler','Anahtarlar ve ayarlar kullanıcı hesabında tutulur','<span class="pill good">Açık</span>')):'<div class="empty">Gizlilik bilgisi alınamadı.</div>'}
+        srow('lock','Yerel veriler','Anahtarlar ve ayarlar kullanıcı hesabında tutulur','<span class="pill good">Açık</span>')):'<div class="empty">Gizlilik bilgisi alınamadı.</div>';
     if(d)h+=sbox('globe','Yerel modda kaynak okuma','Yerel/gizli moddayken yalnız herkese açık kaynakları okur (akademik + haber siteleri). Hiçbir şey buluta gitmez; varsayılan kapalı.',srow('globe',d.public_read?'İzin açık':'Kapalı',d.public_read?'arXiv, CrossRef, DOI ve 19 haber sitesi okunabilir':'Yerel modda araştırma ve haber kapalı',`<button class="sw ${d.public_read?'on':''}" data-act="ptog" data-k="public_read" data-v="${d.public_read?0:1}"></button>`));
+  }
   else if(k==='araclar'){h+=toolsBox()}
   else{h+=sbox('info','Hakkında','JARVIS — Senin Yapay Zekâ Asistanın',`<div id="about" style="padding:14px 18px" class="mut">Yükleniyor…</div>`+
       pad18(`<button class="btn sm" data-act="upd">${ic('refresh')} Güncelleme var mı?</button> <button class="btn sm" data-act="restart">${ic('power')} Yeniden Başlat</button> <button class="btn sm" data-act="olog">${ic('file')} Kayıt dosyası</button>`));
@@ -1745,7 +1744,7 @@ function applyTheme(){const t=(S.ui||{}).nx_theme||'dark';const dark=t==='dark'|
 
 // ======================================================================= veri ve olaylar
 async function refresh(){const oldUser=((S.snap||{}).user||{}).name;try{S.snap=await api('snapshot')}catch(e){return}
-  if(oldUser&&oldUser!==((S.snap||{}).user||{}).name){S.filePreview=null;S.noteSelected=null;S.noteText='';S.noteTitle='';ACT.ntimageclear();document.querySelectorAll('.noteviewer').forEach(el=>el.click());S.hist=null;S.live=[];S.chat=[];S.day=null;S.since=0;S.waiting=false;S.sdoc=0;S.sans='';S.mathDraft='';S.mathAttachment='';S.mathResponse=null;S.studyPdfPage=null;S.studySelection=null;S.mathUploadBusy=false;S.slesson=null;S.sov=null;S.squiz=null;S.sres=null;S.smedia=null;S.quizBusy=false;S.mockBusy=false;S.studyLessonRequest=null;S.studyQuizRequest=null;S.studyMediaRequest=null;S.studyOverviewRequest=null;S.studyBusy=false;S._sovLoading=0;await loadHist();render()}
+  if(oldUser&&oldUser!==((S.snap||{}).user||{}).name){S.filePreview=null;S.files=null;S.noteSelected=null;S.noteText='';S.noteTitle='';ACT.ntimageclear();document.querySelectorAll('.noteviewer').forEach(el=>el.click());S.hist=null;S.live=[];S.chat=[];S.day=null;S.since=0;S.waiting=false;S.sdoc=0;S.sans='';S.mathDraft='';S.mathAttachment='';S.mathResponse=null;S.studyPdfPage=null;S.studySelection=null;S.mathUploadBusy=false;S.slesson=null;S.sov=null;S.squiz=null;S.sres=null;S.smedia=null;S.quizBusy=false;S.mockBusy=false;S.studyLessonRequest=null;S.studyQuizRequest=null;S.studyMediaRequest=null;S.studyOverviewRequest=null;S.studyBusy=false;S._sovLoading=0;await loadHist();render()}
   if(!S.snap)return;S.orb=S.snap.orb||'idle';dockState();
   {const pk=JSON.stringify(((S.snap.study||{}).pending)||[]);if(S.page==='study'&&S._spk!==undefined&&pk!==S._spk){const was=S._spk;S._spk=pk;S.sov=null;render();const pd=S.snap.study.pending||[];if(pd.some(x=>x.state==='error'))toast('Bir kaynak eklenemedi; ayrıntı listede.','bad');else if(pd.length<JSON.parse(was).length)toast('Çalışma kaynağı eklendi.')}S._spk=pk;
    clearTimeout(S._spt);if(pk!=='[]'&&pk.includes('running'))S._spt=setTimeout(refresh,3000)}renderTop();if(S.page==='chat'){drawSide();drawDevelopment()}if(S.page==='home')updateHome();
@@ -1758,14 +1757,14 @@ function onEvent(m){
   if(m.mid&&((S.hist||[]).some(r=>r.id===m.mid)||S.live.some(r=>r.id===m.mid)))return;
   if(typeof taskSummaryEvent==='function')taskSummaryEvent(m);
   if(k==='action'){Promise.all([refresh(),loadUi()]).then(()=>{S.files=null;S.sc=null;S.sov=null;if(S.page!=='chat')render()});return}
-  if(k==='reconcile'){loadHist().then(()=>{S.live=[];if(S.page==='chat'){drawMsgs();drawConvs()}});return}
+  if(k==='reconcile'){loadHist().then(()=>{S.live=[];drawMsgs();if(S.page==='chat')drawConvs()});return}
   if(k==='user'||k==='assistant'){const ts=m.ts||Date.now()/1000;
     if(k==='user'){const i=S.live.findIndex(x=>x.mine&&x.role==='user'&&x.text===m.t);if(i>=0)S.live.splice(i,1)}
     S.live.push({id:m.mid,role:k,text:m.t,ts,src:m.x,rid:m.rid});S.live=S.live.slice(-300);if(k==='assistant')S.waiting=false;
-    if(S.hist){const d=new Date(ts*1000),z=n=>String(n).padStart(2,'0');S.hist.push({id:m.mid,role:k,text:m.t,ts:`${ymd(d)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,source:m.x})}
-    if(S.page==='chat'){drawMsgs();drawConvs()}}
+    if(S.hist){const d=new Date(ts*1000),z=n=>String(n).padStart(2,'0');S.hist.push({id:m.mid,role:k,text:m.t,ts:`${ymd(d)} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,source:m.x,rid:m.rid})}
+    drawMsgs();if(S.page==='chat')drawConvs()}
   else if(k==='step'){onStep(m);return}
-  else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;if(S.page==='chat')drawMsgs()}
+  else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;drawMsgs()}
   else if(k==='state'){
     S.orb=m.t||'idle';dockState();speechStateEvent(S.orb);updateHomeStatus();
     $$('.mic').forEach(button=>button.classList.toggle('live',S.orb==='listening'));
@@ -1775,7 +1774,7 @@ function onEvent(m){
   else if(k==='nav'){navTo(m.t);return}
   else if(k==='study_start'){const owner=((S.snap||{}).user||{}).name;S.stab='learn';go('study');loadStudy().then(()=>{if(S.page==='study'&&owner===((S.snap||{}).user||{}).name){render();ACT.studystart()}});return}
   else if(k==='study_media'){if(S.page!=='study'){S.stab='learn';go('study')}S.swin=1;S.swtab='wiki';setTimeout(()=>showMedia(m.t),S.page==='study'?0:400);return}
-  else if(k==='quit'){document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:#7396ae;font-family:sans-serif">Jarvis kapandı. Bu pencereyi kapatabilirsin.</div>';return}
+  else if(k==='quit'){window.JarvisHome?.destroy();document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:#7396ae;font-family:sans-serif">Jarvis kapandı. Bu pencereyi kapatabilirsin.</div>';return}
   refreshSoon();
 }
 function navTo(h){const[t,s]=String(h||'home').replace(/^#/,'').split(/[|/]/);if(t==='settings'&&['ai','baglanti'].includes(s)){S.sset=s;S.tool='aihub';go('tools');return}if(t==='settings'&&s)S.sset=s;if(t==='tools'){if(s==='kb')return go('files');S.tool=s||'';if(!s)S.sset='takvim'}go(t)}
@@ -1786,7 +1785,7 @@ function connect(){
     const rows=await tryApi('history','',1500);if(closed)return;
     if(rows&&user===((S.snap||{}).user||{}).name){S.hist=rows;S.live=S.live.filter(r=>r.mine);S.waiting=S.orb==='thinking'}
     loading=false;const pending=buffer;buffer=[];pending.forEach(onEvent);
-    if(S.page==='chat'){drawMsgs();drawConvs()}
+    drawMsgs();if(S.page==='chat')drawConvs()
   };
   es.onmessage=ev=>{try{const m=JSON.parse(ev.data);if(loading)buffer.push(m);else onEvent(m)}catch(e){console.error(e)}};
   es.onerror=()=>{closed=true;es.close();setTimeout(connect,2500)};
