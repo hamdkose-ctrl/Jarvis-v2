@@ -25,7 +25,7 @@ from modules.voice_core import (
     VoiceSpec, speech_pace_note,
 )
 from modules.voice_edge import EdgePlayer, EdgeSynthesizer
-from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer
+from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WaveSink
 
 
 CONFIG_NAME = "voice_core.json"
@@ -224,7 +224,7 @@ def maybe_start(runtime):
     catalog = _read_config(data_dir / CONFIG_NAME) if isinstance(data_dir, Path) else None
     if catalog is not None:
         synthesizer = PiperSynthesizer(data_dir / "voice_models")
-        lane = VoiceLane(runtime, catalog, synthesizer, WavePlayer())
+        lane = VoiceLane(runtime, catalog, synthesizer, WaveSink())
         enabled = True
         # Model açılışta yüklenir: ilk cevap model yükleme ücretini ödemesin
         # (ölçüm: soğuk 2804 ms, sıcak 349 ms). Ön yükleme başarısız olursa
@@ -235,7 +235,7 @@ def maybe_start(runtime):
         catalog = _piper_catalog(runtime)
         if catalog is not None:
             synthesizer = PiperSynthesizer(Path(runtime.DATA_DIR) / "voice_models")
-            lane = VoiceLane(runtime, catalog, synthesizer, WavePlayer())
+            lane = VoiceLane(runtime, catalog, synthesizer, WaveSink())
             enabled = True
             threading.Thread(target=_preload, args=(synthesizer,), name="jarvis-piper-preload",
                              daemon=True).start()
@@ -249,7 +249,7 @@ def maybe_start(runtime):
         from modules import voice_sapi
         catalog = _sapi_catalog(runtime)
         if catalog is not None:
-            lane = VoiceLane(runtime, catalog, voice_sapi.SapiSynthesizer(), WavePlayer())
+            lane = VoiceLane(runtime, catalog, voice_sapi.SapiSynthesizer(), WaveSink())
             enabled = True
             logging.getLogger("voice").info("ses motoru: Windows (yerel) · %d ses", len(catalog.choices()))
             _reconcile_voice(runtime, lane)
