@@ -44,12 +44,17 @@ def fetch(url, *, max_bytes=MAX_BYTES):
     import urllib3
     import certifi
     from modules import privacy,requests_state
-    if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
+    strict=privacy.blocked('web')
+    def _gate(target):
+        # Yerel/gizli modda yalnız kullanıcı izin verdiyse ve adres herkese açık kaynak listesindeyse okunur.
+        if strict and not privacy.public_read(target):raise PermissionError(strict)
+    _gate(url)
     requests_state.check()
     budget = requests_state.budget_remaining()
     deadline = time.monotonic() + (20 if budget is None else min(20, budget))
     for _ in range(4):
         url=address(url)
+        _gate(url)
         parsed=urlsplit(url);host=parsed.hostname
         records=socket.getaddrinfo(host,443,type=socket.SOCK_STREAM)
         if not records or any(not ipaddress.ip_address(row[4][0]).is_global for row in records):
