@@ -82,14 +82,21 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
         raise CloudflareChatError(f"Cloudflare hata döndürdü (HTTP {resp.status_code}).", "PROVIDER_ERROR")
     try:
         payload = resp.json()
-        text = payload["result"]["response"]
-    except (KeyError, TypeError, ValueError, AttributeError):
+        result = payload.get("result", payload)
+        if "choices" in result:
+            choice = result["choices"][0]
+            text = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason")
+        else:
+            text = result["response"]
+            finish_reason = result.get("finish_reason")
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
         usage_meter.record('cloudflare', model, chars_in, 0, 'bozuk', owner=slug)
         raise CloudflareChatError("Beklenmeyen yanıt biçimi.", "UNEXPECTED_FORMAT")
     if not isinstance(text, str) or not text.strip():
         usage_meter.record('cloudflare', model, chars_in, 0, 'bos', owner=slug)
         raise CloudflareChatError("Cloudflare boş yanıt döndürdü.", "EMPTY_RESPONSE")
-    usage_meter.observe_response(payload,finish_reason=payload.get('result',{}).get('finish_reason'))
+    usage_meter.observe_response(payload, finish_reason=finish_reason)
     usage_meter.record('cloudflare', model, chars_in, len(text), 'ok', owner=slug)
     requests_state.check()  # late replies are metered but never adopted
     return text

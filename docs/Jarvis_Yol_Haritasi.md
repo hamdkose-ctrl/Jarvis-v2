@@ -1322,3 +1322,7 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - **Açılmadı, çünkü ölçüm ayırt etmiyor:** sentetik (Piper TTS) sesle tam cümle 0,50 · yarım cümle 0,52 · sessizlik 0,73 — model insan sesiyle eğitildiği için TTS sesi dağılım dışı. Ayrıca elle yazılan numpy mel'in referansla hizalı korelasyonu 0,40 (filtre normalizasyonu farkı) → sayı ayrışmadıkça açmak "ölçmeden gönderme" olurdu.
 - Karar aracı: `scripts/turn_model_probe.py` — mikrofonla üç kayıt (tam / yarım / kısa) alıp olasılıkları yazar, hiçbir ses diske yazılmaz. Ayrışırsa model hatta bağlanır; ayrışmazsa noktalama kuralı kalır.
 - Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
+
+### 2026-11-23 — Cloudflare Gemma 4 sohbet yanıtı
+
+Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.

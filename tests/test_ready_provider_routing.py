@@ -123,6 +123,21 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.assertFalse(response['ok'])
         self.assertEqual(response['status']['ready_connections']['groq']['state'], 'error')
 
+    def test_cloudflare_connection_check_accepts_gemma_text(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'success': True,
+            'result': {'choices': [{'message': {'content': 'OK'}, 'finish_reason': 'stop'}]},
+        }
+        with patch.object(cloudflare_chat, 'user_cloudflare_account', return_value='a' * 32), \
+             patch.object(cloudflare_chat, 'user_cloudflare_token', return_value='cf-test-key'), \
+             patch.object(requests, 'post', return_value=response) as send, \
+             patch.object(usage_meter, 'record'):
+            result = smart_router.check_ready_connection('alice', 'cloudflare')
+        send.assert_called_once()
+        self.assertTrue(result['ok'], result['msg'])
+        self.assertEqual(result['status']['ready_connections']['cloudflare']['state'], 'ok')
+
     def test_cloudflare_http_429_is_reported_without_a_guess_at_the_daily_limit(self):
         response = Mock(status_code=429, text='Too many requests')
         with patch.object(cloudflare_chat, 'user_cloudflare_account', return_value='a' * 32), \
