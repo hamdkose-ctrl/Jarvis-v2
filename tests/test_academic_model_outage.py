@@ -9,6 +9,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from pathlib import Path
+
 from modules import core_brain_adapter
 
 ROW = {'provider': 'crossref', 'title': 'Ortodontide Yapay Zeka Kullanımı',
@@ -52,3 +54,19 @@ class AcademicOutageAnswerTests(unittest.TestCase):
             rows = __import__('modules.task_workers', fromlist=['x']).search_academic_rows('yapay zeka')
         self.assertEqual([row['url'] for row in rows],
                          ['https://doi.org/10.1/tr', 'https://arxiv.org/abs/1'])
+
+
+class ModelUnavailableBranchTests(unittest.TestCase):
+    """Canlı kusur (22 Kasım 2026 23:58): model HİÇ yokken istek "model kullanılamıyor" diyordu.
+
+    O turda ne sağlayıcı hatası ne öneri reddi vardı; sebep kodu MODEL_UNAVAILABLE'dı ve
+    akademik teslim yalnız provider_issue/rejected dallarına bağlanmıştı.
+    """
+
+    def test_handoff_delivers_the_list_in_the_model_unavailable_branch(self):
+        source = Path(core_brain_adapter.__file__).read_text(encoding='utf-8')
+        govde = source[source.index('def _handoff('):]
+        son = govde.index('Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor')
+        # Model-yok dalında, genel ret mesajından ÖNCE akademik teslim denenmeli.
+        self.assertIn('_academic_outage_answer(command, _runtime_owner(runtime))', govde[:son])
+        self.assertIn('ACADEMIC_MODEL_FREE_DELIVERY', govde[:son])
