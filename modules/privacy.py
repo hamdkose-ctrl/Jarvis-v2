@@ -43,6 +43,44 @@ def blocked(feature: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------- herkese açık kaynak okuma (B)
+# Yerel/gizli modda web kapalıdır. Kullanıcı isterse yalnız bu listedeki herkese açık
+# kaynakları OKUMAYA izin verilir; hiçbir kişisel veri bu sitelere gönderilmez ve
+# sayfa içeriği buluta çıkmaz (yerel model okur). Varsayılan: kapalı.
+PUBLIC_READ_HOSTS = frozenset({
+    # akademik
+    "doi.org", "api.crossref.org", "export.arxiv.org", "arxiv.org",
+    # haber (publisher_news.GENERAL_SOURCES ile aynı 19 kaynak)
+    "www.mynet.com", "tr.investing.com", "www.aa.com.tr", "www.bbc.com",
+    "www.iha.com.tr", "www.dha.com.tr", "ankahaber.net", "tha.istanbul",
+    "ilkha.com", "www.dw.com", "tr.euronews.com", "www.ntv.com.tr",
+    "t24.com.tr", "www.bloomberght.com", "www.ekonomim.com", "www.kap.org.tr",
+    "www.donanimhaber.com", "www.webtekno.com", "www.trthaber.com",
+})
+
+
+def public_read_enabled() -> bool:
+    """Kullanıcı ayarlardan açtı mı? Varsayılan kapalı."""
+    return bool(load_settings().get("public_read", False))
+
+
+def public_read_host(url: str) -> bool:
+    """Adres izin listesindeki herkese açık kaynaklardan biri mi?"""
+    try:
+        from urllib.parse import urlsplit
+        host = (urlsplit(str(url or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    if not host:
+        return False
+    return any(host == h or host.endswith("." + h) for h in PUBLIC_READ_HOSTS)
+
+
+def public_read(url: str) -> bool:
+    """Yerel/gizli modda bu adresi okumaya izin var mı?"""
+    return public_read_enabled() and public_read_host(url)
+
+
 # ---------------------------------------------------------------- redaction
 def _luhn(num: str) -> bool:
     d = [int(c) for c in num][::-1]
