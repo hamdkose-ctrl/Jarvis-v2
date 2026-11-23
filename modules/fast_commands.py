@@ -55,6 +55,11 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r'(tarih ne|bugun gunlerden ne|hangi gun(dayiz)?|bugun ayin kaci|tarih)'),
      ('fast_date', {})),
     (re.compile(r'(sistem durumu(nu goster)?|durum ne)'), ('fast_system_status', {})),
+    # Ekranı okumak yan etkisizdir: tıklama/yazma yok, yalnız Windows'tan okunur.
+    (re.compile(r'(ekranda (ne|neler) var|ekranda ne acik|ne goruyorsun)'), ('screen_summary', {})),
+    (re.compile(r'(hangi program(lar)? (acik|calisiyor)|acik (olan )?(program(lar)?|pencereler))'),
+     ('screen_summary', {})),
+    (re.compile(r'(ne ustunde calisiyorum|aktif (pencere|program) (ne|hangisi))'), ('screen_summary', {})),
     # --- konuşma ---
     (re.compile(r'(sus|sessiz ol|kes sesini|konusmayi (durdur|kes))'), ('fast_speech_stop', {})),
     # --- ses denetimi (tek sahip: audio_action / level_set) ---
