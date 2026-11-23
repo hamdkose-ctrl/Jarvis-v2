@@ -253,6 +253,39 @@ def _validate_wave(audio: bytes) -> None:
         raise ValueError("Offline voice output is not a valid PCM WAV file.") from exc
 
 
+class WaveSink:
+    """Yerel motorların çıkışı: cevap boyunca AÇIK kalan tek akış.
+
+    Canlı ölçüm (23 Kasım, kullanıcı "ses takılıyor"): `WavePlayer` her cümle
+    için cihazı yeniden açıp kapatıyordu. Cümle başına ~300 ms açılış + ~350 ms
+    boşaltma payı ekleniyor, 40 karakterlik tek cümle 2,6 sn ses için 3,8 sn
+    sürüyordu (oran 1,48). Üç cümlelik cevapta toplam oran 1,51.
+    Aynı sorun Edge hattında 22 Kasım'da `PcmSink` ile çözülmüştü; burada yerel
+    hatlar aynı çözüme bağlanır: tek akış, cümle arasına 120 ms nefes payı,
+    boşta kalınca akışı bırak.
+    """
+
+    def __init__(self, *, device=None, latency: float = 0.35,
+                 frames_per_write: int = 1024, idle_seconds: float = 25.0,
+                 join_silence_ms: float = 120.0):
+        from modules.voice_edge import PcmSink
+        self.device = device
+        self._sink = PcmSink(latency=latency, frames_per_write=frames_per_write,
+                             idle_seconds=idle_seconds, join_silence_ms=join_silence_ms,
+                             device=device)
+        self.last_timing: dict[str, float | str] = {}
+
+    def __call__(self, audio: bytes, cancel: threading.Event,
+                 on_start: Callable[[], None]) -> None:
+        _validate_wave(audio)
+        if cancel.is_set():
+            return
+        self.last_timing = self._sink.play(audio, cancel, on_start)
+
+    def close(self) -> None:
+        self._sink.close()
+
+
 class WavePlayer:
     """The single PCM playback adapter. Cancellation never touches Core requests."""
 
