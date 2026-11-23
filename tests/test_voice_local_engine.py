@@ -8,6 +8,7 @@ Kilitlenen davranış:
 * Geçersiz ayar değeri Edge sayılır (fail closed, uydurma motor yok).
 * SAPI sentezi WAV döndürür; boş/kısa çıktı hata sayılır.
 """
+import importlib.util
 import io
 import sys
 import tempfile
@@ -128,8 +129,13 @@ class PiperEngineProbe(unittest.TestCase):
         with patch('shutil.which', return_value='/usr/bin/piper'):
             self.assertTrue(voice_runtime._piper_engine_available())
 
+    @unittest.skipUnless(importlib.util.find_spec('piper'), 'piper paketi bu ortamda kurulu değil')
     def test_library_counts_as_available(self):
-        """CLI olmasa da süreç içi paket varsa motor kullanılabilir (canlı kusur)."""
+        """CLI olmasa da süreç içi paket varsa motor kullanılabilir (canlı kusur).
+
+        CI'da piper kurulu olmayabilir; o ortamda test atlanır, sahte bir "var"
+        sonucu üretilmez.
+        """
         with patch('shutil.which', return_value=None):
             self.assertTrue(voice_runtime._piper_engine_available())
 
