@@ -1304,3 +1304,12 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - Canlıda görüldü: motor Piper'a geçti ("ses motoru: Piper (yerel) · 1 model") ama ses seçimi **reddedildi** → Jarvis sessiz kalıyordu. Sebep: `check_voice()` yalnız `piper` **CLI**'sına bakıyordu; oysa sentez önce süreç içi `piper` paketiyle yapılıyor ve bu makinede CLI yok.
 - Düzeltme: `_piper_engine_available()` — CLI **veya** süreç içi paket varsa motor kullanılabilir. Kanıt: `tests/test_voice_local_engine.py` (3 yeni test).
+
+
+### 2026-11-23 — Smart Turn modeli kuruldu, ÖLÇÜLMEDEN açılmadı (PR bekliyor)
+
+- Referansın **aslı** açık: Stonic sesi Pipecat çatısı + **Silero VAD** (MIT) + **Smart Turn v3** (BSD-2-Clause) modelleriyle kuruyor. Bu ikisi indirildi: `~/.jarvis/turn_models/smart-turn-v3.0.onnx` (8,7 MB), `silero_vad.onnx` (2,2 MB).
+- `modules/voice_smart_turn.py`: modeli yükler, son 8 saniyelik sesten "konuşmacı bitirdi mi" **olasılığı** üretir. Girdi sözleşmesi: Whisper log-mel 80×800; `transformers` kuruluysa **referans** özellik çıkarımı, yoksa numpy sürümü. Model yoksa/bozuksa `None` → hat noktalama kuralına düşer, kilitlenmez.
+- **Açılmadı, çünkü ölçüm ayırt etmiyor:** sentetik (Piper TTS) sesle tam cümle 0,50 · yarım cümle 0,52 · sessizlik 0,73 — model insan sesiyle eğitildiği için TTS sesi dağılım dışı. Ayrıca elle yazılan numpy mel'in referansla hizalı korelasyonu 0,40 (filtre normalizasyonu farkı) → sayı ayrışmadıkça açmak "ölçmeden gönderme" olurdu.
+- Karar aracı: `scripts/turn_model_probe.py` — mikrofonla üç kayıt (tam / yarım / kısa) alıp olasılıkları yazar, hiçbir ses diske yazılmaz. Ayrışırsa model hatta bağlanır; ayrışmazsa noktalama kuralı kalır.
+- Kanıt: `tests/test_voice_smart_turn.py` (11 test) + ilgili ses paketi 86 test OK.
