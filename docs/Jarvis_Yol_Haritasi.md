@@ -1417,3 +1417,11 @@ D
 - `pc_hands._screen_unchanged(action)`: tıklama öncesi/sonrası pencere özetini karşılaştırır.
 - Ekran değişmediyse cevap `no_change`: "…için bastım ama ekran değişmedi. **İkinci kez basmadım**; pencereyi bir kontrol et, istersen tekrar denerim." — çift işlem riski yok.
 - Kanıt: `tests/test_pc_hands.py` 14 test (2 yeni) + `test_pc_el_beyin` 6 → 20 test OK.
+
+
+### 2026-11-24 — PC ajanı 5. dilim: çok adımlı görev (`modules/pc_task.py`)
+
+- `split_steps()`: "sonra / ardından / virgül" ile adım cümleleri.
+- `plan()`: her adım `fast_commands.resolve` ile çözülür; **biri anlaşılmazsa plan hiç çalışmaz** ("hiçbir şey yapmadım"); en çok 6 adım.
+- `run()`: sırayla yürütür; bir adım durursa (onay gerekiyor / pencere yok / ekran değişmedi) **zincir kesilir**, kalan çalışmaz, ne olduğu tek tek söylenir. `abort` (Esc) her adımdan önce kontrol edilir.
+- Kanıt: `tests/test_pc_task.py` 7 test OK.
