@@ -122,6 +122,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
             from modules import pc_awareness
             return pc_awareness.summary()
+        case "pc_confirm":
+            # Onay akışının ucu: "onaylıyorum" → bekleyen riskli işlem çalışır.
+            from modules import pc_hands
+            return pc_hands.confirm_pending()["text"]
         case "pc_click":
             # 3. dilim: el. UIA önce; bulamazsa tahmin yok, tek soru. Riskli fiillerde
             # (silme/ödeme/gönderme) işlem yapılmaz, onay istenir.
