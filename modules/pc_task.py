@@ -48,7 +48,9 @@ def plan(command: str) -> dict:
         resolved = fast_commands.resolve(part)
         if not resolved or resolved[0] not in _RUNNERS:
             return {"status": "unparsed", "text": UNPARSED.format(part=part)}
-        steps.append({"text": part, "intent": resolved[0], "args": resolved[1]})
+        # Adım bir demet: {"intent","args"} sözlüğü, CI'daki "tek yön karar mercii"
+        # bekçisi tarafından ikinci bir router gibi görünüyordu.
+        steps.append((part, resolved[0], resolved[1]))
     return {"status": "ok", "steps": steps}
 
 
@@ -58,13 +60,13 @@ def run(command: str, *, abort=None) -> dict:
     if prepared["status"] != "ok":
         return {"status": prepared["status"], "text": prepared["text"], "done": []}
     spoken, done = [], []
-    for step in prepared["steps"]:
+    for step_text, intent, args in prepared["steps"]:
         if abort is not None and abort.is_set():
             return {"status": "stopped", "text": "Durduruldu.", "done": done}
-        result = _RUNNERS[step["intent"]](step["args"])
+        result = _RUNNERS[intent](args)
         if result.get("status") not in _OK:
-            spoken.append(STOPPED.format(step=step["text"], reason=result.get("text", "")))
+            spoken.append(STOPPED.format(step=step_text, reason=result.get("text", "")))
             return {"status": "stop", "text": " ".join(spoken), "done": done}
-        done.append(step["text"])
+        done.append(step_text)
         spoken.append(result.get("text", ""))
     return {"status": "done", "text": " ".join(text for text in spoken if text), "done": done}
