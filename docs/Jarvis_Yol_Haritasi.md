@@ -1485,3 +1485,12 @@ D
 - Canlı doğrulama: aynı komut artık `no_change` döndürüyor (doğru cevap).
 - Kural: **ölçemiyorsak başarı saymayız** (ekran okunamazsa da "done" denmez).
 - Kanıt: `test_pc_hands` 34 test (3 yeni) + `test_cleanup_security` → 44 test OK.
+
+
+### 2026-11-24 — Kurtarma (son dilim): bir kez daha dene, sonra dürüstçe dur
+
+- `pc_hands.attempt(fn, window=..., abort=...)`: geçici hatada (`no_window`, `no_change`, `failed`) **en fazla 2 deneme**. `no_window` ise pencereyi öne almayı dener; `no_change` ise 0,6 sn bekler.
+- Kalıcı hatada (`not_found`, `ambiguous`, `needs_confirmation`, `secret`) **tekrar denenmez** — denemek zarar verir.
+- Cevap her zaman ne olduğunu söyler: "İlk deneme olmadı (…); bir kez daha denedim." / "İki denemede de olmadı: … Başka bir yol söylersen denerim."
+- Çok adımlı zincire (`pc_task.run`) bağlandı: her adım bu kurtarmadan geçer; adım yine durursa zincir kesilir.
+- Kanıt: `test_pc_task` 12 test (3 yeni) + `test_pc_hands` + `test_cleanup_security` → 56 test OK.

@@ -72,3 +72,29 @@ class Running(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Recovery(unittest.TestCase):
+    """Kurtarma: geçici hata bir kez tekrar denenir, kalıcı hatada dürüstçe durulur."""
+
+    def test_transient_failure_is_retried_once(self):
+        calls = []
+        def flaky(window, target):
+            calls.append(target)
+            return {"status": "done", "text": "bastım"} if len(calls) > 1 else {"status": "no_change", "text": "ekran değişmedi"}
+        with patch.object(pc_task.pc_hands, "click", side_effect=flaky):
+            result = pc_task.run("not defterinde kaydet düğmesine bas")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(len(calls), 2)
+
+    def test_persistent_failure_stops_with_two_attempts(self):
+        with patch.object(pc_task.pc_hands, "click", return_value={"status": "no_change", "text": "ekran değişmedi"}) as click:
+            result = pc_task.run("not defterinde kaydet düğmesine bas")
+        self.assertEqual(result["status"], "stop")
+        self.assertIn("İki denemede de olmadı", result["text"])
+        self.assertEqual(click.call_count, 2)
+
+    def test_missing_target_is_not_retried(self):
+        with patch.object(pc_task.pc_hands, "click", return_value={"status": "not_found", "text": "bulamadım"}) as click:
+            pc_task.run("not defterinde kaydet düğmesine bas")
+        self.assertEqual(click.call_count, 1)

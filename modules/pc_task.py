@@ -82,7 +82,9 @@ def run(command: str, *, abort=None) -> dict:
     for step_text, intent, args in prepared["steps"]:
         if abort is not None and abort.is_set():
             return {"status": "stopped", "text": "Durduruldu.", "done": done}
-        result = _RUNNERS[intent](args)
+        # Kurtarma: geçici aksaklıkta bir kez daha dene, sonra dürüstçe dur.
+        result = pc_hands.attempt(lambda: _RUNNERS[intent](args), window=str(args.get("window") or ""),
+                                  abort=abort)
         if result.get("status") not in _OK:
             spoken.append(STOPPED.format(step=step_text, reason=result.get("text", "")))
             return {"status": "stop", "text": " ".join(spoken), "done": done}
