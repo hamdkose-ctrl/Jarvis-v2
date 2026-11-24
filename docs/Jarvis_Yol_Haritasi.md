@@ -1441,6 +1441,7 @@ D
 - Canlı deneme (Hesap Makinesi): UIA rakam düğmelerini **görmüyor** (yalnız pencere/başlık öğeleri) → ajan "“7” diye bir öğe yok" deyip **durmadı, tıklamadı** (doğru davranış).
 - Sıradaki iş: UIA iç kontrolü vermeyen uygulamalar için **klavye ile giriş** (Hesap Makinesi "7+3=" yazarak çalışır) ve gerekirse koordinat yedeği.
 - Kanıt: `test_pc_task` 9 test (2 yeni) OK.
+D
 
 
 ### 2026-11-24 — Onay akışının ucu: "onaylıyorum" → bekleyen riskli işlem çalışır
