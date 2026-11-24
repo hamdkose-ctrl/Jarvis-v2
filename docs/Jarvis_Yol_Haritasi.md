@@ -1253,6 +1253,10 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 - Chromium akışları, 27 JavaScript grubu ve ilgili sözleşme testleri yerelde doğrulandı. Windows CI ve gerçek PC kabulü bu değişikliğin güncel commit’inde beklenir.
 
 
+### 2026-11-23 — Cloudflare Gemma 4 sohbet yanıtı
+
+Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.
+
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 
 - Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.
@@ -1350,3 +1354,32 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 - **CI'da "başarısız" görünen şey hata değil, süre aşımıydı:** 23 Kasım 21:26 koşusu `unittest discover` 900 saniyede bitmediği için düştü; tek bir test hatası yoktu. Test sayısı ~7.1k'ya çıktı, koşucu makine Jarvis açıkken ve paralel iş varken yavaşlıyor. `modules/validation.py` varsayılan tavanı **900 → 1800 sn** (yine PASS sayılmaz; `JARVIS_VALIDATION_TIMEOUT` ile yönetilir).
 - **Testte ağ yok:** `test_finance_incomplete_request` gerçek TCMB/Frankfurter çağrısı yapıyordu; kur/piyasa fonksiyonları taklit edilerek test hızlı ve kararlı hâle getirildi (46 test 0,9 sn).
+
+
+### 2026-11-24 — Ekran farkındalığı: "ekranda ne var" artık okunuyor (PC ajanı 1. dilim)
+
+- `modules/pc_awareness.py`: `snapshot()` (ön plandaki pencere + görünen pencereler + ekran ölçüsü), `summary()` (tek cümlelik Türkçe özet), `titles()`. **Yalnız okur**: tıklama, yazma, pencere değiştirme yok; Core onay kapısına girmez. Kaynak kopyalanmadı: mevcut `system_control._app_windows()` ve `GetForegroundWindow` kullanılır.
+- `modules/fast_commands.py`: "ekranda ne var", "hangi program açık", "ne üstünde çalışıyorum", "aktif pencere ne", "açık pencereler" → `screen_summary`. İçinde başka istek olan cümle ("ekranda ne var yaz") buraya girmez.
+- `modules/engine_intents.py`: `screen_summary` dalı model çağırmadan `pc_awareness.summary()` döndürür.
+- Canlı ölçüm (bu makine): 3 pencere okundu, ön plan `deepai code`, ekran 1920×1080; cevap tek cümle.
+- Kanıt: `tests/test_pc_awareness.py` (16 test) + `test_fast_commands` (26) → 39 test OK.
+>>>>>>> d4a886f0 (Ekran farkındalığı: "ekranda ne var" okunur, model çağrılmaz)
+
+
+### 2026-11-24 — Pencere içini okuma (PC ajanı 2. dilim, yalnız okuma)
+
+- `pc_awareness.find_window()`: pencerеyi adla bulur; **tahmin yok** — birden fazla eşleşmede tek soru sorar, ad verilmezse öndeki pencereyi okur ve bunu söyler ("Öndeki pencereyi okudum."). Türkçe iyelik/hâl ekleri ("not defterinin", "chrome'da") eşleşmeyi bozmaz.
+- `pc_awareness.controls()` / `describe_controls()`: mevcut `desktop_uia.DesktopUI.observe()` üzerinden kontrol listesi; UIA tür adları Türkçeleşir (düğme, metin alanı, menü…). En çok **40** kontrol okunur, liste 12'şer gruplanır.
+- **Şifre alanı içeriği hiç okunmaz**; yalnız "şifre alanı var; içeriğini okumuyorum" denir. Yetki hatasında dürüst cevap ("yönetici yetkisi gerekiyor olabilir").
+- Pencere **öne getirilmez**, imleç/odak değişmez.
+- `fast_commands`: "not defteri'nde ne var", "chrome'da hangi düğmeler var", "hesap makinesinde ne var" → `screen_controls`; `engine_intents` dalı model çağırmadan cevaplar.
+- Canlı ölçüm (bu makine): Chrome penceresi 8 öğe okundu, cevap tek paragraf.
+- Kanıt: `tests/test_pc_awareness.py` 16 → **29 test**, `test_fast_commands` 26 → toplam **46 test OK**.
+
+
+### 2026-11-24 — Sıra kararı: konuşma süresine göre bekleme (PR #794)
+
+- Smart Turn insan sesiyle ölçüldü ve **ayrışmadı** (`Sonuç: AYRIŞMIYOR`) → hat kapalı kaldı.
+- Aynı derdin modelsiz çözümü: `voice_turn.adaptive_wait(speech_secs, complete)` — kısa konuşana ~1,2 sn, uzun konuşana ~2,7 sn (en çok 2,8); yarım cümlede +1,8 sn (en çok 4,0). Süre bilinmiyorsa eski sabitler (1,2 / 3,0) korunur, yani davranış değişmez.
+- Kanıt: `tests/test_voice_adaptive_wait.py` (5) + `test_voice_turn` (18) → 23 test OK.
+>>>>>>> origin/main
