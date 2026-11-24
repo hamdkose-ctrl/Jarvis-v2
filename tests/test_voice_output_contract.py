@@ -91,7 +91,10 @@ class CoordinatorOutputTests(unittest.TestCase):
         return self.coordinator
 
     def until(self, count):
-        deadline = time.monotonic() + 2
+        # CI koşucusu başka işlerle paylaşılırken 2 sn yetmiyordu (canlı: 24 Kasım
+        # koşuları, "0 not greater than or equal to 1 : []" dalgalı hatası). Emniyet
+        # payı 10 sn; bekleme bitince aynı iddia kontrol edilir, yani test zayıflamaz.
+        deadline = time.monotonic() + 10
         while len(self.receipts) < count and time.monotonic() < deadline:
             self.signal.wait(0.02)
             self.signal.clear()
