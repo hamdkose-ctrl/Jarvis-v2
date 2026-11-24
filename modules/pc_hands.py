@@ -35,6 +35,8 @@ _last_action: dict[tuple, float] = {}
 # Onay bekleyen işlem: "sil düğmesine bas" → soru → "onaylıyorum" → çalışır.
 # Tek slot ve kısa ömür: kullanıcı başka bir şeye geçtiyse eski işlem çalışmasın.
 _pending: dict = {}
+Ocr_ASK = ("Ekranda “{what}” yazısını buldum ({x},{y}). Düğme olarak göremiyorum; "
+           "oraya tıklamamı onaylıyor musun?")
 PENDING_SECS = 120.0
 NO_PENDING = "Onay bekleyen bir işlem yok."
 EXPIRED = "Onay süresi geçti; işlemi yeniden söyle."
@@ -136,7 +138,21 @@ def click(window: str, query: str, *, confirm: bool = False, abort=None,
     """Penceredeki öğeye basar (UIA invoke/click)."""
     found = find_control(window, query)
     if found["status"] == "not_found" and allow_keyboard_fallback:
-        return click_with_keyboard(window, query, abort=abort)
+        keyed = click_with_keyboard(window, query, abort=abort)
+        if keyed["status"] != "not_found":
+            return keyed
+        # Son çare: ekranda yazıyı bul (Windows OCR) → konum → onay → tıkla.
+        from modules import pc_vision
+        seen = pc_vision.find_text(query)
+        if seen["status"] == "ok":
+            _pending.clear()
+            _pending.update({"action": {"kind": "point", "x": seen["point"]["x"], "y": seen["point"]["y"]},
+                             "at": time.time()})
+            return {"status": "needs_confirmation",
+                    "text": Ocr_ASK.format(what=query, x=seen["point"]["x"], y=seen["point"]["y"])}
+        if seen["status"] == "ambiguous":
+            return {"status": "ambiguous", "text": pc_vision.describe(query)}
+        return found
     if found["status"] != "ok":
         return found
     control = found["control"]

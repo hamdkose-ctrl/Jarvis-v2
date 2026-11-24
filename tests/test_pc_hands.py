@@ -315,3 +315,28 @@ class PointClick(unittest.TestCase):
             result = pc_hands.click_point(5, 5, confirm=True)
         self.assertEqual(result["status"], "failed")
         self.assertIn("tıklayamadım", result["text"])
+
+
+class OcrFallback(unittest.TestCase):
+    """UIA ve klavye yetmediğinde ekranda yazıyı bulup onaya sunar."""
+
+    def setUp(self):
+        pc_hands._pending.clear()
+
+    def test_found_text_becomes_a_confirmation_request(self):
+        seen = {"status": "ok", "point": {"x": 120, "y": 240}, "word": {"text": "Kaydet"}}
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch.object(pc_hands, "key_for", return_value=None), \
+             patch("modules.pc_vision.find_text", return_value=seen):
+            result = pc_hands.click("not defteri", "kaydet")
+        self.assertEqual(result["status"], "needs_confirmation")
+        self.assertIn("120,240", result["text"])
+
+    def test_missing_text_keeps_the_honest_not_found(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch.object(pc_hands, "key_for", return_value=None), \
+             patch("modules.pc_vision.find_text", return_value={"status": "missing", "words": []}):
+            result = pc_hands.click("not defteri", "kaydet")
+        self.assertEqual(result["status"], "not_found")

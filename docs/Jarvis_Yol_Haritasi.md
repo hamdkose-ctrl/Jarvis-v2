@@ -1467,3 +1467,12 @@ D
 - `fast_commands`: "960 540 noktasına tıkla" → `pc_click_point`; `engine_intents` + `brain_core_map` kaydı.
 - Sınır (dürüst): UIA'nın iç öğe vermediği uygulamalarda **görsel konum tanıma yok**; kullanıcı koordinatı söyler. OCR/şablon eşleşmesi ayrı bir iş.
 - Kanıt: 88 test OK (`test_pc_hands` 29, 4 yeni).
+
+
+### 2026-11-24 — Ekran yazısı tanıma (Windows OCR) — PC ajanının gözü
+
+- `modules/pc_vision.py`: `read_screen()` (Windows OCR, **Türkçe** paketi kurulu; canlı ölçüm **328 kelime** okundu), `find_text(query)` (tek eşleşme → konum, çok → adaylar, yok → `missing`), `describe()`.
+- `pc_hands.click()` zinciri artık üç kademe + son çare: **UIA → klavye → OCR**. OCR yazıyı bulursa **koordinat onaya sunulur** ("…buldum (x,y). oraya tıklamamı onaylıyor musun?"); onaylanınca tıklanır ve ekran doğrulanır.
+- Kurallar korunuyor: yalnız okuma serbest, tıklama onaydan sonra; eşleşme belirsizse tahmin yok, adaylar sorulur; motor yoksa "göremedim".
+- Canlı hata düzeltildi: `detach_buffer()` `detach_stream()`ten **önce** çağrılmalıydı (tampon None dönüyordu).
+- Kanıt: `test_pc_hands` 31 test (2 yeni) + `test_cleanup_security` → 41 test OK.
