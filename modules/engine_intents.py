@@ -122,6 +122,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
             from modules import pc_awareness
             return pc_awareness.summary()
+        case "pc_click_point":
+            from modules import pc_hands
+            return pc_hands.click_point(int(a.get("x") or 0), int(a.get("y") or 0))["text"]
         case "pc_confirm":
             # Onay akışının ucu: "onaylıyorum" → bekleyen riskli işlem çalışır.
             from modules import pc_hands
