@@ -290,15 +290,23 @@ class PointClick(unittest.TestCase):
         self.assertEqual(result["status"], "needs_confirmation")
         self.assertEqual(click.call_count, 0)
 
+    def _screen(self):
+        """Ekran görüntüsünü taklit et: CI'da gerçek ekran yok, test ona bağlı kalmasın."""
+        import numpy as np
+        return (patch("pyautogui.size", return_value=(20, 20)),
+                patch("PIL.ImageGrab.grab", return_value=np.zeros((20, 20, 3), dtype="uint8")))
+
     def test_confirmation_runs_the_point_click(self):
-        with patch("pyautogui.click") as click, patch.object(pc_hands, "_two_points", lambda b: True):
+        size, grab = self._screen()
+        with size, grab, patch("pyautogui.click") as click, patch.object(pc_hands, "_two_points", lambda b: True):
             pc_hands.click_point(500, 300)
             done = pc_hands.confirm_pending()
         self.assertEqual(done["status"], "done")
         click.assert_called_once_with(500, 300)
 
     def test_unchanged_screen_is_reported(self):
-        with patch("pyautogui.click"), patch.object(pc_hands, "_two_points", lambda b: False):
+        size, grab = self._screen()
+        with size, grab, patch("pyautogui.click"), patch.object(pc_hands, "_two_points", lambda b: False):
             result = pc_hands.click_point(10, 10, confirm=True)
         self.assertEqual(result["status"], "no_change")
 
