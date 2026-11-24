@@ -1433,3 +1433,11 @@ D
 - `pc_hands.type_with_keyboard()`: pencereyi öne alır (`ShowWindow` + gerekirse Alt dokunuşuyla ön plan kilidi), metni panoya koyar ve yapıştırır (Türkçe karakterler bozulmaz). `type_text` kontrolü bulamazsa bu yola düşer (`allow_keyboard_fallback`, varsayılan açık).
 - Ölçüm: canlıda `type_text('not defteri','metin','merhaba jarvis')` → `done`, "metin alanını göremedim; … penceresine yapıştırdım".
 - Kanıt: `test_pc_hands` 17 test (3 yeni: yedek kullanılır / kapatılabilir / Esc önce durdurur).
+
+
+### 2026-11-24 — Çok adımda pencere devralma + Hesap Makinesi canlı denemesi
+
+- `pc_task.plan()`: zincirin devamındaki adımlar pencereyi tekrar söylemez ("…, sonra artı düğmesine bas" → önceki adımın penceresi). İlk adımda pencere hâlâ zorunlu.
+- Canlı deneme (Hesap Makinesi): UIA rakam düğmelerini **görmüyor** (yalnız pencere/başlık öğeleri) → ajan "“7” diye bir öğe yok" deyip **durmadı, tıklamadı** (doğru davranış).
+- Sıradaki iş: UIA iç kontrolü vermeyen uygulamalar için **klavye ile giriş** (Hesap Makinesi "7+3=" yazarak çalışır) ve gerekirse koordinat yedeği.
+- Kanıt: `test_pc_task` 9 test (2 yeni) OK.
