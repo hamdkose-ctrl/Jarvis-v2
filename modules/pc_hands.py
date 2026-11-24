@@ -28,6 +28,8 @@ AMBIGUOUS = "{window} penceresinde {count} öğe “{query}” ile eşleşiyor: 
 NO_TARGET = "Hangi pencerede işlem yapacağımı söylemedin."
 SECRET = "Şifre alanına ben yazmam; o alanı senin doldurman gerekiyor."
 REPEAT = "Aynı öğeye az önce bastım; çift işlem olmasın diye ikinci kez basmıyorum."
+NO_CHANGE = ("“{what}” için bastım ama ekran değişmedi. İkinci kez basmadım; "
+             "pencereyi bir kontrol et, istersen tekrar denerim.")
 
 _last_action: dict[tuple, float] = {}
 _repeat_window_secs = 2.0
@@ -99,7 +101,26 @@ def _run(action: dict, *, confirm: bool, abort) -> dict:
         return {"status": "failed", "text": f"İşlem yapılamadı: {exc}"}
     if abort is not None and abort.is_set():
         return {"status": "stopped", "text": "Durduruldu."}
+    # 4. dilim: doğrulama. Bastım demek yetmez; ekran gerçekten değişti mi?
+    # Değişmediyse ikinci kez basmıyoruz (çift işlem riski), dürüstçe söylüyoruz.
+    unchanged = _screen_unchanged(action)
+    if unchanged:
+        return {"status": "no_change", "text": NO_CHANGE.format(what=action["query"])}
     return {"status": "done", "text": action["done_text"]}
+
+
+def _screen_unchanged(action: dict) -> bool:
+    """Tıklamadan önceki ve sonraki pencere özeti aynı mı? (en iyi çaba)"""
+    try:
+        after = pc_awareness.controls(action["window_obj"])
+    except Exception:
+        _record_failure("modules/pc_hands.py:_screen_unchanged")
+        return False
+    before = action.get("snapshot") or {}
+    def _digest(state: dict) -> str:
+        rows = [(c.get("type"), c.get("name")) for c in (state.get("controls") or [])]
+        return repr(rows)
+    return bool(before) and _digest(after) == _digest(before)
 
 
 def click(window: str, query: str, *, confirm: bool = False, abort=None) -> dict:
@@ -110,7 +131,7 @@ def click(window: str, query: str, *, confirm: bool = False, abort=None) -> dict
     control = found["control"]
     op = control.get("op") or "invoke"
     return _run({"query": query, "window": found["window"]["title"], "control_id": control["id"],
-                 "snapshot": found["snapshot"], "op": op,
+                 "snapshot": found["snapshot"], "window_obj": found["window"], "op": op,
                  "done_text": f"“{control['name'][:40]}” öğesine bastım."},
                 confirm=confirm, abort=abort)
 
@@ -125,6 +146,6 @@ def type_text(window: str, query: str, text: str, *, confirm: bool = False, abor
         return {"status": "secret", "text": SECRET}
     op = "set_value" if "value" in (control.get("patterns") or []) else "type"
     return _run({"query": query, "window": found["window"]["title"], "control_id": control["id"],
-                 "snapshot": found["snapshot"], "op": op, "text": text,
+                 "snapshot": found["snapshot"], "window_obj": found["window"], "op": op, "text": text,
                  "done_text": f"“{control['name'][:30]}” alanına yazdım."},
                 confirm=confirm, abort=abort)

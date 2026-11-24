@@ -1410,3 +1410,10 @@ D
 - Gerçek sebep: #790 ("merhaba" hızlı yolu) `test_real_loop_uses_context_handler_and_closes_without_hardware` testini kilitliyordu. Test `'selam'` komutuyla motor döngüsünü sürüyordu; artık selamlama hızlı yolda cevaplandığı için `handle` hiç çağrılmıyor, `stop_event` kurulmuyor ve döngü sonsuz `events.get()` yapıyordu → paket 3600 sn tavanına çarpıyordu.
 - Düzeltme: test artık selamlamayan bir cümle kullanıyor (`toplantı notlarını özetle`); `test_engine_modular` 28 test, 14 sn, OK.
 - Ayrıca CI iş süresi tavanı 40 → 75 dk (`.github/workflows/testler-windows.yml`, `testler.yml`); `validation.py` tavanı yanlış düğmeydi.
+
+
+### 2026-11-24 — PC ajanı 4. dilim (doğrulama): "bastım" yetmez, ekran değişti mi?
+
+- `pc_hands._screen_unchanged(action)`: tıklama öncesi/sonrası pencere özetini karşılaştırır.
+- Ekran değişmediyse cevap `no_change`: "…için bastım ama ekran değişmedi. **İkinci kez basmadım**; pencereyi bir kontrol et, istersen tekrar denerim." — çift işlem riski yok.
+- Kanıt: `tests/test_pc_hands.py` 14 test (2 yeni) + `test_pc_el_beyin` 6 → 20 test OK.
