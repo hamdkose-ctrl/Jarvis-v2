@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 from modules import pc_awareness
+from modules.diagnostics import record_failure as _record_failure
 
 # Onay isteyen fiiller: geri alınamaz veya dışarıya etkisi olan adımlar.
 RISKY_WORDS = (
@@ -94,6 +95,7 @@ def _run(action: dict, *, confirm: bool, abort) -> dict:
     except WindowMissing as exc:
         return {"status": "no_window", "text": str(exc)}
     except Exception as exc:                      # yetki/UIA hatası: dürüst cevap
+        _record_failure("modules/pc_hands.py:_run")
         return {"status": "failed", "text": f"İşlem yapılamadı: {exc}"}
     if abort is not None and abort.is_set():
         return {"status": "stopped", "text": "Durduruldu."}
