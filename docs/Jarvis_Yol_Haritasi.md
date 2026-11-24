@@ -1441,3 +1441,11 @@ D
 - Canlı deneme (Hesap Makinesi): UIA rakam düğmelerini **görmüyor** (yalnız pencere/başlık öğeleri) → ajan "“7” diye bir öğe yok" deyip **durmadı, tıklamadı** (doğru davranış).
 - Sıradaki iş: UIA iç kontrolü vermeyen uygulamalar için **klavye ile giriş** (Hesap Makinesi "7+3=" yazarak çalışır) ve gerekirse koordinat yedeği.
 - Kanıt: `test_pc_task` 9 test (2 yeni) OK.
+
+
+### 2026-11-24 — Onay akışının ucu: "onaylıyorum" → bekleyen riskli işlem çalışır
+
+- `pc_hands`: riskli adımda işlem **tek slotta** saklanır (`_pending`, 120 sn); `confirm_pending()` çalıştırır.
+- Kurallar: tek kullanımlık (ikinci "onaylıyorum" → "onay bekleyen işlem yok"), süreli (geçerse "onay süresi geçti"), yeni riskli istek öncekini değiştirir.
+- `fast_commands`: `pc_confirm` ("onaylıyorum / onayla / evet onayla / tamam onayla / yapabilirsin") → `engine_intents case "pc_confirm"`; `brain_core_map` kaydı.
+- Kanıt: `test_pc_hands` 22 test (5 yeni) + `test_fast_commands` + orphan bekçisi → 62 test OK.

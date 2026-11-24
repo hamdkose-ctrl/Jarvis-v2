@@ -32,6 +32,12 @@ NO_CHANGE = ("“{what}” için bastım ama ekran değişmedi. İkinci kez basm
              "pencereyi bir kontrol et, istersen tekrar denerim.")
 
 _last_action: dict[tuple, float] = {}
+# Onay bekleyen işlem: "sil düğmesine bas" → soru → "onaylıyorum" → çalışır.
+# Tek slot ve kısa ömür: kullanıcı başka bir şeye geçtiyse eski işlem çalışmasın.
+_pending: dict = {}
+PENDING_SECS = 120.0
+NO_PENDING = "Onay bekleyen bir işlem yok."
+EXPIRED = "Onay süresi geçti; işlemi yeniden söyle."
 _repeat_window_secs = 2.0
 
 
@@ -82,6 +88,8 @@ def _run(action: dict, *, confirm: bool, abort) -> dict:
         return {"status": "stopped", "text": "Durduruldu."}
     query = action["query"]
     if is_risky(query, action.get("text", "")) and not confirm:
+        _pending.clear()
+        _pending.update({"action": action, "at": time.time()})
         return {"status": "needs_confirmation",
                 "text": CONFIRM_MESSAGE.format(what=f"“{query}”"),
                 "action": action}
@@ -214,3 +222,14 @@ def type_with_keyboard(window: str, text: str, *, abort=None) -> dict:
     if not _paste(text):
         return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pano/yapıştırma çalışmadı")}
     return {"status": "done", "text": PASTED.format(window=target["title"][:40])}
+
+
+def confirm_pending(*, abort=None) -> dict:
+    """Onay bekleyen riskli işlemi çalıştırır (kullanıcı "onaylıyorum" dedi)."""
+    if not _pending:
+        return {"status": "none", "text": NO_PENDING}
+    action, asked_at = _pending.get("action"), float(_pending.get("at") or 0)
+    _pending.clear()
+    if time.time() - asked_at > PENDING_SECS:
+        return {"status": "expired", "text": EXPIRED}
+    return _run(action, confirm=True, abort=abort)

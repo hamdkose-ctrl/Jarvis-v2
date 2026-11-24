@@ -78,6 +78,8 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- onay (riskli adımın devamı) ---
+    (re.compile(r'(onayliyorum|onayla|evet onayla|tamam onayla|yapabilirsin)'), ('pc_confirm', {})),
     # --- konuşma ---
     (re.compile(r'(sus|sessiz ol|kes sesini|konusmayi (durdur|kes))'), ('fast_speech_stop', {})),
     # --- ses denetimi (tek sahip: audio_action / level_set) ---

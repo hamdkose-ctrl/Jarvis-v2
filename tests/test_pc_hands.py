@@ -188,3 +188,61 @@ class KeyboardFallback(unittest.TestCase):
             result = pc_hands.type_with_keyboard("not defteri", "merhaba", abort=event)
         self.assertEqual(result["status"], "stopped")
         self.assertEqual(focus.call_count, 0)
+
+
+class Confirmation(unittest.TestCase):
+    """Onay akışı: sor → "onaylıyorum" → çalıştır (tek kullanımlık, süreli)."""
+
+    def setUp(self):
+        pc_hands._last_action.clear()
+        pc_hands._pending.clear()
+        FakeUI.calls = []
+        FakeUI.error = None
+
+    def _setup(self, controls=None):
+        return (
+            patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}),
+            patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": controls or [_ctl("Sil")], "window": w}),
+            patch("modules.desktop_uia.DesktopUI", FakeUI),
+            patch.object(pc_hands, "_screen_unchanged", lambda action: False),
+        )
+
+    def test_confirmation_runs_the_asked_action(self):
+        p1, p2, p3, p4 = self._setup()
+        with p1, p2, p3, p4:
+            asked = pc_hands.click("not defteri", "sil")
+            self.assertEqual(asked["status"], "needs_confirmation")
+            self.assertEqual(FakeUI.calls, [])              # henüz yapılmadı
+            done = pc_hands.confirm_pending()
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(len(FakeUI.calls), 1)
+
+    def test_confirmation_is_single_use(self):
+        p1, p2, p3, p4 = self._setup()
+        with p1, p2, p3, p4:
+            pc_hands.click("not defteri", "sil")
+            pc_hands.confirm_pending()
+            second = pc_hands.confirm_pending()
+        self.assertEqual(second["status"], "none")
+        self.assertEqual(len(FakeUI.calls), 1)
+
+    def test_without_pending_the_answer_is_honest(self):
+        self.assertEqual(pc_hands.confirm_pending()["status"], "none")
+
+    def test_expired_confirmation_does_not_run(self):
+        p1, p2, p3, p4 = self._setup()
+        with p1, p2, p3, p4:
+            pc_hands.click("not defteri", "sil")
+            pc_hands._pending["at"] -= pc_hands.PENDING_SECS + 5
+            result = pc_hands.confirm_pending()
+        self.assertEqual(result["status"], "expired")
+        self.assertEqual(FakeUI.calls, [])
+
+    def test_new_risky_request_replaces_the_pending_one(self):
+        p1, p2, p3, p4 = self._setup([_ctl("Sil"), _ctl("Kaldır", cid="c2")])
+        with p1, p2, p3, p4:
+            pc_hands.click("not defteri", "sil")
+            pc_hands.click("not defteri", "kaldır")
+            done = pc_hands.confirm_pending()
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(FakeUI.calls[0]["control"], "c2")   # son sorulan çalışır
