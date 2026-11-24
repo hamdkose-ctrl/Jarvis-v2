@@ -175,6 +175,7 @@ def _focus(window: dict) -> bool:
         try:
             win32gui.SetForegroundWindow(hwnd)
         except Exception:
+            _record_failure("modules/pc_hands.py:_focus_alt")
             import pyautogui
             pyautogui.press("alt")            # ön plan kilidini açar
             win32gui.SetForegroundWindow(hwnd)
