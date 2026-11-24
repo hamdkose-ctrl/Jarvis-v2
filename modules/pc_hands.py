@@ -188,6 +188,8 @@ def type_text(window: str, query: str, text: str, *, confirm: bool = False, abor
 # öne alıp metni panoya koyarak yapıştırıyoruz (Türkçe karakterler bozulmasın).
 PASTED = "Metin alanını göremedim; “{window}” penceresine yapıştırdım."
 PASTE_FAILED = "“{window}” penceresine yazamadım: {reason}"
+NOT_VISIBLE = ("“{window}” penceresine yapıştırdım ama yazı görünmüyor — alan seçili "
+               "değil. Önce yazılacak alana tıklayıp söyle.")
 
 
 def _focus(window: dict) -> bool:
@@ -228,6 +230,22 @@ def _paste(text: str) -> bool:
         return False
 
 
+def _text_visible(text: str) -> bool:
+    """Yapıştırılan metin ekranda göründü mü? Ölçemiyorsak 'göründü' saymayız."""
+    needle = _fold(text)[:24]
+    if not needle:
+        return False
+    try:
+        from modules import pc_vision
+        words = pc_vision.read_screen()
+    except Exception:
+        _record_failure("modules/pc_hands.py:_text_visible")
+        return False
+    if not words:
+        return False
+    return needle in _fold(" ".join(word["text"] for word in words))
+
+
 def type_with_keyboard(window: str, text: str, *, abort=None) -> dict:
     """UIA bulunamadığında: pencereyi öne al, panodan yapıştır."""
     if abort is not None and abort.is_set():
@@ -240,6 +258,10 @@ def type_with_keyboard(window: str, text: str, *, abort=None) -> dict:
         return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
     if not _paste(text):
         return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pano/yapıştırma çalışmadı")}
+    # "Yapıştırdım" demek yetmez: metin ekranda göründü mü? (canlı bulgu: odaklanmış
+    # alan yoksa Chrome'da yapıştırma hiçbir yere gitmiyor)
+    if not _text_visible(text):
+        return {"status": "no_change", "text": NOT_VISIBLE.format(window=target["title"][:40])}
     return {"status": "done", "text": PASTED.format(window=target["title"][:40])}
 
 
