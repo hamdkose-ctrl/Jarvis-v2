@@ -340,3 +340,31 @@ class OcrFallback(unittest.TestCase):
              patch("modules.pc_vision.find_text", return_value={"status": "missing", "words": []}):
             result = pc_hands.click("not defteri", "kaydet")
         self.assertEqual(result["status"], "not_found")
+
+
+class TypeVerification(unittest.TestCase):
+    """Yapıştırdım demek yetmez: metin ekranda göründü mü?"""
+
+    def setUp(self):
+        pc_hands._last_action.clear()
+
+    def test_invisible_text_is_reported(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=False):
+            result = pc_hands.type_with_keyboard("chrome", "youtube")
+        self.assertEqual(result["status"], "no_change")
+        self.assertIn("görünmüyor", result["text"])
+
+    def test_visible_text_is_done(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=True):
+            result = pc_hands.type_with_keyboard("chrome", "youtube")
+        self.assertEqual(result["status"], "done")
+
+    def test_unreadable_screen_does_not_claim_success(self):
+        with patch("modules.pc_vision.read_screen", return_value=[]):
+            self.assertFalse(pc_hands._text_visible("youtube"))

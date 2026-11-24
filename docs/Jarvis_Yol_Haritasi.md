@@ -1476,3 +1476,12 @@ D
 - Kurallar korunuyor: yalnız okuma serbest, tıklama onaydan sonra; eşleşme belirsizse tahmin yok, adaylar sorulur; motor yoksa "göremedim".
 - Canlı hata düzeltildi: `detach_buffer()` `detach_stream()`ten **önce** çağrılmalıydı (tampon None dönüyordu).
 - Kanıt: `test_pc_hands` 31 test (2 yeni) + `test_cleanup_security` → 41 test OK.
+
+
+### 2026-11-24 — Gerçek görev denemesi (Chrome) + yazma doğrulaması
+
+- Canlı deneme: "chrome da adres alanına youtube yaz" → öğe bulunamadı, klavye yedeği panoyla yapıştırdı ama **metin hiçbir yere gitmedi** (adres alanı odaklı değildi). Ajan bunu "done" diye bildirdi — **sessiz yanlış başarı**.
+- Düzeltme: `pc_hands._text_visible()` — yapıştırma sonrası ekran OCR ile okunur; metin görünmüyorsa `no_change`: "…yapıştırdım ama yazı görünmüyor — alan seçili değil. Önce yazılacak alana tıklayıp söyle."
+- Canlı doğrulama: aynı komut artık `no_change` döndürüyor (doğru cevap).
+- Kural: **ölçemiyorsak başarı saymayız** (ekran okunamazsa da "done" denmez).
+- Kanıt: `test_pc_hands` 34 test (3 yeni) + `test_cleanup_security` → 44 test OK.
