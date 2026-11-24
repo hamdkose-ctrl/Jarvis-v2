@@ -376,3 +376,35 @@ def click_point(x: int, y: int, *, confirm: bool = False, abort=None) -> dict:
     if before is not None and not _two_points(before):
         return {"status": "no_change", "text": NO_CHANGE.format(what=f"{x},{y}")}
     return {"status": "done", "text": POINT_DONE.format(x=x, y=y)}
+
+
+# --- Kurtarma: bir kez daha dene, sonra dürüstçe vazgeç --------------------
+# Canlı ders: tek denemeyle vazgeçmek de, sonsuz denemek de yanlış. Kural:
+# penceresi yoksa pencereyi öne almayı dene; ekran değişmediyse kısa bekleyip bir kez
+# daha dene. En fazla 2 deneme; ikinci de olmazsa "yapamadım" ve neden.
+RETRIED = "İlk deneme olmadı ({reason}); bir kez daha denedim."
+GAVE_UP = "İki denemede de olmadı: {reason} Başka bir yol söylersen denerim."
+MAX_ATTEMPTS = 2
+
+
+def _retryable(status: str) -> bool:
+    return status in ("no_window", "no_change", "failed")
+
+
+def attempt(fn, *args, window: str = "", abort=None, **kwargs) -> dict:
+    """Bir işlemi en çok iki kez dener; ikinci denemede pencereyi öne alır."""
+    first = fn(*args, abort=abort, **kwargs) if abort is not None else fn(*args, **kwargs)
+    if not _retryable(first.get("status", "")):
+        return first
+    if first.get("status") == "no_window":          # pencere kaçmış: öne al ve tekrar dene
+        found = pc_awareness.find_window(window)
+        if found.get("match"):
+            _focus(found["match"])
+    else:                                           # ekran değişmedi/başarısız: kısa bekle
+        time.sleep(0.6)
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    second = fn(*args, abort=abort, **kwargs) if abort is not None else fn(*args, **kwargs)
+    if second.get("status") == "done":
+        return {**second, "text": RETRIED.format(reason=first.get("text", "")) + " " + second.get("text", "")}
+    return {"status": second.get("status", "failed"), "text": GAVE_UP.format(reason=second.get("text", ""))}
