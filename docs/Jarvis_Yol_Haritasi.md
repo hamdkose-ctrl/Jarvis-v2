@@ -1450,3 +1450,11 @@ D
 - Kurallar: tek kullanımlık (ikinci "onaylıyorum" → "onay bekleyen işlem yok"), süreli (geçerse "onay süresi geçti"), yeni riskli istek öncekini değiştirir.
 - `fast_commands`: `pc_confirm` ("onaylıyorum / onayla / evet onayla / tamam onayla / yapabilirsin") → `engine_intents case "pc_confirm"`; `brain_core_map` kaydı.
 - Kanıt: `test_pc_hands` 22 test (5 yeni) + `test_fast_commands` + orphan bekçisi → 62 test OK.
+
+
+### 2026-11-24 — Klavye ile "tıklama": Hesap Makinesi uçtan uca çalıştı
+
+- `pc_hands.key_for()`: öğe adını tuşa çevirir ("7" → 7, "artı" → +, "eşittir" → =, "sil" → backspace); çevrilemezse **tahmin yok**.
+- `click_with_keyboard()`: pencereyi öne alır, tek tuşu gönderir; `click()` düğmeyi bulamazsa bu yola düşer (`allow_keyboard_fallback`, varsayılan açık).
+- **Canlı ölçüm:** "hesap makinesinde 7 düğmesine bas, sonra artı, 3, eşittir" → `done`, dört adım da çalıştı (7+3=10).
+- Kanıt: `test_pc_hands` 25 test (3 yeni) + `test_pc_task` + `test_cleanup_security` → 44 test OK.

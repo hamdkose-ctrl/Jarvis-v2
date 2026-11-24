@@ -131,9 +131,12 @@ def _screen_unchanged(action: dict) -> bool:
     return bool(before) and _digest(after) == _digest(before)
 
 
-def click(window: str, query: str, *, confirm: bool = False, abort=None) -> dict:
+def click(window: str, query: str, *, confirm: bool = False, abort=None,
+          allow_keyboard_fallback: bool = True) -> dict:
     """Penceredeki öğeye basar (UIA invoke/click)."""
     found = find_control(window, query)
+    if found["status"] == "not_found" and allow_keyboard_fallback:
+        return click_with_keyboard(window, query, abort=abort)
     if found["status"] != "ok":
         return found
     control = found["control"]
@@ -233,3 +236,47 @@ def confirm_pending(*, abort=None) -> dict:
     if time.time() - asked_at > PENDING_SECS:
         return {"status": "expired", "text": EXPIRED}
     return _run(action, confirm=True, abort=abort)
+
+
+# --- Klavye ile "tıklama" (UIA iç düğmeleri göstermiyorsa) -----------------
+# Canlı bulgu: Hesap Makinesi'nde UIA rakam düğmelerini görmüyor. Bu uygulamalarda
+# doğru yol tıklamak değil, klavyeyle aynı işi yapmak ("7" → + tuşu).
+KEY_NAMES = {
+    "arti": "+", "artı": "+", "eksi": "-", "cikarma": "-", "çıkarma": "-",
+    "carpi": "*", "çarpı": "*", "bolu": "/", "bölü": "/", "bolme": "/",
+    "esittir": "=", "eşittir": "=", "esit": "=", "virgul": ".", "virgül": ".",
+    "nokta": ".", "temizle": "esc", "sil": "backspace", "esittir2": "=",
+}
+KEYED = "“{what}” öğesini göremedim; {window} penceresinde klavyeyle yaptım."
+
+
+def key_for(query: str) -> str | None:
+    """Öğe adını klavye tuşuna çevirir; çevrilemezse None (tahmin yok)."""
+    text = _fold(query).strip(" .!'")
+    if len(text) == 1 and (text.isdigit() or text in "+-*/=.%"):
+        return text
+    return KEY_NAMES.get(text)
+
+
+def click_with_keyboard(window: str, query: str, *, abort=None) -> dict:
+    """UIA düğmeyi bulamadığında aynı işi klavyeyle yapar (yalnız tek tuş)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    key = key_for(query)
+    if key is None:
+        return {"status": "not_found", "text": NOT_FOUND.format(query=query, window=window[:40])}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    try:
+        import pyautogui
+        pyautogui.press(key)
+    except Exception:
+        _record_failure("modules/pc_hands.py:click_with_keyboard")
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="tuş gönderilemedi")}
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    return {"status": "done", "text": KEYED.format(what=query, window=target["title"][:40])}

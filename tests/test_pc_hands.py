@@ -246,3 +246,33 @@ class Confirmation(unittest.TestCase):
             done = pc_hands.confirm_pending()
         self.assertEqual(done["status"], "done")
         self.assertEqual(FakeUI.calls[0]["control"], "c2")   # son sorulan çalışır
+
+
+class KeyboardClick(unittest.TestCase):
+    """UIA iç düğmeyi görmüyorsa (Hesap Makinesi) klavyeyle aynı iş yapılır."""
+
+    def setUp(self):
+        pc_hands._last_action.clear()
+        pc_hands._pending.clear()
+
+    def test_key_names_are_mapped(self):
+        self.assertEqual(pc_hands.key_for("7"), "7")
+        self.assertEqual(pc_hands.key_for("artı"), "+")
+        self.assertEqual(pc_hands.key_for("eşittir"), "=")
+        self.assertIsNone(pc_hands.key_for("kaydet"))          # tahmin yok
+
+    def test_click_falls_back_to_keyboard(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch.object(pc_hands, "click_with_keyboard", return_value={"status": "done", "text": "tuşladım"}) as kb:
+            result = pc_hands.click("hesap makinesi", "7")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(kb.call_count, 1)
+
+    def test_unknown_target_does_not_press_anything(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch("pyautogui.press") as press:
+            result = pc_hands.click("hesap makinesi", "buğday")
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(press.call_count, 0)
