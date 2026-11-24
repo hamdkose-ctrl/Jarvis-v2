@@ -1402,3 +1402,11 @@ D
 - `brain_core_map.FAST_INTENTS`: `fast.pc.click`, `fast.pc.type`.
 - Okuma komutları (`chrome'da ne var`) eskisi gibi `screen_controls`'a gider; riskli fiillerde cevap "onay istiyor" olur.
 - Kanıt: `tests/test_pc_el_beyin.py` 6 test + orphan bekçisi + `test_fast_commands` (26) + `test_pc_hands` (12) → 47 test OK.
+>>>>>>> origin/main
+
+
+### 2026-11-24 — #790'ın "CI kapasitesi" sanılan derdi: selamlama testi kilidi
+
+- Gerçek sebep: #790 ("merhaba" hızlı yolu) `test_real_loop_uses_context_handler_and_closes_without_hardware` testini kilitliyordu. Test `'selam'` komutuyla motor döngüsünü sürüyordu; artık selamlama hızlı yolda cevaplandığı için `handle` hiç çağrılmıyor, `stop_event` kurulmuyor ve döngü sonsuz `events.get()` yapıyordu → paket 3600 sn tavanına çarpıyordu.
+- Düzeltme: test artık selamlamayan bir cümle kullanıyor (`toplantı notlarını özetle`); `test_engine_modular` 28 test, 14 sn, OK.
+- Ayrıca CI iş süresi tavanı 40 → 75 dk (`.github/workflows/testler-windows.yml`, `testler.yml`); `validation.py` tavanı yanlış düğmeydi.

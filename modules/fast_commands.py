@@ -9,6 +9,8 @@ vermez, izin vermez: yalnız `engine_intents.dispatch` ile mevcut sahipleri
 from __future__ import annotations
 
 import re
+
+from modules.diagnostics import record_failure as _record_failure
 import unicodedata
 
 # Kapalı uygulama listesi: tanınmayan ad hızlı yola girmez, Brain'e kalır.
@@ -213,3 +215,58 @@ def resolve(command: str) -> tuple[str, dict] | None:
             continue        # tanınmayan uygulama: hızlı yol değil, Brain karar verir
         return intent, dict(args)
     return None
+
+
+# --- Selamlama / nezaket: model GEREKTİRMEZ ---------------------------------
+# Canlı kusur (23 Kasım 22:17): kullanıcı "merhaba" dedi, tüm sağlayıcılar
+# düşmüştü (gemini 504, groq 429, cloudflare biçim hatası) ve Jarvis cevap
+# veremedi. Oysa "merhaba" bir bilgi sorusu değil; model çağırmadan cevaplanır.
+# Kural: yalnız TAM eşleşme. "merhaba, hava nasıl?" buraya girmez (Brain'e gider).
+_SELAMLAMA = {
+    'merhaba': ('Merhaba.', 'Merhaba, buradayım.', 'Selam, dinliyorum.'),
+    'merhabalar': ('Merhaba.', 'Merhaba, buradayım.'),
+    'selam': ('Selam.', 'Selam, buradayım.'),
+    'selamlar': ('Selamlar.', 'Selam, dinliyorum.'),
+    'hey jarvis': ('Buradayım.', 'Dinliyorum.'),
+    'jarvis': ('Buradayım.', 'Efendim?'),
+    'gunaydin': ('Günaydın.', 'Günaydın, iyi başlangıçlar.'),
+    'iyi aksamlar': ('İyi akşamlar.', 'İyi akşamlar, dinliyorum.'),
+    'iyi geceler': ('İyi geceler.', 'İyi geceler, yarın görüşürüz.'),
+    'naber': ('İyiyim, sağ ol. Sen nasılsın?', 'Buradayım, işler yolunda. Sen nasılsın?'),
+    'nasilsin': ('İyiyim, sağ ol. Sen nasılsın?', 'İyiyim, çalışıyorum. Sen nasılsın?'),
+    'nasilsiniz': ('İyiyim, teşekkürler. Siz nasılsınız?',),
+    'iyi misin': ('İyiyim, sağ ol.', 'İyiyim, teşekkürler.'),
+    'tesekkurler': ('Rica ederim.', 'Ne demek, rica ederim.'),
+    'tesekkur ederim': ('Rica ederim.', 'Ne demek, rica ederim.'),
+    'sagol': ('Rica ederim.', 'Ne demek.'),
+    'sag ol': ('Rica ederim.', 'Ne demek.'),
+    'eline saglik': ('Sağ ol, kolay gelsin.',),
+    'kolay gelsin': ('Sağ ol, sana da kolay gelsin.',),
+    'iyi calismalar': ('Sağ ol, sana da iyi çalışmalar.',),
+    'gorusuruz': ('Görüşürüz.', 'Görüşürüz, iyi günler.'),
+    'hoscakal': ('Hoşça kal.', 'Hoşça kal, iyi günler.'),
+    'hosca kal': ('Hoşça kal.', 'Hoşça kal, iyi günler.'),
+}
+
+
+def chitchat(command: str, *, hour: int | None = None) -> str | None:
+    """Selamlama/nezaket sözüne model çağırmadan kısa cevap; değilse None.
+
+    Kapalı sözlük ve tam eşleşme: tanınmayan ya da içinde başka istek olan
+    cümle buradan geçmez. Aynı söz her seferinde aynı cevabı vermez (saat +
+    uzunluk ile döner), ama cevap her zaman kısa ve tek cümle.
+    """
+    metin = normalize(command)
+    if not metin or len(metin) > MAX_CHARS:
+        return None
+    secenekler = _SELAMLAMA.get(metin.strip(' .!?'))
+    if not secenekler:
+        return None
+    if hour is None:
+        import time as _time
+        try:
+            hour = _time.localtime().tm_hour
+        except Exception:
+            _record_failure("modules/fast_commands.py:chitchat_hour")
+            hour = 12
+    return secenekler[(len(metin) + int(hour)) % len(secenekler)]

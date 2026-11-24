@@ -140,6 +140,13 @@ def _fast_command_turn(runtime, cmd):
     from modules import engine_intents, fast_commands
     eslesme = fast_commands.resolve(cmd)
     if eslesme is None:
+        # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model
+        # çağırmadan cevaplanır. Canlı kusur (23 Kasım): tüm sağlayıcılar düşükken
+        # "merhaba" cevapsız kaldı.
+        sohbet = fast_commands.chitchat(cmd)
+        if sohbet:
+            runtime.log.info("hızlı yol: intent=chitchat")
+            return sohbet
         # Salt hesap ("25 çarpı 4") model istemez: yan etkisiz, yerel.
         hesap = fast_commands.compute(cmd)
         if hesap:
