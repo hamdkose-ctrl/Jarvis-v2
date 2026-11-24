@@ -69,6 +69,13 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
      ('screen_controls', lambda m: {'window': m.group(1).strip()})),
     (re.compile(r'(hangi dugmeler var|dugmeler ne|bu pencerede ne var|pencerede ne var)'),
      ('screen_controls', {})),
+    # --- pencereye dokunma (3. dilim: el) ---
+    # "not defteri'nde kaydet düğmesine bas" / "chrome'da adres alanına youtube yaz"
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:dugmesine|ogesine|sekmesine|linkine)\s+(?:bas|tikla)"),
+     ('pc_click', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip()})),
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
+     ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
+                            'text': m.group(3).strip()})),
     # --- konuşma ---
     (re.compile(r'(sus|sessiz ol|kes sesini|konusmayi (durdur|kes))'), ('fast_speech_stop', {})),
     # --- ses denetimi (tek sahip: audio_action / level_set) ---
