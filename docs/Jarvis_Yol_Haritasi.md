@@ -1393,3 +1393,12 @@ D
 - Yan bulgu düzeltildi: `pc_awareness._secret()` operatör önceliği yüzünden **her metin alanını** şifre sayıyordu → artık yalnız adında şifre izi olan alan.
 - Kanıt: `tests/test_pc_hands.py` 12 test + `test_pc_awareness` 29 → toplam 42 test OK (UIA taklitli).
 - Canlı deneme (Chrome kapalıyken): `pc_hands.click("chrome","Kapat")` → `no_window` (tahminle tıklamadı).
+
+
+### 2026-11-24 — PC ajanı 3. dilim beyne bağlandı (sesli "şuna bas / şuraya yaz")
+
+- `fast_commands`: `pc_click` ("not defterinde kaydet düğmesine bas"), `pc_type` ("chrome da adres alanına youtube yaz") — tam eşleşme, model çağrılmaz.
+- `engine_intents`: `case "pc_click"` → `pc_hands.click`, `case "pc_type"` → `pc_hands.type_text` (ayrı case'ler; orphan bekçisi birleşik case'i görmüyordu).
+- `brain_core_map.FAST_INTENTS`: `fast.pc.click`, `fast.pc.type`.
+- Okuma komutları (`chrome'da ne var`) eskisi gibi `screen_controls`'a gider; riskli fiillerde cevap "onay istiyor" olur.
+- Kanıt: `tests/test_pc_el_beyin.py` 6 test + orphan bekçisi + `test_fast_commands` (26) + `test_pc_hands` (12) → 47 test OK.
