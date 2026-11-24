@@ -1494,3 +1494,10 @@ D
 - Cevap her zaman ne olduğunu söyler: "İlk deneme olmadı (…); bir kez daha denedim." / "İki denemede de olmadı: … Başka bir yol söylersen denerim."
 - Çok adımlı zincire (`pc_task.run`) bağlandı: her adım bu kurtarmadan geçer; adım yine durursa zincir kesilir.
 - Kanıt: `test_pc_task` 12 test (3 yeni) + `test_pc_hands` + `test_cleanup_security` → 56 test OK.
+
+
+### 2026-11-24 — Gerçek uygulamada uçtan uca kanıt (Not Defteri)
+
+- Komut: "not defterinde metin alanına yarın saat onda toplantı var yaz" → `done`; ekran OCR ile kontrol edildi, **"toplanti" metni ekranda göründü** (yani yazı gerçekten gitti, "yazdım" iddiası ölçüldü).
+- Chrome'da aynı komut dürüstçe `no_change` dönüyor (adres alanı odaklı değil) — kusur değil, sınır: alan seçili olmalı.
+- Durum: PC ajanı gerçek bir yazma görevini uçtan uca tamamlayabiliyor; ölçüm her adımda ekran/OCR ile doğrulanıyor.
