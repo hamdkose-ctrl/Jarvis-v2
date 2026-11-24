@@ -1379,6 +1379,7 @@ Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.
 
 ### 2026-11-24 — Smart Turn: gerçek insan sesiyle ölçüldü, AÇILMADI
 
+D
 - Ölçüm aracı (`scripts/turn_model_probe.py`) kullanıcının kendi sesiyle çalıştırıldı (tam / yarım / kısa cümle). Sonuç: **"AYRIŞMIYOR"** — model, konuşmacının cümleyi bitirip bitirmediğini ayırt etmedi.
 - Karar: model **hatta bağlanmaz**; sıra kararı noktalama kuralında kalır (`modules/voice_turn.py`: tamam 1,2 sn / yarım 3,0 sn). Model dosyaları (`~/.jarvis/turn_models`) duruyor; ileride farklı model/özellik çıkarımıyla yeniden denenebilir.
 - Ölçüm aracı iyileştirildi: her kayıttan önce Enter bekler, pencere 5 → 6 sn (canlı denemede süre, cümle anlaşılmadan geçiyordu).
