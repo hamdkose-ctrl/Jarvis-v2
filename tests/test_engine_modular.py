@@ -106,7 +106,10 @@ class ModularEngineTests(unittest.TestCase):
         context.profile.log_agent=Mock()
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
-        context.events.put(('command','selam','web',owner,'one'))
+        # "selam" artık selamlama hızlı yolunda model çağrılmadan cevaplanıyor
+        # (#790); bu test motor döngüsünün devrini ölçtüğü için selamlamayan bir
+        # cümle kullanır.
+        context.events.put(('command','toplantı notlarını özetle','web',owner,'one'))
         voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,state={},speak=Mock())
         # This checks the event-loop handoff and stop lifecycle, not model
         # availability. A free-language turn now requires the primary model;
@@ -131,7 +134,7 @@ class ModularEngineTests(unittest.TestCase):
              patch('modules.brain_echo.present'), \
              patch.object(context._llm,'take_route',return_value=None):
             context.main(ui=Mock())
-        context.handle.assert_called_once_with('selam')
+        context.handle.assert_called_once_with('toplantı notlarını özetle')
         voice.speak.assert_called_once_with('Merhaba')
         context.emit.assert_any_call('assistant','Merhaba')
         context.emit.assert_any_call('quit')
