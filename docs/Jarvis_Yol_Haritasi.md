@@ -1379,6 +1379,14 @@ Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.
 
 ### 2026-11-24 — Smart Turn: gerçek insan sesiyle ölçüldü, AÇILMADI
 
-- Ölçüm aracı (`scripts/turn_model_probe.py`) kullanıcının kendi sesiyle çalıştırıldı (tam / yarım / kısa cümle). Sonuç: **"AYRIŞMIYOR"** — model, konuşmacının cümleyi bitirip bitirmediğini ayırt etmedi.
-- Karar: model **hatta bağlanmaz**; sıra kararı noktalama kuralında kalır (`modules/voice_turn.py`: tamam 1,2 sn / yarım 3,0 sn). Model dosyaları (`~/.jarvis/turn_models`) duruyor; ileride farklı model/özellik çıkarımıyla yeniden denenebilir.
-- Ölçüm aracı iyileştirildi: her kayıttan önce Enter bekler, pencere 5 → 6 sn (canlı denemede süre, cümle anlaşılmadan geçiyordu).
+D
+- Smart Turn insan sesiyle ölçüldü ve **ayrışmadı** (`Sonuç: AYRIŞMIYOR`) → hat kapalı kaldı.
+- Aynı derdin modelsiz çözümü: `voice_turn.adaptive_wait(speech_secs, complete)` — kısa konuşana ~1,2 sn, uzun konuşana ~2,7 sn (en çok 2,8); yarım cümlede +1,8 sn (en çok 4,0). Süre bilinmiyorsa eski sabitler (1,2 / 3,0) korunur, yani davranış değişmez.
+- Kanıt: `tests/test_voice_adaptive_wait.py` (5) + `test_voice_turn` (18) → 23 test OK.
+
+
+### 2026-11-24 — Adaptif bekleme mikrofon hattına bağlandı (ayarla, varsayılan kapalı)
+
+- `modules/voice.py`: `_silence_needed(speech_frames, fallback)` — konuşma süresine göre sessizlik eşiği; `voice_wait_adaptive` ayarı **kapalıyken eski sabit 1 sn** aynen döner (davranış değişmez).
+- Açıkken kısa konuşana kısa, uzun konuşana uzun bekleme (`voice_turn.adaptive_wait`).
+- Kanıt: `tests/test_voice_adaptive_wiring.py` (3) + `test_voice_adaptive_wait` (5) → 8 test OK.
