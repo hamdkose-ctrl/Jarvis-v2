@@ -169,7 +169,10 @@ def find_window(query: str, windows: list[dict] | None = None) -> dict:
 def _secret(control: dict) -> bool:
     label = str(control.get("name") or control.get("label") or "").casefold()
     kind = str(control.get("type") or control.get("role") or "").casefold()
-    return "edit" in kind or "text" in kind and any(hint in label for hint in _SECRET_HINTS)
+    # Şifre alanı = metin alanı VE adında şifre izi. Önceden her "edit" alanı
+    # şifre sayılıyordu (operatör önceliği), yani sıradan metin alanları da
+    # okunamaz/yazılamaz görünüyordu.
+    return ("edit" in kind or "text" in kind) and any(hint in label for hint in _SECRET_HINTS)
 
 
 def controls(window: dict) -> dict:
