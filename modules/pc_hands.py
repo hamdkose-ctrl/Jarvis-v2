@@ -321,13 +321,20 @@ def click_point(x: int, y: int, *, confirm: bool = False, abort=None) -> dict:
         import pyautogui
         from PIL import ImageGrab
         import numpy as np
-        box = pyautogui.size()
-        before = {"box": (0, 0, int(box[0]), int(box[1])),
-                  "pixels": np.asarray(ImageGrab.grab(bbox=(0, 0, int(box[0]), int(box[1]))), dtype="int16")}
+        before = None
+        try:
+            box = pyautogui.size()
+            before = {"box": (0, 0, int(box[0]), int(box[1])),
+                      "pixels": np.asarray(ImageGrab.grab(bbox=(0, 0, int(box[0]), int(box[1]))),
+                                           dtype="int16")}
+        except Exception:
+            # Ekran görüntüsü alınamıyorsa (kilitli oturum, uzak masaüstü, CI) tıklama
+            # yine yapılır; yalnız "değişti mi" doğrulaması atlanır ve dürüstçe söylenir.
+            _record_failure("modules/pc_hands.py:click_point_before")
         pyautogui.click(int(x), int(y))
     except Exception as exc:
         _record_failure("modules/pc_hands.py:click_point")
         return {"status": "failed", "text": POINT_FAILED.format(x=x, y=y, reason=str(exc)[:60])}
-    if not _two_points(before):
+    if before is not None and not _two_points(before):
         return {"status": "no_change", "text": NO_CHANGE.format(what=f"{x},{y}")}
     return {"status": "done", "text": POINT_DONE.format(x=x, y=y)}
