@@ -57,12 +57,12 @@ class ValidationTests(unittest.TestCase):
         with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', side_effect=fake_run):
             validation.run_checks()
         self.assertEqual(calls[0], 90)               # Architecture Guard kısa/statik adımdır
-        self.assertGreaterEqual(calls[1], 900)       # Tam Windows test paketi 600 sn'de kesildi
+        self.assertGreaterEqual(calls[1], 1800)       # Tam Windows test paketi 600 sn'de kesildi
         self.assertEqual(set(calls[2:]), {90})
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': '900'}):
-            self.assertEqual(validation.python_timeout(), 900)
+            self.assertEqual(validation.python_timeout(), 900)   # ayar her zaman geçerli
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': 'x'}):
-            self.assertEqual(validation.python_timeout(), 900)
+            self.assertEqual(validation.python_timeout(), 3600)   # bozuk değerde varsayılan
 
     def test_python_timeout_remains_fail_closed_with_partial_output(self):
         import subprocess

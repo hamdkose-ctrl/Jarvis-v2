@@ -9,6 +9,8 @@ vermez, izin vermez: yalnız `engine_intents.dispatch` ile mevcut sahipleri
 from __future__ import annotations
 
 import re
+
+from modules.diagnostics import record_failure as _record_failure
 import unicodedata
 
 # Kapalı uygulama listesi: tanınmayan ad hızlı yola girmez, Brain'e kalır.
@@ -265,5 +267,6 @@ def chitchat(command: str, *, hour: int | None = None) -> str | None:
         try:
             hour = _time.localtime().tm_hour
         except Exception:
+            _record_failure("modules/fast_commands.py:chitchat_hour")
             hour = 12
     return secenekler[(len(metin) + int(hour)) % len(secenekler)]
