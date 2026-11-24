@@ -368,3 +368,31 @@ class TypeVerification(unittest.TestCase):
     def test_unreadable_screen_does_not_claim_success(self):
         with patch("modules.pc_vision.read_screen", return_value=[]):
             self.assertFalse(pc_hands._text_visible("youtube"))
+
+
+class BrowserAddressBar(unittest.TestCase):
+    """Tarayıcıda adres çubuğu: yalnız tarayıcıda denenir, sonuç ölçülür."""
+
+    def setUp(self):
+        pc_hands._last_action.clear()
+
+    def test_browser_detection(self):
+        self.assertTrue(pc_hands.is_browser({"title": "Google Chrome", "app": "chrome"}))
+        self.assertTrue(pc_hands.is_browser({"title": "YouTube - Microsoft Edge", "app": "msedge"}))
+        self.assertFalse(pc_hands.is_browser({"title": "Adsız - Not Defteri", "app": "notepad"}))
+
+    def test_non_browser_is_refused(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}):
+            result = pc_hands.type_address_bar("not defteri", "youtube")
+        self.assertEqual(result["status"], "not_browser")
+
+    def test_browser_uses_shortcut_and_verifies(self):
+        browser = {"title": "Google Chrome", "app": "chrome", "hwnd": 7}
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": browser, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=True), \
+             patch("pyautogui.hotkey") as hotkey:
+            result = pc_hands.type_address_bar("chrome", "youtube")
+        self.assertEqual(result["status"], "done")
+        hotkey.assert_called_once_with("ctrl", "l")

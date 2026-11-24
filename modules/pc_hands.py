@@ -168,6 +168,12 @@ def type_text(window: str, query: str, text: str, *, confirm: bool = False, abor
     """Metin alanına yazar (UIA set_value; olmazsa type)."""
     found = find_control(window, query)
     if found["status"] == "not_found" and allow_keyboard_fallback:
+        # Tarayıcıda adres çubuğu kısayolu (Ctrl+L) denenir; başka pencerede denenmez.
+        target_window = pc_awareness.find_window(window).get("match") or {}
+        if is_browser(target_window) and _fold(query) in ("adres", "adres cubugu", "adres çubuğu", "url"):
+            addressed = type_address_bar(window, text, abort=abort)
+            if addressed["status"] != "not_browser":
+                return addressed
         return type_with_keyboard(window, text, abort=abort)
     if found["status"] != "ok":
         return found
@@ -408,3 +414,41 @@ def attempt(fn, *args, window: str = "", abort=None, **kwargs) -> dict:
     if second.get("status") == "done":
         return {**second, "text": RETRIED.format(reason=first.get("text", "")) + " " + second.get("text", "")}
     return {"status": second.get("status", "failed"), "text": GAVE_UP.format(reason=second.get("text", ""))}
+
+
+# --- Tarayıcı adres çubuğu -------------------------------------------------
+# Canlı sınır: Chrome'da metin alanı odaklı değilken pano yapıştırması boşa gidiyor.
+# Bilinen kısayol var: Ctrl+L adres çubuğunu seçer. Bu yalnız tarayıcılarda denenir.
+BROWSERS = ("chrome", "edge", "firefox", "brave", "opera")
+ADDRESS_DONE = "Adres çubuğunu seçip “{text}” yazdım."
+
+
+def is_browser(window: dict) -> bool:
+    title = _fold(str(window.get("title") or "")) + " " + _fold(str(window.get("app") or ""))
+    return any(name in title for name in BROWSERS)
+
+
+def type_address_bar(window: str, text: str, *, abort=None) -> dict:
+    """Tarayıcıda Ctrl+L ile adres çubuğunu seçip yazar (yalnız tarayıcı)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+    if not is_browser(target):
+        return {"status": "not_browser", "text": "Bu pencere tarayıcı değil; adres çubuğu kısayolunu kullanmadım."}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    try:
+        import pyautogui
+        pyautogui.hotkey("ctrl", "l")
+        time.sleep(0.2)
+    except Exception:
+        _record_failure("modules/pc_hands.py:type_address_bar")
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="adres çubuğu seçilemedi")}
+    if not _paste(text):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="yapıştırma çalışmadı")}
+    if not _text_visible(text):
+        return {"status": "no_change", "text": NOT_VISIBLE.format(window=target["title"][:40])}
+    return {"status": "done", "text": ADDRESS_DONE.format(text=text[:30])}
