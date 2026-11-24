@@ -1,4 +1,5 @@
 """PC ajanı 3. dilim: tıkla/yaz güvenlik kuralları (UIA ve pencere taklit)."""
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -156,3 +157,34 @@ class Verification(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KeyboardFallback(unittest.TestCase):
+    """UIA metin alanını göremiyorsa (Windows 11 Not Defteri) klavye yedeği."""
+
+    def setUp(self):
+        pc_hands._last_action.clear()
+
+    def test_fallback_is_used_when_control_is_missing(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch.object(pc_hands, "type_with_keyboard", return_value={"status": "done", "text": "yapıştırdım"}) as kb:
+            result = pc_hands.type_text("not defteri", "metin", "merhaba")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(kb.call_count, 1)
+
+    def test_fallback_can_be_disabled(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands.pc_awareness, "controls", lambda w: {"controls": [], "window": w}), \
+             patch.object(pc_hands, "type_with_keyboard") as kb:
+            result = pc_hands.type_text("not defteri", "metin", "merhaba", allow_keyboard_fallback=False)
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(kb.call_count, 0)
+
+    def test_respects_abort_before_pasting(self):
+        event = threading.Event(); event.set()
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus") as focus:
+            result = pc_hands.type_with_keyboard("not defteri", "merhaba", abort=event)
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual(focus.call_count, 0)

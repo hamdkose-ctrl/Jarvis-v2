@@ -136,9 +136,12 @@ def click(window: str, query: str, *, confirm: bool = False, abort=None) -> dict
                 confirm=confirm, abort=abort)
 
 
-def type_text(window: str, query: str, text: str, *, confirm: bool = False, abort=None) -> dict:
+def type_text(window: str, query: str, text: str, *, confirm: bool = False, abort=None,
+              allow_keyboard_fallback: bool = True) -> dict:
     """Metin alanına yazar (UIA set_value; olmazsa type)."""
     found = find_control(window, query)
+    if found["status"] == "not_found" and allow_keyboard_fallback:
+        return type_with_keyboard(window, text, abort=abort)
     if found["status"] != "ok":
         return found
     control = found["control"]
@@ -149,3 +152,64 @@ def type_text(window: str, query: str, text: str, *, confirm: bool = False, abor
                  "snapshot": found["snapshot"], "window_obj": found["window"], "op": op, "text": text,
                  "done_text": f"“{control['name'][:30]}” alanına yazdım."},
                 confirm=confirm, abort=abort)
+
+
+# --- Klavye yedeği (UIA metin alanını göremiyorsa) -------------------------
+# Canlı bulgu: Windows 11 Not Defteri'nde UIA yalnız pencereyi görüyor; metin
+# alanı ayrı bir ağaçta kaldığı için `type_text` "bulamadım" diyordu. Kullanıcı
+# politikası "UIA önce, olmazsa klavye/fare yedeği" olduğu için burada pencereyi
+# öne alıp metni panoya koyarak yapıştırıyoruz (Türkçe karakterler bozulmasın).
+PASTED = "Metin alanını göremedim; “{window}” penceresine yapıştırdım."
+PASTE_FAILED = "“{window}” penceresine yazamadım: {reason}"
+
+
+def _focus(window: dict) -> bool:
+    """Pencereyi öne alır. Windows, ön planda olmayan süreçlere izin vermez:
+    önce geri yükle, olmazsa kısa bir Alt dokunuşuyla izin penceresi aç."""
+    try:
+        import win32gui
+        hwnd = int(window.get("hwnd") or 0)
+        if not hwnd:
+            return False
+        win32gui.ShowWindow(hwnd, 9)          # SW_RESTORE
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+        except Exception:
+            import pyautogui
+            pyautogui.press("alt")            # ön plan kilidini açar
+            win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.2)
+        return win32gui.GetForegroundWindow() == hwnd
+    except Exception:
+        _record_failure("modules/pc_hands.py:_focus")
+        return False
+
+
+def _paste(text: str) -> bool:
+    try:
+        import pyautogui
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardText(text)
+        win32clipboard.CloseClipboard()
+        pyautogui.hotkey("ctrl", "v")
+        return True
+    except Exception:
+        _record_failure("modules/pc_hands.py:_paste")
+        return False
+
+
+def type_with_keyboard(window: str, text: str, *, abort=None) -> dict:
+    """UIA bulunamadığında: pencereyi öne al, panodan yapıştır."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    if not _paste(text):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pano/yapıştırma çalışmadı")}
+    return {"status": "done", "text": PASTED.format(window=target["title"][:40])}

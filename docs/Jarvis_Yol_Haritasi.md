@@ -1425,3 +1425,11 @@ D
 - `plan()`: her adım `fast_commands.resolve` ile çözülür; **biri anlaşılmazsa plan hiç çalışmaz** ("hiçbir şey yapmadım"); en çok 6 adım.
 - `run()`: sırayla yürütür; bir adım durursa (onay gerekiyor / pencere yok / ekran değişmedi) **zincir kesilir**, kalan çalışmaz, ne olduğu tek tek söylenir. `abort` (Esc) her adımdan önce kontrol edilir.
 - Kanıt: `tests/test_pc_task.py` 7 test OK.
+
+
+### 2026-11-24 — PC ajanı: klavye yedeği (canlı bulgu: Not Defteri'nde UIA metin alanı yok)
+
+- Canlı deneme: Windows 11 Not Defteri'nde UIA yalnız pencereyi görüyor (1–2 öğe); `type_text` "bulamadım" diyordu.
+- `pc_hands.type_with_keyboard()`: pencereyi öne alır (`ShowWindow` + gerekirse Alt dokunuşuyla ön plan kilidi), metni panoya koyar ve yapıştırır (Türkçe karakterler bozulmaz). `type_text` kontrolü bulamazsa bu yola düşer (`allow_keyboard_fallback`, varsayılan açık).
+- Ölçüm: canlıda `type_text('not defteri','metin','merhaba jarvis')` → `done`, "metin alanını göremedim; … penceresine yapıştırdım".
+- Kanıt: `test_pc_hands` 17 test (3 yeni: yedek kullanılır / kapatılabilir / Esc önce durdurur).
