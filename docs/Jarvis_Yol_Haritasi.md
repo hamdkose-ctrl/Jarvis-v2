@@ -1375,3 +1375,10 @@ Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.
 - `fast_commands`: "not defteri'nde ne var", "chrome'da hangi düğmeler var", "hesap makinesinde ne var" → `screen_controls`; `engine_intents` dalı model çağırmadan cevaplar.
 - Canlı ölçüm (bu makine): Chrome penceresi 8 öğe okundu, cevap tek paragraf.
 - Kanıt: `tests/test_pc_awareness.py` 16 → **29 test**, `test_fast_commands` 26 → toplam **46 test OK**.
+
+
+### 2026-11-24 — Sıra kararı: konuşma süresine göre bekleme (PR #794)
+
+- Smart Turn insan sesiyle ölçüldü ve **ayrışmadı** (`Sonuç: AYRIŞMIYOR`) → hat kapalı kaldı.
+- Aynı derdin modelsiz çözümü: `voice_turn.adaptive_wait(speech_secs, complete)` — kısa konuşana ~1,2 sn, uzun konuşana ~2,7 sn (en çok 2,8); yarım cümlede +1,8 sn (en çok 4,0). Süre bilinmiyorsa eski sabitler (1,2 / 3,0) korunur, yani davranış değişmez.
+- Kanıt: `tests/test_voice_adaptive_wait.py` (5) + `test_voice_turn` (18) → 23 test OK.

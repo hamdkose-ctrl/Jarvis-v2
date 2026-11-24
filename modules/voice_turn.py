@@ -163,3 +163,29 @@ class TurnDecision:
         if self._last_speech_at is not None and now - self._last_speech_at <= RESUME_GRACE_SECS:
             self.resumed_after_cut += 1
         self._last_speech_at = now
+
+# --- Konuşma süresine göre bekleme (modelsiz, 24 Kasım) --------------------
+# Smart Turn insan sesinde ayrışmadı (ölçüm: scripts/turn_model_probe.py).
+# Aynı derdin modelsiz çözümü: kısa konuştuysan kısa, uzun konuştuysan uzun bekle.
+ADAPTIVE_BASE_SECS = 0.9
+ADAPTIVE_PER_SPEECH_SECS = 0.22
+ADAPTIVE_MIN_SECS = 0.9
+ADAPTIVE_MAX_SECS = 2.8
+ADAPTIVE_DANGLING_EXTRA_SECS = 1.8
+ADAPTIVE_DANGLING_MAX_SECS = 4.0
+
+
+def adaptive_wait(speech_secs: float | None, *, complete: bool = True) -> float:
+    """Konuşma süresine göre bekleme: 1,5 sn konuşana 1,2 sn; 8 sn konuşana ~2,7 sn.
+
+    Sebep: sabit 1,2 sn, uzun cümlede nefes almayı cümle sonu sanıyordu; sabit
+    3,0 sn ise kısa cevapta gereksiz bekletiyordu. Süre bilinmiyorsa eski sabit
+    değer korunur (davranış değişmez).
+    """
+    if speech_secs is None or speech_secs < 0:
+        return MAX_WAIT_SECS if not complete else FINISHED_WAIT_SECS
+    waited = ADAPTIVE_BASE_SECS + ADAPTIVE_PER_SPEECH_SECS * float(speech_secs)
+    if not complete:
+        waited += ADAPTIVE_DANGLING_EXTRA_SECS
+        return max(ADAPTIVE_MIN_SECS, min(ADAPTIVE_DANGLING_MAX_SECS, waited))
+    return max(ADAPTIVE_MIN_SECS, min(ADAPTIVE_MAX_SECS, waited))
