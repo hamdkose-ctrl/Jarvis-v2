@@ -78,6 +78,9 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- fare yedeği: açık koordinat ---
+    (re.compile(r"(\d{1,4})\s*[,; ]\s*(\d{1,4})\s*(?:noktasina|noktasına|koordinatina)\s*(?:tikla|bas)"),
+     ('pc_click_point', lambda m: {'x': int(m.group(1)), 'y': int(m.group(2))})),
     # --- onay (riskli adımın devamı) ---
     (re.compile(r'(onayliyorum|onayla|evet onayla|tamam onayla|yapabilirsin)'), ('pc_confirm', {})),
     # --- konuşma ---

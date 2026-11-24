@@ -235,6 +235,8 @@ def confirm_pending(*, abort=None) -> dict:
     _pending.clear()
     if time.time() - asked_at > PENDING_SECS:
         return {"status": "expired", "text": EXPIRED}
+    if isinstance(action, dict) and action.get("kind") == "point":
+        return click_point(action["x"], action["y"], confirm=True, abort=abort)
     return _run(action, confirm=True, abort=abort)
 
 
@@ -280,3 +282,52 @@ def click_with_keyboard(window: str, query: str, *, abort=None) -> dict:
     if abort is not None and abort.is_set():
         return {"status": "stopped", "text": "Durduruldu."}
     return {"status": "done", "text": KEYED.format(what=query, window=target["title"][:40])}
+
+
+# --- Fare yedeği: açık koordinat ------------------------------------------
+# UIA bir uygulamada hiçbir iç öğe vermiyorsa (ör. Hesap Makinesi) ve tuş karşılığı
+# da yoksa tek dürüst yol kullanıcının **açıkça söylediği** noktaya tıklamaktır.
+# Koordinat uydurulmaz; her zaman onay istenir; tıklama öncesi/sonrası ekran
+# karşılaştırılır.
+POINT_ASK = "{x},{y} noktasına tıklamamı istiyorsun. Ekranda ne olduğunu bilmiyorum; onaylıyor musun?"
+POINT_DONE = "{x},{y} noktasına tıkladım."
+POINT_FAILED = "{x},{y} noktasına tıklayamadım: {reason}"
+
+
+def _two_points(before: dict) -> bool:
+    """Ekran gerçekten değişti mi? (piksel karşılaştırması, en iyi çaba)"""
+    try:
+        from PIL import ImageGrab
+        import numpy as np
+        left, top, right, bottom = before["box"]
+        after = np.asarray(ImageGrab.grab(bbox=(left, top, right, bottom)), dtype="int16")
+        return float(np.abs(after - before["pixels"]).mean()) > 0.5
+    except Exception:
+        _record_failure("modules/pc_hands.py:_two_points")
+        return True          # ölçemediysek "değişmedi" diye yanlış alarm vermeyelim
+
+
+def click_point(x: int, y: int, *, confirm: bool = False, abort=None) -> dict:
+    """Söylenen ekran noktasına tıklar (onay şart)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    if not confirm:
+        _pending.clear()
+        _pending.update({"action": {"kind": "point", "x": int(x), "y": int(y)},
+                         "at": time.time()})
+        return {"status": "needs_confirmation", "text": POINT_ASK.format(x=x, y=y),
+                "action": {"kind": "point", "x": int(x), "y": int(y)}}
+    try:
+        import pyautogui
+        from PIL import ImageGrab
+        import numpy as np
+        box = pyautogui.size()
+        before = {"box": (0, 0, int(box[0]), int(box[1])),
+                  "pixels": np.asarray(ImageGrab.grab(bbox=(0, 0, int(box[0]), int(box[1]))), dtype="int16")}
+        pyautogui.click(int(x), int(y))
+    except Exception as exc:
+        _record_failure("modules/pc_hands.py:click_point")
+        return {"status": "failed", "text": POINT_FAILED.format(x=x, y=y, reason=str(exc)[:60])}
+    if not _two_points(before):
+        return {"status": "no_change", "text": NO_CHANGE.format(what=f"{x},{y}")}
+    return {"status": "done", "text": POINT_DONE.format(x=x, y=y)}

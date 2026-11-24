@@ -1458,3 +1458,12 @@ D
 - `click_with_keyboard()`: pencereyi öne alır, tek tuşu gönderir; `click()` düğmeyi bulamazsa bu yola düşer (`allow_keyboard_fallback`, varsayılan açık).
 - **Canlı ölçüm:** "hesap makinesinde 7 düğmesine bas, sonra artı, 3, eşittir" → `done`, dört adım da çalıştı (7+3=10).
 - Kanıt: `test_pc_hands` 25 test (3 yeni) + `test_pc_task` + `test_cleanup_security` → 44 test OK.
+
+
+### 2026-11-24 — Fare yedeği: yalnız açıkça söylenen noktaya tıklama
+
+- `pc_hands.click_point(x, y)`: **koordinat uydurulmaz**; her zaman onay ister ("…noktasına tıklamamı istiyorsun, ekranda ne olduğunu bilmiyorum; onaylıyor musun?"). Onay → tıklar, **önce/sonra tam ekran piksel karşılaştırması** yapar; değişmezse "ekran değişmedi" der.
+- Onay akışıyla bütünleşik: `confirm_pending()` nokta işlemini de çalıştırır.
+- `fast_commands`: "960 540 noktasına tıkla" → `pc_click_point`; `engine_intents` + `brain_core_map` kaydı.
+- Sınır (dürüst): UIA'nın iç öğe vermediği uygulamalarda **görsel konum tanıma yok**; kullanıcı koordinatı söyler. OCR/şablon eşleşmesi ayrı bir iş.
+- Kanıt: 88 test OK (`test_pc_hands` 29, 4 yeni).

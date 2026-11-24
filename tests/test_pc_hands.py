@@ -276,3 +276,34 @@ class KeyboardClick(unittest.TestCase):
             result = pc_hands.click("hesap makinesi", "buğday")
         self.assertEqual(result["status"], "not_found")
         self.assertEqual(press.call_count, 0)
+
+
+class PointClick(unittest.TestCase):
+    """Fare yedeği: yalnız açıkça söylenen nokta, her zaman onayla."""
+
+    def setUp(self):
+        pc_hands._pending.clear()
+
+    def test_point_click_always_asks_first(self):
+        with patch("pyautogui.click") as click:
+            result = pc_hands.click_point(500, 300)
+        self.assertEqual(result["status"], "needs_confirmation")
+        self.assertEqual(click.call_count, 0)
+
+    def test_confirmation_runs_the_point_click(self):
+        with patch("pyautogui.click") as click, patch.object(pc_hands, "_two_points", lambda b: True):
+            pc_hands.click_point(500, 300)
+            done = pc_hands.confirm_pending()
+        self.assertEqual(done["status"], "done")
+        click.assert_called_once_with(500, 300)
+
+    def test_unchanged_screen_is_reported(self):
+        with patch("pyautogui.click"), patch.object(pc_hands, "_two_points", lambda b: False):
+            result = pc_hands.click_point(10, 10, confirm=True)
+        self.assertEqual(result["status"], "no_change")
+
+    def test_failure_is_reported_honestly(self):
+        with patch("pyautogui.click", side_effect=RuntimeError("ekran kilitli")):
+            result = pc_hands.click_point(5, 5, confirm=True)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("tıklayamadım", result["text"])
