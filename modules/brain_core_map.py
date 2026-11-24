@@ -1619,6 +1619,8 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     # Ekran farkındalığı: yalnız okuma, yan etkisi yok (PC ajanı 1-2. dilim).
     "fast.screen.summary": ("screen_summary", {}),
     "fast.screen.controls": ("screen_controls", {}),
+    "fast.pc.click": ("pc_click", {}),
+    "fast.pc.type": ("pc_type", {}),
 }
 
 # session.pending_level.select: seviye zaten Core'un sorduğu soruda saklı; cevap yalnız özelliği seçer.

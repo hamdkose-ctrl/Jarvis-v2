@@ -106,13 +106,16 @@ def capture(timeout: int = 6, phrase_limit: int = 12, verbose: bool = False,
                 pre.append(data)
                 if lvl > threshold:
                     started = True
+                    speech_frames = 0
                     frames.extend(pre)
                 elif time.time() - start > timeout:
                     return None
             else:
                 frames.append(data)
+                if lvl >= threshold:
+                    speech_frames += 1
                 silent = silent + 1 if lvl < threshold else 0
-                if silent >= max_silent or len(frames) * CHUNK / RATE > phrase_limit:
+                if silent >= _silence_needed(speech_frames, max_silent) or                         len(frames) * CHUNK / RATE > phrase_limit:
                     break
 
     if abort is not None and abort.is_set():
@@ -121,6 +124,29 @@ def capture(timeout: int = 6, phrase_limit: int = 12, verbose: bool = False,
         on_captured()
     return b"".join(frames)
 
+
+
+def _adaptive_wait_enabled() -> bool:
+    """Konuşma süresine göre bekleme açık mı? (varsayılan kapalı)"""
+    try:
+        from config import load_settings
+        return bool(load_settings().get("voice_wait_adaptive", False))
+    except Exception:
+        _record_failure("modules/voice.py:adaptive_setting")
+        return False
+
+
+def _silence_needed(speech_frames: int, fallback: int) -> int:
+    """Kaç sessiz karede cümle biter: kısa konuşana kısa, uzun konuşana uzun bekleme.
+
+    Canlı kusur: sabit 1 sn, uzun cümlede nefesi cümle sonu sanıyordu. Ayar kapalıysa
+    eski sabit eşik aynen döner (davranış değişmez).
+    """
+    if not _adaptive_wait_enabled():
+        return fallback
+    from modules import voice_turn
+    speech_secs = speech_frames * CHUNK / RATE
+    return max(1, int(voice_turn.adaptive_wait(speech_secs) * RATE / CHUNK))
 
 def _turn_reopen_enabled() -> bool:
     """Yarım kalan cümlede mikrofonu bir kez daha açan yol açık mı?

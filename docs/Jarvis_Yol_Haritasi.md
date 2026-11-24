@@ -1377,9 +1377,29 @@ Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.
 - Kanıt: `tests/test_pc_awareness.py` 16 → **29 test**, `test_fast_commands` 26 → toplam **46 test OK**.
 
 
-### 2026-11-24 — Sıra kararı: konuşma süresine göre bekleme (PR #794)
+### 2026-11-24 — Smart Turn: gerçek insan sesiyle ölçüldü, AÇILMADI
 
-- Smart Turn insan sesiyle ölçüldü ve **ayrışmadı** (`Sonuç: AYRIŞMIYOR`) → hat kapalı kaldı.
-- Aynı derdin modelsiz çözümü: `voice_turn.adaptive_wait(speech_secs, complete)` — kısa konuşana ~1,2 sn, uzun konuşana ~2,7 sn (en çok 2,8); yarım cümlede +1,8 sn (en çok 4,0). Süre bilinmiyorsa eski sabitler (1,2 / 3,0) korunur, yani davranış değişmez.
-- Kanıt: `tests/test_voice_adaptive_wait.py` (5) + `test_voice_turn` (18) → 23 test OK.
+D
+- Ölçüm aracı (`scripts/turn_model_probe.py`) kullanıcının kendi sesiyle çalıştırıldı (tam / yarım / kısa cümle). Sonuç: **"AYRIŞMIYOR"** — model, konuşmacının cümleyi bitirip bitirmediğini ayırt etmedi.
+- Karar: model **hatta bağlanmaz**; sıra kararı noktalama kuralında kalır (`modules/voice_turn.py`: tamam 1,2 sn / yarım 3,0 sn). Model dosyaları (`~/.jarvis/turn_models`) duruyor; ileride farklı model/özellik çıkarımıyla yeniden denenebilir.
+- Ölçüm aracı iyileştirildi: her kayıttan önce Enter bekler, pencere 5 → 6 sn (canlı denemede süre, cümle anlaşılmadan geçiyordu).
+
+
+### 2026-11-24 — PC ajanı 3. dilim: el (tıkla/yaz) — `modules/pc_hands.py`
+
+- `find_control(pencere, ad)`: UIA öğesini adla bulur; **tahmin yok** — yoksa "bulamadım", birden fazlaysa tek soru ("hangisi?").
+- `click()` / `type_text()`: UIA `invoke` / `set_value` (yoksa `type`); `DesktopUI.act` zaten pencere özetini (digest) yeniden doğrular, yani "önce/sonra" kontrolü var.
+- Güvenlik kapıları: **silme/ödeme/gönderme/onay/kaldırma onay ister** (`needs_confirmation`); aynı öğeye 2 sn içinde ikinci tıklama **reddedilir** (çift gönderim); `abort` (Esc) hem önce hem sonra kontrol edilir; şifre alanına yazmaz.
+- Yan bulgu düzeltildi: `pc_awareness._secret()` operatör önceliği yüzünden **her metin alanını** şifre sayıyordu → artık yalnız adında şifre izi olan alan.
+- Kanıt: `tests/test_pc_hands.py` 12 test + `test_pc_awareness` 29 → toplam 42 test OK (UIA taklitli).
+- Canlı deneme (Chrome kapalıyken): `pc_hands.click("chrome","Kapat")` → `no_window` (tahminle tıklamadı).
+
+
+### 2026-11-24 — PC ajanı 3. dilim beyne bağlandı (sesli "şuna bas / şuraya yaz")
+
+- `fast_commands`: `pc_click` ("not defterinde kaydet düğmesine bas"), `pc_type` ("chrome da adres alanına youtube yaz") — tam eşleşme, model çağrılmaz.
+- `engine_intents`: `case "pc_click"` → `pc_hands.click`, `case "pc_type"` → `pc_hands.type_text` (ayrı case'ler; orphan bekçisi birleşik case'i görmüyordu).
+- `brain_core_map.FAST_INTENTS`: `fast.pc.click`, `fast.pc.type`.
+- Okuma komutları (`chrome'da ne var`) eskisi gibi `screen_controls`'a gider; riskli fiillerde cevap "onay istiyor" olur.
+- Kanıt: `tests/test_pc_el_beyin.py` 6 test + orphan bekçisi + `test_fast_commands` (26) + `test_pc_hands` (12) → 47 test OK.
 >>>>>>> origin/main

@@ -26,7 +26,7 @@ import numpy as np          # noqa: E402  (yol kurulduktan sonra)
 
 from modules import voice_smart_turn as turn   # noqa: E402
 
-SECONDS = 5
+SECONDS = 6
 RATE = 16_000
 PROMPTS = [
     ("TAM cümle", "Tam bir cümle söyle: \"Yarın saat üçte buluşalım, sonra kahve içeriz.\""),
@@ -56,6 +56,10 @@ def main() -> int:
     rows = []
     for label, instruction in PROMPTS:
         print(f"\n{label}: {instruction}")
+        try:
+            input("   Hazır olunca Enter'a bas...")
+        except EOFError:
+            pass
         audio = record(SECONDS)
         probability = turn.complete(audio)
         peak = float(np.abs(audio).max()) if audio.size else 0.0

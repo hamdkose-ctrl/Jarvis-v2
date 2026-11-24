@@ -122,6 +122,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
             from modules import pc_awareness
             return pc_awareness.summary()
+        case "pc_click":
+            # 3. dilim: el. UIA önce; bulamazsa tahmin yok, tek soru. Riskli fiillerde
+            # (silme/ödeme/gönderme) işlem yapılmaz, onay istenir.
+            from modules import pc_hands
+            return pc_hands.click(str(a.get("window") or ""), str(a.get("target") or ""))["text"]
+        case "pc_type":
+            from modules import pc_hands
+            return pc_hands.type_text(str(a.get("window") or ""), str(a.get("target") or ""),
+                                      str(a.get("text") or ""))["text"]
         case "screen_controls":
             # 2. dilim: pencere içini okumak da yalnız okumadır; model çağrılmaz.
             from modules import pc_awareness

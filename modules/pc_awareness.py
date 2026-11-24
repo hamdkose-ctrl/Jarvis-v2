@@ -128,8 +128,9 @@ _KIND_TR = {
 
 def _kind_label(kind: str) -> str:
     """UIA tür adını Türkçeleştirir; tanınmayan tür olduğu gibi kalır."""
-    text = str(kind or "").strip()
-    return _KIND_TR.get(text.casefold(), text or "öğe")
+    text = " ".join(str(kind or "").split())
+    key = text.casefold().removeprefix("controltype.").strip()
+    return _KIND_TR.get("controltype." + key) or _KIND_TR.get(key) or text or "öğe"
 
 
 def find_window(query: str, windows: list[dict] | None = None) -> dict:
@@ -168,7 +169,10 @@ def find_window(query: str, windows: list[dict] | None = None) -> dict:
 def _secret(control: dict) -> bool:
     label = str(control.get("name") or control.get("label") or "").casefold()
     kind = str(control.get("type") or control.get("role") or "").casefold()
-    return "edit" in kind or "text" in kind and any(hint in label for hint in _SECRET_HINTS)
+    # Şifre alanı = metin alanı VE adında şifre izi. Önceden her "edit" alanı
+    # şifre sayılıyordu (operatör önceliği), yani sıradan metin alanları da
+    # okunamaz/yazılamaz görünüyordu.
+    return ("edit" in kind or "text" in kind) and any(hint in label for hint in _SECRET_HINTS)
 
 
 def controls(window: dict) -> dict:
@@ -204,6 +208,12 @@ def describe_controls(result: dict) -> str:
     if result.get("error"):
         return (f"“{title}” penceresini okuyamadım; yönetici yetkisi gerekiyor olabilir.")
     rows = result.get("controls") or []
+    # Pencere/bölme öğeleri çoğu zaman pencerenin kendi başlığını tekrar eder:
+    # kullanıcıya bilgi katmaz, cevabı şişirir. Başlığı tekrar edenleri at.
+    stem = title.strip()[:24]
+    rows = [row for row in rows
+            if not (row["name"].strip() == title.strip()
+                    or (stem and row["name"].strip().startswith(stem)))]
     if not rows:
         return f"“{title}” penceresinde okunabilen bir düğme ya da alan göremiyorum."
     groups: dict[str, list[str]] = {}
