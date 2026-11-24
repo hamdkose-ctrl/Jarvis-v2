@@ -24,6 +24,19 @@ class Planning(unittest.TestCase):
         self.assertEqual(pc_task.plan(command)["status"], "too_long")
 
 
+class WindowInheritance(unittest.TestCase):
+    """Zincirin devamında pencereyi tekrar söylemek gerekmez."""
+
+    def test_bare_step_inherits_previous_window(self):
+        result = pc_task.plan("hesap makinesinde 7 düğmesine bas, sonra artı düğmesine bas")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([step[2]["window"] for step in result["steps"]],
+                         ["hesap makinesi", "hesap makinesi"])
+
+    def test_first_step_still_requires_a_window(self):
+        self.assertEqual(pc_task.plan("7 düğmesine bas")["status"], "unparsed")
+
+
 class Running(unittest.TestCase):
     def test_all_steps_run_in_order(self):
         calls = []

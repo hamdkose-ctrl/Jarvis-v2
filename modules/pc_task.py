@@ -11,7 +11,14 @@ Kurallar:
 """
 from __future__ import annotations
 
+import re
+
 from modules import fast_commands, pc_hands
+
+# Zincirin devamı: "sonra artı düğmesine bas" — pencere söylenmez, önceki adımın
+# penceresi kullanılır. Tek adımda pencere şart; çok adımda tekrar etmek yorucu.
+_BARE_CLICK = re.compile(r"(.+?)\s+(?:dugmesine|ogesine|sekmesine|linkine)\s+(?:bas|tikla)")
+_BARE_TYPE = re.compile(r"(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz")
 
 # Adım sınırları: sıralı işi anlatan bağlaçlar ve virgül.
 BOUNDARIES = (" sonra ", " ardından ", ",", " ve sonra ", " ondan sonra ")
@@ -44,8 +51,20 @@ def plan(command: str) -> dict:
     if len(parts) > MAX_STEPS:
         return {"status": "too_long", "text": TOO_LONG.format(limit=MAX_STEPS)}
     steps = []
+    inherited = ""
     for part in parts:
         resolved = fast_commands.resolve(part)
+        if resolved and resolved[0] in _RUNNERS:
+            inherited = str((resolved[1] or {}).get("window") or inherited)
+        elif inherited:
+            bare = pc_hands._fold(part)
+            click = _BARE_CLICK.fullmatch(bare)
+            typing = _BARE_TYPE.fullmatch(bare)
+            if click:
+                resolved = ("pc_click", {"window": inherited, "target": click.group(1).strip()})
+            elif typing:
+                resolved = ("pc_type", {"window": inherited, "target": typing.group(1).strip(),
+                                        "text": typing.group(2).strip()})
         if not resolved or resolved[0] not in _RUNNERS:
             return {"status": "unparsed", "text": UNPARSED.format(part=part)}
         # Adım bir demet: {"intent","args"} sözlüğü, CI'daki "tek yön karar mercii"
