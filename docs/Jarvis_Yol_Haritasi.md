@@ -1501,3 +1501,11 @@ D
 - Komut: "not defterinde metin alanına yarın saat onda toplantı var yaz" → `done`; ekran OCR ile kontrol edildi, **"toplanti" metni ekranda göründü** (yani yazı gerçekten gitti, "yazdım" iddiası ölçüldü).
 - Chrome'da aynı komut dürüstçe `no_change` dönüyor (adres alanı odaklı değil) — kusur değil, sınır: alan seçili olmalı.
 - Durum: PC ajanı gerçek bir yazma görevini uçtan uca tamamlayabiliyor; ölçüm her adımda ekran/OCR ile doğrulanıyor.
+
+
+### 2026-11-25 — Tarayıcı adres çubuğu (Ctrl+L) + canlı engel notu
+
+- `pc_hands.type_address_bar()`: tarayıcıda **Ctrl+L** ile adres çubuğunu seçer, metni yapıştırır ve **OCR ile görünürlüğünü doğrular**. Tarayıcı olmayan pencerede denenmez (`not_browser`).
+- `pc_type` "adres/adres çubuğu/url" hedefinde bunu dener; tutmazsa genel klavye yedeğine döner.
+- **Canlı engel (dürüst):** bu makinede Chrome profil seçici ekranında açılıyor ("Chrome'u kim kullanıyor?"), adres çubuğu yok → canlı doğrulama bugün yapılamadı; profil seçimi insan eli gerektiriyor. Kod birim testlerle doğrulandı.
+- Kanıt: `test_pc_hands` 37 test (3 yeni) OK.
