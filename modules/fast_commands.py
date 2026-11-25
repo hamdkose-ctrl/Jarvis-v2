@@ -78,6 +78,10 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- otonomi ana anahtarı ---
+    (re.compile(r"(otonomiyi|otonomi yi)?\s*(ac|aç|baslat|başlat)"), ('autonomy_on', {})),
+    (re.compile(r"otonomiyi\s*(kapat|durdur|kapa)"), ('autonomy_off', {})),
+    (re.compile(r"otonomi\s*(durumu|ne durumda|ozeti|özeti)"), ('autonomy_status', {})),
     # --- kaydetme ve arama (gece 2/4) ---
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:adiyla|adıyla)\s+kaydet"),
      ('pc_save', lambda m: {'window': m.group(1).strip(), 'name': m.group(2).strip()})),
