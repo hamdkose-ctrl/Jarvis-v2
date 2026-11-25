@@ -1,0 +1,41 @@
+"""Uyanıklık bildirimi: kapalıyken tek çağrı yok, açıkken mevcut sahibe gider."""
+import unittest
+from unittest.mock import patch
+
+from modules import awareness_watch, pc_autonomy_queue
+
+
+class Delivery(unittest.TestCase):
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+
+    def _run(self, settings, state):
+        with patch.object(pc_autonomy_queue, "watch_tick", wraps=pc_autonomy_queue.watch_tick):
+            with patch("modules.pc_awareness.find_window", return_value={"status": "missing"}):
+                with patch("modules.voice_runtime.announce_active", return_value=True) as say:
+                    items = pc_autonomy_queue.watch_tick(_Runtime(settings))
+        return items, say
+
+    def test_disabled_watch_never_announces(self):
+        items, say = self._run({}, {})
+        self.assertEqual(items, [])
+        say.assert_not_called()
+
+    def test_enabled_watch_announces_once(self):
+        state = {"status": "ok", "match": {"title": "Chrome"}}
+        with patch("modules.pc_awareness.find_window", return_value=state):
+            settings = {"watch_enabled": True}
+            first = pc_autonomy_queue.watch_tick(_Runtime(settings))
+            second = pc_autonomy_queue.watch_tick(_Runtime(settings))
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class _Runtime:
+    def __init__(self, settings):
+        self.profile = type("P", (), {"settings": settings})()
+        self.log = type("L", (), {"info": staticmethod(lambda *a, **k: None)})()
+
+
+if __name__ == "__main__":
+    unittest.main()

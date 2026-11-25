@@ -134,11 +134,26 @@ def watch_tick(runtime=None) -> list[dict]:
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:watch_tick_window")
         state["window"] = ""
-    items = awareness_watch.candidates(state, seen=set())
+    items = awareness_watch.candidates(state, seen=_SEEN)
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
             runtime.log.info("uyanıklık: %s", item["text"])
+        _announce(item["text"])
+    awareness_watch.mark_seen(items, _SEEN)
     return items
+
+
+_SEEN: set[str] = set()
+
+
+def _announce(text: str) -> bool:
+    """Bildirimi mevcut tek sahibe (voice_runtime.notice) devreder; yoksa sessiz."""
+    try:
+        from modules import voice_runtime
+        return bool(voice_runtime.announce_active(text, background=True))
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:_announce")
+        return False
 
 
 def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleeper=None,
