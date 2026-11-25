@@ -1677,3 +1677,14 @@ D
 - **Kusur 1 (ciddi):** `fast_commands.resolve` zamanlı cümlede **sonsuz özyineleme** (RecursionError) — "5 dakika sonra chrome da enter" hattı kilitliyordu. Düzeltme: normalize edilmiş kalan metin karşılaştırması + `_depth` sınırı (2).
 - **Kusur 2 (yanlış iş):** "bana bir şiir yaz" → `pc_type`, "yarınki toplantıyı hatırlat" → `autonomy_schedule` sanılıyordu. Düzeltme: pencere gerektiren yeteneklerde pencere söylenmemişse **tahmin yok**; zamanlı iş yalnız içinde gerçek PC adımı varsa kabul.
 - Kanıt: `test_understand_guard` 4 test + 62 test → 66 test OK; karnede **yanlış eylem 0/5**.
+
+
+### 2026-11-25 — Kısa komutlar (kullanıcının günlük tarzı)
+
+- Kullanıcı kısa konuşuyor: "youtube aç", "maili aç", "ilk mail ne", "müzik aç", "kapat".
+- `capability_catalog`: iki yeni yetenek — `pc_open_site` (tarayıcıda site aç, izin kapısı gerekmez), `screen_read_text` (ekrandaki yazıyı oku).
+- `capability_brain`: `SITES` sözlüğü (youtube→youtube.com, mail/gmail→gmail.com, müzik→music.youtube.com, google, haber, harita…); "oku/ne yazıyor/ilk mail" ipuçları; klasör sözcüklerinde ek toleransı (`masaustundeki` → Desktop).
+- `engine_intents`: `pc_open_site` (adres çubuğu + Enter), `screen_read_text` (OCR ilk 12 kelime); `brain_core_map` kayıtları.
+- Karne: kısa komut isabeti **10/11** ("bunu kaydet", "yarın 9 da bunu yap", "kapat" bilinçli olarak `uncertain` — bağlam/bellek gerekiyor); yanlış eylem **0/4**.
+- Kanıt: `test_short_commands` 4 + 100 test → 104 test OK.
+- Sınır: "bunu kaydet / bunu yap" **önceki cümleye** gönderme yapıyor; bellek kapısı (A7) gelmeden tahmin edilmiyor.
