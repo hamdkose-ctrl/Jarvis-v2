@@ -1517,3 +1517,12 @@ D
 - Güvenlik: yalnız `~/.jarvis/sandbox/`; `../` kaçışları dosya adına indirgenir; silme sandbox dışında reddedilir.
 - Onay kapısı: kaydetme kalıcı değişiklik → önce sorar; `confirm_save()` onayla yürütür.
 - Kanıt: `tests/test_pc_files.py` 8 test OK.
+
+
+### 2026-11-25 — Gece 2. ve 4. madde: belge zinciri + aramada Enter
+
+- `fast_commands`: `pc_save` ("not defterinde deneme adıyla kaydet"), `pc_search` ("chrome'da enter/ara").
+- `engine_intents`: `case "pc_save"` → `pc_files.save_as`, `case "pc_search"` → `pc_hands.press_enter`; `brain_core_map` kayıtları.
+- `pc_hands.press_enter()`: pencereyi öne alır, Enter gönderir, kısa bekler (aramayı başlatmak için).
+- `pc_task._RUNNERS`: `pc_save` ve `pc_search` adımları zincire eklendi → "not defterini aç, şunu yaz, kaydet" tek komutla yürüyebilir.
+- Kanıt: 107 test OK (`test_pc_task`, `test_pc_hands`, `test_fast_commands`, orphan bekçisi, `test_pc_files`, `test_cleanup_security`).

@@ -452,3 +452,27 @@ def type_address_bar(window: str, text: str, *, abort=None) -> dict:
     if not _text_visible(text):
         return {"status": "no_change", "text": NOT_VISIBLE.format(window=target["title"][:40])}
     return {"status": "done", "text": ADDRESS_DONE.format(text=text[:30])}
+
+
+# --- Enter / arama ---------------------------------------------------------
+ENTERED = "{window} penceresinde Enter'a bastım."
+
+
+def press_enter(window: str, *, abort=None) -> dict:
+    """Odaktaki pencereye Enter gönderir (yazdıktan sonra aramayı başlatmak için)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    try:
+        import pyautogui
+        pyautogui.press("enter")
+    except Exception:
+        _record_failure("modules/pc_hands.py:press_enter")
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="Enter gönderilemedi")}
+    time.sleep(0.8)
+    return {"status": "done", "text": ENTERED.format(window=target["title"][:40])}

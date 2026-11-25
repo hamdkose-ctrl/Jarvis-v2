@@ -78,6 +78,11 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- kaydetme ve arama (gece 2/4) ---
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:adiyla|adıyla)\s+kaydet"),
+     ('pc_save', lambda m: {'window': m.group(1).strip(), 'name': m.group(2).strip()})),
+    (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(?:enter|ara|aramayi baslat|aramayı başlat)"),
+     ('pc_search', lambda m: {'window': m.group(1).strip()})),
     # --- fare yedeği: açık koordinat ---
     (re.compile(r"(\d{1,4})\s*[,; ]\s*(\d{1,4})\s*(?:noktasina|noktasına|koordinatina)\s*(?:tikla|bas)"),
      ('pc_click_point', lambda m: {'x': int(m.group(1)), 'y': int(m.group(2))})),
