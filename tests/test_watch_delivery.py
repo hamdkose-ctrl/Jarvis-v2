@@ -10,7 +10,7 @@ class Delivery(unittest.TestCase):
         pc_autonomy_queue._SEEN.clear()
 
     def _run(self, settings, state=None):
-        with patch("config.load_settings", return_value=settings),              patch("modules.pc_awareness.find_window", return_value={"status": "missing"}),              patch("modules.voice_runtime.announce_active", return_value=True) as say:
+        with patch("config.load_settings", return_value=settings),              patch("modules.pc_autonomy_queue.foreground_window", return_value=""),              patch("modules.voice_runtime.announce_active", return_value=True) as say:
             items = pc_autonomy_queue.watch_tick(_Runtime(settings))
         return items, say
 
@@ -21,7 +21,7 @@ class Delivery(unittest.TestCase):
 
     def test_enabled_watch_announces_once(self):
         state = {"status": "ok", "match": {"title": "Chrome"}}
-        with patch("config.load_settings", return_value={"watch_enabled": True}),              patch("modules.pc_awareness.find_window", return_value=state):
+        with patch("config.load_settings", return_value={"watch_enabled": True}),              patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
             settings = {"watch_enabled": True}
             first = pc_autonomy_queue.watch_tick(_Runtime(settings))
             second = pc_autonomy_queue.watch_tick(_Runtime(settings))
