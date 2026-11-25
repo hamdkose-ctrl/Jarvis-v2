@@ -1,4 +1,4 @@
-"""Masaüstü küçük Jarvis: sağ altta her zaman üstte duran, konuşma ve mikrofon düğmelerini gösteren ince şerit.
+"""Masaüstü küçük Jarvis: durumunu animasyonla gösteren saydam masaüstü robotu.
 
 - Durum alanına tıkla: Jarvis seni dinler (ad söylemeden).
 - ⤢ düğmesi: Komut Merkezi'ni açar.  🎤 düğmesi: mikrofonu açar/kapatır.
@@ -16,11 +16,11 @@ from typing import Callable
 KEY = (1, 2, 3)                      # saydam sayılacak renk (pencerenin görünmeyen kısmı)
 KEY_HEX = "#010203"
 COLORS = {
-    "idle": "#f39b78", "listening": "#a5cbb3", "thinking": "#f5c995",
-    "speaking": "#a7c6d8", "muted": "#b1bec5", "sleep": "#b1bec5",
+    "idle": "#63daf5", "listening": "#7de6ad", "thinking": "#ffcb7b", "working": "#ffcb7b",
+    "speaking": "#82dfff", "muted": "#f6a696", "sleep": "#aebac5",
 }
 SHORT = {"idle": "Hazır", "listening": "Dinliyor…", "thinking": "Düşünüyor…", "speaking": "Konuşuyor…",
-         "muted": "Mikrofon kapalı", "sleep": "Uykuda"}   # şeritteki kısa durum yazısı
+         "working": "Çalışıyor…", "muted": "Sessiz", "sleep": "Uykuda"}
 
 
 @functools.lru_cache(maxsize=32)
@@ -37,7 +37,7 @@ def _font(size: int, bold: bool = False):
 
 
 class Widget:
-    W, H = 210, 46                   # mantıksal boyut (ekran ölçeğiyle çarpılır): ince şerit
+    W, H = 152, 181
 
     def __init__(self, get_state: Callable[[], tuple[str, dict]], actions: dict[str, Callable[[], None]],
                  pos: tuple[int, int] | None = None,
@@ -56,6 +56,7 @@ class Widget:
         self._drag = None
         self._moved = False
         self._last_key = None           # en son çizilen görüntünün anahtarı (boştayken boşuna yeniden çizmemek için)
+        self._frames = {}
 
     # ---------------------------------------------------------------- dışarıdan (başka iş parçacığı) güvenli çağrılar
     def toggle(self) -> None:
@@ -65,85 +66,128 @@ class Widget:
         return self.visible
 
     # ---------------------------------------------------------------- çizim
-    def _render(self, state: str, flags: dict):
-        """Masaüstü çalışma alanının küçük denetimlerini çiz."""
+    def _render(self, state: str, flags: dict, phase: int = 0):
+        """Masaüstünde saydam arka planla görünen robotu ve denetimlerini çiz."""
         from PIL import Image, ImageDraw
-        s, k = self.scale, 2
-        W, H = int(self.W * s), int(self.H * s)
-        im = Image.new("RGBA", (W * k, H * k), (0, 0, 0, 0))
-        d = ImageDraw.Draw(im)
-        u = s * k
+
+        scale = self.scale
+        size = int(self.W * scale), int(self.H * scale)
+        unit = scale * 2
+        im = Image.new("RGBA", (size[0] * 2, size[1] * 2))
+        draw = ImageDraw.Draw(im)
         color = COLORS.get(state, COLORS["idle"])
 
-        x0, y0, x1, y1 = 2 * u, 2 * u, (self.W - 2) * u, (self.H - 2) * u
-        d.rounded_rectangle((x0, y0, x1, y1), radius=int(12 * u),
-                            fill="#101e29", outline="#354a56", width=max(1, int(u)))
-        cx, cy, radius = x0 + 20 * u, (y0 + y1) / 2, 14 * u
-        d.rounded_rectangle((cx - radius, cy - radius, cx + radius, cy + radius),
-                            radius=int(7 * u), fill=color)
-        for offset, height in ((-5, 7), (0, 13), (5, 9)):
-            x = cx + offset * u
-            half = height * u / 2
-            d.rounded_rectangle((x - u, cy - half, x + u, cy + half), radius=int(u), fill="#101e29")
+        def xy(*values):
+            return tuple(round(value * unit) for value in values)
 
-        # durum yazısı (sığmazsa küçülür)
-        txt = SHORT.get(state, SHORT["idle"])
-        tx, room = cx + radius + 8 * u, (x1 - 66 * u) - (cx + radius + 8 * u)
-        size = 13
-        f = _font(int(size * u), True)
-        while size > 9 and d.textlength(txt, font=f) > room:
-            size -= 1
-            f = _font(int(size * u), True)
-        d.text((tx, cy), txt, font=f, fill="#f8f8f4", anchor="lm")
+        def box(bounds, radius, fill, outline=None):
+            draw.rounded_rectangle(xy(*bounds), radius=round(radius * unit),
+                                   fill=fill, outline=outline, width=max(1, round(unit)))
 
-        # Komut Merkezi ve mikrofon
-        bs = 13 * u                                        # yarı boy
-        hx, hy = x1 - 50 * u, cy
-        d.rounded_rectangle((hx - bs, hy - bs, hx + bs, hy + bs), radius=int(5 * u), fill="#243744")
-        hc, hw = "#e5ecef", max(1, int(1.6 * u))
-        d.line((hx - 6.5 * u, hy - .5 * u, hx, hy - 6.5 * u, hx + 6.5 * u, hy - .5 * u), fill=hc, width=hw, joint="curve")   # çatı
-        d.line((hx - 4.5 * u, hy - 2 * u, hx - 4.5 * u, hy + 6 * u, hx + 4.5 * u, hy + 6 * u, hx + 4.5 * u, hy - 2 * u),
-               fill=hc, width=hw, joint="curve")                                                                   # duvarlar
-        d.rectangle((hx - 1.4 * u, hy + 1.5 * u, hx + 1.4 * u, hy + 6 * u), fill=hc)                               # kapı
+        def stroke(points, fill, width=1):
+            draw.line(xy(*points), fill=fill, width=max(1, round(width * unit)), joint="curve")
 
-        mx, my = x1 - 20 * u, cy
+        def arc(bounds, start, end, fill, width=1):
+            draw.arc(xy(*bounds), start, end, fill=fill, width=max(1, round(width * unit)))
+
+        # Ayaklar ve gövde kabuğu
+        box((51, 122, 69, 138), 6, "#142630", "#456171")
+        box((83, 122, 101, 138), 6, "#142630", "#456171")
+        box((45, 133, 70, 144), 5, "#284452", "#597981")
+        box((82, 133, 107, 144), 5, "#284452", "#597981")
+        stroke((51, 137, 63, 137), "#95b4bd", 1.5)
+        stroke((89, 137, 101, 137), "#95b4bd", 1.5)
+        box((33, 101, 52, 123), 8, "#1e3643", "#5b7a87")
+        box((100, 101, 119, 123), 8, "#1e3643", "#5b7a87")
+        box((45, 92, 107, 130), 17, "#203b49", "#63838f")
+        box((49, 95, 103, 123), 13, "#2d4c5a")
+        box((62, 102, 90, 121), 6, "#10212c", "#4d6b77")
+        draw.ellipse(xy(72, 107, 80, 115), fill=color)
+        stroke((56, 120, 61, 123), "#688b97")
+        stroke((91, 123, 96, 120), "#688b97")
+
+        # Kulak modülleri, mat metal kabuk ve koyu yüz ekranı
+        arc((31, 12, 121, 70), 194, 346, "#172f3c", 6)
+        arc((32, 13, 120, 69), 195, 345, color, 2)
+        box((20, 55, 43, 91), 9, "#152a36", "#557b89")
+        box((109, 55, 132, 91), 9, "#152a36", "#557b89")
+        box((25, 63, 31, 82), 3, color)
+        box((121, 63, 127, 82), 3, color)
+        box((31, 32, 121, 102), 24, "#203845", "#668b9a")
+        box((35, 35, 117, 96), 21, "#476a78")
+        arc((38, 36, 73, 69), 194, 274, "#a6c2cc", 1.5)
+        box((39, 42, 113, 91), 16, "#07141e", "#252f3b")
+        stroke((55, 47, 97, 47), "#203645")
+        stroke((60, 96, 92, 96), "#74939e")
+
+        if state == "sleep" or phase == -1:
+            for x in (58, 94):
+                arc((x - 6, 64, x + 6, 72), 0, 180, color, 2)
+        else:
+            for x in (58, 94):
+                box((x - 8, 57, x + 8, 74), 7, "#102e3d")
+                box((x - 5, 59, x + 5, 72), 5, color)
+                box((x - 2, 60, x + 1, 64), 2, "#ebfbff")
+
+        if state == "speaking":
+            for i, x in enumerate((66, 71, 76, 81, 86)):
+                h = (2, 5, 8, 5, 2, 4, 6, 3)[(phase + i) % 8]
+                box((x - 1, 81 - h / 2, x + 1, 81 + h / 2), 1, color)
+        elif state in ("thinking", "working"):
+            for i, x in enumerate((68, 76, 84)):
+                dot = color if i == phase // 2 % 3 else "#355266"
+                draw.ellipse(xy(x - 2, 80, x + 2, 84), fill=dot)
+        elif state == "listening":
+            arc((39, 18, 113, 69), 212 + phase * 8, 248 + phase * 8, color, 2)
+            box((71, 80, 81, 84), 2, color)
+        else:
+            arc((68, 76, 84, 85), 12, 168, color, 2)
+
+        # Her zeminde okunabilen kompakt durum ve düğme çubuğu
+        cy = 161
+        box((8, 147, 144, 175), 11, "#101e29", "#466371")
+        box((11, 150, 39, 172), 8, "#223a49")
+        box((113, 150, 141, 172), 8, "#223a49")
+        label = SHORT.get(state, SHORT["idle"])
+        draw.text(xy(76, cy), label, font=_font(round(10 * unit), True),
+                  fill=color, anchor="mm")
+        stroke((21, 165, 21, 156, 29, 156, 29, 165, 21, 165), "#d3e4eb", 1.4)
+        stroke((24, 165, 24, 160, 29, 160), "#d3e4eb")
+
         mic_on = bool(flags.get("mic", True)) and not flags.get("sleep")
-        d.rounded_rectangle((mx - bs, my - bs, mx + bs, my + bs), radius=int(5 * u),
-                            fill=color if mic_on else "#243744")
-        mc = "#101e29" if mic_on else "#e5ecef"
-        d.rounded_rectangle((mx - 3 * u, my - 7 * u, mx + 3 * u, my + 2 * u), radius=int(3 * u), fill=mc)
-        d.arc((mx - 6 * u, my - 5 * u, mx + 6 * u, my + 5 * u), 0, 180, fill=mc, width=max(1, int(1.5 * u)))
-        d.line((mx, my + 5 * u, mx, my + 8 * u), fill=mc, width=max(1, int(1.5 * u)))
+        ink = color if mic_on else "#8196a2"
+        box((125, 154, 129, 162), 2, ink)
+        arc((122, 157, 132, 165), 0, 180, ink, 1.4)
+        stroke((127, 165, 127, 168), ink, 1.4)
         if not mic_on:
-            d.line((mx - 7 * u, my - 7 * u, mx + 7 * u, my + 7 * u), fill="#f39b78", width=max(2, int(2 * u)))
+            stroke((121, 155, 133, 167), "#f6a696", 1.5)
 
-        # Tıklama alanları gerçek pencere pikselinde ve görsel düğmeden biraz büyük tutulur.
-        # Özellikle Windows %125/%150 DPI'da küçük mikrofonun tıklaması eskiden şeridin
-        # "konuş" alanına düşebiliyordu.
-        pad = 5 * s
-        self._hit_rect = {
-            "mic": ((mx - bs) / k - pad, (my - bs) / k - pad, (mx + bs) / k + pad, (my + bs) / k + pad),
-            "home": ((hx - bs) / k - pad, (hy - bs) / k - pad, (hx + bs) / k + pad, (hy + bs) / k + pad),
-        }
-        self._hit = {"orb": (0, 0, W)}
+        im = im.resize(size, Image.LANCZOS)
+        background = Image.new("RGBA", size, KEY + (255,))
+        self._hit_mask = im.getchannel("A").point(lambda value: 255 if value > 40 else 0)
+        return Image.composite(Image.alpha_composite(background, im),
+                               background, self._hit_mask).convert("RGB")
 
-        im = im.resize((W, H), Image.LANCZOS)
-        bg = Image.new("RGBA", im.size, KEY + (255,))
-        out = Image.alpha_composite(bg, im)
-        # Pencerenin saydam renk anahtarını yuvarlak köşelerde koru.
-        a = im.split()[3].point(lambda v: 255 if v > 40 else 0)
-        out = Image.composite(out, bg, a)
-        return out.convert("RGB")
+    @staticmethod
+    def _phase(state: str, now: float) -> int:
+        if state in ("thinking", "working", "listening", "speaking"):
+            return int(now * 8) % 8
+        return -1 if state == "idle" and now % 5 < .22 else 0
 
     # ---------------------------------------------------------------- olaylar
     def _hit_test(self, x: float, y: float) -> str | None:
-        """Önce geniş düğme kutuları, sonra şeridin geri kalanı (konuş)."""
-        rects = getattr(self, "_hit_rect", {})
-        for name in ("mic", "home"):
-            r = rects.get(name)
-            if r and r[0] <= x <= r[2] and r[1] <= y <= r[3]:
-                return name
-        return "orb" if getattr(self, "_hit", {}) else None
+        mask = getattr(self, "_hit_mask", None)
+        if mask is None or not (0 <= x < mask.width and 0 <= y < mask.height):
+            return None
+        if not mask.getpixel((int(x), int(y))):
+            return None
+        lx, ly = x / self.scale, y / self.scale
+        if 147 <= ly <= 175:
+            if 8 <= lx <= 41:
+                return "home"
+            if 111 <= lx <= 144:
+                return "mic"
+        return "orb"
 
     def _press(self, e) -> None:
         self._drag = (e.x_root, e.y_root, self.root.winfo_x(), self.root.winfo_y())
@@ -201,7 +245,7 @@ class Widget:
                     self.visible = not self.visible
         except queue.Empty:
             pass
-        now = time.time()
+        now = time.monotonic()
         if self.main_open and now - self._last_check > .5:
             self._last_check = now
             try:
@@ -221,9 +265,15 @@ class Widget:
         if want:
             try:
                 state, flags = self.get_state()
-                key = (state, bool(flags.get("mic", True)), bool(flags.get("sleep")))
+                phase = self._phase(state, now)
+                key = (state, bool(flags.get("mic", True)), bool(flags.get("sleep")), phase)
                 if key != self._last_key or self.label.image is None:
-                    img = ImageTk.PhotoImage(self._render(state, flags))
+                    if self._last_key is None or key[:3] != self._last_key[:3]:
+                        self._frames.clear()
+                    if phase not in self._frames:
+                        img = ImageTk.PhotoImage(self._render(state, flags, phase))
+                        self._frames[phase] = img, self._hit_mask
+                    img, self._hit_mask = self._frames[phase]
                     self.label.configure(image=img)
                     self.label.image = img
                     self._last_key = key
@@ -232,6 +282,7 @@ class Widget:
                 pass
         else:
             self._last_key = None       # yeniden görünürse ilk karede çizilsin
+            self._frames.clear()
             delay = 200
         self.root.after(delay, self._tick)
 
@@ -257,17 +308,16 @@ class Widget:
         else:
             x = root.winfo_screenwidth() - w - int(24 * self.scale)
             y = root.winfo_screenheight() - h - int(64 * self.scale)
-        x = min(max(0, x), root.winfo_screenwidth() - 60)
-        y = min(max(0, y), root.winfo_screenheight() - 60)
+        x = min(max(0, x), max(0, root.winfo_screenwidth() - w))
+        y = min(max(0, y), max(0, root.winfo_screenheight() - h))
         root.geometry(f"{w}x{h}+{x}+{y}")
         self.label = tk.Label(root, bd=0, bg=KEY_HEX, highlightthickness=0)
         self.label.image = None
         self.label.pack()
-        for wdg in (root, self.label):
-            wdg.bind("<ButtonPress-1>", self._press)
-            wdg.bind("<B1-Motion>", self._motion)
-            wdg.bind("<ButtonRelease-1>", self._release)
-            wdg.bind("<Button-3>", self._menu)
+        root.bind("<ButtonPress-1>", self._press)
+        root.bind("<B1-Motion>", self._motion)
+        root.bind("<ButtonRelease-1>", self._release)
+        root.bind("<Button-3>", self._menu)
         self._tick()
         root.mainloop()
 

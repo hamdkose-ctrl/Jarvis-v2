@@ -1257,6 +1257,10 @@ Ana ekran, doğrudan sol gezinti, Ekip Merkezi iş ayrıntısı ve mevcut araç 
 
 Cloudflare taşıyıcısı Workers AI metin yanıtını hem `choices[0].message.content` hem eski `response` biçiminden okur. Bitiş nedeni ve varsa sağlayıcı token sayıları mevcut ölçüme gider. Yerel sözleşme testleri iki biçimi kapsar. Gerçek hesapla bağlantı doğrulaması ayrıca ölçülür.
 
+### Masaüstü yardımcısı — 25 Kasım 2026
+
+Küçük Jarvis, mevcut Tkinter ve Pillow yüzeyinde saydam bir robot olarak görünür. Dinleme, düşünme, çalışma ve konuşma yüz animasyonlarıyla gösterilir. Robot konuşmayı başlatır. Alt şerit mikrofonu ve Komut Merkezi'ni açar. 1×–2× ölçek tıklama alanları ve durum animasyonları yerel çizim testleriyle doğrulandı. Gerçek Windows kabulü ayrıca beklenir.
+
 ### 2026-11-23 — B: yerel/gizli modda herkese açık kaynak okuma izni (PR #778)
 
 - Kusur: gizlilik modu `yerel` (ve `gizli`) iken `privacy.blocked('web')` bütün okumaları kapatıyordu; kullanıcı yerel modu kullandığı için Jarvis hiç araştırma/haber yapamıyordu.

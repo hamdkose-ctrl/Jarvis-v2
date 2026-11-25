@@ -43,7 +43,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (24 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (29 bölüm)
-- `docs/agents/arayuz.md`: Masaüstü, tek ana konsol, ses ve yerel durum (3 bölüm)
+- `docs/agents/arayuz.md`: Masaüstü, konsol, robot, ses ve yerel durum (3 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (11 bölüm)
 - `docs/agents/pc-masaustu.md`: PC, masaüstü ve tarayıcı kontrolü (12 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
