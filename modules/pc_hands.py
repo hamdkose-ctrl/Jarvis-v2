@@ -520,3 +520,118 @@ def ensure_window(window: str, *, timeout: float = 8.0, opener=None, abort=None)
         if time.time() > deadline:
             return {"status": "frozen", "text": FROZEN.format(window=target["title"][:40], tries=tries, limit=int(timeout))}
         time.sleep(0.5)
+
+
+# --- Kopyala / yapıştır zinciri (10 madde #3) -----------------------------
+# Amaç: bir penceredeki metni alıp başka uygulamaya taşımak. Kural: **panoyu
+# doğrula** — "kopyaladım" demek yetmez, panoda gerçekten yeni metin olmalı.
+CLIP_EMPTY = "Panoda metin yok; kopyalanacak bir şey seçili olmalı."
+COPIED = "Kopyaladım: “{text}”."
+PASTED_OK = "Yapıştırdım: “{text}”."
+PASTED_MISSING = "Yapıştırdım ama yazı ekranda görünmüyor ({window}); alan seçili olmayabilir."
+
+
+def read_clipboard() -> str:
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            return str(win32clipboard.GetClipboardData() or "")
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception:
+        _record_failure("modules/pc_hands.py:read_clipboard")
+        return ""
+
+
+def write_clipboard(text: str) -> bool:
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text)
+        finally:
+            win32clipboard.CloseClipboard()
+        return True
+    except Exception:
+        _record_failure("modules/pc_hands.py:write_clipboard")
+        return False
+
+
+def copy_selection(window: str, *, abort=None) -> dict:
+    """Odaktaki seçimi kopyalar; panoda yeni metin yoksa dürüstçe söyler."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else "Pencere açık değil."}
+    before = read_clipboard()
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    try:
+        import pyautogui
+        pyautogui.hotkey("ctrl", "c")
+        time.sleep(0.3)
+    except Exception:
+        _record_failure("modules/pc_hands.py:copy_selection")
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="kopyalama gönderilemedi")}
+    after = read_clipboard()
+    if not after.strip() or after == before:
+        return {"status": "no_change", "text": CLIP_EMPTY}
+    return {"status": "done", "text": COPIED.format(text=after.strip()[:80]), "clipboard": after}
+
+
+def paste_text(window: str, text: str | None = None, *, abort=None) -> dict:
+    """Panodaki metni (ya da verilen metni) pencereye yapıştırır ve doğrular."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    payload = text if text is not None else read_clipboard()
+    if not str(payload or "").strip():
+        return {"status": "no_change", "text": CLIP_EMPTY}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else "Pencere açık değil."}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    if not write_clipboard(str(payload)) or not _paste(str(payload)):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="yapıştırma çalışmadı")}
+    if not _text_visible(str(payload)):
+        return {"status": "no_change", "text": PASTED_MISSING.format(window=target["title"][:40])}
+    return {"status": "done", "text": PASTED_OK.format(text=str(payload)[:60])}
+
+
+# --- Arama sonucuna tıklama (10 madde #2) ---------------------------------
+# Adres çubuğu + Enter var; şimdi ekrandaki sonuç başlığını bulup tıklamak.
+# Gezinme serbest olduğu için ek onay istenmez; ama tıklama sonrası **sayfa
+# gerçekten değişti mi** diye bakılır, değişmediyse dürüstçe söylenir.
+RESULT_ASK = "Ekranda “{query}” için {count} sonuç gördüm; ilkine tıklıyorum: “{first}”."
+RESULT_NONE = "Ekranda “{query}” yazısını göremedim; tıklamadım."
+RESULT_CLICKED = "“{first}” sonucuna tıkladım."
+
+
+def click_search_result(query: str, *, abort=None) -> dict:
+    """Ekranda arama sonucu başlığını bulur ve tıklar (tahmin yok)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    from modules import pc_vision
+    words = pc_vision.read_screen()
+    needle = _fold(query)
+    hits = [word for word in words if needle and needle in _fold(word["text"])]
+    if not hits:
+        return {"status": "not_found", "text": RESULT_NONE.format(query=query)}
+    top = sorted(hits, key=lambda word: (word["y"], word["x"]))[0]
+    before = pc_vision.read_screen()
+    try:
+        import pyautogui
+        pyautogui.click(int(top["x"]), int(top["y"]))
+        time.sleep(1.2)
+    except Exception:
+        _record_failure("modules/pc_hands.py:click_search_result")
+        return {"status": "failed", "text": PASTE_FAILED.format(window="ekran", reason="tıklama yapılamadı")}
+    after = pc_vision.read_screen()
+    if before and after and [w["text"] for w in before[:12]] == [w["text"] for w in after[:12]]:
+        return {"status": "no_change", "text": NO_CHANGE.format(what=query)}
+    return {"status": "done", "text": RESULT_CLICKED.format(first=top["text"][:40])}

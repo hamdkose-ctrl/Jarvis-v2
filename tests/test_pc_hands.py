@@ -443,3 +443,96 @@ class AmbiguousWindow(unittest.TestCase):
         with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": None, "reason": "missing"}):
             result = pc_hands.find_control("not defteri", "kaydet")
         self.assertEqual(result["status"], "no_window")
+
+
+class Clipboard(unittest.TestCase):
+    """Kopyala/yapıştır: panoyu doğrula, 'yaptım' demekle yetinme."""
+
+    def test_copy_reports_empty_clipboard(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "read_clipboard", return_value="aynı"), \
+             patch("pyautogui.hotkey"):
+            result = pc_hands.copy_selection("not defteri")
+        self.assertEqual(result["status"], "no_change")
+        self.assertIn("Panoda metin yok", result["text"])
+
+    def test_copy_detects_new_text(self):
+        texts = iter(["eski", "yeni metin"])
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "read_clipboard", side_effect=lambda: next(texts)), \
+             patch("pyautogui.hotkey"):
+            result = pc_hands.copy_selection("not defteri")
+        self.assertEqual(result["status"], "done")
+        self.assertIn("yeni metin", result["text"])
+
+    def test_paste_verifies_on_screen(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "write_clipboard", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=True):
+            result = pc_hands.paste_text("not defteri", "merhaba")
+        self.assertEqual(result["status"], "done")
+
+    def test_paste_that_does_not_show_is_reported(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "write_clipboard", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=False):
+            result = pc_hands.paste_text("not defteri", "merhaba")
+        self.assertEqual(result["status"], "no_change")
+        self.assertIn("görünmüyor", result["text"])
+
+    def test_empty_payload_is_refused(self):
+        self.assertEqual(pc_hands.paste_text("not defteri", "   ")["status"], "no_change")
+
+
+class SearchResultClick(unittest.TestCase):
+    """Arama sonucuna tıklama: yazıyı ekranda bulur, tıklar, sayfa değişti mi bakar."""
+
+    WORDS = [{"text": "haberler", "x": 100, "y": 50}, {"text": "youtube video", "x": 400, "y": 300}]
+
+    def test_missing_result_is_not_clicked(self):
+        with patch("modules.pc_vision.read_screen", return_value=self.WORDS), \
+             patch("pyautogui.click") as click:
+            result = pc_hands.click_search_result("alakasız")
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(click.call_count, 0)
+
+    def test_result_is_clicked(self):
+        # Tıklamadan sonra ekran değişmeli; aksi halde "değişmedi" demek doğru olurdu.
+        screens = [self.WORDS, self.WORDS, [{"text": "youtube ana sayfa", "x": 10, "y": 10}]]
+        screen_patch = patch("modules.pc_vision.read_screen", side_effect=screens)
+        click_patch = patch("pyautogui.click")
+        sleep_patch = patch.object(pc_hands.time, "sleep")
+        screen_patch.start()
+        click = click_patch.start()
+        sleep_patch.start()
+        try:
+            result = pc_hands.click_search_result("youtube")
+        finally:
+            sleep_patch.stop()
+            click_patch.stop()
+            screen_patch.stop()
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(click.call_args[0][0:2], (400, 300))
+
+
+class ResultCommand(unittest.TestCase):
+    """Sesli komut: "… sonucuna tıkla" → click_search_result."""
+
+    def test_phrase_routes_to_result_click(self):
+        from modules import fast_commands
+        self.assertEqual(fast_commands.resolve("youtube sonucuna tıkla"),
+                         ("pc_click_result", {"query": "youtube"}))
+
+    def test_dispatch_calls_hands(self):
+        from modules import engine_intents
+        with patch.object(pc_hands, "click_search_result",
+                          return_value={"status": "done", "text": "tıkladım"}) as click:
+            text = engine_intents.dispatch(None, "pc_click_result", {"query": "youtube"}, "", "")
+        self.assertEqual(text, "tıkladım")
+        click.assert_called_once_with("youtube")

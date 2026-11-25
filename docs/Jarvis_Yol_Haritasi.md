@@ -1569,3 +1569,73 @@ D
 - Esc/`abort` her adımda kontrol edilir; anlaşılmayan komut hiç çalıştırılmaz.
 - Kanıt: `tests/test_pc_autonomy.py` 7 test OK (bütçe, onay, hata, rapor dosyası, abort).
 - Sınır (dürüst): arka planda kendi kendine görev başlatma (zamanlayıcı) **yok**; kota/bütçe sayacı adım sayısıyla sınırlı. OTONOM planının OTO-1..9 maddeleri bu dilimle kısmen karşılandı.
+
+
+### 2026-11-25 — Otonomi kuyruğu: Jarvis kendi işini zamanında alır (sınırlı)
+
+- `modules/pc_autonomy_queue.py`: `enqueue()` (iş + zaman), `run_due()` (sırası gelen ilk iş), `set_enabled()`, `summary()`.
+- **Varsayılan kapalı**: ana anahtar açılmadıkça hiçbir iş çalışmaz.
+- **Günlük bütçe** 20 adım; dolunca "bitti" denmez, bütçe doldu denir.
+- **Onay bekleyen iş otomatik tekrar denenmez** (`paused`): kullanıcı onaylamadan ilerlemez.
+- Her koşu `~/.jarvis/autonomy/queue.json` durumunu ve `pc_autonomy` raporunu günceller.
+- Kanıt: `tests/test_pc_autonomy_queue.py` 6 test + `test_pc_autonomy` + `test_cleanup_security` → 23 test OK.
+- Dürüst sınır: kuyruk **kendi kendine yeni iş uydurmaz**; yalnız verilen işleri zamanında çalıştırır. Zamanlayıcı döngüsü (engine içinde periyodik çağrı) henüz bağlanmadı.
+
+
+### 2026-11-25 — Otonomi saati (son halka): kuyruk artık kendi kendine bakılıyor
+
+- `pc_autonomy_queue.tick_loop()`: motor açılırken **daemon iş parçacığı** olarak başlar (`otonomi-saati`), her 120 sn kuyruğa bakar.
+- Ana anahtar kapalıysa **hiçbir şey yapmaz**; hata olursa döngü ölmez (tanı izi bırakır, devam eder).
+- Sesli ana anahtar: "otonomiyi aç / otonomiyi kapat / otonomi durumu" → `autonomy_on`, `autonomy_off`, `autonomy_status`; `brain_core_map` kayıtlı.
+- Kanıt: `test_pc_autonomy_queue` 9 test (3 yeni: kapalıyken çalışmaz, açıkken bakar, hatada ölmez) + `test_fast_commands` + orphan bekçisi.
+- Durum: otonomi **uçtan uca** tamam — iş ver → zamanı gelince kendi çalıştırır → raporlar; riskli adımda durur; bütçe ve ana anahtar kullanıcıda.
+
+
+### 2026-11-25 — Yerel dosya işlemleri: listele / oku / aç (`modules/file_ops_local.py`)
+
+- `list_folder()` (en çok 50 öğe, klasörler önce), `read_file()` (200 KB / 50 satır; kesildiğini **söyler**), `open_file()` (yalnız açar, içeriği değiştirmez).
+- **Yazma/silme yok**: modülde `write_text`/`unlink`/`rename` bulunmaz (test bunu bekçiliyor).
+- Sınır: yalnız **ev klasörü** altı; dışına çıkan yol reddedilir (`refused`).
+- Canlı doğrulama: `~/Downloads` listelendi (3 öğe), `~/.jarvis/gece-plani.md` okundu (3081 bayt), `C:/Windows` reddedildi.
+- Windows kısa yol adı (HAMDI~1.KOS) yüzünden yol karşılaştırması gerçek yollar üzerinden yapılıyor.
+- Kanıt: `tests/test_file_ops_local.py` 7 test + `test_cleanup_security` → 17 test OK.
+
+
+### 2026-11-25 — Kopyala/yapıştır zinciri (10 madde #3)
+
+- `pc_hands.read_clipboard/write_clipboard`, `copy_selection()`, `paste_text()`.
+- **Panoyu doğrular**: kopyalamada "panoda yeni metin var mı", yapıştırmada "metin ekranda göründü mü" (OCR). İkisi de yoksa dürüst cevap.
+- Canlı doğrulama: Not Defteri'ne `paste_text('not defteri','kopyala yapıştır denemesi')` → **done**.
+- Kanıt: `test_pc_hands` 48 test (5 yeni) + `test_cleanup_security` → 58 test OK.
+
+
+### 2026-11-25 — Zamanlı iş: "yarın 09:00'da şunu yap" (10 madde #5)
+
+- `modules/autonomy_when.py`: `parse_when()` — "yarın/bugün/öbür gün", "saat HH:MM", "N dakika/saat sonra" ifadelerini zamana çevirir, iş metnini ayıklar.
+- **Tahmin yok**: zaman bulunamazsa iş kuyruğa **eklenmez**; "saat söylenmediyse 09:00 kabul ettim" gibi notlar açıkça söylenir; geçersiz saat (25:00) reddedilir.
+- `fast_commands.resolve()`: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa `autonomy_schedule`'a yönlenir (regex sırasına güvenilmez).
+- `engine_intents case "autonomy_schedule"`: zamanı çıkarır, `pc_autonomy_queue.enqueue(...)` ile kuyruğa ekler, saati söyler.
+- Kanıt: `test_autonomy_when` 8 test + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 58 test OK.
+
+
+### 2026-11-25 — Sessiz hata düzeltmesi: kuyruk dosyası yokken log'a ERROR yazılıyordu
+
+- Canlı log: `pc_autonomy_queue.py:_load → FileNotFoundError` → her turda ERROR (ilk çalıştırmada kuyruk dosyası henüz yok).
+- Düzeltme: `FileNotFoundError` **hata değil, ilk çalıştırma** sayılır ve sessizce boş kuyruk döner; bozuk/okunamayan dosya yine tanılamaya yazılır.
+- Kanıt: `test_pc_autonomy_queue` + `test_cleanup_security` → 19 test OK.
+
+
+### 2026-11-25 — Arama sonucuna tıklama (10 madde #2)
+
+- `pc_hands.click_search_result(query)`: ekranı OCR ile okur, **soldan-yukarıdan ilk** eşleşen yazıya tıklar; tıklama sonrası ekran değişti mi diye bakar (`no_change` değilse `done`).
+- Tahmin yok: yazı ekranda yoksa **tıklamaz** ("göremedim").
+- Gezinme serbest olduğu için ek onay istenmez (kullanıcı politikası); yine de sonuç doğrulanır.
+- Kanıt: `test_pc_hands` 50 test (2 yeni) + `test_cleanup_security` → 60 test OK.
+
+
+### 2026-11-25 — "… sonucuna tıkla" komutu (2. maddenin sesli ucu)
+
+- `fast_commands`: `pc_click_result` — "youtube sonucuna tıkla", "ekrandaki haberler yazısına tıkla".
+- `engine_intents case "pc_click_result"` → `pc_hands.click_search_result`; `brain_core_map` kaydı (`fast.pc.click_result`).
+- Canlı doğrulama (Jarvis fonksiyonu üzerinden): `pc_click_result({"query":"jira"})` → "Ekranda “jira” yazısını göremedim; tıklamadım." (ekranda yok — tahmin etmedi).
+- Kanıt: `test_pc_hands` 52 + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 102 test OK.

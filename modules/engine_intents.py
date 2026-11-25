@@ -122,6 +122,27 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Yalnız okuma: model çağrılmaz, ekran/pencere bilgisi Windows'tan gelir.
             from modules import pc_awareness
             return pc_awareness.summary()
+        case "autonomy_schedule":
+            from modules import autonomy_when, pc_autonomy_queue
+            parsed = autonomy_when.parse_when(str(a.get("phrase") or command))
+            if not parsed.get("when"):
+                return ("Zamanı anlayamadım; “yarın 09:00’da …” gibi söyle. "
+                        "İşi kuyruğa eklemedim.")
+            added = pc_autonomy_queue.enqueue(parsed["rest"], when=parsed["when"])
+            note = f" ({parsed['note']})" if parsed.get("note") else ""
+            return f"{autonomy_when.describe(parsed['when'])} için {added['text']}{note}"
+        case "autonomy_on":
+            from modules import pc_autonomy_queue
+            return pc_autonomy_queue.set_enabled(True)["text"]
+        case "autonomy_off":
+            from modules import pc_autonomy_queue
+            return pc_autonomy_queue.set_enabled(False)["text"]
+        case "autonomy_status":
+            from modules import pc_autonomy_queue
+            return pc_autonomy_queue.summary()
+        case "pc_click_result":
+            from modules import pc_hands
+            return pc_hands.click_search_result(str(a.get("query") or ""))["text"]
         case "pc_save":
             from modules import pc_files
             return pc_files.save_as(str(a.get("window") or ""), str(a.get("name") or ""))["text"]
