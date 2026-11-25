@@ -132,45 +132,6 @@ def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
 
 from modules.diagnostics import record_failure as _record_failure
 
-def _current_window():
-    try:
-        from modules import pc_awareness
-        found = pc_awareness.find_window("")
-        return (found.get("match") or {}).get("title") if found.get("status") == "ok" else ""
-    except Exception:
-        _record_failure("modules/engine_loop.py:_current_window")
-        return ""
-
-
-def _pending_flag():
-    try:
-        from modules import pc_hands
-        return "confirm" if pc_hands.pending() else ""
-    except Exception:
-        _record_failure("modules/engine_loop.py:_pending_flag")
-        return ""
-
-
-ASK_TEMPLATES = {
-    "window": "Hangi pencerede yapayım?",
-    "path": "Hangi klasör/dosya?",
-    "text": "Ne yazayım?",
-    "query": "Ekrandaki hangi yazıya basayım?",
-    "name": "Dosya adı ne olsun?",
-}
-
-
-def _ask_for_slots(karar):
-    """Eksik bilgiyi uydurmak yerine tek soru sor (yapmaz)."""
-    missing = (karar.get("missing") or [None])[0]
-    return ASK_TEMPLATES.get(missing, "Eksik bilgi var; biraz daha açık söyler misin?")
-
-
-def _dispatch_fast(runtime, intent, args, cmd):
-    from modules import engine_intents
-    return engine_intents.dispatch(runtime, intent, args, cmd, cmd.casefold())
-
-
 def _fast_command_turn(runtime, cmd):
     """Kapalı sözlükteki komutu model çağırmadan mevcut sahibinde çalıştırır.
 
@@ -179,21 +140,16 @@ def _fast_command_turn(runtime, cmd):
     izin veya yeni bir etki sahibi yok: yalnız `engine_intents.dispatch` çağrılır.
     """
     from modules import engine_intents, fast_commands
-    # TEK BEYİN (`capability_router`): "ne yapılacak" kararı yalnız orada verilir.
-    from modules import capability_router
-    baglam = {"window": _current_window(), "pending": _pending_flag()}
-    karar = capability_router.route(cmd, baglam)
-    eslesme = None
-    if karar["status"] == "ask":
-        return _ask_for_slots(karar)
-    if karar["status"] == "run":
-        eslesme = (karar["capability"], karar["slots"])
-    else:
-        # Selamlama/nezaket, hesap ve saat gibi **salt yerel** işler beyin kararı değildir.
+    eslesme = fast_commands.resolve(cmd)
+    if eslesme is None:
+        # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model
+        # çağırmadan cevaplanır. Canlı kusur (23 Kasım): tüm sağlayıcılar düşükken
+        # "merhaba" cevapsız kaldı.
         sohbet = fast_commands.chitchat(cmd)
         if sohbet:
             runtime.log.info("hızlı yol: intent=chitchat")
             return sohbet
+        # Salt hesap ("25 çarpı 4") model istemez: yan etkisiz, yerel.
         hesap = fast_commands.compute(cmd)
         if hesap:
             runtime.log.info("hızlı yol: intent=fast_calc")

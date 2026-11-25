@@ -1702,3 +1702,16 @@ D
 - `engine_loop`: üç ayrı kademe çağrısı kaldırıldı; tek `route()` çağrısı. Selamlama/hesap/saat yalnız **salt yerel** işler olarak ayrı kaldı (beyin kararı değil).
 - Kanıt: `test_capability_router` 5 test + 104 test → 109 test OK.
 - Sınır (dürüst): model yoksa anlam katmanı devre dışı; o durumda yedek yol çalışır ve yedek **kelime tabanlı** olduğu için anlama zayıflar. Karar `source` alanıyla görünür.
+
+
+### 2026-11-25 — Tek anlama sahibi: paralel beyin kaldırıldı
+
+**Karar (Hamdi):** "beyin kelimeye dayalı olmasın, çoklu beyin istemiyorum … minimum kelime kalıbı hızlı işler aynen devam." Brain = anlama, Core = izin/onay/kanıt, el = `engine_intents` + `pc_*`; yeni anlam katmanı eklenmez.
+
+**Değişiklik:** 25 Kasım'da eklenen paralel anlama yolu geri alındı — `modules/capability_router.py`, `capability_brain.py`, `capability_llm.py`, `capability_catalog.py` ve testleri/karne script'i (`test_capability_router`, `test_capability_brain`, `test_capability_llm`, `test_short_commands`, `test_understand_guard`, `scripts/understand_scorecard.py`) silindi; `engine_loop._fast_command_turn` mevcut tek yola (hızlı yol + Brain/Core) döndü. Mevcut Brain (`brain_model_understanding`), Core sahipliği ve parmak izi/re-kabul ölçümü **değişmedi**; parmak izinin inceltilmesi işler bitince ele alınacak (kullanıcı notu).
+
+**Kayıp ölçümü (bilgi amaçlı, eylem yok):** 10 kısa komutun bugünkü hızlı yoldaki karşılığı — `youtube aç`→app_open, `saat kaç`→fast_time, `ekranda ne var`→screen_summary, `hava durumu`→weather; `maili aç`, `müzik aç`, `ilk mail ne`, `indirilenler ne var`, `kapat`, `bunu kaydet` artık Brain (bulut) yolundan geçer. **Kalıp taşıma yapılmadı** — ihtiyaç kullanımda çıkarsa ayrı iş.
+
+**Bekçi:** `tests/test_architecture_single_understanding.py` — `capability_brain/llm/router/catalog/understand` adlı paralel anlama modülleri yasak; `fast_commands.resolve` yalnız `engine_loop.py` ve `pc_task.py` (adım bölücü) tarafından çağrılabilir, yeni çağıran bilinçli kayıt ister.
+
+**Kanıt:** `test_architecture_single_understanding` + `test_engine_modular` + `test_fast_commands` + `test_brain_orphan_dispatch_guard` + `test_cleanup_security` → 80 test OK.
