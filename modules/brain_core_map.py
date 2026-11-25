@@ -1630,6 +1630,8 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     "fast.pc.confirm": ("pc_confirm", {}),
     "fast.pc.click": ("pc_click", {}),
     "fast.pc.type": ("pc_type", {}),
+    "fast.pc.open_site": ("pc_open_site", {}),
+    "fast.pc.read_text": ("screen_read_text", {}),
 }
 
 # session.pending_level.select: seviye zaten Core'un sorduğu soruda saklı; cevap yalnız özelliği seçer.

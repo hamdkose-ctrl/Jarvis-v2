@@ -31,6 +31,11 @@ def tokens(text: str) -> set[str]:
     return {word for word in re.findall(r"[a-z0-9]+", fold(text)) if len(word) > 1 and word not in STOP}
 
 
+SITES = {"youtube": "youtube.com", "yutup": "youtube.com", "mail": "gmail.com",
+         "gmail": "gmail.com", "eposta": "gmail.com", "muzik": "music.youtube.com",
+         "müzik": "music.youtube.com", "google": "google.com", "haber": "news.google.com",
+         "harita": "maps.google.com", "twitter": "x.com", "whatsapp": "web.whatsapp.com"}
+
 VERBS = {
     "pc_type": ("yaz", "yaziver", "gir"),
     "pc_search": ("git", "ara", "baslat", "enter", "yonlendir"),
@@ -44,6 +49,8 @@ VERBS = {
     "file_read": ("oku",),
     "autonomy_schedule": ("kur", "sonra", "yarin"),
     "autonomy_status": ("durum",),
+    "pc_open_site": ("ac", "acsana", "git", "gir"),
+    "screen_read_text": ("yaziyor", "yazmis", "oku", "ne", "var"),
 }
 
 
@@ -82,6 +89,17 @@ def find_window_word(text: str) -> str:
     return ""
 
 
+READ_CUES = ("ne yaziyor", "ne yazmis", "mail ne", "ilk mail", "sayfada ne", "ekranda ne yaz")
+
+
+def _site_of(text: str) -> str:
+    folded = fold(text)
+    for word, site in SITES.items():
+        if fold(word) in folded:
+            return site
+    return ""
+
+
 def resolve(text: str) -> dict:
     """Cümleyi yeteneğe çevirir: {'status': ok|need|uncertain|none, ...}."""
     raw = str(text or "").strip()
@@ -90,10 +108,16 @@ def resolve(text: str) -> dict:
     file_words = {"klasor", "dosya", "indirilenler", "masaustu", "belge"}
     has_file_word = bool(tokens(raw) & file_words)
     fast = fast_commands.resolve(raw)
+    if fast and fast[0] == "app_open" and _site_of(raw):
+        # Site adı söylenmişse uygulama açma kapısı yerine tarayıcıda gezinme yeterli.
+        return {"status": "ok", "capability": "pc_open_site", "slots": {"text": _site_of(raw)},
+                "via": "pattern"}
     if fast and not (has_file_word and fast[0].startswith("screen_")):
         return {"status": "ok", "capability": fast[0], "slots": fast[1], "via": "pattern"}
     folded = fold(raw)
     words = tokens(raw)
+    if any(cue in folded for cue in READ_CUES):
+        return {"status": "ok", "capability": "screen_read_text", "slots": {}, "via": "catalog"}
     ranked = sorted(((item, _score(item, words, folded)) for item in capability_catalog.CATALOG),
                     key=lambda pair: pair[1], reverse=True)
     best, score = ranked[0]
@@ -140,7 +164,8 @@ def guess_path(raw: str, *, want_file: bool) -> str:
     words = tokens(raw)
     home = _Path.home()
     for word, folder in FOLDERS.items():
-        if word in words and (home / folder).is_dir():
+        matched = any(_hits(token, word) for token in words)
+        if matched and (home / folder).is_dir():
             return str(home / folder) if not want_file else ""
     if not want_file:
         return ""
@@ -171,6 +196,17 @@ def _slots(capability: dict, raw: str) -> dict:
             args["text"] = candidate
         if intent == "pc_type" and window and "window" not in args:
             args["window"] = window
+    elif intent == "pc_open_site":
+        words = tokens(raw)
+        for word, site in SITES.items():
+            if fold(word) in words or fold(word) in fold(raw):
+                args["text"] = site
+                break
+        if not args.get("text"):
+            spoken = re.sub(r"(?i)(aç|açsana|açar mısın|sitesini|siteyi|git|gir)", " ", raw)
+            candidate = " ".join(part for part in spoken.split() if len(part) > 1)
+            if candidate:
+                args["text"] = candidate
     elif intent == "pc_click_result":
         spoken = re.sub(r"(?i)\b(sonucuna|sonuca|sonuç|tıkla|bas|ekrandaki|yazısına|linke|başlığa|gir)\b", " ", raw)
         words_only = [word for word in spoken.split() if len(word) > 1]

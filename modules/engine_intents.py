@@ -165,6 +165,22 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import pc_hands
             return pc_hands.type_text(str(a.get("window") or ""), str(a.get("target") or ""),
                                       str(a.get("text") or ""))["text"]
+        case "pc_open_site":
+            # Site açma = tarayıcıda gezinme: izin kapısı gerekmez, pencere içinde kalır.
+            from modules import pc_hands
+            address = pc_hands.type_address_bar(str(a.get("window") or "chrome"), str(a.get("text") or ""))
+            if address.get("status") != "done":
+                return address["text"]
+            enter = pc_hands.press_enter(str(a.get("window") or "chrome"))
+            return enter["text"] if enter.get("status") != "done" else f"{address['text']} {enter['text']}"
+        case "screen_read_text":
+            # Ekrandaki yazıyı okumak da yalnız okumadır.
+            from modules import pc_vision
+            words = pc_vision.read_screen()
+            if not words:
+                return "Ekrandaki yazıyı okuyamadım."
+            first = [item["text"] for item in words[:12]]
+            return "Ekranda şunlar yazıyor: " + ", ".join(first)
         case "screen_controls":
             # 2. dilim: pencere içini okumak da yalnız okumadır; model çağrılmaz.
             from modules import pc_awareness
