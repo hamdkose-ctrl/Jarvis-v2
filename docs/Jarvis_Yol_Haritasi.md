@@ -1715,3 +1715,13 @@ D
 **Bekçi:** `tests/test_architecture_single_understanding.py` — `capability_brain/llm/router/catalog/understand` adlı paralel anlama modülleri yasak; `fast_commands.resolve` yalnız `engine_loop.py` ve `pc_task.py` (adım bölücü) tarafından çağrılabilir, yeni çağıran bilinçli kayıt ister.
 
 **Kanıt:** `test_architecture_single_understanding` + `test_engine_modular` + `test_fast_commands` + `test_brain_orphan_dispatch_guard` + `test_cleanup_security` → 80 test OK.
+
+
+### 2026-11-25 — Bellek kapısı (A7), uyanıklık (A8), Core güvenlik şeması (A10), dünya olay akışı (A5)
+
+- **A7 `modules/memory_gate.py`:** sınır 40 tur / 12.000 karakter; aşılınca **özetle** (son 12 tur ham kalır); `remember/forget/pinned` ile sabit notlar (`~/.jarvis/bellek/sabitler.json`); `resolve_reference("bunu kaydet", last_action)` yalnız **gerçekleşmiş son adımın** hedefine çözülür, yoksa `None` (tahmin yok).
+- **A8 `modules/awareness_watch.py`:** varsayılan **kapalı** (`watch_enabled`); pencere değişimi, okunmamış mail, 30 dk içindeki takvim işi aday olur; **sessiz saat 22:00–08:00** susturur; aynı olay parmak iziyle tekrar bildirilmez; bir turda en fazla 1 aday. Gösterme kararı mevcut bildirim sahibinde kalır.
+- **A10 `modules/core_policy.py`:** `decide(action) → free|ask|forbid`; şifre/banka → **forbid** (Türkçe katlamalı), sil/ödeme/gönder → **ask**, okuma → **free**, yazma yalnız `~/.jarvis/sandbox` içinde serbest. Böylece risk/sandbox kararı tek yerde; `pc_hands`/`pc_files` kendi kurallarını sürdürür (davranış değişmedi).
+- **A5 `modules/world_events.py`:** GDELT doküman API (ücretsiz, anahtarsız, yalnız okuma); tekrar süzgeci Türkçe katlamalı; `rank(items, interests)` ilgiye göre sıralar ama **ilgisizleri gizlemez** (kutuplaşma koruması); ağ yoksa `offline` — uydurma başlık yok.
+- **Kanıt:** `test_memory_gate` (7), `test_awareness_watch` (6), `test_core_policy` (7), `test_world_events` (5) + `test_cleanup_security` + mimari bekçi + `test_fast_commands` → 63 test OK.
+- **Sınır (dürüst):** bu dört modül **karar/kapı** katmanıdır; hiçbiri yeni bir yürütme sahibi ya da ikinci beyin değildir. Bağlama (engine hattı) ayrı ve ölçülü adımda yapılacak.
