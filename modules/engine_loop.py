@@ -130,6 +130,26 @@ def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     return result
 
 
+ASK_TEMPLATES = {
+    "window": "Hangi pencerede yapayım?",
+    "path": "Hangi klasör/dosya?",
+    "text": "Ne yazayım?",
+    "query": "Ekrandaki hangi yazıya basayım?",
+    "name": "Dosya adı ne olsun?",
+}
+
+
+def _ask_for_slots(karar):
+    """Eksik bilgiyi uydurmak yerine tek soru sor (yapmaz)."""
+    missing = (karar.get("missing") or [None])[0]
+    return ASK_TEMPLATES.get(missing, "Eksik bilgi var; biraz daha açık söyler misin?")
+
+
+def _dispatch_fast(runtime, intent, args, cmd):
+    from modules import engine_intents
+    return engine_intents.dispatch(runtime, intent, args, cmd, cmd.casefold())
+
+
 def _fast_command_turn(runtime, cmd):
     """Kapalı sözlükteki komutu model çağırmadan mevcut sahibinde çalıştırır.
 
@@ -140,6 +160,15 @@ def _fast_command_turn(runtime, cmd):
     from modules import engine_intents, fast_commands
     eslesme = fast_commands.resolve(cmd)
     if eslesme is None:
+        # Serbest cümle: kalıp tutmadıysa **yetenek beyni** dener (katalog eşleşmesi).
+        # Emin değilse iş yapmaz; eksik bilgi varsa tek soru sorar.
+        from modules import capability_brain
+        karar = capability_brain.resolve(cmd)
+        if karar["status"] == "ok":
+            runtime.log.info("hızlı yol: intent=%s (katalog)", karar["intent"])
+            return _dispatch_fast(runtime, karar["intent"], karar["args"], cmd)
+        if karar["status"] == "need":
+            return _ask_for_slots(karar)
         # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model
         # çağırmadan cevaplanır. Canlı kusur (23 Kasım): tüm sağlayıcılar düşükken
         # "merhaba" cevapsız kaldı.

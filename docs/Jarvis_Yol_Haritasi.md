@@ -1643,3 +1643,16 @@ D
 - Canlı sınır (dürüst): uygulama açma **izin kapısından** geçiyor; Jarvis süreci dışından çağrıldığında `PermissionError` alınıyor. Bu durumda zincir yalan söylemiyor: "“chrome” uygulamasını ben açamıyorum (izin kapısı). Sen açarsan kalan adımları yaparım." (`refused`)
 - Yani "chrome aç, youtube yaz, enter" **planı** 3 adıma doğru açılıyor; uygulama zaten açıksa 2. ve 3. adımlar çalışır; kapalıysa açma adımı izin kapısına takılır ve söylenir.
 - Kanıt: `test_pc_task` 15 test (3 yeni) OK.
+
+
+### 2026-11-25 — Yetenek beyni: serbest cümle → yetenek eşleşmesi
+
+- **Sorun:** kalıplar yalnız ezberlenmiş cümlelerde çalışıyordu; kullanıcı aynı işi farklı söyleyince Jarvis hiçbir şey yapmıyordu ("kelime kalıpları basit işler için, gerisi sancılı").
+- `modules/capability_catalog.py`: 12 yetenek, her biri **insan dilinde** tanımlı (ne yapar, hangi bilgiler gerekir, örnek cümleler, anahtar sözcükler).
+- `modules/capability_brain.py`: `resolve(cümle)` → sıra: (1) hızlı kalıp, (2) katalog eşleşmesi (Türkçe ek toleranslı sözcük/eylem puanlaması), (3) hiçbiri tutmazsa **yapmaz**.
+  - `ok` → yetenek + alanlar; `need` → eksik bilgi (tek soru); `uncertain` → iş yapılmaz, adaylar söylenir.
+  - Alan çıkarımı: pencere adı sözlüğü, "indirilenler/masaüstü/belgeler" → gerçek klasör, dosya adı **tek eşleşiyorsa** yol (belirsizse sorma).
+- `engine_loop._fast_command_turn`: kalıp tutmazsa beyin denenir; `ok` → doğrudan dispatch (model çağrılmaz), `need` → tek soru.
+- Canlı ölçüm (fonksiyon üzerinden): "chrome a youtube yaz" → `pc_type` (window=chrome, text=youtube); "indirilenler klasöründe ne var" → `file_list` (gerçek Downloads yolu); "youtube a git" → `need` (hangi pencere?); "dün akşam ne yedim" → `uncertain` (iş yapmadı).
+- Kanıt: `test_capability_brain` 11 test + `test_fast_commands` + orphan bekçisi + `test_engine_modular` → 78 test OK.
+- Sınır (dürüst): eşleştirme **sözcük tabanlı**; çok dolaylı anlatımda (`"şu işi hallediversene"`) hâlâ `uncertain` der. Model destekli anlam eşleşmesi ayrı adım.
