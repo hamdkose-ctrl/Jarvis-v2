@@ -443,3 +443,48 @@ class AmbiguousWindow(unittest.TestCase):
         with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": None, "reason": "missing"}):
             result = pc_hands.find_control("not defteri", "kaydet")
         self.assertEqual(result["status"], "no_window")
+
+
+class Clipboard(unittest.TestCase):
+    """Kopyala/yapıştır: panoyu doğrula, 'yaptım' demekle yetinme."""
+
+    def test_copy_reports_empty_clipboard(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "read_clipboard", return_value="aynı"), \
+             patch("pyautogui.hotkey"):
+            result = pc_hands.copy_selection("not defteri")
+        self.assertEqual(result["status"], "no_change")
+        self.assertIn("Panoda metin yok", result["text"])
+
+    def test_copy_detects_new_text(self):
+        texts = iter(["eski", "yeni metin"])
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "read_clipboard", side_effect=lambda: next(texts)), \
+             patch("pyautogui.hotkey"):
+            result = pc_hands.copy_selection("not defteri")
+        self.assertEqual(result["status"], "done")
+        self.assertIn("yeni metin", result["text"])
+
+    def test_paste_verifies_on_screen(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "write_clipboard", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=True):
+            result = pc_hands.paste_text("not defteri", "merhaba")
+        self.assertEqual(result["status"], "done")
+
+    def test_paste_that_does_not_show_is_reported(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}), \
+             patch.object(pc_hands, "_focus", return_value=True), \
+             patch.object(pc_hands, "write_clipboard", return_value=True), \
+             patch.object(pc_hands, "_paste", return_value=True), \
+             patch.object(pc_hands, "_text_visible", return_value=False):
+            result = pc_hands.paste_text("not defteri", "merhaba")
+        self.assertEqual(result["status"], "no_change")
+        self.assertIn("görünmüyor", result["text"])
+
+    def test_empty_payload_is_refused(self):
+        self.assertEqual(pc_hands.paste_text("not defteri", "   ")["status"], "no_change")
