@@ -601,3 +601,37 @@ def paste_text(window: str, text: str | None = None, *, abort=None) -> dict:
     if not _text_visible(str(payload)):
         return {"status": "no_change", "text": PASTED_MISSING.format(window=target["title"][:40])}
     return {"status": "done", "text": PASTED_OK.format(text=str(payload)[:60])}
+
+
+# --- Arama sonucuna tıklama (10 madde #2) ---------------------------------
+# Adres çubuğu + Enter var; şimdi ekrandaki sonuç başlığını bulup tıklamak.
+# Gezinme serbest olduğu için ek onay istenmez; ama tıklama sonrası **sayfa
+# gerçekten değişti mi** diye bakılır, değişmediyse dürüstçe söylenir.
+RESULT_ASK = "Ekranda “{query}” için {count} sonuç gördüm; ilkine tıklıyorum: “{first}”."
+RESULT_NONE = "Ekranda “{query}” yazısını göremedim; tıklamadım."
+RESULT_CLICKED = "“{first}” sonucuna tıkladım."
+
+
+def click_search_result(query: str, *, abort=None) -> dict:
+    """Ekranda arama sonucu başlığını bulur ve tıklar (tahmin yok)."""
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    from modules import pc_vision
+    words = pc_vision.read_screen()
+    needle = _fold(query)
+    hits = [word for word in words if needle and needle in _fold(word["text"])]
+    if not hits:
+        return {"status": "not_found", "text": RESULT_NONE.format(query=query)}
+    top = sorted(hits, key=lambda word: (word["y"], word["x"]))[0]
+    before = pc_vision.read_screen()
+    try:
+        import pyautogui
+        pyautogui.click(int(top["x"]), int(top["y"]))
+        time.sleep(1.2)
+    except Exception:
+        _record_failure("modules/pc_hands.py:click_search_result")
+        return {"status": "failed", "text": PASTE_FAILED.format(window="ekran", reason="tıklama yapılamadı")}
+    after = pc_vision.read_screen()
+    if before and after and [w["text"] for w in before[:12]] == [w["text"] for w in after[:12]]:
+        return {"status": "no_change", "text": NO_CHANGE.format(what=query)}
+    return {"status": "done", "text": RESULT_CLICKED.format(first=top["text"][:40])}
