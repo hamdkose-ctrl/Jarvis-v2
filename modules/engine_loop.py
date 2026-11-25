@@ -165,8 +165,8 @@ def _fast_command_turn(runtime, cmd):
         from modules import capability_brain
         karar = capability_brain.resolve(cmd)
         if karar["status"] == "ok":
-            runtime.log.info("hızlı yol: intent=%s (katalog)", karar["intent"])
-            return _dispatch_fast(runtime, karar["intent"], karar["args"], cmd)
+            runtime.log.info("hızlı yol: intent=%s (katalog)", karar["capability"])
+            return _dispatch_fast(runtime, karar["capability"], karar["slots"], cmd)
         if karar["status"] == "need":
             return _ask_for_slots(karar)
         # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model

@@ -91,7 +91,7 @@ def resolve(text: str) -> dict:
     has_file_word = bool(tokens(raw) & file_words)
     fast = fast_commands.resolve(raw)
     if fast and not (has_file_word and fast[0].startswith("screen_")):
-        return {"status": "ok", "intent": fast[0], "args": fast[1], "via": "pattern"}
+        return {"status": "ok", "capability": fast[0], "slots": fast[1], "via": "pattern"}
     folded = fold(raw)
     words = tokens(raw)
     ranked = sorted(((item, _score(item, words, folded)) for item in capability_catalog.CATALOG),
@@ -103,14 +103,14 @@ def resolve(text: str) -> dict:
             best, score = file_items[0], max(score, MATCH_THRESHOLD)
     if score < MATCH_THRESHOLD:
         return {"status": "uncertain", "score": round(score, 2),
-                "intent": None, "text": raw,
+                "capability": None, "text": raw,
                 "candidates": [item["intent"] for item, value in ranked[:3] if value > 0]}
     args = _slots(best, raw)
     missing = [slot for slot in best["needs"] if not args.get(slot)]
     if missing:
-        return {"status": "need", "intent": best["intent"], "args": args,
+        return {"status": "need", "capability": best["intent"], "slots": args,
                 "missing": missing, "text": raw}
-    return {"status": "ok", "intent": best["intent"], "args": args, "via": "catalog",
+    return {"status": "ok", "capability": best["intent"], "slots": args, "via": "catalog",
             "score": round(score, 2)}
 
 
