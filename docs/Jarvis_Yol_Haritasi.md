@@ -1612,3 +1612,10 @@ D
 - `fast_commands.resolve()`: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa `autonomy_schedule`'a yönlenir (regex sırasına güvenilmez).
 - `engine_intents case "autonomy_schedule"`: zamanı çıkarır, `pc_autonomy_queue.enqueue(...)` ile kuyruğa ekler, saati söyler.
 - Kanıt: `test_autonomy_when` 8 test + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 58 test OK.
+
+
+### 2026-11-25 — Sessiz hata düzeltmesi: kuyruk dosyası yokken log'a ERROR yazılıyordu
+
+- Canlı log: `pc_autonomy_queue.py:_load → FileNotFoundError` → her turda ERROR (ilk çalıştırmada kuyruk dosyası henüz yok).
+- Düzeltme: `FileNotFoundError` **hata değil, ilk çalıştırma** sayılır ve sessizce boş kuyruk döner; bozuk/okunamayan dosya yine tanılamaya yazılır.
+- Kanıt: `test_pc_autonomy_queue` + `test_cleanup_security` → 19 test OK.
