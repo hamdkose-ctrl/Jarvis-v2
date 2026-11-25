@@ -130,6 +130,27 @@ def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     return result
 
 
+from modules.diagnostics import record_failure as _record_failure
+
+def _current_window():
+    try:
+        from modules import pc_awareness
+        found = pc_awareness.find_window("")
+        return (found.get("match") or {}).get("title") if found.get("status") == "ok" else ""
+    except Exception:
+        _record_failure("modules/engine_loop.py:_current_window")
+        return ""
+
+
+def _pending_flag():
+    try:
+        from modules import pc_hands
+        return "confirm" if pc_hands.pending() else ""
+    except Exception:
+        _record_failure("modules/engine_loop.py:_pending_flag")
+        return ""
+
+
 ASK_TEMPLATES = {
     "window": "Hangi pencerede yapayım?",
     "path": "Hangi klasör/dosya?",
@@ -158,34 +179,21 @@ def _fast_command_turn(runtime, cmd):
     izin veya yeni bir etki sahibi yok: yalnız `engine_intents.dispatch` çağrılır.
     """
     from modules import engine_intents, fast_commands
-    eslesme = fast_commands.resolve(cmd)
-    if eslesme is None:
-        # Serbest cümle: kalıp tutmadıysa **yetenek beyni** dener (katalog eşleşmesi).
-        # Emin değilse iş yapmaz; eksik bilgi varsa tek soru sorar.
-        from modules import capability_brain
-        karar = capability_brain.resolve(cmd)
-        if karar["status"] == "ok":
-            runtime.log.info("hızlı yol: intent=%s (katalog)", karar["capability"])
-            return _dispatch_fast(runtime, karar["capability"], karar["slots"], cmd)
-        if karar["status"] == "need":
-            return _ask_for_slots(karar)
-        if karar["status"] == "uncertain":
-            # Katalog yetmedi: modelden **yalnız seçim** iste (yapma yetkisi yok).
-            from modules import capability_llm
-            model_karar = capability_llm.resolve(cmd)
-            if model_karar["status"] == "ok":
-                runtime.log.info("hızlı yol: intent=%s (model)", model_karar["capability"])
-                return _dispatch_fast(runtime, model_karar["capability"], model_karar["slots"], cmd)
-            if model_karar["status"] == "need":
-                return _ask_for_slots(model_karar)
-        # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model
-        # çağırmadan cevaplanır. Canlı kusur (23 Kasım): tüm sağlayıcılar düşükken
-        # "merhaba" cevapsız kaldı.
+    # TEK BEYİN (`capability_router`): "ne yapılacak" kararı yalnız orada verilir.
+    from modules import capability_router
+    baglam = {"window": _current_window(), "pending": _pending_flag()}
+    karar = capability_router.route(cmd, baglam)
+    eslesme = None
+    if karar["status"] == "ask":
+        return _ask_for_slots(karar)
+    if karar["status"] == "run":
+        eslesme = (karar["capability"], karar["slots"])
+    else:
+        # Selamlama/nezaket, hesap ve saat gibi **salt yerel** işler beyin kararı değildir.
         sohbet = fast_commands.chitchat(cmd)
         if sohbet:
             runtime.log.info("hızlı yol: intent=chitchat")
             return sohbet
-        # Salt hesap ("25 çarpı 4") model istemez: yan etkisiz, yerel.
         hesap = fast_commands.compute(cmd)
         if hesap:
             runtime.log.info("hızlı yol: intent=fast_calc")

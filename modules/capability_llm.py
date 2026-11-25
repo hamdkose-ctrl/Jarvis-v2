@@ -23,7 +23,7 @@ CACHE_SECONDS = 300.0
 _cache: dict[str, tuple[float, dict]] = {}
 
 
-def _schema_prompt(text: str) -> str:
+def _schema_prompt(text: str, context: dict | None = None) -> str:
     lines = ["Kullanıcının cümlesini aşağıdaki yeteneklerden BİRİNE bağla.",
              "Yetenekler:"]
     for item in capability_catalog.CATALOG:
@@ -31,6 +31,8 @@ def _schema_prompt(text: str) -> str:
                      f" | örnek: {item['examples'][0]}")
     lines.append("")
     lines.append(f'Cümle: "{text}"')
+    if context:
+        lines.append("Bağlam: " + "; ".join(f"{key}={value}" for key, value in context.items() if value))
     lines.append("")
     lines.append('Yalnız şu JSON ile cevap ver: {"capability": "<ad>", "slots": {...}, "confidence": 0-1}')
     lines.append('Emin değilsen: {"capability": null, "confidence": 0}')
@@ -39,10 +41,12 @@ def _schema_prompt(text: str) -> str:
     return "\n".join(lines)
 
 
-def _ask_model(text: str) -> str | None:
+def _ask_model(text: str, context: dict | None = None) -> str | None:
     try:
         from modules import llm
-        return llm.complete(_schema_prompt(text), purpose="capability") if hasattr(llm, "complete") else None
+        if not hasattr(llm, "complete"):
+            return None
+        return llm.complete(_schema_prompt(text, context), purpose="capability")
     except Exception:
         _record_failure("modules/capability_llm.py:_ask_model")
         return None
@@ -67,10 +71,11 @@ def _validate(payload: dict, text: str) -> dict:
     if missing:
         return {"status": "need", "capability": entry["intent"], "slots": slots,
                 "missing": missing, "text": text, "via": "model"}
-    return {"status": "ok", "capability": entry["intent"], "slots": slots, "text": text, "via": "model"}
+    return {"status": "ok", "capability": entry["intent"], "slots": slots, "text": text,
+            "via": "model", "confidence": payload.get("confidence")}
 
 
-def resolve(text: str) -> dict:
+def resolve(text: str, context: dict | None = None) -> dict:
     """Katalog yetmediğinde modelden destek alır; her durumda doğrulanmış sonuç döner."""
     raw = str(text or "").strip()
     if not raw:
@@ -78,7 +83,7 @@ def resolve(text: str) -> dict:
     cached = _cache.get(raw)
     if cached and time.time() - cached[0] < CACHE_SECONDS:
         return cached[1]
-    answer = _ask_model(raw)
+    answer = _ask_model(raw, context)
     if not answer:
         return {"status": "uncertain", "capability": None, "text": raw, "via": "model"}
     payload = _parse(answer)
