@@ -54,6 +54,48 @@ def resolve_reference(text: str, last_action: dict | None) -> dict | None:
             "window": last_action.get("window") or ""}
 
 
+LAST_FILE = Path.home() / ".jarvis" / "bellek" / "son-adim.json"
+
+
+def record_action(capability: str, args: dict, result: dict | None = None) -> dict:
+    """Gerçekleşmiş son adımı yazar; "bunu/şunu" yalnız buna çözülür."""
+    step = {"kind": str(capability or ""),
+            "target": str((args or {}).get("target") or (args or {}).get("name")
+                          or (args or {}).get("text") or (args or {}).get("path") or ""),
+            "window": str((args or {}).get("window") or ""),
+            "status": str((result or {}).get("status") or "done")}
+    try:
+        LAST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LAST_FILE.write_text(json.dumps(step, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        _record_failure("modules/memory_gate.py:record_action")
+    return step
+
+
+def last_action() -> dict | None:
+    try:
+        step = json.loads(LAST_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except Exception:
+        _record_failure("modules/memory_gate.py:last_action")
+        return None
+    return step if isinstance(step, dict) and step.get("target") else None
+
+
+def summarise_history(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Kalıcı geçmişi sınırlar: aşılırsa eskiler tek özet satırına iner."""
+    turns = [{"text": text, "role": role} for role, text in items]
+    karar = plan(turns)
+    if karar["action"] == "keep":
+        return list(items)
+    older = karar["summary_source"]
+    keep_count = max(0, len(items) - len(older))
+    summary = summary_text(older)
+    kept = list(items[-keep_count:]) if keep_count else []
+    return ([("assistant", summary)] if summary else []) + kept
+
+
 def remember(key: str, value: str) -> dict:
     items = _load()
     items[str(key)] = str(value)

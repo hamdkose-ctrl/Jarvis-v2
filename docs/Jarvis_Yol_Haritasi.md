@@ -1725,3 +1725,13 @@ D
 - **A5 `modules/world_events.py`:** GDELT doküman API (ücretsiz, anahtarsız, yalnız okuma); tekrar süzgeci Türkçe katlamalı; `rank(items, interests)` ilgiye göre sıralar ama **ilgisizleri gizlemez** (kutuplaşma koruması); ağ yoksa `offline` — uydurma başlık yok.
 - **Kanıt:** `test_memory_gate` (7), `test_awareness_watch` (6), `test_core_policy` (7), `test_world_events` (5) + `test_cleanup_security` + mimari bekçi + `test_fast_commands` → 63 test OK.
 - **Sınır (dürüst):** bu dört modül **karar/kapı** katmanıdır; hiçbiri yeni bir yürütme sahibi ya da ikinci beyin değildir. Bağlama (engine hattı) ayrı ve ölçülü adımda yapılacak.
+
+
+### 2026-11-25 — Dört madde hatta bağlandı (A7, A8, A10, A5)
+
+- **A7 bellek:** `engine_voice._recent_turns` artık `memory_gate.summarise_history` üzerinden geçer (sınır aşılırsa eskiler tek özet satırına iner). `pc_save` çağrısında ad yoksa `memory_gate.resolve_reference("bunu kaydet", last_action)` çözülür; başarılı kaydetme `record_action` ile son adım olarak yazılır (tahmin yok, yoksa sorulur).
+- **A10 Core:** `pc_hands.is_risky` mevcut kelime listesine ek olarak `core_policy.decide` kararına danışır (birleşim → daha güvenli); şifre/banka `forbid`, sil/ödeme/gönder `ask`.
+- **A8 uyanıklık:** `engine_loop` içinde `uyaniklik` daemon thread'i (120 sn) → `pc_autonomy_queue.watch_tick`; varsayılan **kapalı**, açıkken adaylar yalnız günlüğe yazılır, sessiz saat ve tekrar engeli modülün içinde.
+- **A5 dünya olayları:** `fast_commands` "dünya olayları / dünyada ne var / dünya gündemi" → `world_events`; `engine_intents` case GDELT'ten okur, `news_interests` ayarına göre sıralar, ağ yoksa dürüst `offline`; `brain_core_map` `fast.world.events` kaydı (orphan bekçisi için).
+- **Kanıt:** `test_four_wiring` (5) + `test_memory_gate`, `test_awareness_watch`, `test_core_policy`, `test_world_events`, `test_pc_hands`, `test_pc_autonomy_queue`, `test_fast_commands`, `test_brain_orphan_dispatch_guard`, `test_engine_modular`, `test_cleanup_security`, mimari bekçi → 171 test OK.
+- **Sınır (dürüst):** uyanıklık bildirimi şimdilik yalnız günlük ve varsayılan kapalı; ekrana/sese gösterim mevcut bildirim sahibine ayrı adımda bağlanacak.

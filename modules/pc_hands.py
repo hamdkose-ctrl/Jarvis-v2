@@ -56,7 +56,15 @@ def _fold(text: str) -> str:
 def is_risky(query: str, text: str = "") -> bool:
     """Adım geri alınamaz mı? (silme/ödeme/gönderme…)"""
     blob = _fold(f"{query} {text}")
-    return any(_fold(word) in blob for word in RISKY_WORDS)
+    if any(_fold(word) in blob for word in RISKY_WORDS):
+        return True
+    # Core güvenlik şeması (A10) tek karar noktası: o "onay" ya da "yasak" diyorsa riskli say.
+    try:
+        from modules import core_policy
+        return core_policy.decide({"kind": "click", "label": f"{query} {text}"})["verdict"] != "free"
+    except Exception:
+        _record_failure("modules/pc_hands.py:is_risky_policy")
+        return False
 
 
 def find_control(window: str, query: str) -> dict:

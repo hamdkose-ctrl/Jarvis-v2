@@ -116,6 +116,31 @@ def summary() -> str:
 TICK_SECONDS = 120.0
 
 
+def watch_tick(runtime=None) -> list[dict]:
+    """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır."""
+    from modules import awareness_watch
+    try:
+        settings = (getattr(getattr(runtime, "profile", None), "settings", None) or {})
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:watch_tick_settings")
+        settings = {}
+    if not awareness_watch.enabled(settings):
+        return []
+    state = {}
+    try:
+        from modules import pc_awareness
+        found = pc_awareness.find_window("")
+        state["window"] = (found.get("match") or {}).get("title", "") if found.get("status") == "ok" else ""
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:watch_tick_window")
+        state["window"] = ""
+    items = awareness_watch.candidates(state, seen=set())
+    for item in items:
+        if runtime is not None and hasattr(runtime, "log"):
+            runtime.log.info("uyanıklık: %s", item["text"])
+    return items
+
+
 def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleeper=None,
               max_ticks: int | None = None) -> None:
     """Arka planda periyodik olarak kuyruğa bakar. Ana anahtar kapalıysa hiç iş yapmaz.
@@ -126,6 +151,7 @@ def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleepe
     import time as _time
     run = runner or run_due
     wait = sleeper or _time.sleep
+    runtime_holder = getattr(stop_event, "runtime", None)
     ticks = 0
     while stop_event is not None and not stop_event.is_set():
         if max_ticks is not None and ticks >= max_ticks:
