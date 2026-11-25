@@ -1735,3 +1735,12 @@ D
 - **A5 dünya olayları:** `fast_commands` "dünya olayları / dünyada ne var / dünya gündemi" → `world_events`; `engine_intents` case GDELT'ten okur, `news_interests` ayarına göre sıralar, ağ yoksa dürüst `offline`; `brain_core_map` `fast.world.events` kaydı (orphan bekçisi için).
 - **Kanıt:** `test_four_wiring` (5) + `test_memory_gate`, `test_awareness_watch`, `test_core_policy`, `test_world_events`, `test_pc_hands`, `test_pc_autonomy_queue`, `test_fast_commands`, `test_brain_orphan_dispatch_guard`, `test_engine_modular`, `test_cleanup_security`, mimari bekçi → 171 test OK.
 - **Sınır (dürüst):** uyanıklık bildirimi şimdilik yalnız günlük ve varsayılan kapalı; ekrana/sese gösterim mevcut bildirim sahibine ayrı adımda bağlanacak.
+
+
+### 2026-11-25 — Uyanıklık bildirimi mevcut sahibe bağlandı (A8 teslim)
+
+- `pc_autonomy_queue.watch_tick` artık adayları **gösterir**: `voice_runtime.announce_active(text, background=True)` (mevcut tek bildirim/ses sahibi). Yeni bildirim kanalı açılmadı.
+- Tekrar engeli kalıcı: `_SEEN` kümesi (`awareness_watch.mark_seen`) — aynı olay ikinci kez söylenmez.
+- Ana anahtar hâlâ `watch_enabled` (**varsayılan kapalı**): kapalıyken hiçbir aday üretilmez, hiçbir çağrı yapılmaz.
+- Sessiz saat (22:00–08:00) korunur; ses kapalıysa bildirim yazılı yola düşer (sahibin kendi kuralı).
+- **Kanıt:** `test_watch_delivery` (2) + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 27 test OK.
