@@ -1603,3 +1603,12 @@ D
 - **Panoyu doğrular**: kopyalamada "panoda yeni metin var mı", yapıştırmada "metin ekranda göründü mü" (OCR). İkisi de yoksa dürüst cevap.
 - Canlı doğrulama: Not Defteri'ne `paste_text('not defteri','kopyala yapıştır denemesi')` → **done**.
 - Kanıt: `test_pc_hands` 48 test (5 yeni) + `test_cleanup_security` → 58 test OK.
+
+
+### 2026-11-25 — Zamanlı iş: "yarın 09:00'da şunu yap" (10 madde #5)
+
+- `modules/autonomy_when.py`: `parse_when()` — "yarın/bugün/öbür gün", "saat HH:MM", "N dakika/saat sonra" ifadelerini zamana çevirir, iş metnini ayıklar.
+- **Tahmin yok**: zaman bulunamazsa iş kuyruğa **eklenmez**; "saat söylenmediyse 09:00 kabul ettim" gibi notlar açıkça söylenir; geçersiz saat (25:00) reddedilir.
+- `fast_commands.resolve()`: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa `autonomy_schedule`'a yönlenir (regex sırasına güvenilmez).
+- `engine_intents case "autonomy_schedule"`: zamanı çıkarır, `pc_autonomy_queue.enqueue(...)` ile kuyruğa ekler, saati söyler.
+- Kanıt: `test_autonomy_when` 8 test + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 58 test OK.

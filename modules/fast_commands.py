@@ -78,6 +78,7 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- zamanlı iş (otonomi kuyruğu) ---
     # --- otonomi ana anahtarı ---
     (re.compile(r"(otonomiyi|otonomi yi)?\s*(ac|aç|baslat|başlat)"), ('autonomy_on', {})),
     (re.compile(r"otonomiyi\s*(kapat|durdur|kapa)"), ('autonomy_off', {})),
@@ -218,6 +219,14 @@ def resolve(command: str) -> tuple[str, dict] | None:
     metin = normalize(command)
     if not metin or len(metin) > MAX_CHARS:
         return None
+    # Zamanlı iş: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa kuyruğa gider.
+    # (Regex sırasına güvenmek yerine burada tek kontrole bakıyoruz.)
+    from modules import autonomy_when
+    parsed = autonomy_when.parse_when(command)
+    if parsed.get("when") and parsed.get("rest") and parsed["rest"] != metin:
+        inner = resolve(parsed["rest"])
+        if inner and inner[0].startswith("pc_"):
+            return "autonomy_schedule", {"phrase": command}
     for pattern, hedef in _PATTERNS:
         eslesme = pattern.fullmatch(metin)
         if not eslesme:
