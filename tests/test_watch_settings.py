@@ -15,7 +15,7 @@ class Settings(unittest.TestCase):
 
     def test_real_setting_opens_the_watch(self):
         with patch("config.load_settings", return_value={"watch_enabled": True}), \
-             patch("modules.pc_awareness.find_window", return_value={"status": "ok", "match": {"title": "Chrome"}}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"), \
              patch("modules.voice_runtime.announce_active", return_value=True) as say:
             items = pc_autonomy_queue.watch_tick(_Runtime())
         self.assertEqual(len(items), 1)

@@ -1752,3 +1752,10 @@ D
 - **Düzeltme:** ayarın gerçek tek sahibi `config.load_settings()` kullanılıyor; okuma hatasında uyanıklık **kapalı** kalır (fail-closed) ve tanılamaya yazılır.
 - **Canlı doğrulama:** `~/.jarvis/settings.json` → `watch_enabled=true`, Jarvis yeniden başlatıldı; `uyaniklik` thread'i 120 sn'de bir çalışıyor. (Not: pencerede değişiklik yoksa aday üretmez — tasarım gereği.)
 - **Kanıt:** `test_watch_settings` (3: gerçek ayar açar, anahtar yoksa kapalı, ayar hatasında kapalı) + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 30 test OK.
+
+
+### 2026-11-25 — Uyanıklık: ön pencere okuması (ikinci sessiz kusur)
+
+- **Canlı kusur (ölçüldü):** `watch_tick` penceresi `pc_awareness.find_window("")` ile okunuyordu; boş sorgu "pencere yok" döndüğü için uyanıklık **hiç aday üretmiyordu** ve log'da tek satır yoktu.
+- **Düzeltme:** `pc_autonomy_queue.foreground_window()` → `win32gui.GetWindowText(GetForegroundWindow())`; kütüphane yoksa/hata olursa boş döner ve tanılamaya yazılır.
+- **Kanıt:** `test_watch_foreground` (2: başlık aday üretir, kütüphane yoksa sessiz) + `test_watch_settings` + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK.
