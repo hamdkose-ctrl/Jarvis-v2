@@ -1565,3 +1565,14 @@ D
 - Esc/`abort` her adımda kontrol edilir; anlaşılmayan komut hiç çalıştırılmaz.
 - Kanıt: `tests/test_pc_autonomy.py` 7 test OK (bütçe, onay, hata, rapor dosyası, abort).
 - Sınır (dürüst): arka planda kendi kendine görev başlatma (zamanlayıcı) **yok**; kota/bütçe sayacı adım sayısıyla sınırlı. OTONOM planının OTO-1..9 maddeleri bu dilimle kısmen karşılandı.
+
+
+### 2026-11-25 — Otonomi kuyruğu: Jarvis kendi işini zamanında alır (sınırlı)
+
+- `modules/pc_autonomy_queue.py`: `enqueue()` (iş + zaman), `run_due()` (sırası gelen ilk iş), `set_enabled()`, `summary()`.
+- **Varsayılan kapalı**: ana anahtar açılmadıkça hiçbir iş çalışmaz.
+- **Günlük bütçe** 20 adım; dolunca "bitti" denmez, bütçe doldu denir.
+- **Onay bekleyen iş otomatik tekrar denenmez** (`paused`): kullanıcı onaylamadan ilerlemez.
+- Her koşu `~/.jarvis/autonomy/queue.json` durumunu ve `pc_autonomy` raporunu günceller.
+- Kanıt: `tests/test_pc_autonomy_queue.py` 6 test + `test_pc_autonomy` + `test_cleanup_security` → 23 test OK.
+- Dürüst sınır: kuyruk **kendi kendine yeni iş uydurmaz**; yalnız verilen işleri zamanında çalıştırır. Zamanlayıcı döngüsü (engine içinde periyodik çağrı) henüz bağlanmadı.
