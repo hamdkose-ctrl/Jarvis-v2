@@ -27,8 +27,36 @@ def fold(text: str) -> str:
     return " ".join(str(text or "").casefold().translate(FOLD).split())
 
 
+SUFFIXES = ("lari", "leri", "sini", "sana", "sene", "dan", "den", "tan", "ten", "dir", "dur",
+            "lar", "ler", "ini", "ina", "ine", "nin", "nun", "daki", "deki", "a", "e", "i", "u")
+
+SYNONYMS = {
+    "yutup": "youtube", "youtube": "youtube", "video": "youtube", "izle": "youtube",
+    "posta": "mail", "eposta": "mail", "gmail": "mail", "inbox": "mail", "mailler": "mail",
+    "sarki": "muzik", "muzik": "muzik", "spotify": "muzik",
+    "kaydet": "kaydet", "sakla": "kaydet", "store": "kaydet",
+    "tikla": "tikla", "bas": "tikla", "dokun": "tikla",
+    "yaz": "yaz", "yaziver": "yaz", "not": "yaz", "ekle": "yaz",
+    "ara": "ara", "bul": "ara", "search": "ara",
+    "ekran": "ekran", "sayfa": "ekran", "goruntu": "ekran",
+    "klasor": "klasor", "dizin": "klasor", "folder": "klasor",
+    "dosya": "dosya", "belge": "dosya", "file": "dosya",
+    "oku": "oku", "goster": "oku", "bak": "oku",
+}
+
+
+def stem(word: str) -> str:
+    """Kaba Türkçe gövdeleme: 'mailleri' → 'mail', 'youtube'ya' → 'youtube'."""
+    text = fold(word)
+    for suffix in sorted(SUFFIXES, key=len, reverse=True):
+        if text.endswith(suffix) and len(text) - len(suffix) >= 3:
+            text = text[: -len(suffix)]
+            break
+    return SYNONYMS.get(text, text)
+
+
 def tokens(text: str) -> set[str]:
-    return {word for word in re.findall(r"[a-z0-9]+", fold(text)) if len(word) > 1 and word not in STOP}
+    return {stem(word) for word in re.findall(r"[a-z0-9]+", fold(text)) if len(word) > 1 and word not in STOP}
 
 
 SITES = {"youtube": "youtube.com", "yutup": "youtube.com", "mail": "gmail.com",
@@ -105,7 +133,7 @@ def resolve(text: str) -> dict:
     raw = str(text or "").strip()
     if not raw:
         return {"status": "none", "text": ""}
-    file_words = {"klasor", "dosya", "indirilenler", "masaustu", "belge"}
+    file_words = {"klasor", "dosya", "indirilen", "indirilenler", "masaust", "masaustu", "belge"}
     has_file_word = bool(tokens(raw) & file_words)
     fast = fast_commands.resolve(raw)
     if fast and fast[0] == "app_open" and _site_of(raw):
@@ -164,7 +192,7 @@ def guess_path(raw: str, *, want_file: bool) -> str:
     words = tokens(raw)
     home = _Path.home()
     for word, folder in FOLDERS.items():
-        matched = any(_hits(token, word) for token in words)
+        matched = any(_hits(token, stem(word)) or _hits(stem(token), stem(word)) for token in words)
         if matched and (home / folder).is_dir():
             return str(home / folder) if not want_file else ""
     if not want_file:

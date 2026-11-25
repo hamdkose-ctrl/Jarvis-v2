@@ -1688,3 +1688,17 @@ D
 - Karne: kısa komut isabeti **10/11** ("bunu kaydet", "yarın 9 da bunu yap", "kapat" bilinçli olarak `uncertain` — bağlam/bellek gerekiyor); yanlış eylem **0/4**.
 - Kanıt: `test_short_commands` 4 + 100 test → 104 test OK.
 - Sınır: "bunu kaydet / bunu yap" **önceki cümleye** gönderme yapıyor; bellek kapısı (A7) gelmeden tahmin edilmiyor.
+
+
+### 2026-11-25 — Tek beyin (çoklu beyin kaldırıldı)
+
+- **Kullanıcı kararı:** "beyin kelimeye dayalı olmasın, çoklu beyin istemiyorum."
+- **Yeni tek karar noktası:** `modules/capability_router.route(cümle, bağlam)` — motor yalnız buraya sorar.
+  - `source=brain`: anlam kararı (model, katalog = veri).
+  - `source=offline`: yalnız model yokken devreye giren yedek (kalıp/katalog) — **beyin değil**.
+  - `status=run|ask|none`: iş yap / tek soru sor / hiç yapma.
+- **Bağlam** karara girer: açık pencere, son adım, bekleyen onay → "bunu" gibi ifadeler tahmin edilmez.
+- `capability_llm.resolve(text, context)`: bağlam şemaya eklenir, karara `confidence` eklenir.
+- `engine_loop`: üç ayrı kademe çağrısı kaldırıldı; tek `route()` çağrısı. Selamlama/hesap/saat yalnız **salt yerel** işler olarak ayrı kaldı (beyin kararı değil).
+- Kanıt: `test_capability_router` 5 test + 104 test → 109 test OK.
+- Sınır (dürüst): model yoksa anlam katmanı devre dışı; o durumda yedek yol çalışır ve yedek **kelime tabanlı** olduğu için anlama zayıflar. Karar `source` alanıyla görünür.
