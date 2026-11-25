@@ -1669,3 +1669,11 @@ D
 - `engine_loop`: katalog `uncertain` derse model katmanı denenir; `ok` → doğrudan dispatch, `need` → tek soru.
 - Kanıt: `test_capability_llm` 8 test + `test_engine_modular` + `test_capability_brain` + `test_fast_commands` + orphan bekçisi → 86 test OK.
 - Sınır (dürüst): model kararı sınırlı şemaya bağlı; yanlış seçim yaparsa eylem **doğrulama** adımlarına (pencere/dosya/ekran kontrolü) takılır ve yine "yapamadım" der.
+
+
+### 2026-11-25 — Anlam karnesi + iki canlı kusur
+
+- `scripts/understand_scorecard.py`: 24 olumlu, 5 negatif cümle; **eylem çalıştırmadan** yalnız anlama ölçer. Kademe dağılımı: kalıp 17, katalog 4, katalog-soru 3, belirsiz 0.
+- **Kusur 1 (ciddi):** `fast_commands.resolve` zamanlı cümlede **sonsuz özyineleme** (RecursionError) — "5 dakika sonra chrome da enter" hattı kilitliyordu. Düzeltme: normalize edilmiş kalan metin karşılaştırması + `_depth` sınırı (2).
+- **Kusur 2 (yanlış iş):** "bana bir şiir yaz" → `pc_type`, "yarınki toplantıyı hatırlat" → `autonomy_schedule` sanılıyordu. Düzeltme: pencere gerektiren yeteneklerde pencere söylenmemişse **tahmin yok**; zamanlı iş yalnız içinde gerçek PC adımı varsa kabul.
+- Kanıt: `test_understand_guard` 4 test + 62 test → 66 test OK; karnede **yanlış eylem 0/5**.

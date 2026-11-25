@@ -105,6 +105,22 @@ def resolve(text: str) -> dict:
         return {"status": "uncertain", "score": round(score, 2),
                 "capability": None, "text": raw,
                 "candidates": [item["intent"] for item, value in ranked[:3] if value > 0]}
+    # Yanlış iş yapmama: pencere gerektiren yeteneklerde pencere söylenmemişse
+    # tahmin yok — "bana bir şiir yaz" bir PC komutu değildir.
+    nav_words = ("git", "enter", "ara", "baslat")
+    has_nav = any(any(_hits(word, verb) for word in words) for verb in nav_words)
+    if (best["intent"] in ("pc_type", "pc_click", "pc_save", "pc_search")
+            and not find_window_word(raw)
+            and not (best["intent"] == "pc_search" and has_nav)):
+        return {"status": "uncertain", "score": round(score, 2), "capability": None,
+                "text": raw, "candidates": [best["intent"]]}
+    if best["intent"] == "autonomy_schedule":
+        from modules import autonomy_when
+        parsed = autonomy_when.parse_when(raw)
+        inner = fast_commands.resolve(parsed.get("rest") or "") if parsed.get("when") else None
+        if not inner or not inner[0].startswith("pc_"):
+            return {"status": "uncertain", "score": round(score, 2), "capability": None,
+                    "text": raw, "candidates": [best["intent"]]}
     args = _slots(best, raw)
     missing = [slot for slot in best["needs"] if not args.get(slot)]
     if missing:
