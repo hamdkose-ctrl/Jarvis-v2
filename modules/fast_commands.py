@@ -121,6 +121,9 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     # --- salt-okuma: hava, gündem, not sayısı (model gerekmez) ---
     (re.compile(r'(hava (durumu )?nasil( bugun)?|bugun hava (durumu )?nasil|hava durumu)'),
      ('weather', {})),
+    # Dünya olay akışı (A5): kamuya açık GDELT, yalnız okuma; model gerekmez.
+    (re.compile(r'(dunya(daki)? (olaylar[ıi]?|haberler[ıi]?)|dunyada ne (var|oluyor)|'
+                r'dunya gundemi)'), ('world_events', {})),
     (re.compile(r'(bugun|bugunku) (ne var|neler var|planim ne|programim ne)'),
      ('agenda_read', {'view': 'day_plan', 'period': 'today'})),
     (re.compile(r'(yarin|yarinki) (ne var|neler var|planim ne|programim ne)'),

@@ -52,6 +52,12 @@ def _recent_turns(runtime, slug: str, hours: float = 2.0, limit: int = 12) -> li
         return []
     out = [(r["role"], " ".join(str(r.get("text", "")).split()))
            for r in rows if r.get("role") in ("user", "assistant") and str(r.get("ts", "")) >= cut]
+    # Bellek kapısı (A7): sınırsız büyüme yerine sınır + özet; sabit notlar korunur.
+    try:
+        from modules import memory_gate
+        out = memory_gate.summarise_history(out)
+    except Exception:
+        runtime._record_failure('modules/engine_voice.py:memory_gate')
     return out[-limit:]
 
 
