@@ -219,7 +219,7 @@ def compute(command: str):
     return f'Sonuc {_bicimle(sonuc)}.'
 
 
-def resolve(command: str) -> tuple[str, dict] | None:
+def resolve(command: str, *, _depth: int = 0) -> tuple[str, dict] | None:
     """Tam eşleşen hızlı komutu (intent, args) olarak döndürür; yoksa None."""
     metin = normalize(command)
     if not metin or len(metin) > MAX_CHARS:
@@ -227,9 +227,12 @@ def resolve(command: str) -> tuple[str, dict] | None:
     # Zamanlı iş: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa kuyruğa gider.
     # (Regex sırasına güvenmek yerine burada tek kontrole bakıyoruz.)
     from modules import autonomy_when
-    parsed = autonomy_when.parse_when(command)
-    if parsed.get("when") and parsed.get("rest") and parsed["rest"] != metin:
-        inner = resolve(parsed["rest"])
+    parsed = autonomy_when.parse_when(command) if _depth == 0 else {"when": None}
+    inner_rest = normalize(parsed.get("rest") or "")
+    if parsed.get("when") and inner_rest and inner_rest != metin and _depth < 2:
+        # Özyineleme koruması: canlı kusur (25 Kasım) — kalan metin küçülmediğinde
+        # resolve kendini sonsuz çağırıyordu (RecursionError).
+        inner = resolve(parsed["rest"], _depth=_depth + 1)
         if inner and inner[0].startswith("pc_"):
             return "autonomy_schedule", {"phrase": command}
     for pattern, hedef in _PATTERNS:
