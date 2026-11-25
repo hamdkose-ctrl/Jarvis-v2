@@ -30,9 +30,12 @@ NOTHING = "Sırası gelen iş yok."
 def _load() -> dict:
     try:
         return json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        # Kuyruk dosyası henüz yok: bu bir HATA değil, ilk çalıştırma. Sessizce boş
+        # kuyruk döner (tanı kaydı yazmak log'u kirletiyordu).
+        return {"enabled": False, "spent_today": 0, "day": time.strftime("%Y-%m-%d"), "goals": []}
     except Exception:
-        # Kuyruk dosyası yok/bozuksa: kapalı ve boş kuyruk (sessiz varsayılan değil,
-        # bilinçli olarak "kapalı" — otonomi kendiliğinden açılmaz).
+        # Bozuk/okunamayan dosya: kapalı ve boş kuyruk — otonomi kendiliğinden açılmaz.
         _record_failure("modules/pc_autonomy_queue.py:_load")
         return {"enabled": False, "spent_today": 0, "day": time.strftime("%Y-%m-%d"), "goals": []}
 
