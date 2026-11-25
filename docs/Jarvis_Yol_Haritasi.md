@@ -1595,3 +1595,11 @@ D
 - Canlı doğrulama: `~/Downloads` listelendi (3 öğe), `~/.jarvis/gece-plani.md` okundu (3081 bayt), `C:/Windows` reddedildi.
 - Windows kısa yol adı (HAMDI~1.KOS) yüzünden yol karşılaştırması gerçek yollar üzerinden yapılıyor.
 - Kanıt: `tests/test_file_ops_local.py` 7 test + `test_cleanup_security` → 17 test OK.
+
+
+### 2026-11-25 — Kopyala/yapıştır zinciri (10 madde #3)
+
+- `pc_hands.read_clipboard/write_clipboard`, `copy_selection()`, `paste_text()`.
+- **Panoyu doğrular**: kopyalamada "panoda yeni metin var mı", yapıştırmada "metin ekranda göründü mü" (OCR). İkisi de yoksa dürüst cevap.
+- Canlı doğrulama: Not Defteri'ne `paste_text('not defteri','kopyala yapıştır denemesi')` → **done**.
+- Kanıt: `test_pc_hands` 48 test (5 yeni) + `test_cleanup_security` → 58 test OK.
