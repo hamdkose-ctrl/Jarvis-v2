@@ -98,3 +98,32 @@ class Recovery(unittest.TestCase):
         with patch.object(pc_task.pc_hands, "click", return_value={"status": "not_found", "text": "bulamadım"}) as click:
             pc_task.run("not defterinde kaydet düğmesine bas")
         self.assertEqual(click.call_count, 1)
+
+
+class OneSentence(unittest.TestCase):
+    """Tek cümle: "chrome aç, youtube yaz, enter"."""
+
+    def test_plan_expands_to_three_steps(self):
+        plan = pc_task.plan("chrome aç, youtube yaz, enter")
+        self.assertEqual(plan["status"], "ok")
+        self.assertEqual([step[1] for step in plan["steps"]], ["app_open", "pc_type", "pc_search"])
+
+    def test_bare_typing_targets_address_bar_for_browser(self):
+        with patch.object(pc_task.pc_hands.pc_awareness, "find_window",
+                          lambda q: {"match": {"title": "Google Chrome", "app": "chrome"}, "reason": ""}):
+            plan = pc_task.plan("chrome aç, youtube yaz")
+        self.assertEqual(plan["steps"][1][2]["target"], "adres")
+
+    def test_run_calls_open_then_type_then_enter(self):
+        calls = []
+        with patch.object(pc_task.pc_hands.pc_awareness, "find_window",
+                          lambda q: {"match": {"title": "Google Chrome", "app": "chrome"}, "reason": ""}), \
+             patch.object(pc_task._RUNNERS["app_open"].__module__ and pc_task, "_RUNNERS", dict(pc_task._RUNNERS)), \
+             patch.dict(pc_task._RUNNERS, {
+                 "app_open": lambda args: calls.append(("open", args["name"])) or {"status": "done", "text": "açtım"},
+                 "pc_type": lambda args: calls.append(("type", args["text"])) or {"status": "done", "text": "yazdım"},
+                 "pc_search": lambda args: calls.append(("enter", args["window"])) or {"status": "done", "text": "aradım"},
+             }):
+            result = pc_task.run("chrome aç, youtube yaz, enter")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual([call[0] for call in calls], ["open", "type", "enter"])
