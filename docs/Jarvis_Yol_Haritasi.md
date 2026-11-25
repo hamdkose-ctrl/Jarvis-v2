@@ -1635,3 +1635,11 @@ D
 - `engine_intents case "pc_click_result"` → `pc_hands.click_search_result`; `brain_core_map` kaydı (`fast.pc.click_result`).
 - Canlı doğrulama (Jarvis fonksiyonu üzerinden): `pc_click_result({"query":"jira"})` → "Ekranda “jira” yazısını göremedim; tıklamadım." (ekranda yok — tahmin etmedi).
 - Kanıt: `test_pc_hands` 52 + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 102 test OK.
+
+
+### 2026-11-25 — Tek cümle zinciri: "chrome aç, youtube yaz, enter"
+
+- `pc_task.plan()`: `app_open` adımı pencere devralmayı başlatır; **pencere söylenmeyen** "…yaz" adımı tarayıcıda **adres çubuğu**, diğer uygulamada **metin alanı** olur; çıplak "enter/ara" önceki pencerede çalışır.
+- Canlı sınır (dürüst): uygulama açma **izin kapısından** geçiyor; Jarvis süreci dışından çağrıldığında `PermissionError` alınıyor. Bu durumda zincir yalan söylemiyor: "“chrome” uygulamasını ben açamıyorum (izin kapısı). Sen açarsan kalan adımları yaparım." (`refused`)
+- Yani "chrome aç, youtube yaz, enter" **planı** 3 adıma doğru açılıyor; uygulama zaten açıksa 2. ve 3. adımlar çalışır; kapalıysa açma adımı izin kapısına takılır ve söylenir.
+- Kanıt: `test_pc_task` 15 test (3 yeni) OK.
