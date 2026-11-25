@@ -1554,3 +1554,14 @@ D
 - Düzeltme: belirsizlik artık `ambiguous` döner ve **tek soru** sorar: "“not defteri” için 2 pencere var: Adsız - Not Defteri; Adsız - Not Defteri. Hangisinde işlem yapayım?" — pencere yoksa yine `no_window`.
 - Canlı doğrulama: iki Not Defteri açıkken `click('not defteri','kaydet')` → `ambiguous` + soru.
 - Kanıt: `test_pc_hands` 43 test (2 yeni) + `test_pc_task` + `test_pc_files` + `test_cleanup_security` → 73 test OK.
+
+
+### 2026-11-25 — Sınırlı otonomi (`modules/pc_autonomy.py`)
+
+- `execute(command)`: çok adımlı işi **kendi başına** yürütür — bütçe, onay kapısı, hesap verebilirlik raporu ile.
+- **Bütçe:** en çok 6 adım, 120 sn; biterse "bitti" denmez, **nerede kaldığı** söylenir (`budget`).
+- **Onay kapısı:** riskli adım (silme/ödeme/gönderme) gelirse otonomi **durur** (`paused`) — onay yoksa iş yarım kalır, bu tasarımdır.
+- **Rapor:** her çalışma `~/.jarvis/autonomy/<zaman>.json` — adım adım durum, süre (ms), cevap metni. "Ne yaptın?" sorusunun yazılı cevabı.
+- Esc/`abort` her adımda kontrol edilir; anlaşılmayan komut hiç çalıştırılmaz.
+- Kanıt: `tests/test_pc_autonomy.py` 7 test OK (bütçe, onay, hata, rapor dosyası, abort).
+- Sınır (dürüst): arka planda kendi kendine görev başlatma (zamanlayıcı) **yok**; kota/bütçe sayacı adım sayısıyla sınırlı. OTONOM planının OTO-1..9 maddeleri bu dilimle kısmen karşılandı.
