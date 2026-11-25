@@ -26,6 +26,7 @@ CONFIRM_MESSAGE = "{what} geri alınamayabilir. Onaylıyor musun?"
 NOT_FOUND = "“{query}” diye bir öğe {window} penceresinde yok; tahminle tıklamıyorum."
 AMBIGUOUS = "{window} penceresinde {count} öğe “{query}” ile eşleşiyor: {names}. Hangisi?"
 NO_TARGET = "Hangi pencerede işlem yapacağımı söylemedin."
+WINDOW_AMBIGUOUS = ("“{query}” için {n} pencere var: {titles}. Hangisinde işlem yapayım?")
 SECRET = "Şifre alanına ben yazmam; o alanı senin doldurman gerekiyor."
 REPEAT = "Aynı öğeye az önce bastım; çift işlem olmasın diye ikinci kez basmıyorum."
 NO_CHANGE = ("“{what}” için bastım ama ekran değişmedi. İkinci kez basmadım; "
@@ -62,7 +63,14 @@ def find_control(window: str, query: str) -> dict:
     """Pencerede adı eşleşen öğeyi bulur; belirsizse tahmin etmez."""
     found = pc_awareness.find_window(window)
     if not found.get("match"):
-        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+        # Canlı karne bulgusu: iki aynı pencere varken "pencere yok" demek yanlış —
+        # kullanıcı hangisini kastettiğini söylemeli (tahmin yok).
+        if found.get("reason") == "ambiguous":
+            titles = "; ".join(str(c.get("title") or "")[:34] for c in (found.get("candidates") or [])[:4])
+            return {"status": "ambiguous",
+                    "text": WINDOW_AMBIGUOUS.format(query=window or "pencere",
+                                                   n=len(found.get("candidates") or []), titles=titles)}
+        return {"status": "no_window", "text": NO_TARGET if not window else "Pencere açık değil."}
     result = pc_awareness.controls(found["match"])
     rows = [row for row in result.get("controls", []) if not pc_awareness._secret(row)]
     needle = _fold(query)

@@ -425,3 +425,21 @@ class EnsureWindow(unittest.TestCase):
     def test_healthy_window_is_ok(self):
         with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}):
             self.assertEqual(pc_hands.ensure_window("not defteri")["status"], "ok")
+
+
+class AmbiguousWindow(unittest.TestCase):
+    """İki aynı pencere: "pencere yok" demek yanlış — tek soru sorulur."""
+
+    def test_two_windows_produce_a_question(self):
+        windows = [{"title": "Adsız 1 - Not Defteri", "hwnd": 1}, {"title": "Adsız 2 - Not Defteri", "hwnd": 2}]
+        with patch.object(pc_hands.pc_awareness, "find_window",
+                          lambda q: {"match": None, "reason": "ambiguous", "candidates": windows}):
+            result = pc_hands.find_control("not defteri", "kaydet")
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertIn("Hangisinde", result["text"])
+        self.assertIn("2 pencere", result["text"])
+
+    def test_missing_window_is_still_no_window(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": None, "reason": "missing"}):
+            result = pc_hands.find_control("not defteri", "kaydet")
+        self.assertEqual(result["status"], "no_window")

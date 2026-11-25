@@ -1546,3 +1546,11 @@ D
 | Kapalı/olmayan uygulama | **no_window** | tahminle tıklamadı |
 | Belirsiz hedef (Chrome kapalı) | **no_window** | test zayıf: iki aynı pencere açıkken tekrarlanmalı |
 | Kaydet + doğrula + temizle | **done**, sandbox temizlendi | dosya diskte doğrulandı |
+
+
+### 2026-11-25 — Belirsiz pencere düzeltmesi (karne bulgusu)
+
+- Karne "belirsiz hedef" sınıfını zayıf ölçmüştü: iki aynı pencere varken `find_control` **"pencere yok"** diyordu (yanlış sınıflandırma).
+- Düzeltme: belirsizlik artık `ambiguous` döner ve **tek soru** sorar: "“not defteri” için 2 pencere var: Adsız - Not Defteri; Adsız - Not Defteri. Hangisinde işlem yapayım?" — pencere yoksa yine `no_window`.
+- Canlı doğrulama: iki Not Defteri açıkken `click('not defteri','kaydet')` → `ambiguous` + soru.
+- Kanıt: `test_pc_hands` 43 test (2 yeni) + `test_pc_task` + `test_pc_files` + `test_cleanup_security` → 73 test OK.
