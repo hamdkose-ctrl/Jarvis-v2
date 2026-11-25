@@ -169,6 +169,15 @@ def _fast_command_turn(runtime, cmd):
             return _dispatch_fast(runtime, karar["capability"], karar["slots"], cmd)
         if karar["status"] == "need":
             return _ask_for_slots(karar)
+        if karar["status"] == "uncertain":
+            # Katalog yetmedi: modelden **yalnız seçim** iste (yapma yetkisi yok).
+            from modules import capability_llm
+            model_karar = capability_llm.resolve(cmd)
+            if model_karar["status"] == "ok":
+                runtime.log.info("hızlı yol: intent=%s (model)", model_karar["capability"])
+                return _dispatch_fast(runtime, model_karar["capability"], model_karar["slots"], cmd)
+            if model_karar["status"] == "need":
+                return _ask_for_slots(model_karar)
         # Selamlama/nezaket ("merhaba", "teşekkürler") bilgi sorusu değil: model
         # çağırmadan cevaplanır. Canlı kusur (23 Kasım): tüm sağlayıcılar düşükken
         # "merhaba" cevapsız kaldı.
