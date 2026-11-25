@@ -28,6 +28,10 @@ TOO_LONG = "Bir seferde en çok {limit} adım yürütebilirim; komutu bölerek s
 STOPPED = "“{step}” adımında durdum: {reason} Kalan adımları çalıştırmadım."
 
 _RUNNERS = {
+    "pc_save": lambda args: __import__("modules.pc_files", fromlist=["save_as"]).save_as(
+        str(args.get("window") or ""), str(args.get("name") or "")),
+    "pc_search": lambda args: __import__("modules.pc_hands", fromlist=["press_enter"]).press_enter(
+        str(args.get("window") or "")),
     "pc_click": lambda args: pc_hands.click(str(args.get("window") or ""), str(args.get("target") or "")),
     "pc_type": lambda args: pc_hands.type_text(str(args.get("window") or ""), str(args.get("target") or ""),
                                                str(args.get("text") or "")),

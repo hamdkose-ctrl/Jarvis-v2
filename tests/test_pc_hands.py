@@ -396,3 +396,32 @@ class BrowserAddressBar(unittest.TestCase):
             result = pc_hands.type_address_bar("chrome", "youtube")
         self.assertEqual(result["status"], "done")
         hotkey.assert_called_once_with("ctrl", "l")
+
+
+class EnsureWindow(unittest.TestCase):
+    """Pencere hazırlığı: yoksa açmayı dene, donmuşsa bekle, sonunda dürüst ol."""
+
+    def test_missing_window_is_reported(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": None, "reason": "missing"}):
+            result = pc_hands.ensure_window("yok", timeout=0.2)
+        self.assertEqual(result["status"], "no_window")
+
+    def test_opener_is_tried_once(self):
+        calls = []
+        def opener(name):
+            calls.append(name)
+            raise RuntimeError("açılamadı")
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": None, "reason": "missing"}):
+            result = pc_hands.ensure_window("yok", timeout=0.2, opener=opener)
+        self.assertEqual(result["status"], "no_window")
+        self.assertEqual(len(calls), 1)
+
+    def test_frozen_window_times_out(self):
+        frozen = {"title": "Uygulama (Yanıt vermiyor)", "hwnd": 3}
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": frozen, "reason": ""}):
+            result = pc_hands.ensure_window("uygulama", timeout=0.2)
+        self.assertEqual(result["status"], "frozen")
+
+    def test_healthy_window_is_ok(self):
+        with patch.object(pc_hands.pc_awareness, "find_window", lambda q: {"match": WIN, "reason": ""}):
+            self.assertEqual(pc_hands.ensure_window("not defteri")["status"], "ok")
