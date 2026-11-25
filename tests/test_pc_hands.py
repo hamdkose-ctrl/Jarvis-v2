@@ -519,3 +519,20 @@ class SearchResultClick(unittest.TestCase):
             screen_patch.stop()
         self.assertEqual(result["status"], "done")
         self.assertEqual(click.call_args[0][0:2], (400, 300))
+
+
+class ResultCommand(unittest.TestCase):
+    """Sesli komut: "… sonucuna tıkla" → click_search_result."""
+
+    def test_phrase_routes_to_result_click(self):
+        from modules import fast_commands
+        self.assertEqual(fast_commands.resolve("youtube sonucuna tıkla"),
+                         ("pc_click_result", {"query": "youtube"}))
+
+    def test_dispatch_calls_hands(self):
+        from modules import engine_intents
+        with patch.object(pc_hands, "click_search_result",
+                          return_value={"status": "done", "text": "tıkladım"}) as click:
+            text = engine_intents.dispatch(None, "pc_click_result", {"query": "youtube"}, "", "")
+        self.assertEqual(text, "tıkladım")
+        click.assert_called_once_with("youtube")
