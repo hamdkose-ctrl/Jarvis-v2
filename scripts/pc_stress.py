@@ -69,7 +69,22 @@ CASES = (case_long_chain, case_impossible_middle, case_long_text, case_closed_ap
          case_ambiguous, case_save_and_verify)
 
 
+def _prepare():
+    """Karne için gereken uygulamaları açar (yoksa bütün sonuçlar 'pencere yok' olur)."""
+    import subprocess
+    opened = []
+    for exe in ("notepad.exe", "calc.exe"):
+        try:
+            subprocess.Popen([exe])
+            opened.append(exe)
+        except Exception:
+            pass
+    time.sleep(5)
+    return opened
+
+
 def main() -> int:
+    print("hazırlık:", _prepare())
     rows = []
     for case in CASES:
         try:

@@ -1535,3 +1535,14 @@ D
 - **6 (otonomi gözden geçirme):** bugünkü PC ajanı, dondurulmuş OTONOM planının şu maddelerini zaten karşılıyor: adım günlüğü (her adım durumu), onay kapısı (riskli fiil), Esc/durdurma, bütçe yerine deneme sınırı (en fazla 2), kapsam sınırı (yalnız sandbox'a yazma). Eksik: arka planda görev sürdürme, kota/bütçe sayacı, hesap verebilirlik raporu.
 - **7 (zor görev karnesi):** `scripts/pc_stress.py` — 6 sınıf: uzun zincir, imkânsız orta adım, 1000+ karakter yazma, kapalı uygulama, belirsiz hedef, kaydet+doğrula+temizle. Çıktı: her sınıf için durum, süre, adım sayısı.
 - Kanıt: 71 test OK (`test_pc_hands` 41, `test_pc_task` 12, `test_pc_files` 8, `test_cleanup_security`).
+
+
+**Zor görev karnesi — canlı ölçüm (25 Kasım):**
+| Sınıf | Sonuç | Süre / not |
+| --- | --- | --- |
+| Uzun zincir (6 adım, Hesap Makinesi 7+3+2=) | **done**, 6/6 adım | 3,9 sn |
+| İmkânsız orta adım ("mor düğmesine bas") | **stop**, 1 adım sonra | kalan adımlar çalışmadı (tasarım gereği) |
+| Uzun metin (1.199 karakter) | done (yazıldı) | OCR doğrulaması **missing** — uzun metni ekrandan teyit edemiyor (dürüst sınır) |
+| Kapalı/olmayan uygulama | **no_window** | tahminle tıklamadı |
+| Belirsiz hedef (Chrome kapalı) | **no_window** | test zayıf: iki aynı pencere açıkken tekrarlanmalı |
+| Kaydet + doğrula + temizle | **done**, sandbox temizlendi | dosya diskte doğrulandı |
