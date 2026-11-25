@@ -1656,3 +1656,16 @@ D
 - Canlı ölçüm (fonksiyon üzerinden): "chrome a youtube yaz" → `pc_type` (window=chrome, text=youtube); "indirilenler klasöründe ne var" → `file_list` (gerçek Downloads yolu); "youtube a git" → `need` (hangi pencere?); "dün akşam ne yedim" → `uncertain` (iş yapmadı).
 - Kanıt: `test_capability_brain` 11 test + `test_fast_commands` + orphan bekçisi + `test_engine_modular` → 78 test OK.
 - Sınır (dürüst): eşleştirme **sözcük tabanlı**; çok dolaylı anlatımda (`"şu işi hallediversene"`) hâlâ `uncertain` der. Model destekli anlam eşleşmesi ayrı adım.
+
+
+### 2026-11-25 — Model destekli anlam (katalog yetmediğinde)
+
+- **Sorun:** katalog eşleşmesi sözcük tabanlı; dolaylı cümlelerde `uncertain` kalıyordu. Anlam iyi değilse yapılan iş boşa gider.
+- `modules/capability_llm.py`: modele **yalnız seçim** sorulur ("hangi yetenek + hangi alanlar"), yapma yetkisi verilmez.
+  - Zorunlu JSON: `{"capability","slots","confidence"}`; `confidence < 0,5` → yok sayılır.
+  - **Doğrulama:** katalogda olmayan yetenek reddedilir; var olmayan dosya yolu atılır; eksik alan → tek soru.
+  - Model yok/bozuk yanıt → sessizce `uncertain` (normal sohbet akışı).
+  - Aynı cümle 5 dk önbellekte (tekrar model çağrısı yok).
+- `engine_loop`: katalog `uncertain` derse model katmanı denenir; `ok` → doğrudan dispatch, `need` → tek soru.
+- Kanıt: `test_capability_llm` 8 test + `test_engine_modular` + `test_capability_brain` + `test_fast_commands` + orphan bekçisi → 86 test OK.
+- Sınır (dürüst): model kararı sınırlı şemaya bağlı; yanlış seçim yaparsa eylem **doğrulama** adımlarına (pencere/dosya/ekran kontrolü) takılır ve yine "yapamadım" der.
