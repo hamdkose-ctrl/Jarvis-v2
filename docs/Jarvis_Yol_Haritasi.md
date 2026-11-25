@@ -1585,3 +1585,13 @@ D
 - Sesli ana anahtar: "otonomiyi aç / otonomiyi kapat / otonomi durumu" → `autonomy_on`, `autonomy_off`, `autonomy_status`; `brain_core_map` kayıtlı.
 - Kanıt: `test_pc_autonomy_queue` 9 test (3 yeni: kapalıyken çalışmaz, açıkken bakar, hatada ölmez) + `test_fast_commands` + orphan bekçisi.
 - Durum: otonomi **uçtan uca** tamam — iş ver → zamanı gelince kendi çalıştırır → raporlar; riskli adımda durur; bütçe ve ana anahtar kullanıcıda.
+
+
+### 2026-11-25 — Yerel dosya işlemleri: listele / oku / aç (`modules/file_ops_local.py`)
+
+- `list_folder()` (en çok 50 öğe, klasörler önce), `read_file()` (200 KB / 50 satır; kesildiğini **söyler**), `open_file()` (yalnız açar, içeriği değiştirmez).
+- **Yazma/silme yok**: modülde `write_text`/`unlink`/`rename` bulunmaz (test bunu bekçiliyor).
+- Sınır: yalnız **ev klasörü** altı; dışına çıkan yol reddedilir (`refused`).
+- Canlı doğrulama: `~/Downloads` listelendi (3 öğe), `~/.jarvis/gece-plani.md` okundu (3081 bayt), `C:/Windows` reddedildi.
+- Windows kısa yol adı (HAMDI~1.KOS) yüzünden yol karşılaştırması gerçek yollar üzerinden yapılıyor.
+- Kanıt: `tests/test_file_ops_local.py` 7 test + `test_cleanup_security` → 17 test OK.
