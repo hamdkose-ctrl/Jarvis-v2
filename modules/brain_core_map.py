@@ -1619,6 +1619,7 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     # Ekran farkındalığı: yalnız okuma, yan etkisi yok (PC ajanı 1-2. dilim).
     "fast.screen.summary": ("screen_summary", {}),
     "fast.screen.controls": ("screen_controls", {}),
+    "fast.autonomy.schedule": ("autonomy_schedule", {}),
     "fast.autonomy.on": ("autonomy_on", {}),
     "fast.autonomy.off": ("autonomy_off", {}),
     "fast.autonomy.status": ("autonomy_status", {}),
