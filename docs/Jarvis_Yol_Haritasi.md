@@ -1509,3 +1509,11 @@ D
 - `pc_type` "adres/adres çubuğu/url" hedefinde bunu dener; tutmazsa genel klavye yedeğine döner.
 - **Canlı engel (dürüst):** bu makinede Chrome profil seçici ekranında açılıyor ("Chrome'u kim kullanıyor?"), adres çubuğu yok → canlı doğrulama bugün yapılamadı; profil seçimi insan eli gerektiriyor. Kod birim testlerle doğrulandı.
 - Kanıt: `test_pc_hands` 37 test (3 yeni) OK.
+
+
+### 2026-11-25 — Dosya kaydetme akışı (`modules/pc_files.py`)
+
+- `save_as()`: Ctrl+S → panoyla dosya adı → Enter → **diskten doğrulama** ("kaydettim" demek yetmez).
+- Güvenlik: yalnız `~/.jarvis/sandbox/`; `../` kaçışları dosya adına indirgenir; silme sandbox dışında reddedilir.
+- Onay kapısı: kaydetme kalıcı değişiklik → önce sorar; `confirm_save()` onayla yürütür.
+- Kanıt: `tests/test_pc_files.py` 8 test OK.
