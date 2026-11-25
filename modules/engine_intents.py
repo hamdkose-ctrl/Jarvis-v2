@@ -140,6 +140,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "autonomy_status":
             from modules import pc_autonomy_queue
             return pc_autonomy_queue.summary()
+        case "pc_click_result":
+            from modules import pc_hands
+            return pc_hands.click_search_result(str(a.get("query") or ""))["text"]
         case "pc_save":
             from modules import pc_files
             return pc_files.save_as(str(a.get("window") or ""), str(a.get("name") or ""))["text"]

@@ -78,6 +78,11 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # --- arama sonucuna tıklama (ekrandaki yazı) ---
+    (re.compile(r"(?:ekranda\s+|ekrandaki\s+)?(.+?)\s+sonucuna\s+(?:tikla|bas)"),
+     ('pc_click_result', lambda m: {'query': m.group(1).strip()})),
+    (re.compile(r"ekrandaki\s+(.+?)\s+(?:yaziya|yazisina|linke|basliga)\s+(?:tikla|bas)"),
+     ('pc_click_result', lambda m: {'query': m.group(1).strip()})),
     # --- zamanlı iş (otonomi kuyruğu) ---
     # --- otonomi ana anahtarı ---
     (re.compile(r"(otonomiyi|otonomi yi)?\s*(ac|aç|baslat|başlat)"), ('autonomy_on', {})),

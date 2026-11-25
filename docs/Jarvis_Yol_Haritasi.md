@@ -1627,3 +1627,11 @@ D
 - Tahmin yok: yazı ekranda yoksa **tıklamaz** ("göremedim").
 - Gezinme serbest olduğu için ek onay istenmez (kullanıcı politikası); yine de sonuç doğrulanır.
 - Kanıt: `test_pc_hands` 50 test (2 yeni) + `test_cleanup_security` → 60 test OK.
+
+
+### 2026-11-25 — "… sonucuna tıkla" komutu (2. maddenin sesli ucu)
+
+- `fast_commands`: `pc_click_result` — "youtube sonucuna tıkla", "ekrandaki haberler yazısına tıkla".
+- `engine_intents case "pc_click_result"` → `pc_hands.click_search_result`; `brain_core_map` kaydı (`fast.pc.click_result`).
+- Canlı doğrulama (Jarvis fonksiyonu üzerinden): `pc_click_result({"query":"jira"})` → "Ekranda “jira” yazısını göremedim; tıklamadım." (ekranda yok — tahmin etmedi).
+- Kanıt: `test_pc_hands` 52 + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 102 test OK.
