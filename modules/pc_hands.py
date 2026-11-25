@@ -476,3 +476,39 @@ def press_enter(window: str, *, abort=None) -> dict:
         return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="Enter gönderilemedi")}
     time.sleep(0.8)
     return {"status": "done", "text": ENTERED.format(window=target["title"][:40])}
+
+
+# --- Pencere hazırlığı / kurtarma (gece 3) --------------------------------
+NOT_RESPONDING = "yanit vermiyor"
+FROZEN = "“{window}” yanıt vermiyor; bekliyorum ({tries}/{limit})."
+REOPENED = "Pencere kapalıydı; yeniden açmayı denedim."
+STILL_MISSING = "“{window}” penceresini bulamadım ve açamadım."
+
+
+def ensure_window(window: str, *, timeout: float = 8.0, opener=None, abort=None) -> dict:
+    """Pencere var mı ve yanıt veriyor mu? Kaçmışsa açmayı dener, donmuşsa bekler."""
+    deadline = time.time() + max(0.0, timeout)
+    tries = 0
+    reopened = False
+    while True:
+        if abort is not None and abort.is_set():
+            return {"status": "stopped", "text": "Durduruldu."}
+        found = pc_awareness.find_window(window)
+        target = found.get("match")
+        if target is None:
+            if not reopened and opener is not None:
+                reopened = True
+                try:
+                    opener(window)
+                except Exception:
+                    _record_failure("modules/pc_hands.py:ensure_window_opener")
+                time.sleep(1.5)
+                continue
+            return {"status": "no_window", "text": STILL_MISSING.format(window=window)}
+        title = _fold(str(target.get("title") or ""))
+        if NOT_RESPONDING not in title:
+            return {"status": "ok", "window": target, "reopened": reopened}
+        tries += 1
+        if time.time() > deadline:
+            return {"status": "frozen", "text": FROZEN.format(window=target["title"][:40], tries=tries, limit=int(timeout))}
+        time.sleep(0.5)

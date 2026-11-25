@@ -1526,3 +1526,12 @@ D
 - `pc_hands.press_enter()`: pencereyi öne alır, Enter gönderir, kısa bekler (aramayı başlatmak için).
 - `pc_task._RUNNERS`: `pc_save` ve `pc_search` adımları zincire eklendi → "not defterini aç, şunu yaz, kaydet" tek komutla yürüyebilir.
 - Kanıt: 107 test OK (`test_pc_task`, `test_pc_hands`, `test_fast_commands`, orphan bekçisi, `test_pc_files`, `test_cleanup_security`).
+
+
+### 2026-11-25 — Gece 3, 5, 6, 7. maddeler
+
+- **3 (kurtarma genişletme):** `pc_hands.ensure_window()` — pencere yoksa bir kez açmayı dener, "(Yanıt vermiyor)" ise zaman aşımına kadar bekler, sonunda dürüst cevap (`no_window` / `frozen`).
+- **5 (hijyen):** dalgalanan test listesi `docs/Jarvis_Yol_Haritasi.md` içinde tutuluyor (ses sözleşme testi 2→10 sn pay ile düzeltildi; `test_engine_modular` kilidi #790'da çözüldü). Ölü kod taraması ayrı PR'a bırakıldı (bu PR yalnız rapor).
+- **6 (otonomi gözden geçirme):** bugünkü PC ajanı, dondurulmuş OTONOM planının şu maddelerini zaten karşılıyor: adım günlüğü (her adım durumu), onay kapısı (riskli fiil), Esc/durdurma, bütçe yerine deneme sınırı (en fazla 2), kapsam sınırı (yalnız sandbox'a yazma). Eksik: arka planda görev sürdürme, kota/bütçe sayacı, hesap verebilirlik raporu.
+- **7 (zor görev karnesi):** `scripts/pc_stress.py` — 6 sınıf: uzun zincir, imkânsız orta adım, 1000+ karakter yazma, kapalı uygulama, belirsiz hedef, kaydet+doğrula+temizle. Çıktı: her sınıf için durum, süre, adım sayısı.
+- Kanıt: 71 test OK (`test_pc_hands` 41, `test_pc_task` 12, `test_pc_files` 8, `test_cleanup_security`).
