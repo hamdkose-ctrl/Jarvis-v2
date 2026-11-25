@@ -488,3 +488,34 @@ class Clipboard(unittest.TestCase):
 
     def test_empty_payload_is_refused(self):
         self.assertEqual(pc_hands.paste_text("not defteri", "   ")["status"], "no_change")
+
+
+class SearchResultClick(unittest.TestCase):
+    """Arama sonucuna tıklama: yazıyı ekranda bulur, tıklar, sayfa değişti mi bakar."""
+
+    WORDS = [{"text": "haberler", "x": 100, "y": 50}, {"text": "youtube video", "x": 400, "y": 300}]
+
+    def test_missing_result_is_not_clicked(self):
+        with patch("modules.pc_vision.read_screen", return_value=self.WORDS), \
+             patch("pyautogui.click") as click:
+            result = pc_hands.click_search_result("alakasız")
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(click.call_count, 0)
+
+    def test_result_is_clicked(self):
+        # Tıklamadan sonra ekran değişmeli; aksi halde "değişmedi" demek doğru olurdu.
+        screens = [self.WORDS, self.WORDS, [{"text": "youtube ana sayfa", "x": 10, "y": 10}]]
+        screen_patch = patch("modules.pc_vision.read_screen", side_effect=screens)
+        click_patch = patch("pyautogui.click")
+        sleep_patch = patch.object(pc_hands.time, "sleep")
+        screen_patch.start()
+        click = click_patch.start()
+        sleep_patch.start()
+        try:
+            result = pc_hands.click_search_result("youtube")
+        finally:
+            sleep_patch.stop()
+            click_patch.stop()
+            screen_patch.stop()
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(click.call_args[0][0:2], (400, 300))

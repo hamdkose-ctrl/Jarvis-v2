@@ -1619,3 +1619,11 @@ D
 - Canlı log: `pc_autonomy_queue.py:_load → FileNotFoundError` → her turda ERROR (ilk çalıştırmada kuyruk dosyası henüz yok).
 - Düzeltme: `FileNotFoundError` **hata değil, ilk çalıştırma** sayılır ve sessizce boş kuyruk döner; bozuk/okunamayan dosya yine tanılamaya yazılır.
 - Kanıt: `test_pc_autonomy_queue` + `test_cleanup_security` → 19 test OK.
+
+
+### 2026-11-25 — Arama sonucuna tıklama (10 madde #2)
+
+- `pc_hands.click_search_result(query)`: ekranı OCR ile okur, **soldan-yukarıdan ilk** eşleşen yazıya tıklar; tıklama sonrası ekran değişti mi diye bakar (`no_change` değilse `done`).
+- Tahmin yok: yazı ekranda yoksa **tıklamaz** ("göremedim").
+- Gezinme serbest olduğu için ek onay istenmez (kullanıcı politikası); yine de sonuç doğrulanır.
+- Kanıt: `test_pc_hands` 50 test (2 yeni) + `test_cleanup_security` → 60 test OK.
