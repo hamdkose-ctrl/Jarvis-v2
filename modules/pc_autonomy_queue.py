@@ -116,6 +116,17 @@ def summary() -> str:
 TICK_SECONDS = 120.0
 
 
+def foreground_window() -> str:
+    """Öndeki pencerenin başlığı. Canlı kusur (25 Kasım): `find_window("")` boş sorguyla
+    "pencere yok" döndüğü için uyanıklık hiç aday üretmiyordu."""
+    try:
+        import win32gui
+        return str(win32gui.GetWindowText(win32gui.GetForegroundWindow()) or "")
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:foreground_window")
+        return ""
+
+
 def watch_tick(runtime=None) -> list[dict]:
     """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır."""
     from modules import awareness_watch
@@ -129,14 +140,7 @@ def watch_tick(runtime=None) -> list[dict]:
         settings = {}
     if not awareness_watch.enabled(settings):
         return []
-    state = {}
-    try:
-        from modules import pc_awareness
-        found = pc_awareness.find_window("")
-        state["window"] = (found.get("match") or {}).get("title", "") if found.get("status") == "ok" else ""
-    except Exception:
-        _record_failure("modules/pc_autonomy_queue.py:watch_tick_window")
-        state["window"] = ""
+    state = {"window": foreground_window()}
     items = awareness_watch.candidates(state, seen=_SEEN)
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
