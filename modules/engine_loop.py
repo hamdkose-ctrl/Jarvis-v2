@@ -411,6 +411,11 @@ def main(runtime, ui=None):
     runtime.threading.Thread(target=runtime._reminder_loop, daemon=True, name="hatirlatma").start()
     from modules import watcher
     runtime.threading.Thread(target=watcher.loop, args=(runtime,), daemon=True, name="klasor-izleme").start()
+    # Otonomi saati: ana anahtar kapalıysa hiçbir şey yapmaz; yalnız verilen işleri
+    # zamanı gelince çalıştırır (kendi kendine iş uydurmaz).
+    from modules import pc_autonomy_queue
+    runtime.threading.Thread(target=pc_autonomy_queue.tick_loop, args=(runtime.stop_event,),
+                             daemon=True, name="otonomi-saati").start()
     import release_guard
     release_guard.ready("engine")
     try:

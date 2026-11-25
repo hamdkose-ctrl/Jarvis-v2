@@ -107,3 +107,34 @@ def summary() -> str:
     paused = sum(1 for g in rows if g.get("status") == "paused")
     return (f"Otonomi {'açık' if state.get('enabled') else 'kapalı'}; {waiting} bekleyen, "
             f"{paused} onay bekleyen iş; bugün {state.get('spent_today', 0)}/{DAILY_STEP_BUDGET} adım.")
+
+
+# --- Periyodik döngü (otonomi saati) --------------------------------------
+TICK_SECONDS = 120.0
+
+
+def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleeper=None,
+              max_ticks: int | None = None) -> None:
+    """Arka planda periyodik olarak kuyruğa bakar. Ana anahtar kapalıysa hiç iş yapmaz.
+
+    `runner`/`sleeper` test için enjekte edilebilir; üretimde gerçek `run_due` ve
+    `time.sleep` kullanılır.
+    """
+    import time as _time
+    run = runner or run_due
+    wait = sleeper or _time.sleep
+    ticks = 0
+    while stop_event is not None and not stop_event.is_set():
+        if max_ticks is not None and ticks >= max_ticks:
+            return
+        ticks += 1
+        try:
+            if enabled():
+                result = run(abort=stop_event)
+                if result.get("status") not in ("idle", "disabled", None):
+                    _record_failure("modules/pc_autonomy_queue.py:tick")   # yalnız tanı izi
+        except Exception:
+            _record_failure("modules/pc_autonomy_queue.py:tick_loop")
+        if stop_event is None:
+            return
+        wait(interval)

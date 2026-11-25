@@ -68,5 +68,36 @@ class Queue(unittest.TestCase):
         self.assertIn("kapalı", q.summary())
 
 
+class TickLoop(unittest.TestCase):
+    """Otonomi saati: kapalıyken çalışmaz, açıkken kuyruğa bakar, hatada ölmez."""
+
+    def test_disabled_loop_does_not_run(self):
+        import threading
+        runs = []
+        with patch.object(q, "enabled", return_value=False):
+            q.tick_loop(threading.Event(), interval=0, runner=lambda abort=None: runs.append(1),
+                        sleeper=lambda i: None, max_ticks=2)
+        self.assertEqual(runs, [])
+
+    def test_enabled_loop_checks_queue(self):
+        import threading
+        runs = []
+        with patch.object(q, "enabled", return_value=True):
+            q.tick_loop(threading.Event(), interval=0,
+                        runner=lambda abort=None: runs.append(1) or {"status": "idle"},
+                        sleeper=lambda i: None, max_ticks=3)
+        self.assertEqual(len(runs), 3)
+
+    def test_loop_survives_errors(self):
+        import threading
+        runs = []
+        def boom(abort=None):
+            runs.append(1)
+            raise RuntimeError("kuyruk bozuk")
+        with patch.object(q, "enabled", return_value=True):
+            q.tick_loop(threading.Event(), interval=0, runner=boom, sleeper=lambda i: None, max_ticks=2)
+        self.assertEqual(len(runs), 2)         # hata döngüyü öldürmedi
+
+
 if __name__ == "__main__":
     unittest.main()

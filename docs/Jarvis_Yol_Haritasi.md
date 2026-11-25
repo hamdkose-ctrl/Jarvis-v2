@@ -1576,3 +1576,12 @@ D
 - Her koşu `~/.jarvis/autonomy/queue.json` durumunu ve `pc_autonomy` raporunu günceller.
 - Kanıt: `tests/test_pc_autonomy_queue.py` 6 test + `test_pc_autonomy` + `test_cleanup_security` → 23 test OK.
 - Dürüst sınır: kuyruk **kendi kendine yeni iş uydurmaz**; yalnız verilen işleri zamanında çalıştırır. Zamanlayıcı döngüsü (engine içinde periyodik çağrı) henüz bağlanmadı.
+
+
+### 2026-11-25 — Otonomi saati (son halka): kuyruk artık kendi kendine bakılıyor
+
+- `pc_autonomy_queue.tick_loop()`: motor açılırken **daemon iş parçacığı** olarak başlar (`otonomi-saati`), her 120 sn kuyruğa bakar.
+- Ana anahtar kapalıysa **hiçbir şey yapmaz**; hata olursa döngü ölmez (tanı izi bırakır, devam eder).
+- Sesli ana anahtar: "otonomiyi aç / otonomiyi kapat / otonomi durumu" → `autonomy_on`, `autonomy_off`, `autonomy_status`; `brain_core_map` kayıtlı.
+- Kanıt: `test_pc_autonomy_queue` 9 test (3 yeni: kapalıyken çalışmaz, açıkken bakar, hatada ölmez) + `test_fast_commands` + orphan bekçisi.
+- Durum: otonomi **uçtan uca** tamam — iş ver → zamanı gelince kendi çalıştırır → raporlar; riskli adımda durur; bütçe ve ana anahtar kullanıcıda.
