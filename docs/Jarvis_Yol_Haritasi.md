@@ -1744,3 +1744,11 @@ D
 - Ana anahtar hâlâ `watch_enabled` (**varsayılan kapalı**): kapalıyken hiçbir aday üretilmez, hiçbir çağrı yapılmaz.
 - Sessiz saat (22:00–08:00) korunur; ses kapalıysa bildirim yazılı yola düşer (sahibin kendi kuralı).
 - **Kanıt:** `test_watch_delivery` (2) + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 27 test OK.
+
+
+### 2026-11-25 — Uyanıklık ayarı canlı kusur düzeltmesi
+
+- **Canlı kusur:** `watch_tick` ayarı `runtime.profile.settings` diye okumaya çalışıyordu; `Profile` sınıfında böyle bir alan **yok**. Sonuç: `watch_enabled=true` yazıldığı hâlde uyanıklık hiç çalışmadı ve log'da tek satır bile görünmedi (sessiz kusur).
+- **Düzeltme:** ayarın gerçek tek sahibi `config.load_settings()` kullanılıyor; okuma hatasında uyanıklık **kapalı** kalır (fail-closed) ve tanılamaya yazılır.
+- **Canlı doğrulama:** `~/.jarvis/settings.json` → `watch_enabled=true`, Jarvis yeniden başlatıldı; `uyaniklik` thread'i 120 sn'de bir çalışıyor. (Not: pencerede değişiklik yoksa aday üretmez — tasarım gereği.)
+- **Kanıt:** `test_watch_settings` (3: gerçek ayar açar, anahtar yoksa kapalı, ayar hatasında kapalı) + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 30 test OK.
