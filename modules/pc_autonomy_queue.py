@@ -119,8 +119,11 @@ TICK_SECONDS = 120.0
 def watch_tick(runtime=None) -> list[dict]:
     """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır."""
     from modules import awareness_watch
+    # Ayarın tek sahibi `config.load_settings`; canlı kusur (25 Kasım): varsayılan
+    # `profile.settings` diye bir alan yok, bu yüzden uyanıklık hiç açılamıyordu.
     try:
-        settings = (getattr(getattr(runtime, "profile", None), "settings", None) or {})
+        from config import load_settings
+        settings = load_settings() or {}
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:watch_tick_settings")
         settings = {}
