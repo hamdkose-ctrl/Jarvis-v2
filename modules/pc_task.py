@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 
 from modules import fast_commands, pc_hands
+from modules.diagnostics import record_failure as _record_failure
 
 # Zincirin devamı: "sonra artı düğmesine bas" — pencere söylenmez, önceki adımın
 # penceresi kullanılır. Tek adımda pencere şart; çok adımda tekrar etmek yorucu.
@@ -53,6 +54,7 @@ def _open_app(name: str) -> dict:
     except PermissionError:
         return {"status": "refused", "text": APP_GATED.format(name=name)}
     except Exception as exc:
+        _record_failure("modules/pc_task.py:_open_app")
         return {"status": "failed", "text": f"“{name}” açılamadı: {str(exc)[:60]}"}
 
 
