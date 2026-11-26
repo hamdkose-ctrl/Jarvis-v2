@@ -484,7 +484,10 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
         # digest stay Core-bound, and an ungrounded or unknown name drops the proposal.
         from modules.brain_core_map import _EXPORT_FORMAT_NAMES
         return {"format": sorted(_EXPORT_FORMAT_NAMES), "argument_sources": ["format"],
-                "target": "current.current_output"}
+                "target": "current.current_output",
+                "constraint": "format is optional and may only repeat the container word the user "
+                              "actually said; when the user names no container, omit format entirely "
+                              "rather than choosing a default — an invented format is rejected"}
     if capability_id == "system.diagnose":
         return {"arguments": {}, "target": "read-only system checks"}
     if capability_id == "windows.settings.open":
@@ -649,7 +652,8 @@ _CAPABILITY_PURPOSES = {
         "saves a produced conversation result only when the user affirmatively requests an export",
         "requires current.current_output.available true and an actual save request; a refusal or "
         "an absent output is NOT permission to export; an optional format must quote the user's own "
-        "container word; Core binds the document and path",
+        "container word and MUST be omitted when the user names none (never pick a default — an "
+        "invented format is rejected by Core); Core binds the document and path",
     ),
     "notes.write": (
         "changes or deletes one note that already exists",
