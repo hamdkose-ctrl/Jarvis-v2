@@ -152,6 +152,8 @@ def watch_tick(runtime=None) -> list[dict]:
     if not awareness_watch.enabled(settings):
         return []
     state = {"window": foreground_window()}
+    # Mail/takvim geri geldi (kullanıcı isteği 26 Kasım 16:5x): "bir şey olduğunda söylesin".
+    state.update(_inbox_and_calendar())
     items = awareness_watch.candidates(state, seen=_SEEN,
                                        quiet=awareness_watch.quiet_bounds(settings))
     # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
@@ -174,6 +176,41 @@ def _truthy(value) -> bool:
     if isinstance(value, bool):
         return value
     return str(value or "").strip().lower() in {"1", "true", "evet", "acik", "açık", "on"}
+
+
+def _inbox_and_calendar() -> dict:
+    """Okunmamış mail / yaklaşan takvim: uyanıklığın gerçek besleyicisi.
+
+    Canlı bulgu (26 Kasım): `awareness_watch.candidates` bu iki alanı okuyordu ama
+    `watch_tick` hiç doldurmuyordu — yani mail/takvim hiç kontrol edilmiyordu.
+    Google bağlı değilse sessizce boş döner (hata kullanıcıya gösterilmez).
+    """
+    state: dict = {}
+    try:
+        from modules import google_api
+        if google_api.connected():
+            unread = google_api.unread_count()
+            if isinstance(unread, int) and unread > 0:
+                state["unread_mail"] = unread
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:_inbox_and_calendar:mail")
+    try:
+        from modules import google_api
+        if google_api.connected():
+            events = google_api.day_events(0)
+            now = __import__("datetime").datetime.now()
+            soonest = None
+            for start, _summary in events:
+                if start is None:
+                    continue
+                minutes = (start - now).total_seconds() / 60.0
+                if minutes >= 0 and (soonest is None or minutes < soonest):
+                    soonest = minutes
+            if soonest is not None:
+                state["next_event_minutes"] = int(soonest)
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:_inbox_and_calendar:calendar")
+    return state
 
 
 def _announce(text: str) -> bool:
