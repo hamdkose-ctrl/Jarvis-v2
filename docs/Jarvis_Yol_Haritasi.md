@@ -2008,3 +2008,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Ölçülen senaryolar:** bütçe **3 sn** → bekleme **0 sn** · bütçe **6 sn** → bekleme **≤ 4,5 sn** · bütçe **60 sn** → bekleme **≤ 20 sn** · iptal → adım ortasında durur.
 - **Kanıt:** `test_rate_brake` (10) + `test_ready_provider_routing` + `test_rate_limits` + `test_cleanup_security` → 35 OK; **tam süit** `python -X utf8 -m modules.validation` → **exit 0**, "Tüm test grupları başarılı".
 - **K-07 durumu:** fren kalıyor; sayı tek kaynak `rate_limits.LIMITS`; `router_quota.POLICIES` dolduğunda fren kaldırılacak.
+
+
+### 2026-11-27 — T0b: fren testi izolasyonu + ölçüm tablosu düzeltmesi
+
+- **Kusur:** `tests/test_ready_provider_routing.py` setUp'ında `usage_meter._RECENT.clear()` yoktu. `_RECENT` süreç geneli; önceki testlerin istekleri bu testin bütçesini frenle yiyebiliyordu (CI'daki düşüşün izolasyon tarafı).
+- **Düzeltme:** setUp'ta `_RECENT.clear()` + `addCleanup` ile sıfırlama; ayrıca `RecentUsageIsolationTests` kirli state → setUp → temiz state kanıtı.
+- **Ölçüm tablosu düzeltmesi (T0):** "6 sn bütçe → ≤4,5 sn" yanıltıcıydı; 2,5 sn adımlarla **gerçekleşebilir üst sınır 2,5 sn (tek adım)**. Assert'in sınırı 4,5 sn idi.
+- **Kanıt:** `test_ready_provider_routing` + `test_rate_brake` + `test_cleanup_security` → 32 OK.
