@@ -2016,3 +2016,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Düzeltme:** setUp'ta `_RECENT.clear()` + `addCleanup` ile sıfırlama; ayrıca `RecentUsageIsolationTests` kirli state → setUp → temiz state kanıtı.
 - **Ölçüm tablosu düzeltmesi (T0):** "6 sn bütçe → ≤4,5 sn" yanıltıcıydı; 2,5 sn adımlarla **gerçekleşebilir üst sınır 2,5 sn (tek adım)**. Assert'in sınırı 4,5 sn idi.
 - **Kanıt:** `test_ready_provider_routing` + `test_rate_brake` + `test_cleanup_security` → 32 OK.
+
+
+### 2026-11-27 — T1: WhatsApp aramada **tam ad korunur**, ek atması doğrulamayla
+
+- **Kusur:** eski `search_query` adı **tek kelimeye** indiriyordu ("Mehmet Ali Yılmaz" → "yilmaz") ve "Fatma" gibi adları da kırpıyordu ("fatm"). Ek atması körlemesine yapılıyordu.
+- **Yeni sözleşme:** `search_variants(name)` sıralı aday üretir — **tam ad** → sondaki ek atılmış hâli → son kelime → son kelimenin ek atılmış hâli. `open_search` adayları sırayla dener; ekranda **"sonuç yok"** görülürse sonrakine geçer (aday doğrulaması). Kesme işareti ek sınırıdır.
+- **Test tablosu (istenen → sonuç):** `Fatma→fatma` · `Merve→merve` · `bitaneme→bitaneme→bitanem` · `bir taneme→taneme→tanem` · `Mehmet Ali Yılmaz→tam kalır` · `Zeynep'e→zeynep` · `Ay→ay` · `a→red`.
+- **Kanıt:** `test_whatsapp_search_variants` (8) + `test_whatsapp_ui` (güncellendi) + `test_background_messaging` + `test_cleanup_security` → 45 OK; **tam süit** `modules.validation` → **exit 0**.
+- **Dürüst sınır:** "sonuç yok" tespiti OCR ile yapılır; WhatsApp farklı bir boş-durum metni gösterirse yedek adaya düşmez (tek adayla kalır) — bu durumda yanlış kişi seçilmez, sadece arama daralır.
