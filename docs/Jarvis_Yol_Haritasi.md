@@ -1875,3 +1875,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Onay ucu:** "gönder"/"onaylıyorum" → `whatsapp_send` → `whatsapp_ui.send_pending(confirm=True)` → panodan yapıştır + Enter; başarılıysa bekleyen kayıt silinir.
 - **Güvenlik:** kişi **hiçbir zaman otomatik seçilmez** (yanlış kişiye mesaj riski); tek adımda gönderim yok; arama Enter basmaz.
 - **Kanıt:** `test_whatsapp_ui` (10) + `test_fast_commands` + `test_brain_orphan_dispatch_guard` + `test_cleanup_security` → 130 test (1 bilinen yerel hata, temiz main'de de aynı).
+
+
+### 2026-11-26 — Uyanıklık sessiz + ekran okuma günlüğe
+
+- **Kullanıcı isteği:** "uyanıklık ses vermesin" ve "ekran gidip geliyor / fotoğraf çekiyor gibi" hissi.
+- **Ses:** `pc_autonomy_queue._announce` artık **varsayılan sessiz** — yalnız `watch_voice=true` ise konuşur. Bilgi günlüğe ve arayüze yazılır, ses çıkmaz. (Önceden `announce_active` her adayda çağrılıyordu.)
+- **Ekran hissi:** `pc_vision.read_screen` her OCR çağrısında **"ekran okundu (OCR)"** satırı yazıyor; böylece titreme/ekran algısının kaynağı (hangi iş, hangi an) log'dan görülebilir. Ekran okuma yalnız komut anında yapılır, arka planda periyodik yakalama yok.
+- **Ayar:** `watch_enabled` (aç/kapa), `watch_voice` (ses), `watch_quiet_start/end` (sessiz saat). Üçü de tek sahip: `config.load_settings`.
+- **Kanıt:** `SilentByDefault` (2 yeni) + `test_watch_settings` + `test_watch_foreground` + `test_watch_delivery` + `test_cleanup_security` → 20 OK.

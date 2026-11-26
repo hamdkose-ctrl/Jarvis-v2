@@ -165,8 +165,26 @@ def watch_tick(runtime=None) -> list[dict]:
 _SEEN: set[str] = set()
 
 
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "evet", "acik", "açık", "on"}
+
+
 def _announce(text: str) -> bool:
-    """Bildirimi mevcut tek sahibe (voice_runtime.notice) devreder; yoksa sessiz."""
+    """Bildirimi seslendirir — yalnız `watch_voice` açıksa.
+
+    Canlı istek (26 Kasım): uyanıklık **ses çıkarmasın**. Varsayılan sessiz; bilgi
+    günlüğe ve arayüze yazılır, konuşma yapılmaz. Ses istenirse `watch_voice=true`.
+    """
+    try:
+        from config import load_settings
+        settings = load_settings() or {}
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:_announce_settings")
+        return False
+    if not _truthy(settings.get("watch_voice")):
+        return False
     try:
         from modules import voice_runtime
         return bool(voice_runtime.announce_active(text, background=True))

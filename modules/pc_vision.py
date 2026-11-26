@@ -12,6 +12,8 @@ Kurallar:
 """
 from __future__ import annotations
 
+import logging
+
 import time
 
 from modules.diagnostics import record_failure as _record_failure
@@ -24,6 +26,7 @@ def _fold(text: str) -> str:
     return " ".join(str(text or "").casefold().translate(table).split())
 
 
+log = logging.getLogger("jarvis.pc_vision")
 def available() -> bool:
     try:
         from winsdk.windows.media.ocr import OcrEngine
@@ -65,6 +68,9 @@ def read_screen() -> list[dict]:
         from winsdk.windows.storage.streams import DataWriter
         from winsdk.windows.graphics.imaging import SoftwareBitmap, BitmapPixelFormat, BitmapAlphaMode
 
+        # Canlı istek (26 Kasım): "ekran gidip geliyor / fotoğraf çekiyor gibi" hissi.
+        # Hangi işin ekranı okuduğu görülemiyordu; her okuma tek satır günlüğe yazılır.
+        log.info("ekran okundu (OCR)")
         image = ImageGrab.grab().convert("RGBA")
         width, height = image.size
         writer = DataWriter()

@@ -37,3 +37,23 @@ class _Runtime:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SilentByDefault(unittest.TestCase):
+    """Uyanıklık varsayılan olarak SES ÇIKARMAZ (canlı istek 26 Kasım)."""
+
+    def test_announce_is_silent_when_voice_off(self):
+        from modules import pc_autonomy_queue, voice_runtime
+        from unittest import mock
+        with mock.patch.object(voice_runtime, "announce_active") as announce, \
+             mock.patch("config.load_settings", return_value={"watch_enabled": True}):
+            self.assertFalse(pc_autonomy_queue._announce("pencere değişti"))
+        self.assertFalse(announce.called)
+
+    def test_announce_speaks_when_voice_on(self):
+        from modules import pc_autonomy_queue, voice_runtime
+        from unittest import mock
+        with mock.patch.object(voice_runtime, "announce_active", return_value=True) as announce, \
+             mock.patch("config.load_settings", return_value={"watch_voice": True}):
+            self.assertTrue(pc_autonomy_queue._announce("pencere değişti"))
+        self.assertTrue(announce.called)
