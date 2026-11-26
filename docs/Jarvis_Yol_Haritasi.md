@@ -1974,3 +1974,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Kanıt:** 22 Kasım 01:31'in gerçek verisi (22 istek / 252.020 token) `should_wait → True`; ölçülen tavan 15 RPM / 250K TPM ile birebir tutarlı.
 - **Test:** `test_rate_limits` (4) + `test_cleanup_security` → 14 OK.
 - **Kapsam (dürüst):** bu adım **sayıları** ve karar fonksiyonunu getirir; bekleme `smart_router`'a henüz bağlanmadı. Ayrıca 13 hatanın **10'u** günlük kota kaynaklı — dakikalık fren onları çözmez, ayrı iş.
+
+
+### 2026-11-26 — A · hız freni tek ağ kapısına bağlandı (`llm.dispatch`)
+
+- **Neden kapı değişti:** ilk deneme `smart_router` döngüsündeydi ve CI'da `test_ready_provider_routing` düştü (#859 gerekçesiyle kapatıldı). Fren **tek ağ kapısına** — `llm.dispatch` — taşındı: sağlayıcıya çıkan her yol buradan geçer, testler `dispatch`'i taklit ettiği için ölçüm testleri etkilenmez.
+- **`llm.apply_rate_brake(spec)`:** son 60 saniyenin gerçek kullanımı (`usage_meter.recent_usage`) tavanın %90'ına ulaşırsa 2,5 sn adımlarla bekler; toplam **≤ 20 sn**; her adımda iptal denetimi; ölçülmemiş modelde **hiç** beklemez.
+- **`usage_meter.note_recent()`:** `record()` içinde çağrılır (dosya okumadan, bellekte son 600 kayıt).
+- **Kanıt:** `test_rate_brake` (5) + `test_rate_limits` + `test_ready_provider_routing` + `test_quota_caller_tag` + `test_cleanup_security` → **38 OK**.
+- **Kabul (7 gün):** hız kaynaklı 429 **3 → 0**.

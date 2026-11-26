@@ -869,8 +869,37 @@ def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',ro
         features=frozenset({'text','structured_output'} if structured else {'text'}))
 
 
+BRAKE_STEP_SECONDS = 2.5
+BRAKE_MAX_SECONDS = 20.0
+
+
+def apply_rate_brake(spec, *, sleeper=None) -> float:
+    """Ölçülmüş tavanın %90'ına yaklaşıldıysa kısa bekler (tek ağ kapısı: `dispatch`).
+
+    Sayılar `modules/rate_limits.py` içinde kullanıcının kendi AI Studio ekranından
+    ölçülmüş tavanlardır; model orada yoksa **hiç beklenmez** (uydurma limit yok).
+    Bekleme sınırlıdır ve iptal her adımda denetlenir.
+    """
+    from modules import rate_limits, usage_meter
+    if rate_limits.limit_for(getattr(spec, 'model', '')) is None:
+        return 0.0
+    sleep = sleeper or time.sleep
+    waited = 0.0
+    while waited < BRAKE_MAX_SECONDS:
+        rpm, tpm = usage_meter.recent_usage(getattr(spec, 'model', ''))
+        if not rate_limits.should_wait(rpm, tpm, getattr(spec, 'model', '')):
+            break
+        requests_state.check()
+        sleep(BRAKE_STEP_SECONDS)
+        waited += BRAKE_STEP_SECONDS
+    if waited:
+        log.info("hız freni: %s için %.1f sn bekledim", getattr(spec, 'model', '?'), waited)
+    return waited
+
+
 def dispatch(request,spec,prompt,system,history=None,*,image_path=None):
     """One exact-model adapter boundary, including explicit owner custom connections."""
+    apply_rate_brake(spec)
     token=_key_context.set(request.owner)
     try:
         requests_state.request_identity(request.owner)
