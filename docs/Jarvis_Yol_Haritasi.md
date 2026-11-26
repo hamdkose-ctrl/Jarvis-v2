@@ -1983,3 +1983,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Ek:** testler artık mail/takvimi taklit eder (`_inbox_and_calendar → {}`), çünkü Google bağlandıktan sonra gerçek "30 okunmamış mail" adayı testleri kirletiyordu.
 - **Yeni kanıt:** `ClockIndependent` — gündüz (12) aday **1**, sessiz saat (23 ve 3) **0**. Yani sessiz saat davranışı da artık ölçülü.
 - **Test:** 27 OK (watch süitleri + `test_cleanup_security`).
+
+
+### 2026-11-26 — A · hız freni bağlandı (tek ağ kapısı: `llm.dispatch`)
+
+- **Neden bu kapı:** ilk deneme (#859/#860) `smart_router` döngüsündeydi; orada testler `dispatch`'i taklit ettiği için davranış görünmez oluyordu. Fren **sağlayıcıya çıkan tek kapıya** taşındı.
+- **`llm.apply_rate_brake(spec)`:** son 60 saniyenin gerçek kullanımı (`usage_meter.recent_usage`) tavanın **%90**'ına ulaşırsa **2,5 sn** adımlarla bekler; toplam **≤ 20 sn**; her adımda iptal denetimi; **ölçülmemiş modelde hiç beklemez**.
+- **`usage_meter.note_recent()`:** `record()` içinde çağrılır — dosya okumadan, bellekte son 600 kayıt; `recent_usage()` model başına (istek, token) döndürür.
+- **Kanıt:** `test_rate_brake` (6) + `test_rate_limits` + `test_ready_provider_routing` + uyanıklık süitleri + `test_quota_caller_tag` + `test_request_limit_trim` + `test_cleanup_security` → **54 OK**.
+- **Kabul (7 gün):** hız kaynaklı 429 **3 → 0**.
