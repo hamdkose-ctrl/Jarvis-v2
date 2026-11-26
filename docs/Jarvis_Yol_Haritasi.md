@@ -1766,3 +1766,10 @@ D
 - **Canlı bulgu:** uyanıklık 21:59'da çalıştı, sonra **hiç konuşmadı**. Neden kusur değil, tasarım: saat 22:00'yi geçtiği için **sessiz saat** devreye girmişti.
 - **Değişiklik:** sessiz saat artık **ayarlanabilir** — `watch_quiet_start` / `watch_quiet_end` (varsayılan 22–08, geçersiz değerde varsayılana döner). `awareness_watch.quiet_bounds(settings)` ve `candidates(..., quiet=...)` imzası eklendi; gece devreden saat (22→08) ve gündüz aralığı (09→17) ikisi de doğru.
 - **Kanıt:** `test_awareness_watch` + `test_watch_settings` + `test_watch_delivery` + `test_watch_foreground` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK. Testler artık saatten bağımsız (kendi sessiz saat ayarını veriyor).
+
+
+### 2026-11-26 — Uyanıklık: başlıksız ön pencere yedeği
+
+- **Canlı ölçüm:** ön pencere `Shell_Flyout` (görev çubuğu/başlat uçucu penceresi) ve başlık boş dönünce uyanıklık **aday üretmiyordu**.
+- **Düzeltme:** `foreground_window()` artık başlık boşsa `GetAncestor(GA_ROOT)` → `GetWindow(GW_OWNER)` sırasıyla sahibin başlığını dener; bulamazsa boş döner (uydurma yok).
+- **Kanıt:** `test_watch_foreground` + `EmptyForeground` sınıfı + `test_cleanup_security` → 13 test OK.
