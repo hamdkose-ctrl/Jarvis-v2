@@ -1796,3 +1796,13 @@ D
 - **Defter kuralı:** yeni `BRAIN-NN` maddesi açılmaz; bir madde ancak **yeni ölçüm kanıtıyla** (regresyon/kırmızı kabul) yeniden açılır. `docs/BEKLEYEN_ISLER.md` bu maddeler için tarihsel kayıt taşır, güncel hüküm kapanış dosyasındadır.
 - **Kalan tek boşluk M-1:** canlı semantik kabul (20 vaka, %95, yanlış-action=0, aynı SHA Full `state=passed` + aynı SHA PC watcher). Bugün **ölçülmedi**; rota çiti gevşetilmedi. `state=passed` gelmeden hiçbir yerde "Brain tamamen kapandı" denmez.
 - **Kanıt:** `tests/test_brain_ledger_closure.py` (3) + `test_roadmap_drift_check` → 22 test OK.
+
+
+### 2026-11-26 — M-1 canlı semantik kabul ölçüldü: 0,90 → 0,95 passed
+
+- **İlk gerçek ölçüm:** `scripts/brain_output_diagnose_holdout.py --run` → `state=failed`, doğruluk **0,90** (18/20), yanlış işlem önerisi 0, efekt 0.
+- **Kök neden (ölçüldü):** düşen iki vaka export grubunda; model `documents.export` seçti ama **cümlede geçmeyen `format`** alanını uydurdu → Core `ARGUMENT_SOURCE_INVALID` ile reddetti (kanıtsız alan yürütülmez; davranış doğru).
+- **Düzeltme:** `documents.export` şeması + yetenek amacı artık açıkça söylüyor: format **isteğe bağlı**, kullanıcı kap belirtmediyse **hiç yazılmaz**, varsayılan seçilmez. Kelime listesi eklenmedi.
+- **Yeniden ölçüm:** `state=passed`, **0,95** (19/20), yanlış işlem **0**, efekt **0**; gruplar: diagnose 5/5, export 4/5, explanation 3/3, irony 2/2, missing_output 2/2, negation 3/3.
+- **Kanıt:** `test_brain_model_understanding`, `test_brain_output_diagnose_holdout`, orphan/güvenlik/defter bekçileri → 102 test OK; kapanış dosyası §5 güncellendi.
+- **Sınır (dürüst):** `state=passed` raporu tek başına "Brain tamamen kapandı" değildir; aynı SHA'nın yeşil Windows CI'ı ve aynı SHA PC watcher koşusu ayrıca beklenir.
