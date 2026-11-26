@@ -50,8 +50,25 @@ def case_closed_app() -> dict:
 
 
 def case_ambiguous() -> dict:
-    """Aynı adlı iki pencere: tahmin yok, tek soru."""
-    result = pc_hands.find_control("chrome", "kapat")
+    """Aynı adlı iki pencere: tahmin yok, tek soru.
+
+    Ön koşul yoksa vaka **premise_missing** döner: tek pencere varken "belirsizlik"
+    ölçülmüş sayılmaz (canlı bulgu 26 Kasım: karne 5/6 görünüyordu, oysa kusur yoktu).
+    """
+    before = set(_titled("Not Defteri"))
+    if len(before) < 2:
+        import subprocess
+        try:
+            subprocess.Popen(["notepad.exe"])
+            time.sleep(2.5)
+        except Exception:
+            from modules.diagnostics import record_failure as _record_failure
+            _record_failure("scripts/pc_stress.py:case_ambiguous")
+    if len(_titled("Not Defteri")) < 2:
+        return {"ad": "belirsiz hedef", "durum": "premise_missing"}
+    result = pc_hands.find_control("not defteri", "kaydet")
+    for handle in set(_titled("Not Defteri")) - before:
+        _close(handle)
     return {"ad": "belirsiz hedef", "durum": result.get("status"), "cevap": str(result.get("text"))[:70]}
 
 
@@ -69,6 +86,47 @@ CASES = (case_long_chain, case_impossible_middle, case_long_text, case_closed_ap
          case_ambiguous, case_save_and_verify)
 
 
+def _titled(wanted: str) -> list[int]:
+    try:
+        import win32gui
+    except Exception:
+        from modules.diagnostics import record_failure as _record_failure
+        _record_failure("scripts/pc_stress.py:_titled")
+        return []
+    found: list[int] = []
+
+    def visit(handle, _):
+        title = win32gui.GetWindowText(handle) or ""
+        if win32gui.IsWindowVisible(handle) and wanted in title:
+            found.append(handle)
+        return True
+
+    win32gui.EnumWindows(visit, None)
+    return found
+
+
+def _close(handle: int) -> None:
+    try:
+        import win32gui
+        win32gui.PostMessage(handle, 0x0010, 0, 0)      # WM_CLOSE
+    except Exception:
+        from modules.diagnostics import record_failure as _record_failure
+        _record_failure("scripts/pc_stress.py:_close")
+
+
+def _keep_single(wanted: str) -> int:
+    """Aynı adlı fazla pencereleri kapat: karne temiz ortamda ölçülsün.
+
+    Canlı bulgu (26 Kasım): önceki koşulardan kalan 5 Hesap Makinesi penceresi yüzünden
+    ajan doğru davranıp "hangisinde?" diye sordu, karne ise "durdum" sandı.
+    """
+    handles = _titled(wanted)
+    for handle in handles[1:]:
+        _close(handle)
+        time.sleep(0.3)
+    return len(_titled(wanted))
+
+
 def _prepare():
     """Karne için gereken uygulamaları açar (yoksa bütün sonuçlar 'pencere yok' olur)."""
     import subprocess
@@ -78,8 +136,13 @@ def _prepare():
             subprocess.Popen([exe])
             opened.append(exe)
         except Exception:
-            pass
+            from modules.diagnostics import record_failure as _record_failure
+            _record_failure("scripts/pc_stress.py:_prepare")
     time.sleep(5)
+    # Açtıktan SONRA tekilleştir: önceki koşulardan kalan pencereler karneyi kirletiyordu
+    # (canlı bulgu 26 Kasım: 5 Hesap Makinesi → ajan doğru davranıp sordu, karne "durdum" sandı).
+    _keep_single("Not Defteri")
+    _keep_single("Hesap Makinesi")
     return opened
 
 
