@@ -1814,3 +1814,14 @@ D
 - `scripts/pc_test_watcher.py --once --pattern refs/remotes/origin/main` çalıştırıldı: **aday üretmedi** (tasarım gereği yalnız açık PR dallarını izler; `main` için aday yok). Bu, kusur değil sözleşme; "watcher passed" diye yazılmadı.
 - Kurulu ağaç git deposu değil (`.git` kopyalanmıyor) → watcher kökü scratch klondan alındı; bu sınır kayda geçti.
 - M-1 durumu: holdout `state=passed` (%95, yanlış işlem 0) + bu PC'de tam doğrulama exit 0. Kapanış dosyası §6 eklendi.
+
+
+### 2026-11-26 — Zor görev karnesi: ortam temizliği + ön koşul dürüstlüğü
+
+- **Canlı bulgu:** karne 5/6 gösteriyordu ama **kusur yoktu**. Neden: önceki koşulardan kalan **5 Hesap Makinesi** penceresi yüzünden ajan doğru davranıp "hangisinde?" diye sordu; karne bunu "durdum" sandı. Ayrıca "belirsiz hedef" vakası tek pencere varken hiç kurulmuyordu.
+- **Düzeltme (scripts/pc_stress.py):**
+  - `_keep_single()`: açılıştan **sonra** aynı adlı fazla pencereleri kapatır (UWP Hesap Makinesi `WM_CLOSE` ile kapanmıyor → elle `Stop-Process` gerektiği kayda geçti).
+  - `case_ambiguous()`: iki pencere yoksa ikincisini açar; ön koşul kurulamazsa **premise_missing** döner (ölçülmemiş vaka "başarısız" sayılmaz); sonunda açtığı fazla pencereyi kapatır.
+- **Bu PC'de ölçüm (temiz ortam):** uzun zincir **done 4,5 sn / 6 adım**; imkânsız orta adım **stop 1 adım**; uzun metin **done** (OCR teyidi yok — dürüst sınır); kapalı uygulama **no_window**; belirsiz hedef **ambiguous + tek soru**; kaydet+doğrula **done, temizlendi**.
+- **Beklenen davranışı gösteren: 6/6.**
+- **Sınır (dürüst):** uzun metin vakasında ekran teyidi `missing` — 1.199 karakterin tamamı OCR ile doğrulanamıyor; bu bilinen sınır, "done" yazılıyor ama teyit iddia edilmiyor.
