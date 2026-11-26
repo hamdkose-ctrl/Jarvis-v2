@@ -1962,3 +1962,15 @@ Ayrıca iki teknik bulgu loglandı:
 - **Düzeltme:** `llm.trim_for_request_limit(msgs, keep=4)` — sistem mesajı korunur, en eski çiftler atılır, son 4 mesaj kalır. Groq 413 dönerse gövde **bir kez** kırpılıp **aynı sağlayıcıda** yeniden denenir (`413-trim` kaydı düşer). Kırpma sonrası hâlâ büyükse `None` → sonsuz tekrar yok.
 - **Kanıt:** `test_request_limit_trim` (4) + `test_provider_error_language` + `test_gemini_deadline` + `test_cleanup_security` → 23 OK.
 - **Kabul (7 gün):** 413 sayısı **12 → 0**.
+
+
+### 2026-11-26 — A · hız freni: tavanlar artık **ölçülmüş**
+
+- **Kaynak:** kullanıcının kendi **Google AI Studio → Rate Limit** sayfası (Free tier, `Default Gemini Project`), 26 Kasım 2026 ekranından okundu:
+  - **Gemini 3.5 Flash Lite:** RPM **17 / 15** (aşmış) · TPM **186,7K / 250K**
+  - Gemini 2.5 Flash TTS: RPM **5 / 3** (aşmış) · TPM 165 / 10K
+  - Gemini 3.6 Flash: RPM 2 / 5 · TPM 3,85K / 250K
+- **Yeni `modules/rate_limits.py`:** `LIMITS` (yalnız bu kaynaktan), `HEADROOM=0.9`, `limit_for()`, `should_wait()`. Doğrulanmamış model → **fren kapalı** (uydurma limit yok).
+- **Kanıt:** 22 Kasım 01:31'in gerçek verisi (22 istek / 252.020 token) `should_wait → True`; ölçülen tavan 15 RPM / 250K TPM ile birebir tutarlı.
+- **Test:** `test_rate_limits` (4) + `test_cleanup_security` → 14 OK.
+- **Kapsam (dürüst):** bu adım **sayıları** ve karar fonksiyonunu getirir; bekleme `smart_router`'a henüz bağlanmadı. Ayrıca 13 hatanın **10'u** günlük kota kaynaklı — dakikalık fren onları çözmez, ayrı iş.
