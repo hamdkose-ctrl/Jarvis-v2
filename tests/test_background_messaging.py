@@ -113,14 +113,17 @@ class KeyboardBoundaryTests(unittest.TestCase):
             self.assertIn('penceresini bulamadım', messaging.send_whatsapp('Ebru', 'Merhaba', '905551234567'))
         keyboard.press.assert_not_called();keyboard.hotkey.assert_not_called()
 
-    def test_a_recipient_without_a_number_never_touches_the_desktop(self):
-        # Eski GUI yolu (arama kutusu + ilk sonuç + Enter) kapalıdır: numara yoksa hiçbir şey açılmaz.
+    def test_a_recipient_without_a_number_searches_whatsapp_and_sends_nothing(self):
+        # Politika 26 Kasım: numara yoksa WhatsApp arayüzünde ARANIR (kullanıcı isteği:
+        # rehberde olmayan ama WhatsApp'ta kayıtlı kişiler). Kişi seçilmez, Enter basılmaz,
+        # mesaj yalnız onayla gider.
         keyboard = self.adapter()
-        with patch.dict(sys.modules, pyautogui=keyboard), patch.object(messaging.os, 'name', 'nt'), patch.object(messaging.os, 'startfile', create=True) as startfile, patch.object(messaging, '_find_window') as window:
+        with patch.dict(sys.modules, pyautogui=keyboard), patch.object(messaging.os, 'name', 'nt'),              patch('modules.whatsapp_ui.open_search', return_value={'status': 'done'}) as search,              patch('modules.whatsapp_ui.remember_pending') as remember:
             result = messaging.send_whatsapp('Ebru', 'Merhaba', None)
-        self.assertIn('kayıtlı bir numara yok', result)
-        startfile.assert_not_called();window.assert_not_called()
-        keyboard.press.assert_not_called();keyboard.hotkey.assert_not_called()
+        self.assertTrue(search.called)
+        self.assertTrue(remember.called)
+        self.assertIn('WhatsApp', result)
+        keyboard.press.assert_not_called()
 
     def test_cancel_during_phone_wait_never_presses_send(self):
         keyboard = self.adapter()

@@ -1884,3 +1884,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Ekran hissi:** `pc_vision.read_screen` her OCR çağrısında **"ekran okundu (OCR)"** satırı yazıyor; böylece titreme/ekran algısının kaynağı (hangi iş, hangi an) log'dan görülebilir. Ekran okuma yalnız komut anında yapılır, arka planda periyodik yakalama yok.
 - **Ayar:** `watch_enabled` (aç/kapa), `watch_voice` (ses), `watch_quiet_start/end` (sessiz saat). Üçü de tek sahip: `config.load_settings`.
 - **Kanıt:** `SilentByDefault` (2 yeni) + `test_watch_settings` + `test_watch_foreground` + `test_watch_delivery` + `test_cleanup_security` → 20 OK.
+
+
+### 2026-11-26 — WhatsApp gerçek gönderim (canlı) + uyanıklık besleyicileri
+
+- **Canlı kusur:** 15:36'da "whatsapp tan mesaj at bitanem merhaba yaz" hâlâ "rehberde yok, göndermedim" diyordu. Kök neden: ret cevabı `engine_tools` içinde, `messaging.send_whatsapp`'a hiç inilmiyordu.
+- **Düzeltme:** rehberde isim yoksa **WhatsApp arayüzünde araya** düşer (`whatsapp_ui.open_search`), mesajı bekleyen olarak saklar ve "doğru sohbeti sen aç, 'gönder' de" der.
+- **Canlı kanıt (kullanıcı onayıyla):** "bitanem" arandı → açık sohbet **"Bi Tanem"**; gönderilen metin: *"Merhaba, bu bir test mesajı. Jarvis tarafından gönderildi."* Sohbet listesinde **15:40** ve **"Merhaba, bu bir t…"** önizlemesi, sohbette **"İletildi"** göstergesi görüldü (ekran görüntüsü).
+- **Uyanıklık besleyicileri (3. madde):** `pc_autonomy_queue._inbox_and_calendar()` eklendi; `google_api.unread_count()` ve `google_api.day_events(0)` gerçekten okunuyor. Google bağlı değilse sessizce boş döner. Önceden `candidates` bu alanları okuyordu ama **hiç doldurulmuyordu** (mail/takvim kontrol edilmiyordu).
+- **Politika değişikliği (bilinçli):** "numara yoksa masaüstüne hiç dokunma" testi güncellendi → "numara yoksa arayüzde **ara**, kişi seçme, Enter basma, mesajı onayda tut".

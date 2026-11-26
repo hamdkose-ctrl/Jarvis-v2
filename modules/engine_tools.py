@@ -215,8 +215,18 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
         names = runtime.messaging.name_matches(contacts, p["to"])
         if not names:
             runtime._session().pending_msg = None
-            return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; mesajı göndermedim. "
-                    f"Önce “kişi ekle {p['to']} 05xx xxx xx xx” de ya da kayıtlı kişinin tam adını söyle.")
+            # Rehberde yok ama WhatsApp'ta kayıtlı olabilir (canlı bulgu 26 Kasım 15:36:
+            # "Bitanem" rehberde yok, WhatsApp'ta var; ajan hiç aramıyordu).
+            # Kişiyi SEÇMEYİZ: arayüzde arar, sohbeti kullanıcı açar, mesaj onayla gider.
+            from modules import whatsapp_ui
+            arama = whatsapp_ui.open_search(p["to"])
+            if arama.get("status") == "done":
+                whatsapp_ui.remember_pending(p["to"], text)
+                return (f"Rehberinde “{p['to']}” yok; WhatsApp’ta arattım. Ekranda çıkan sohbetlerden "
+                        f"doğru olanı sen aç, sonra “gönder” de: “{text}” mesajını yazıp gönderelim mi?")
+            return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; WhatsApp’ta da arayamadım "
+                    f"({arama.get('text', 'pencere yok')}). Önce “kişi ekle {p['to']} 05xx xxx xx xx” de "
+                    f"ya da kayıtlı kişinin tam adını söyle.")
         valid = dict(runtime.messaging.contact_matches(contacts, p["to"]))
         if len(names) > 1:
             # Seçim kullanıcınındır ve açık olmalı: alıcı sorusu yeniden açılır, gövde korunur.
