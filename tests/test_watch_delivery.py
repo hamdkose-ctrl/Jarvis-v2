@@ -39,14 +39,14 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class SilentByDefault(unittest.TestCase):
-    """Uyanıklık varsayılan olarak SES ÇIKARMAZ (canlı istek 26 Kasım)."""
+class VoiceAndNoise(unittest.TestCase):
+    """Ses açık; gereksiz bilgi (pencere değişimi) varsayılan olarak konuşulmaz."""
 
     def test_announce_is_silent_when_voice_off(self):
         from modules import pc_autonomy_queue, voice_runtime
         from unittest import mock
         with mock.patch.object(voice_runtime, "announce_active") as announce, \
-             mock.patch("config.load_settings", return_value={"watch_enabled": True}):
+             mock.patch("config.load_settings", return_value={"watch_enabled": True, "watch_voice": False}):
             self.assertFalse(pc_autonomy_queue._announce("pencere değişti"))
         self.assertFalse(announce.called)
 
@@ -57,3 +57,18 @@ class SilentByDefault(unittest.TestCase):
              mock.patch("config.load_settings", return_value={"watch_voice": True}):
             self.assertTrue(pc_autonomy_queue._announce("pencere değişti"))
         self.assertTrue(announce.called)
+
+
+class WindowNoticesAreQuiet(unittest.TestCase):
+    """Pencere değişimi gözünün önünde: ses açık olsa da konuşulmaz (26 Kasım)."""
+
+    def test_window_change_is_logged_not_spoken(self):
+        from modules import pc_autonomy_queue, voice_runtime
+        from unittest import mock
+        pc_autonomy_queue._SEEN.clear()
+        runtime = mock.Mock()
+        with mock.patch("config.load_settings", return_value={"watch_enabled": True}),              mock.patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"),              mock.patch.object(voice_runtime, "announce_active") as announce:
+            items = pc_autonomy_queue.watch_tick(runtime)
+        self.assertEqual(len(items), 1)
+        self.assertFalse(announce.called)
+        self.assertTrue(runtime.log.info.called)
