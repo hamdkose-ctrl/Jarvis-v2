@@ -36,6 +36,25 @@ _RESPONSE_MAX_TOKENS = 2048
 # bütçe varsa requests_state.budget onu korur (iç içe bütçe en sıkı olanı seçer).
 _MODEL_BUDGET_SECONDS = 30.0
 
+# Canlı kusur (26 Kasım 15:20): "İstanbul dersin" gibi sohbet cümlesinde model var olmayan
+# bir eyleme atıf yaptı (`ACTION_REFERENCE_INVALID`) ve **tüm tur** düştü: kullanıcı
+# "doğrulayamadım, hiçbir işlem başlatmadım" gördü. Doğrulama gevşetilmez; modele bir kez
+# daha sorulur: eylem gerekmiyorsa `operation="chat", actions=[]` döndürsün.
+CHAT_CORRECTION = (
+    "Önceki yanıt var olmayan bir eyleme atıf yaptı. Cümle bir konuşma/sohbet cümlesiyse "
+    "operation=\"chat\" ve actions=[] döndür. Gerçekten bir eylem isteniyorsa yalnız sunulan "
+    "yetenek kimliklerini ve var olan yuvaları kullan."
+)
+
+
+RETRYABLE_ACTION_CODES = frozenset({"ACTION_CAPABILITY_UNKNOWN", "CAPABILITY_NOT_OFFERED"})
+
+
+def retry_after_invalid_action(diagnostic, attempt_index: int) -> bool:
+    """Model **olmayan bir yeteneği** seçtiyse bir kez daha sorulur; ikinci ret aynen kalır."""
+    return attempt_index == 0 and diagnostic.get("reason_code") in RETRYABLE_ACTION_CODES
+
+
 OPERATIONS = frozenset({
     "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
     "add_task", "pause_goal", "resume_goal", "cancel_goal", "prioritize_goal", "clarify",
@@ -1424,10 +1443,15 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
         slots = _text_list("reference_slots", item.get("reference_slots"))
         depends_on = _text_list("depends_on", item.get("depends_on"))
         if (not isinstance(action_id, str) or action_id != f"a{index + 1}" or action_id in seen_ids
-                or not isinstance(capability_id, str) or capability_id not in CORE_INTENTS
+                or not isinstance(capability_id, str)
                 or slots is None or depends_on is None or not set(slots) <= set(by_slot)
                 or not set(depends_on) <= seen_ids):
             return _reject('ACTION_REFERENCE_INVALID')
+        if capability_id not in CORE_INTENTS:
+            # Sohbet cümlesinde modelin **uydurduğu** yetenek: tek düzeltici tekrarla
+            # "chat" seçeneği sunulur (canlı kusur 26 Kasım). Yuva/atıf hataları
+            # (ACTION_REFERENCE_INVALID) tekrar tetiklemez: onlar gerçek komutlarda çıkar.
+            return _reject('ACTION_CAPABILITY_UNKNOWN', capability=capability_id)
         if not isinstance(supplied, Mapping):
             return _reject('ARGUMENTS_NOT_OBJECT')
         try:
@@ -1770,34 +1794,51 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 suffix = f" {detail}" if detail else ""
                 raise ValueError(f"Model yanıtı Brain sözleşmesini karşılamıyor ({code}).{suffix}")
 
-        with requests_state.budget(_MODEL_BUDGET_SECONDS):
-            # Primary understanding uses the typed smart_router.run_request entry.
-            # The current voice turn may lend the mic back during this REAL
-            # provider wait while preserving owner, budget and request fences.
-            # No second execution lane or provider selection is introduced.
-            from modules import model_wait
-            with model_wait.interactive_wait():
-                request=smart_router.ModelRequest(owner=owner,request_id=getattr(current,'request_id',''),
-                    profile='brain_understanding',data_scope='conversation',work_class='interactive',route=route,
-                    features=frozenset({'text','structured_output'}),max_output_tokens=_RESPONSE_MAX_TOKENS,deadline=deadline,
-                    selection_mode='local_only' if selected=='ollama' else 'configured')
-                def dispatch(spec):
-                    if spec.provider == 'groq' and spec.model in llm.GROQ_MODELS:
-                        return llm.dispatch(request, spec, _groq_prompt(payload), _COMPACT_GROQ_SYSTEM)
-                    return llm.dispatch(request, spec, prompt, system)
+        # Primary understanding uses the typed smart_router.run_request entry.
+        # The current voice turn may lend the mic back during this REAL
+        # provider wait while preserving owner, budget and request fences.
+        # No second execution lane or provider selection is introduced.
+        from modules import model_wait
+        result = None
+        correction = ""
+        for attempt_index in range(2):
+            try:
+                with requests_state.budget(_MODEL_BUDGET_SECONDS):
+                    with model_wait.interactive_wait():
+                        request=smart_router.ModelRequest(owner=owner,request_id=getattr(current,'request_id',''),
+                            profile='brain_understanding',data_scope='conversation',work_class='interactive',route=route,
+                            features=frozenset({'text','structured_output'}),max_output_tokens=_RESPONSE_MAX_TOKENS,deadline=deadline,
+                            selection_mode='local_only' if selected=='ollama' else 'configured')
+                        def dispatch(spec, _correction=correction):
+                            if spec.provider == 'groq' and spec.model in llm.GROQ_MODELS:
+                                return llm.dispatch(request, spec, _groq_prompt(payload) + _correction,
+                                                    _COMPACT_GROQ_SYSTEM + _correction)
+                            return llm.dispatch(request, spec, prompt + _correction, system + _correction)
 
-                raw=smart_router.run_request(request,dispatch,validator=validate_response).text
-            requests_state.check()
-        response_received = True
-        row = _decode(raw)
-        _record_shape(row)
-        result = _build(
-            row, owner=owner, text=text, current=current,
-            deterministic_arguments=arguments, protected_relation=protected_relation,
-            file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
-            last_verified_level_property=last_verified_level_property,
-            photo_path=photo_path, turn_candidates=turn_candidates,
-                               offered_capabilities=tuple(offered_capabilities))
+                        raw=smart_router.run_request(request,dispatch,validator=validate_response).text
+                    requests_state.check()
+            except Exception:
+                _record_failure("modules/brain_model_understanding.py:propose:attempt")
+                if retry_after_invalid_action(proposal_diagnostic(), attempt_index):
+                    correction = "\n\n" + CHAT_CORRECTION
+                    continue
+                raise
+            response_received = True
+            row = _decode(raw)
+            _record_shape(row)
+            result = _build(
+                row, owner=owner, text=text, current=current,
+                deterministic_arguments=arguments, protected_relation=protected_relation,
+                file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
+                last_verified_level_property=last_verified_level_property,
+                photo_path=photo_path, turn_candidates=turn_candidates,
+                                   offered_capabilities=tuple(offered_capabilities))
+            if result is not None:
+                break
+            if retry_after_invalid_action(proposal_diagnostic(), attempt_index):
+                correction = "\n\n" + CHAT_CORRECTION
+                continue
+            break
         if result is not None:
             _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
         return result
