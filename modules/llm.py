@@ -227,16 +227,41 @@ def local_hint() -> str:
 
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
-_DEPRECATED_GROQ = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.6-27b"}
+# Sağlayıcı-bağımsız tek emekli-model listesi (T2): sadece **resmi kaynakta doğrulanmış**
+# adlar girer; bilinmeyen ad fail-closed'dur (sessiz varsayılana taşınmaz, tipli hata).
+RETIRED_MODELS = frozenset({"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.6-27b"})
+# Geriye dönük uyumluluk: eski adın okunduğu yerler.
+_DEPRECATED_GROQ = RETIRED_MODELS
+
+
+class RetiredModelError(RuntimeError):
+    """İstenen model emekli ya da bilinmiyor; sessizce başka modele taşınmadı."""
+
+
+def resolve_groq_model(model: str) -> str:
+    """Model adını doğrular: boş → varsayılan; bilinen → aynen; bilinmeyen → tipli hata.
+
+    Eski davranış bilinmeyen her adı varsayılana **sessizce** taşıyordu; kullanıcı hangi
+    modelin çalıştığını bilemiyordu (fail-closed eksikti).
+    """
+    name = str(model or '').strip()
+    if not name:
+        return GROQ_MODELS[0]
+    if name in GROQ_MODELS:
+        return name
+    if name in RETIRED_MODELS:
+        raise RetiredModelError(
+            f"“{name}” modeli emekli olmuş olabilir. Şu modeli kullan: “{GROQ_MODELS[0]}”.")
+    raise RetiredModelError(
+        f"“{name}” bilinen bir Groq modeli değil. Bilinenler: {', '.join(GROQ_MODELS)}. "
+        f"Model emekli olmuş olabilir; şu modeli kullan: “{GROQ_MODELS[0]}”.")
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 def groq_model() -> str:
-    """Etkin Groq modeli. Eski/deprecated ücretsiz modelleri güvenli varsayılana taşır."""
+    """Etkin Groq modeli (fail-closed): bilinmeyen/emekli ad sessiz taşınmaz."""
     model = (_choice().get("groq_model") or load_settings().get("groq_model") or "").strip()
-    if not model or model in _DEPRECATED_GROQ:
-        return GROQ_MODELS[0]
-    return model
+    return resolve_groq_model(model)
 
 
 def provider() -> str:
@@ -568,13 +593,15 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
     if r.status_code in (401, 403):
         raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
     if r.status_code == 413:
-        # Gövde çok büyükse **bir kez** kırpıp aynı sağlayıcıda yeniden dene; aksi hâlde
-        # aynı dev gövde yedek sağlayıcıya gidip orada da 413 alıyordu (canlı 26 Kasım).
-        trimmed = trim_for_request_limit(msgs)
-        if trimmed is not None:
-            usage_meter.record('groq', model, 0, 0, '413-trim')
-            r = requests.post(_GROQ_URL, headers=headers,
-                              json={**body, 'messages': trimmed}, timeout=transport_timeouts(5, 30))
+        # 413 iki hastalıktır (T2): (1) gövde istek sınırını aşıyor → kırpma çözüm;
+        # (2) modelin **tüm TPM'i** tek istekle aşılıyor → kırpma çözüm değil.
+        # Metinde TPM geçiyorsa kırpma denemesi yapılmaz; gövde sanılıp yanlış çözüm denenmez.
+        if not re.search(r'\bTPM\b|tokens per minute', getattr(r, 'text', '') or '', re.I):
+            trimmed = trim_for_request_limit(msgs)
+            if trimmed is not None:
+                usage_meter.record('groq', model, 0, 0, '413-trim')
+                r = requests.post(_GROQ_URL, headers=headers,
+                                  json={**body, 'messages': trimmed}, timeout=transport_timeouts(5, 30))
     if r.status_code == 413:
         # Groq also uses 413 when one request exceeds its model's entire TPM
         # capacity. Preserve that finding without a raw body or provider cooldown.

@@ -2025,3 +2025,10 @@ Ayrıca iki teknik bulgu loglandı:
 - **Test tablosu (istenen → sonuç):** `Fatma→fatma` · `Merve→merve` · `bitaneme→bitaneme→bitanem` · `bir taneme→taneme→tanem` · `Mehmet Ali Yılmaz→tam kalır` · `Zeynep'e→zeynep` · `Ay→ay` · `a→red`.
 - **Kanıt:** `test_whatsapp_search_variants` (8) + `test_whatsapp_ui` (güncellendi) + `test_background_messaging` + `test_cleanup_security` → 45 OK; **tam süit** `modules.validation` → **exit 0**.
 - **Dürüst sınır:** "sonuç yok" tespiti OCR ile yapılır; WhatsApp farklı bir boş-durum metni gösterirse yedek adaya düşmez (tek adayla kalır) — bu durumda yanlış kişi seçilmez, sadece arama daralır.
+
+
+### 2026-11-27 — T2: 413 iki hastalık; emekli model fail-closed
+
+- **Ölçülen kusur:** Groq **413**'ü tek tür sayıyordu. Gerçekte iki durum: (1) gövde istek sınırını aşıyor → **kırpma çözüm**; (2) modelin **tüm TPM'i** tek istekle aşılıyor → kırpma çözüm değil. Eski kod TPM aşımında da gereksiz kırpma deniyordu. Ayrıca bilinmeyen/emekli model adı **sessizce** varsayılana taşınıyordu (fail-closed yok).
+- **Düzeltme:** 413 gövdesinde `TPM/tokens per minute` geçiyorsa **kırpma denenmez** (tipli `limit_kind='tokens_per_minute'` zaten vardı). `resolve_groq_model()`: boş → varsayılan, bilinen → aynen, **bilinmeyen/emekli → `RetiredModelError`** ("model emekli olmuş olabilir, şu modeli geç"). `RETIRED_MODELS` sağlayıcı-bağımsız tek liste; bilinen adlar yalnız resmî kaynakla doğrulanır.
+- **Kanıt:** `test_groq_413_split` (5) — gövde büyük → 2 çağrı (kırpıldı), TPM → 1 çağrı (kırpılmadı); bilinmeyen model → tipli hata. + `test_router_v2_admission` (sahte "model-a/b" adları gerçek adlarla değişti — fail-closed'un süite etkisinin kanıtı) + `test_request_limit_trim` + `test_provider_error_language` + `test_failure_classification_backoff` → **37 OK**; **tam süit** `modules.validation` → **exit 0**.
