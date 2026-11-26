@@ -10,6 +10,11 @@ from modules import cloudflare_chat, llm, provider_privacy, router_quota, smart_
 
 class ReadyProviderRoutingTests(unittest.TestCase):
     def setUp(self):
+        # Fren kararı son 60 saniyenin kullanımına bakıyor (usage_meter._RECENT).
+        # Bu state süreç geneli: sıfırlanmazsa önceki testlerin istekleri bu testin
+        # bütçesini frenle yiyebilir (CI'da görülen düşüşün izolasyon tarafı).
+        usage_meter._RECENT.clear()
+        self.addCleanup(usage_meter._RECENT.clear)
         directory = self.enterContext(tempfile.TemporaryDirectory())
         self.enterContext(patch.object(smart_router, '_STORE', Path(directory)))
         self.enterContext(patch.object(smart_router, '_HEALTH', {}))
@@ -187,3 +192,17 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.assertEqual(smart_router.settings('alice'), {'gemini_scopes': []})
         self.assertNotIn('gemini', smart_router.candidates('alice', 'chat'))
         self.assertIn('gemini', smart_router.candidates('alice', 'analysis', provider_privacy.ROUTE_PUBLIC_RESEARCH))
+
+
+class RecentUsageIsolationTests(unittest.TestCase):
+    """Kirli `_RECENT` bu sınıfın testlerini etkilememeli (T0b)."""
+
+    def test_setup_clears_previous_usage(self):
+        usage_meter.note_recent('gemini-3.5-flash-lite', 999_999)
+        self.assertGreater(usage_meter.recent_usage('gemini-3.5-flash-lite')[0], 0)
+        case = ReadyProviderRoutingTests('test_ready_connections_work_with_fresh_evidence')
+        case.setUp()
+        try:
+            self.assertEqual(usage_meter.recent_usage('gemini-3.5-flash-lite'), (0, 0))
+        finally:
+            case.doCleanups()
