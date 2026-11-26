@@ -1784,3 +1784,15 @@ D
   - `TEXT_EXTENSIONS` (md/json/log/py/yaml/ini/html) → **Not Defteri** ile açılır (pencere çıkmaz),
   - tanınmayan tür → **açılmaz**, açıkça söylenir ("birlikte aç penceresi çıkmasın diye açmadım").
 - **Kanıt:** `OpenFileTypes` (2 test) + `test_file_ops_local` + `test_cleanup_security` → 19 test OK.
+
+
+### 2026-11-26 — BRAIN-00 … BRAIN-11 defteri kapandı (iş kuyruğu olarak)
+
+**Karar (Hamdi):** "brain 0-11 defterini kapat." Kapanış kaydı: `docs/architecture/BRAIN_00_11_KAPANIS_2026-11-26.md`.
+
+- **Kapandı (kod + kendi kanıtı):** BRAIN-00, 01, 02, 04, 06, 07, 08, 09, 10 — merge/kabul kayıtları kendi dosyalarında.
+- **Kod kapandı, ölçüm açık:** BRAIN-03 (dilimler: #527/#537/#538/#613) ve BRAIN-05 (#541) — canlı model semantiği ölçülmedi.
+- **Ölçüm kalemi:** BRAIN-11 Windows ürün kabulü + WhatsApp GUI turu (brain defteri maddesi değil, ürün kabulü).
+- **Defter kuralı:** yeni `BRAIN-NN` maddesi açılmaz; bir madde ancak **yeni ölçüm kanıtıyla** (regresyon/kırmızı kabul) yeniden açılır. `docs/BEKLEYEN_ISLER.md` bu maddeler için tarihsel kayıt taşır, güncel hüküm kapanış dosyasındadır.
+- **Kalan tek boşluk M-1:** canlı semantik kabul (20 vaka, %95, yanlış-action=0, aynı SHA Full `state=passed` + aynı SHA PC watcher). Bugün **ölçülmedi**; rota çiti gevşetilmedi. `state=passed` gelmeden hiçbir yerde "Brain tamamen kapandı" denmez.
+- **Kanıt:** `tests/test_brain_ledger_closure.py` (3) + `test_roadmap_drift_check` → 22 test OK.
