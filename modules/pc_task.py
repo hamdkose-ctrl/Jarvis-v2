@@ -37,6 +37,8 @@ _RUNNERS = {
     "pc_search": lambda args: __import__("modules.pc_hands", fromlist=["press_enter"]).press_enter(
         str(args.get("window") or "")),
     "pc_click": lambda args: pc_hands.click(str(args.get("window") or ""), str(args.get("target") or "")),
+    "pc_key": lambda args: pc_hands.press_key(str(args.get("window") or ""), str(args.get("key") or ""),
+                                             times=int(args.get("times") or 1)),
     "pc_type": lambda args: pc_hands.type_text(str(args.get("window") or ""), str(args.get("target") or ""),
                                                str(args.get("text") or "")),
 }
@@ -104,7 +106,24 @@ def plan(command: str) -> dict:
         # Adım bir demet: {"intent","args"} sözlüğü, CI'daki "tek yön karar mercii"
         # bekçisi tarafından ikinci bir router gibi görünüyordu.
         steps.append((part, resolved[0], resolved[1]))
+    steps = _with_field_tabs(steps)
     return {"status": "ok", "steps": steps}
+
+
+def _with_field_tabs(steps: list[tuple]) -> list[tuple]:
+    """Aynı pencerede art arda iki yazma adımı varsa araya Tab odak geçişi koyar.
+
+    Canlı boşluk (26 Kasım): UIA alanı görmeyen uygulamalarda (Not Defteri) ikinci alan
+    odaklanmadığı için yazı birinci alana gidiyordu; ajan bunu kendisi yapmıyordu.
+    """
+    result: list[tuple] = []
+    for step in steps:
+        if (result and step[1] == "pc_type" and result[-1][1] == "pc_type"
+                and str((result[-1][2] or {}).get("window") or "") == str((step[2] or {}).get("window") or "")):
+            result.append(("odak geçişi", "pc_key",
+                           {"window": str((step[2] or {}).get("window") or ""), "key": "tab"}))
+        result.append(step)
+    return result
 
 
 def run(command: str, *, abort=None) -> dict:
