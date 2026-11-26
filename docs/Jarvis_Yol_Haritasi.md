@@ -1974,3 +1974,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Kanıt:** 22 Kasım 01:31'in gerçek verisi (22 istek / 252.020 token) `should_wait → True`; ölçülen tavan 15 RPM / 250K TPM ile birebir tutarlı.
 - **Test:** `test_rate_limits` (4) + `test_cleanup_security` → 14 OK.
 - **Kapsam (dürüst):** bu adım **sayıları** ve karar fonksiyonunu getirir; bekleme `smart_router`'a henüz bağlanmadı. Ayrıca 13 hatanın **10'u** günlük kota kaynaklı — dakikalık fren onları çözmez, ayrı iş.
+
+
+### 2026-11-26 — Uyanıklık testleri saatten bağımsız (CI kırılganlığı giderildi)
+
+- **Bulgu:** #859 ve #860 iki CI kırmızısı verdi; sebep **duvar saatiydi**. Uyanıklık testleri gerçek saati kullanıyordu; sessiz saat **22–08** olduğu için CI gece koşunca aday üretilmiyor, testler düşüyordu. Yerelde gündüz geçiyordu.
+- **Düzeltme:** `watch_tick(runtime=None, *, hour=None)` — `hour` yalnız testler için; üretimde None → gerçek saat. Testler `hour=12` verir.
+- **Ek:** testler artık mail/takvimi taklit eder (`_inbox_and_calendar → {}`), çünkü Google bağlandıktan sonra gerçek "30 okunmamış mail" adayı testleri kirletiyordu.
+- **Yeni kanıt:** `ClockIndependent` — gündüz (12) aday **1**, sessiz saat (23 ve 3) **0**. Yani sessiz saat davranışı da artık ölçülü.
+- **Test:** 27 OK (watch süitleri + `test_cleanup_security`).

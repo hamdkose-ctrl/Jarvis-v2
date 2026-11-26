@@ -11,7 +11,7 @@ class Delivery(unittest.TestCase):
 
     def _run(self, settings, state=None):
         with patch("config.load_settings", return_value=settings),              patch("modules.pc_autonomy_queue.foreground_window", return_value=""),              patch("modules.voice_runtime.announce_active", return_value=True) as say:
-            items = pc_autonomy_queue.watch_tick(_Runtime(settings))
+            items = pc_autonomy_queue.watch_tick(_Runtime(settings), hour=12)
         return items, say
 
     def test_disabled_watch_never_announces(self):
@@ -21,10 +21,12 @@ class Delivery(unittest.TestCase):
 
     def test_enabled_watch_announces_once(self):
         state = {"status": "ok", "match": {"title": "Chrome"}}
-        with patch("config.load_settings", return_value={"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}),              patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
+        with patch.object(pc_autonomy_queue, "_inbox_and_calendar", lambda: {}), \
+             patch("config.load_settings", return_value={"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
             settings = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
-            first = pc_autonomy_queue.watch_tick(_Runtime(settings))
-            second = pc_autonomy_queue.watch_tick(_Runtime(settings))
+            first = pc_autonomy_queue.watch_tick(_Runtime(settings), hour=12)
+            second = pc_autonomy_queue.watch_tick(_Runtime(settings), hour=12)
         self.assertEqual(len(first), 1)
         self.assertEqual(second, [])
 
@@ -68,7 +70,29 @@ class WindowNoticesAreQuiet(unittest.TestCase):
         pc_autonomy_queue._SEEN.clear()
         runtime = mock.Mock()
         with mock.patch("config.load_settings", return_value={"watch_enabled": True}),              mock.patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"),              mock.patch.object(voice_runtime, "announce_active") as announce:
-            items = pc_autonomy_queue.watch_tick(runtime)
+            items = pc_autonomy_queue.watch_tick(runtime, hour=12)
         self.assertEqual(len(items), 1)
         self.assertFalse(announce.called)
         self.assertTrue(runtime.log.info.called)
+
+
+class ClockIndependent(unittest.TestCase):
+    """Uyanıklık testleri duvar saatine bağlı olmamalı (CI'da gece koşunca düşüyordu)."""
+
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+
+    def _tick(self, hour):
+        from unittest import mock as _mock
+        with _mock.patch.object(pc_autonomy_queue, "_inbox_and_calendar", lambda: {}), \
+             _mock.patch("config.load_settings",
+                         return_value={"watch_enabled": True, "watch_quiet_start": 22, "watch_quiet_end": 8}), \
+             _mock.patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
+            return pc_autonomy_queue.watch_tick(None, hour=hour)
+
+    def test_daytime_hour_produces_a_candidate(self):
+        self.assertEqual(len(self._tick(12)), 1)
+
+    def test_quiet_hour_produces_nothing(self):
+        self.assertEqual(self._tick(23), [])
+        self.assertEqual(self._tick(3), [])

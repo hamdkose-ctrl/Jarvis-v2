@@ -19,16 +19,17 @@ class Foreground(unittest.TestCase):
         with patch.dict("sys.modules", {"win32gui": fake_win32}), \
              patch("config.load_settings", return_value={"watch_enabled": True, "watch_voice": True, "watch_window_notice": True, "watch_quiet_start": 0, "watch_quiet_end": 1}), \
              patch("modules.voice_runtime.announce_active", return_value=True) as say:
-            items = pc_autonomy_queue.watch_tick(_Runtime())
+            items = pc_autonomy_queue.watch_tick(_Runtime(), hour=12)
         self.assertEqual(len(items), 1)
         self.assertIn("Chrome", items[0]["text"])
         say.assert_called_once()
 
     def test_missing_library_is_silent(self):
-        with patch.dict("sys.modules", {"win32gui": None}), \
+        with patch.object(pc_autonomy_queue, "_inbox_and_calendar", lambda: {}), \
+             patch.dict("sys.modules", {"win32gui": None}), \
              patch("config.load_settings", return_value={"watch_enabled": True, "watch_voice": True, "watch_window_notice": True, "watch_quiet_start": 0, "watch_quiet_end": 1}), \
              patch("modules.voice_runtime.announce_active", return_value=True) as say:
-            self.assertEqual(pc_autonomy_queue.watch_tick(_Runtime()), [])
+            self.assertEqual(pc_autonomy_queue.watch_tick(_Runtime(), hour=12), [])
         say.assert_not_called()
 
 
