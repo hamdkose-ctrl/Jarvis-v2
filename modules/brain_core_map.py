@@ -1626,6 +1626,7 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     "fast.pc.click_result": ("pc_click_result", {}),
     "fast.pc.save": ("pc_save", {}),
     "fast.pc.search": ("pc_search", {}),
+    "fast.whatsapp.send": ("whatsapp_send", {}),
     "fast.pc.click_point": ("pc_click_point", {}),
     "fast.pc.confirm": ("pc_confirm", {}),
     "fast.pc.click": ("pc_click", {}),

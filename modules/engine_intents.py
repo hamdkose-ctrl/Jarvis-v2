@@ -159,6 +159,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if sonuc.get("status") == "done":
                 memory_gate.record_action("pc_save", args_, sonuc)
             return sonuc["text"]
+        case "whatsapp_send":
+            # Onay ucu: bekleyen WhatsApp mesajı onayla gönderilir.
+            from modules import whatsapp_ui
+            return whatsapp_ui.send_pending(confirm=True)["text"]
         case "pc_search":
             from modules import pc_hands
             return pc_hands.press_enter(str(a.get("window") or ""))["text"]
