@@ -29,8 +29,21 @@ def _gemini_http_options(*, timeout_ms=45_000) -> dict:
     return {"timeout": timeout_ms, "retry_options": {"attempts": 1}}
 
 
+GEMINI_MIN_DEADLINE_MS = 10_000
+
+
 def _gemini_request_http_options() -> dict:
+    """İstek başına SDK zaman aşımı; **10 sn tabanı** vardır.
+
+    Canlı kusur (26 Kasım 16:46): kalan bütçe kısa olduğunda 3 s'lik bir deadline
+    ayarlanıyordu ve Google isteği doğrudan reddediyordu:
+    "Manually set deadline 3s is too short. Minimum allowed deadline is 10s."
+    Kalan bütçe 10 sn'nin altındaysa SDK'ya süre verilmez; sınırı bizim bütçemiz
+    ve iptal mekanizması uygular.
+    """
     _, seconds = transport_timeouts(5, 45)
+    if seconds * 1000 < GEMINI_MIN_DEADLINE_MS:
+        return {"retry_options": {"attempts": 1}}
     return _gemini_http_options(timeout_ms=int(seconds * 1000))
 
 

@@ -1918,3 +1918,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Ses/süzgeç dengesi:** pencere değişimi **konuşulmaz** (varsayılan), mail/takvim adayları **konuşulur** (ses varsayılan açık).
 - **Dürüst durum:** bu PC'de Google **bağlı değil** (`connected() == False`, `unread_count()` → `PermissionError: yeniden giriş yap`). Yani uyarılar **Google bağlanana kadar sessiz kalır**; bağlanınca kendiliğinden çalışır.
 - **Kanıt:** `test_watch_sources` (4) + watch süitleri + `test_cleanup_security` → 25 OK.
+
+
+### 2026-11-26 — Gemini "3s çok kısa" 400 hatası (kök neden bulundu)
+
+- **Yeni tanılama işe yaradı:** log'da gövde göründü → `400 INVALID_ARGUMENT: "Manually set deadline 3s is too short. Minimum allowed deadline is 10s."`
+- **Neden:** kalan bütçe kısayken `_gemini_request_http_options` SDK'ya 3 sn'lik deadline veriyordu; Google bunu reddediyor. İstek boşa gidiyor, yedek sağlayıcıya düşülüyordu.
+- **Düzeltme:** `GEMINI_MIN_DEADLINE_MS = 10_000` tabanı; kalan bütçe 10 sn altındaysa SDK'ya süre **hiç verilmez** (sınırı bizim bütçe + iptal uygular).
+- **Kanıt:** `test_gemini_deadline` (2) + `test_provider_error_language` + `test_cleanup_security` → 19 OK.
