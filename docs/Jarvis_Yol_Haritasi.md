@@ -1856,3 +1856,13 @@ Kullanıcı canlıda üç komut verdi (13:39–13:42). Kanıtlar `~/.jarvis/hist
 Ayrıca iki teknik bulgu loglandı:
 - 13:39:23 Gemini **400 Bad Request** — gövde log'a düşmüyordu → artık `log.warning("gemini istek reddedildi: …")`.
 - 13:40:21 **ResponseValidationError** ve tur 20,8 sn — hangi alanın uymadığı görülemiyordu → artık tip+mesaj yazılıyor.
+
+
+### 2026-11-26 — WhatsApp: isimle arama (11'in ilk adımı)
+
+- **Canlı kusur:** "whatsapp tan mesaj at bitanem merhaba yaz" → "Rehberinde 'Bitanem' diye kayıtlı kişi yok; göndermedim." Kök neden: `messaging.send_whatsapp` yalnız **kayıtlı numara** ile çalışır (`whatsapp://send?phone=…`); WhatsApp'ta kayıtlı ama rehberde olmayan kişi için numara yok.
+- **Yeni `modules/whatsapp_ui.py`:** `window()` (UWP penceresi tepsiden bile bulunur, class `WinUIDesktopWin32WindowClass`), `show()` (geri yükle + öne al), `open_search(name)` (**Ctrl+F** + panodan yapıştır), `send_text(text, confirm=False)`.
+- **Güvenlik sınırı:** arama yalnız **arar**, kişi **seçmez**; mesaj yazma/gönderme `confirm=True` olmadan **yapılmaz**; `open_search` hiçbir koşulda Enter basmaz. (Eski GUI yolu "ad benzerliğiyle hedef seçme" riski yüzünden kaldırılmıştı; bu tasarım o riski taşımaz.)
+- **Canlı ölçüm (26 Kasım):** pencere bulundu (`handle 2164312`, kapalıyken bile), `open_search("bitanem")` → `done`, ekran OCR'ında **"bitanem"** görüldü. Gönderme **yapılmadı** (onay yok).
+- **Kanıt:** `test_whatsapp_ui` (6) — pencere bulma, onaysız gönderimin reddi, aramanın Enter basmadığı.
+- **Kalan (dürüst):** canlı komut hattına bağlanmadı; "hangi sohbet?" onay turu ve gönderme onayı engine'e bağlanacak.
