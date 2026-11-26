@@ -1926,3 +1926,14 @@ Ayrıca iki teknik bulgu loglandı:
 - **Neden:** kalan bütçe kısayken `_gemini_request_http_options` SDK'ya 3 sn'lik deadline veriyordu; Google bunu reddediyor. İstek boşa gidiyor, yedek sağlayıcıya düşülüyordu.
 - **Düzeltme:** `GEMINI_MIN_DEADLINE_MS = 10_000` tabanı; kalan bütçe 10 sn altındaysa SDK'ya süre **hiç verilmez** (sınırı bizim bütçe + iptal uygular).
 - **Kanıt:** `test_gemini_deadline` (2) + `test_provider_error_language` + `test_cleanup_security` → 19 OK.
+
+
+### 2026-11-26 — WhatsApp: pencere öne alma + isim çekimi (kapanış)
+
+- **Canlı kusur:** "WhatsApp'tan bir taneme merhaba yaz" → *"Rehberinde 'Bir Taneme' … WhatsApp'ta da arayamadım (WhatsApp penceresi öne alınamadı.)"*
+- **Pencere:** `_raise_window()` — `ShowWindow(SW_RESTORE)` → `SetForegroundWindow` → **`GetForegroundWindow()` ile doğrulama** → olmazsa `AttachThreadInput + BringWindowToTop` → olmazsa `SwitchToThisWindow`; 2 tur, 250 ms ara. Hepsi başarısızsa `failed` + "hiçbir şey yazmadım".
+- **İsim:** `search_query()` — hâl ekleri atılır (`-e/-a/-ye/-ya/-i/-ı/-u/-ü/-ne/-na/-ni/-nı/-den/-dan/-ten/-tan/-nin/-nın`), dolgu ("bir") ve unvan ("hanım/bey/abi…") süzülür, çok kelimede **en uzun** kelime aranır. Kullanıcı kuralı: `bitaneme` = `bitanem` + `-e` → **bitanem**.
+  - `bitaneme → bitanem` · `bir taneme → tanem` · `anneme → annem` · `Ayşe Hanıma → ayse` · `anne → anne` (kısa ad bozulmaz) · `e → ""` (arama yok)
+- **Canlı doğrulama (mesaj yok):** `show()` → `done` ("WhatsApp öne alındı"), `open_search("bir taneme")` → **"tanem"** arandı. Gönderim yapılmadı.
+- **Güvenlik:** kişi otomatik seçilmez, arama Enter basmaz, gönderim yalnız "gönder/onaylıyorum" ile.
+- **Kanıt:** `SearchQuery` (4) + `Raising` (2) + `test_cleanup_security` → 26 OK.

@@ -46,32 +46,106 @@ def window() -> dict | None:
     return found[0] if found else None
 
 
+def _foreground() -> int:
+    import win32gui
+    return int(win32gui.GetForegroundWindow() or 0)
+
+
+def _raise_window(handle: int) -> bool:
+    """Pencereyi öne almayı dener; **gerçekten** öne geldiyse True.
+
+    Canlı kusur (26 Kasım 17:5x): arka plandaki süreç `SetForegroundWindow` çağırınca
+    Windows sessizce engelliyor ve ajan "WhatsApp penceresi öne alınamadı" diyordu.
+    Tek deneme yerine sırayla üç yol denenir ve sonuç `GetForegroundWindow` ile doğrulanır.
+    """
+    import win32con
+    import win32gui
+    try:
+        win32gui.ShowWindow(handle, win32con.SW_RESTORE)
+    except Exception:
+        _record_failure("modules/whatsapp_ui.py:_raise_window:show")
+    for attempt in range(2):
+        try:
+            win32gui.SetForegroundWindow(handle)
+        except Exception:
+            _record_failure("modules/whatsapp_ui.py:_raise_window:setfg")
+        if _foreground() == handle:
+            return True
+        try:
+            import win32api
+            import win32process
+            current = win32api.GetCurrentThreadId()
+            front = _foreground()
+            front_thread = win32process.GetWindowThreadProcessId(front)[0]
+            if front_thread and front_thread != current:
+                win32process.AttachThreadInput(current, front_thread, True)
+                try:
+                    win32gui.BringWindowToTop(handle)
+                    win32gui.SetForegroundWindow(handle)
+                finally:
+                    win32process.AttachThreadInput(current, front_thread, False)
+        except Exception:
+            _record_failure("modules/whatsapp_ui.py:_raise_window:attach")
+        if _foreground() == handle:
+            return True
+        try:
+            win32gui.SwitchToThisWindow(handle, True)
+        except Exception:
+            _record_failure("modules/whatsapp_ui.py:_raise_window:switch")
+        if _foreground() == handle:
+            return True
+        time.sleep(0.25 * (attempt + 1))
+    return _foreground() == handle
+
+
 def show() -> dict:
     """Pencereyi öne alır (tepside kapalıysa geri yükler)."""
     info = window()
     if not info:
         return {"status": "no_window", "text": "WhatsApp penceresini bulamadım; açık mı?"}
-    try:
-        import win32con
-        import win32gui
-        win32gui.ShowWindow(info["handle"], win32con.SW_RESTORE)
-        try:
-            win32gui.SetForegroundWindow(info["handle"])
-        except Exception:
-            _record_failure("modules/whatsapp_ui.py:show")
-            return {"status": "failed", "text": "WhatsApp penceresi öne alınamadı."}
-        time.sleep(_PAUSE)
-    except Exception:
-        _record_failure("modules/whatsapp_ui.py:show")
-        return {"status": "failed", "text": "WhatsApp penceresi açılamadı."}
+    if not _raise_window(info["handle"]):
+        return {"status": "failed", "text": "WhatsApp penceresi öne alınamadı; hiçbir şey yazmadım."}
+    time.sleep(_PAUSE)
     return {"status": "done", "text": "WhatsApp öne alındı."}
+
+
+_CASE_SUFFIXES = ("lerden", "lardan", "den", "dan", "ten", "tan", "nin", "nın", "nun", "nün",
+                  "ye", "ya", "ne", "na", "ni", "nı", "nu", "nü", "e", "a", "i", "ı", "u", "ü")
+_FILLERS = {"bir", "bu", "şu", "su", "o", "ve", "ile"}
+_HONORIFICS = {"hanim", "hanım", "bey", "abi", "abla", "teyze", "amca", "hocam"}
+
+
+def search_query(name: str) -> str:
+    """Söylenen isimden arama sorgusu üretir: hâl ekini atar, en ayırt edici kelimeyi seçer.
+
+    Kullanıcı: "'bitaneme' derken 'bitanem'e demek istiyorum" (26 Kasım). Yani sondaki
+    yönelme hâli eki ismin parçası değil: bitaneme → bitanem. Çok kelimeli dolgu
+    ("bir taneme") varsa en uzun kelime aranır → tanem.
+    """
+    from modules.pc_hands import _fold
+    words = [w for w in _fold(str(name or "")).replace("'", " ").split() if w]
+    words = [w for w in words if w not in _FILLERS]
+    cleaned: list[str] = []
+    for word in words:
+        for suffix in _CASE_SUFFIXES:
+            # Tek harflik eki kısa adlardan atmayız: "anne" → "ann" olmasın.
+            keep = 4 if len(suffix) == 1 else 3
+            if len(word) - len(suffix) >= keep and word.endswith(suffix):
+                word = word[: len(word) - len(suffix)]
+                break
+        # Unvan ("Hanıma" → "hanım") ismin yerine geçmez; ek atıldıktan SONRA süzülür.
+        if len(word) >= 2 and word not in _HONORIFICS:
+            cleaned.append(word)
+    if not cleaned:
+        return ""
+    return max(cleaned, key=len)
 
 
 def open_search(name: str) -> dict:
     """Arama kutusuna ismi yazar (Ctrl+F + yapıştır). Kişi seçmez, mesaj göndermez."""
-    query = str(name or "").strip()
-    if not query:
-        return {"status": "empty", "text": "Kimi arayacağımı söylemedin."}
+    query = search_query(name)
+    if not query or len(query) < 3:
+        return {"status": "empty", "text": "Kimi arayacağımı anlayamadım; adı söyler misin?"}
     opened = show()
     if opened["status"] != "done":
         return opened
