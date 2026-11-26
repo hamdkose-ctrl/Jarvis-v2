@@ -11,12 +11,12 @@ from modules import brain_model_understanding as brain
 
 class RetryDecision(unittest.TestCase):
     def test_invalid_action_retries_exactly_once(self):
-        diagnostic = {"reason_code": "ACTION_REFERENCE_INVALID"}
+        diagnostic = {"reason_code": "ACTION_CAPABILITY_UNKNOWN"}
         self.assertTrue(brain.retry_after_invalid_action(diagnostic, 0))
         self.assertFalse(brain.retry_after_invalid_action(diagnostic, 1))
 
     def test_other_rejections_do_not_retry(self):
-        for code in ("GOAL_SHAPE_INVALID", "ARGUMENTS_INVALID", "CAPABILITY_NOT_OFFERED"):
+        for code in ("GOAL_SHAPE_INVALID", "ARGUMENTS_INVALID", "ACTION_REFERENCE_INVALID"):
             self.assertFalse(brain.retry_after_invalid_action({"reason_code": code}, 0))
 
     def test_empty_diagnostic_does_not_retry(self):

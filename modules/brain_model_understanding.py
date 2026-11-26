@@ -47,9 +47,12 @@ CHAT_CORRECTION = (
 )
 
 
+RETRYABLE_ACTION_CODES = frozenset({"ACTION_CAPABILITY_UNKNOWN", "CAPABILITY_NOT_OFFERED"})
+
+
 def retry_after_invalid_action(diagnostic, attempt_index: int) -> bool:
-    """Eylem atfı geçersizse **bir kez** yeniden sorulur; ikinci ret aynen kalır."""
-    return attempt_index == 0 and diagnostic.get("reason_code") == "ACTION_REFERENCE_INVALID"
+    """Model **olmayan bir yeteneği** seçtiyse bir kez daha sorulur; ikinci ret aynen kalır."""
+    return attempt_index == 0 and diagnostic.get("reason_code") in RETRYABLE_ACTION_CODES
 
 
 OPERATIONS = frozenset({
@@ -1440,10 +1443,15 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
         slots = _text_list("reference_slots", item.get("reference_slots"))
         depends_on = _text_list("depends_on", item.get("depends_on"))
         if (not isinstance(action_id, str) or action_id != f"a{index + 1}" or action_id in seen_ids
-                or not isinstance(capability_id, str) or capability_id not in CORE_INTENTS
+                or not isinstance(capability_id, str)
                 or slots is None or depends_on is None or not set(slots) <= set(by_slot)
                 or not set(depends_on) <= seen_ids):
             return _reject('ACTION_REFERENCE_INVALID')
+        if capability_id not in CORE_INTENTS:
+            # Sohbet cümlesinde modelin **uydurduğu** yetenek: tek düzeltici tekrarla
+            # "chat" seçeneği sunulur (canlı kusur 26 Kasım). Yuva/atıf hataları
+            # (ACTION_REFERENCE_INVALID) tekrar tetiklemez: onlar gerçek komutlarda çıkar.
+            return _reject('ACTION_CAPABILITY_UNKNOWN', capability=capability_id)
         if not isinstance(supplied, Mapping):
             return _reject('ARGUMENTS_NOT_OBJECT')
         try:
