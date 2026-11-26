@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import time
 
+from modules.diagnostics import record_failure as _record_failure
+
 TITLE = "WhatsApp"
 WINDOW_CLASS = "WinUIDesktopWin32WindowClass"
 _PAUSE = 0.35
@@ -24,7 +26,6 @@ def window() -> dict | None:
     try:
         import win32gui
     except Exception:
-        from modules.diagnostics import record_failure as _record_failure
         _record_failure("modules/whatsapp_ui.py:window")
         return None
     found: list[dict] = []
@@ -34,6 +35,7 @@ def window() -> dict | None:
         try:
             klass = win32gui.GetClassName(handle)
         except Exception:
+            _record_failure("modules/whatsapp_ui.py:window:class")
             klass = ""
         if TITLE in title or (klass == WINDOW_CLASS and title.strip() in ("", TITLE)):
             found.append({"handle": handle, "title": title})
@@ -55,12 +57,10 @@ def show() -> dict:
         try:
             win32gui.SetForegroundWindow(info["handle"])
         except Exception:
-            from modules.diagnostics import record_failure as _record_failure
             _record_failure("modules/whatsapp_ui.py:show")
             return {"status": "failed", "text": "WhatsApp penceresi öne alınamadı."}
         time.sleep(_PAUSE)
     except Exception:
-        from modules.diagnostics import record_failure as _record_failure
         _record_failure("modules/whatsapp_ui.py:show")
         return {"status": "failed", "text": "WhatsApp penceresi açılamadı."}
     return {"status": "done", "text": "WhatsApp öne alındı."}
@@ -84,7 +84,6 @@ def open_search(name: str) -> dict:
         pyautogui.hotkey("ctrl", "v")
         time.sleep(1.2)
     except Exception:
-        from modules.diagnostics import record_failure as _record_failure
         _record_failure("modules/whatsapp_ui.py:open_search")
         return {"status": "failed", "text": "WhatsApp'ta arama yapamadım."}
     return {"status": "done", "text": f"WhatsApp'ta “{query}” arattım.",
@@ -108,7 +107,6 @@ def send_text(text: str, *, confirm: bool = False) -> dict:
         time.sleep(0.4)
         pyautogui.press("enter")
     except Exception:
-        from modules.diagnostics import record_failure as _record_failure
         _record_failure("modules/whatsapp_ui.py:send_text")
         return {"status": "failed", "text": "Mesajı yazamadım/gönderemedim."}
     return {"status": "done", "text": "Gönderme komutunu uyguladım; teslimi doğrulayamıyorum."}
