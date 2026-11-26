@@ -81,15 +81,30 @@ def read_file(path: str) -> dict:
             "content": body}
 
 
+SHELL_EXTENSIONS = {".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".docx", ".xlsx",
+                    ".pptx", ".csv", ".mp3", ".mp4", ".wav"}
+TEXT_EXTENSIONS = {".md", ".json", ".log", ".py", ".yaml", ".yml", ".ini", ".cfg", ".html"}
+
+
 def open_file(path: str) -> dict:
-    """Dosyayı varsayılan uygulamayla açar (içerik değişmez)."""
+    """Dosyayı açar; ilişkilendirmesi olmayan türlerde Windows "birlikte aç" penceresi
+    çıkmasın diye metin türleri Not Defteri ile açılır (canlı kusur, 26 Kasım)."""
     target = _resolve(path)
     if target is None:
         return {"status": "refused", "text": OUTSIDE}
     if not target.exists():
         return {"status": "missing", "text": NOT_FOUND.format(path=path)}
+    suffix = target.suffix.casefold()
     try:
-        os.startfile(str(target))          # yalnız Windows
+        if suffix in TEXT_EXTENSIONS:
+            import subprocess
+            subprocess.Popen(["notepad.exe", str(target)])
+        elif suffix in SHELL_EXTENSIONS or not suffix:
+            os.startfile(str(target))      # yalnız Windows
+        else:
+            return {"status": "refused",
+                    "text": f"“{target.name}” türünü açacak bir program tanımlı değil; "
+                            "birlikte aç penceresi çıkmasın diye açmadım."}
         time.sleep(1.0)
     except Exception:
         _record_failure("modules/file_ops_local.py:open_file")
