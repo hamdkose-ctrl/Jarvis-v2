@@ -141,7 +141,8 @@ def watch_tick(runtime=None) -> list[dict]:
     if not awareness_watch.enabled(settings):
         return []
     state = {"window": foreground_window()}
-    items = awareness_watch.candidates(state, seen=_SEEN)
+    items = awareness_watch.candidates(state, seen=_SEEN,
+                                       quiet=awareness_watch.quiet_bounds(settings))
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
             runtime.log.info("uyanıklık: %s", item["text"])

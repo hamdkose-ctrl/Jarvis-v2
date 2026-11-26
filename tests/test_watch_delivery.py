@@ -21,8 +21,8 @@ class Delivery(unittest.TestCase):
 
     def test_enabled_watch_announces_once(self):
         state = {"status": "ok", "match": {"title": "Chrome"}}
-        with patch("config.load_settings", return_value={"watch_enabled": True}),              patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
-            settings = {"watch_enabled": True}
+        with patch("config.load_settings", return_value={"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}),              patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"):
+            settings = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
             first = pc_autonomy_queue.watch_tick(_Runtime(settings))
             second = pc_autonomy_queue.watch_tick(_Runtime(settings))
         self.assertEqual(len(first), 1)

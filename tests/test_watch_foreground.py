@@ -17,7 +17,7 @@ class Foreground(unittest.TestCase):
         fake_win32 = type("W", (), {"GetWindowText": staticmethod(lambda h: "Chrome"),
                                     "GetForegroundWindow": staticmethod(lambda: 1)})()
         with patch.dict("sys.modules", {"win32gui": fake_win32}), \
-             patch("config.load_settings", return_value={"watch_enabled": True}), \
+             patch("config.load_settings", return_value={"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}), \
              patch("modules.voice_runtime.announce_active", return_value=True) as say:
             items = pc_autonomy_queue.watch_tick(_Runtime())
         self.assertEqual(len(items), 1)
@@ -26,7 +26,7 @@ class Foreground(unittest.TestCase):
 
     def test_missing_library_is_silent(self):
         with patch.dict("sys.modules", {"win32gui": None}), \
-             patch("config.load_settings", return_value={"watch_enabled": True}), \
+             patch("config.load_settings", return_value={"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}), \
              patch("modules.voice_runtime.announce_active", return_value=True) as say:
             self.assertEqual(pc_autonomy_queue.watch_tick(_Runtime()), [])
         say.assert_not_called()
