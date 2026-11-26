@@ -1893,3 +1893,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Canlı kanıt (kullanıcı onayıyla):** "bitanem" arandı → açık sohbet **"Bi Tanem"**; gönderilen metin: *"Merhaba, bu bir test mesajı. Jarvis tarafından gönderildi."* Sohbet listesinde **15:40** ve **"Merhaba, bu bir t…"** önizlemesi, sohbette **"İletildi"** göstergesi görüldü (ekran görüntüsü).
 - **Uyanıklık besleyicileri (3. madde):** `pc_autonomy_queue._inbox_and_calendar()` eklendi; `google_api.unread_count()` ve `google_api.day_events(0)` gerçekten okunuyor. Google bağlı değilse sessizce boş döner. Önceden `candidates` bu alanları okuyordu ama **hiç doldurulmuyordu** (mail/takvim kontrol edilmiyordu).
 - **Politika değişikliği (bilinçli):** "numara yoksa masaüstüne hiç dokunma" testi güncellendi → "numara yoksa arayüzde **ara**, kişi seçme, Enter basma, mesajı onayda tut".
+
+
+### 2026-11-26 — Sadeleştirme: uyanıklıkta mail/takvim kaldırıldı
+
+- **Kullanıcı kararı:** "mail takvim işe yaramaz, gereksiz detaylardan arınmak lazım."
+- **Yapılan:** `pc_autonomy_queue._inbox_and_calendar()` ve `tests/test_watch_sources.py` **kaldırıldı**; uyanıklık yalnız **pencere değişimi** üretir, o da **sessiz** (yalnız günlük).
+- **Neden:** Google bağlı değilken boş dönüyordu; kullanıcı için değer üretmiyordu. Az parça = az arıza.
+- **Ayar yüzeyi küçüldü:** `watch_enabled` (aç/kapa), `watch_voice` (ses), `watch_quiet_start/end` (sessiz saat).
