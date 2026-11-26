@@ -95,25 +95,23 @@ class Wiring(unittest.TestCase):
 
 
 class SearchQuery(unittest.TestCase):
-    """Hâl eki ismin parçası değil: 'bitaneme' → 'bitanem' (kullanıcı kuralı 26 Kasım)."""
+    """Yeni sözleşme (T1): tam ad korunur; ek atması aday doğrulamasıyla yapılır."""
 
-    def test_case_suffix_is_dropped(self):
-        self.assertEqual(whatsapp_ui.search_query("bitaneme"), "bitanem")
-        self.assertEqual(whatsapp_ui.search_query("Bitanem'e"), "bitanem")
-        self.assertEqual(whatsapp_ui.search_query("ahmete"), "ahmet")
-        self.assertEqual(whatsapp_ui.search_query("anneme"), "annem")
+    def test_first_candidate_is_the_full_name(self):
+        self.assertEqual(whatsapp_ui.search_query("bitaneme"), "bitaneme")
+        self.assertEqual(whatsapp_ui.search_query("Fatma"), "fatma")
+        self.assertEqual(whatsapp_ui.search_query("Mehmet Ali Yılmaz"), "mehmet ali yilmaz")
 
-    def test_short_names_are_not_mangled(self):
-        self.assertEqual(whatsapp_ui.search_query("anne"), "anne")
-        self.assertEqual(whatsapp_ui.search_query("Ali"), "ali")
+    def test_suffix_variant_exists_for_fallback(self):
+        self.assertIn("bitanem", whatsapp_ui.search_variants("bitaneme"))
+        self.assertIn("tanem", whatsapp_ui.search_variants("bir taneme"))
 
-    def test_filler_and_honorific_are_ignored(self):
-        self.assertEqual(whatsapp_ui.search_query("bir taneme"), "tanem")
-        self.assertEqual(whatsapp_ui.search_query("Ayşe Hanıma"), "ayse")
+    def test_apostrophe_is_a_suffix_boundary(self):
+        self.assertEqual(whatsapp_ui.search_variants("Zeynep'e"), ["zeynep"])
 
-    def test_empty_or_tiny_is_refused(self):
-        self.assertEqual(whatsapp_ui.search_query("e"), "")
-        self.assertEqual(whatsapp_ui.open_search("e")["status"], "empty")
+    def test_short_names(self):
+        self.assertEqual(whatsapp_ui.search_variants("Ay"), ["ay"])
+        self.assertEqual(whatsapp_ui.open_search("a")["status"], "empty")
 
 
 class Raising(unittest.TestCase):
