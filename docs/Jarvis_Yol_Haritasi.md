@@ -1775,6 +1775,7 @@ D
 - **Kanıt:** `test_watch_foreground` + `EmptyForeground` sınıfı + `test_cleanup_security` → 13 test OK.
 
 
+
 ### 2026-11-26 — "Birlikte aç" penceresi kusuru (dosya açma türü)
 
 - **Canlı kusur (kullanıcı ekran görüntüsü):** Jarvis bir dosyayı `os.startfile` ile açınca Windows'un **"Bu dosyayı nasıl açmak istiyorsunuz?"** penceresi çıkıyor ve Jarvis'in penceresini kilitliyordu (uzantı ilişkilendirilmemiş: `.md`, `.json`, `.log` gibi).
