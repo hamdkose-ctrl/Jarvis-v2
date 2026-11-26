@@ -1773,3 +1773,14 @@ D
 - **Canlı ölçüm:** ön pencere `Shell_Flyout` (görev çubuğu/başlat uçucu penceresi) ve başlık boş dönünce uyanıklık **aday üretmiyordu**.
 - **Düzeltme:** `foreground_window()` artık başlık boşsa `GetAncestor(GA_ROOT)` → `GetWindow(GW_OWNER)` sırasıyla sahibin başlığını dener; bulamazsa boş döner (uydurma yok).
 - **Kanıt:** `test_watch_foreground` + `EmptyForeground` sınıfı + `test_cleanup_security` → 13 test OK.
+
+
+
+### 2026-11-26 — "Birlikte aç" penceresi kusuru (dosya açma türü)
+
+- **Canlı kusur (kullanıcı ekran görüntüsü):** Jarvis bir dosyayı `os.startfile` ile açınca Windows'un **"Bu dosyayı nasıl açmak istiyorsunuz?"** penceresi çıkıyor ve Jarvis'in penceresini kilitliyordu (uzantı ilişkilendirilmemiş: `.md`, `.json`, `.log` gibi).
+- **Düzeltme:** `file_ops_local.open_file` artık tür ayrımı yapıyor:
+  - `SHELL_EXTENSIONS` (txt/pdf/görsel/office/medya) → varsayılan uygulama,
+  - `TEXT_EXTENSIONS` (md/json/log/py/yaml/ini/html) → **Not Defteri** ile açılır (pencere çıkmaz),
+  - tanınmayan tür → **açılmaz**, açıkça söylenir ("birlikte aç penceresi çıkmasın diye açmadım").
+- **Kanıt:** `OpenFileTypes` (2 test) + `test_file_ops_local` + `test_cleanup_security` → 19 test OK.

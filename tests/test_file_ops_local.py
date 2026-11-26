@@ -61,3 +61,28 @@ class Reading(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenFileTypes(unittest.TestCase):
+    """Bilinmeyen türde Windows "birlikte aç" penceresi çıkmasın."""
+
+    def test_markdown_opens_in_notepad(self):
+        from unittest.mock import patch
+        from modules import file_ops_local
+        with patch.object(file_ops_local, "_resolve", return_value=Path(__file__)), \
+             patch("subprocess.Popen") as popen, \
+             patch("os.startfile", create=True) as startfile:
+            result = file_ops_local.open_file("belge.md")
+        self.assertEqual(popen.call_args[0][0][0], "notepad.exe")
+        startfile.assert_not_called()
+
+    def test_unknown_extension_is_refused(self):
+        from unittest.mock import patch
+        from modules import file_ops_local
+        target = Path(__file__).with_suffix(".weird")
+        with patch.object(file_ops_local, "_resolve", return_value=target), \
+             patch.object(Path, "exists", return_value=True), \
+             patch("os.startfile", create=True) as startfile:
+            result = file_ops_local.open_file("x.weird")
+        self.assertEqual(result["status"], "refused")
+        startfile.assert_not_called()
