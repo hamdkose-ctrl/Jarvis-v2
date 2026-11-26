@@ -94,5 +94,69 @@ class Wiring(unittest.TestCase):
         self.assertIsNone(whatsapp_ui.pending())
 
 
+class SearchQuery(unittest.TestCase):
+    """Hâl eki ismin parçası değil: 'bitaneme' → 'bitanem' (kullanıcı kuralı 26 Kasım)."""
+
+    def test_case_suffix_is_dropped(self):
+        self.assertEqual(whatsapp_ui.search_query("bitaneme"), "bitanem")
+        self.assertEqual(whatsapp_ui.search_query("Bitanem'e"), "bitanem")
+        self.assertEqual(whatsapp_ui.search_query("ahmete"), "ahmet")
+        self.assertEqual(whatsapp_ui.search_query("anneme"), "annem")
+
+    def test_short_names_are_not_mangled(self):
+        self.assertEqual(whatsapp_ui.search_query("anne"), "anne")
+        self.assertEqual(whatsapp_ui.search_query("Ali"), "ali")
+
+    def test_filler_and_honorific_are_ignored(self):
+        self.assertEqual(whatsapp_ui.search_query("bir taneme"), "tanem")
+        self.assertEqual(whatsapp_ui.search_query("Ayşe Hanıma"), "ayse")
+
+    def test_empty_or_tiny_is_refused(self):
+        self.assertEqual(whatsapp_ui.search_query("e"), "")
+        self.assertEqual(whatsapp_ui.open_search("e")["status"], "empty")
+
+
+class Raising(unittest.TestCase):
+    """Öne alma: SetForegroundWindow sessizce engellense de pencere gerçekten öne gelir."""
+
+    def _fake(self, succeed_on=None):
+        state = {"fg": 99, "calls": []}
+        fake = types.SimpleNamespace()
+        fake.GetWindowText = lambda h: "WhatsApp"
+        fake.GetClassName = lambda h: "WinUIDesktopWin32WindowClass"
+        fake.IsWindowVisible = lambda h: True
+        fake.EnumWindows = lambda visit, param: (visit(11, None), True)[1]
+        fake.ShowWindow = lambda h, how: state["calls"].append("show")
+        fake.BringWindowToTop = lambda h: state["calls"].append("bring")
+        fake.SwitchToThisWindow = lambda h, top: state["calls"].append("switch")
+        fake.GetForegroundWindow = lambda: state["fg"]
+
+        def setfg(handle):
+            state["calls"].append("setfg")
+            if succeed_on == "switch" and "switch" not in state["calls"]:
+                raise OSError("engellendi")
+            state["fg"] = handle if succeed_on in ("setfg", "bring", "switch") else 99
+        fake.SetForegroundWindow = setfg
+        return fake, state
+
+    def test_show_reports_failure_without_typing(self):
+        fake, state = self._fake(succeed_on=None)
+        with mock.patch.dict(sys.modules, {"win32gui": fake, "win32con": types.SimpleNamespace(SW_RESTORE=9),
+                                           "win32api": types.SimpleNamespace(GetCurrentThreadId=lambda: 1),
+                                           "win32process": types.SimpleNamespace(GetWindowThreadProcessId=lambda h: (2, 0),
+                                                                                 AttachThreadInput=lambda *a: None)}),              mock.patch.object(whatsapp_ui.time, "sleep", lambda *_: None):
+            result = whatsapp_ui.show()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("hiçbir şey yazmadım", result["text"])
+
+    def test_show_succeeds_when_raising_works(self):
+        fake, state = self._fake(succeed_on="setfg")
+        with mock.patch.dict(sys.modules, {"win32gui": fake, "win32con": types.SimpleNamespace(SW_RESTORE=9),
+                                           "win32api": types.SimpleNamespace(GetCurrentThreadId=lambda: 1),
+                                           "win32process": types.SimpleNamespace(GetWindowThreadProcessId=lambda h: (2, 0),
+                                                                                 AttachThreadInput=lambda *a: None)}),              mock.patch.object(whatsapp_ui.time, "sleep", lambda *_: None):
+            self.assertEqual(whatsapp_ui.show()["status"], "done")
+
+
 if __name__ == "__main__":
     unittest.main()
