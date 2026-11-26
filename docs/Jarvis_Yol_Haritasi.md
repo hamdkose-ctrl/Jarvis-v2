@@ -1825,3 +1825,14 @@ D
 - **Bu PC'de ölçüm (temiz ortam):** uzun zincir **done 4,5 sn / 6 adım**; imkânsız orta adım **stop 1 adım**; uzun metin **done** (OCR teyidi yok — dürüst sınır); kapalı uygulama **no_window**; belirsiz hedef **ambiguous + tek soru**; kaydet+doğrula **done, temizlendi**.
 - **Beklenen davranışı gösteren: 6/6.**
 - **Sınır (dürüst):** uzun metin vakasında ekran teyidi `missing` — 1.199 karakterin tamamı OCR ile doğrulanamıyor; bu bilinen sınır, "done" yazılıyor ama teyit iddia edilmiyor.
+
+
+### 2026-11-26 — Yol haritası 0–4 kapanışı
+
+- Kapanış dosyası: `docs/YOL_HARITASI_0_4_KAPANIS_2026-11-26.md`.
+- **0 Dosya işlemleri:** yerel listeleme/okuma/açma; yazma-silme yok; ilişkilendirilmemiş türler Not Defteri ile açılır (#838).
+- **1 Arama sonucuna tıklama:** OCR + önce/sonra ekran teyidi; yazı yoksa tıklamaz.
+- **2 Kopyala/yapıştır:** pano + `_text_visible` teyidi.
+- **3 Form doldurma:** ayrı özellik değil, `pc_task` zinciri — "ad alanına Ahmet yaz, sonra telefon alanına 0555 yaz" → **2 `pc_type` adımı** (ölçüldü). Sınır: alanlar arası otomatik odak geçişi yok.
+- **4 Zamanlı iş:** `autonomy_when.parse_when` (tahmin yok, "09:00 kabul ettim" notu) → kuyruk.
+- **Kanıt:** karne 6/6, `modules.validation` exit 0, holdout %95.
