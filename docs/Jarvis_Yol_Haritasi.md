@@ -1974,3 +1974,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Kanıt:** 22 Kasım 01:31'in gerçek verisi (22 istek / 252.020 token) `should_wait → True`; ölçülen tavan 15 RPM / 250K TPM ile birebir tutarlı.
 - **Test:** `test_rate_limits` (4) + `test_cleanup_security` → 14 OK.
 - **Kapsam (dürüst):** bu adım **sayıları** ve karar fonksiyonunu getirir; bekleme `smart_router`'a henüz bağlanmadı. Ayrıca 13 hatanın **10'u** günlük kota kaynaklı — dakikalık fren onları çözmez, ayrı iş.
+
+
+### 2026-11-26 — A · hız freni **bağlandı**
+
+- **Fren:** `smart_router._respect_rate_limit(request, spec)` — her sağlayıcı denemesinden hemen önce. Son 60 saniyedeki **gerçek** kullanım (`usage_meter.recent_usage`) tavanın **%90'ına** ulaştıysa **2,5 sn'lik** adımlarla bekler.
+- **Sınırlar:** toplam bekleme **≤ 20 sn**; her adımda iptal/süre denetimi (`_check_request`); ölçülmemiş model → **hiç beklemez** (uydurma limit yok).
+- **Ölçüm kaynağı:** `usage_meter.note_recent()` `record()` içinde çağrılır; dosya okumadan, bellekte son 600 kayıt.
+- **Kanıt:** `test_rate_brake` (5) — eşik altı beklemez, 14 istek/dk'da bekler, 240K token'da bekler, bilinmeyen modelde asla beklemez, bekleme sınırlı. + `test_rate_limits` + `test_quota_caller_tag` + `test_request_limit_trim` + `test_cleanup_security` → 29 OK.
+- **Kabul (7 gün):** hız kaynaklı 429 sayısı **3 → 0**.

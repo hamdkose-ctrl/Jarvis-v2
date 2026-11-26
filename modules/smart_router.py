@@ -762,6 +762,7 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                 skipped_now.append(_skip(spec.provider,'Aynı istek bu modelin boyut sınırına sığmadı; tekrar gönderilmedi.',
                                          'PROVIDER_REQUEST_TOO_LARGE',model=spec.model))
                 continue
+            _respect_rate_limit(request, spec)
             if not _current_admission(request,spec):
                 skipped_now.append(_skip(spec.provider,'Bağlantı/veri izni değişti; gönderilmedi.','PROVIDER_ADMISSION_CHANGED',model=spec.model))
                 continue
@@ -924,6 +925,33 @@ def exhausted_message(attempts, skipped_now, *, recovery='fallback_possible'):
     user = ('Uygun modelden yanıt alınamadı. ' + '; '.join(parcalar) + '. ' + oneri
             + (' Atlanan sağlayıcılar: ' + atlanan_adlar + '.' if atlanan_adlar else ''))
     return user, technical
+
+
+MAX_BRAKE_SECONDS = 20.0
+BRAKE_STEP = 2.5
+
+
+def _respect_rate_limit(request, spec) -> float:
+    """Son 60 saniyedeki gerçek kullanım tavanın %90'ına ulaştıysa kısa bekler.
+
+    Sayılar `modules/rate_limits.py` içinde **ölçülmüş** tavanlardır; model orada yoksa
+    fren uygulanmaz (uydurma limit yok). Bekleme sınırlıdır (en fazla 20 sn) ve her
+    adımda iptal/süre denetimi yapılır.
+    """
+    from modules import rate_limits, usage_meter
+    if rate_limits.limit_for(spec.model) is None:
+        return 0.0
+    waited = 0.0
+    while waited < MAX_BRAKE_SECONDS:
+        rpm, tpm = usage_meter.recent_usage(spec.model)
+        if not rate_limits.should_wait(rpm, tpm, spec.model):
+            break
+        _check_request(request)
+        time.sleep(BRAKE_STEP)
+        waited += BRAKE_STEP
+    if waited:
+        log.info("hız freni: %s için %.1f sn bekledim (tavanın %%90'ı)", spec.model, waited)
+    return waited
 
 
 def _callsite_label() -> str:

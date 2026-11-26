@@ -135,6 +135,27 @@ def caller() -> str:
     return fallback or 'bilinmiyor'
 
 
+_RECENT: list[tuple[float, str, int]] = []
+_RECENT_MAX = 600
+
+
+def note_recent(model: str, tokens: int) -> None:
+    """Son dakikadaki istek/token sayımı için hafif kayıt (dosya okumaz)."""
+    import time as _time
+    _RECENT.append((_time.monotonic(), str(model or ''), int(tokens or 0)))
+    if len(_RECENT) > _RECENT_MAX:
+        del _RECENT[: len(_RECENT) - _RECENT_MAX]
+
+
+def recent_usage(model: str, *, seconds: float = 60.0) -> tuple[int, int]:
+    """Son `seconds` saniyede bu model için (istek, token). Fren bu sayıyı okur."""
+    import time as _time
+    now = _time.monotonic()
+    key = str(model or '')
+    rows = [row for row in _RECENT if now - row[0] <= seconds and row[1] == key]
+    return len(rows), sum(row[2] for row in rows)
+
+
 def outcome(error) -> str:
     """Hatayı kısa sonuç etiketine çevirir: '429', '503', 'baglanti', 'hata'."""
     code = getattr(error, 'code', None) or getattr(error, 'status_code', None)
@@ -185,6 +206,7 @@ def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0
         now = datetime.now(_TR)
         row = {'t': now.isoformat(timespec='seconds'), 'p': provider, 'm': str(model or '')[:60],
                's': source or caller(), 'i': int(chars_in or 0), 'o': int(chars_out or 0), 'r': str(result)[:20]}
+        note_recent(str(model or ''), int((tokens[0] if tokens else chars_in) or 0))
         capture=_ATTEMPT.get()
         if capture is not None and capture['owner']==(owner or _owner()):
             row.update(request_id=capture['request_id'],attempt_id=capture['attempt_id'])
