@@ -98,8 +98,29 @@ def _slug(owner):
 _ROOT = str(Path(__file__).resolve().parents[1]).replace('\\', '/').casefold() + '/'
 
 
+_CALLER_SCOPE: ContextVar[str | None] = ContextVar('usage_caller', default=None)
+
+
+@contextmanager
+def caller_scope(label: str):
+    """Çağrı etiketini **açıkça** sabitler; yığın taramasına düşmez.
+
+    Canlı ölçüm (26 Kasım): isteklerin **%23,8'i** "bilinmiyor" görünüyordu, yani hangi
+    adımın kotayı yaktığı bilinmiyordu. Yığın taraması iç içe/lambda yollarda çözülemiyor;
+    bu yüzden çağrı sahibi kendi etiketini verir, tarama yalnız yedek kalır.
+    """
+    token = _CALLER_SCOPE.set(str(label or '')[:80] or None)
+    try:
+        yield
+    finally:
+        _CALLER_SCOPE.reset(token)
+
+
 def caller() -> str:
     """Çağrıyı başlatan ilk Jarvis kodu: 'router.classify', 'goal_executor._plan' gibi."""
+    forced = _CALLER_SCOPE.get()
+    if forced:
+        return forced
     frame, fallback = sys._getframe(1), None
     while frame is not None:
         name = frame.f_code.co_filename.replace('\\', '/')

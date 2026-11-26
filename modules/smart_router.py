@@ -7,6 +7,7 @@ from typing import Any, Callable, Protocol
 import json
 import hashlib
 import logging
+import sys
 from pathlib import Path
 import re
 import threading
@@ -84,6 +85,7 @@ class ModelRequest:
     token_budget: int | None = None
     cost_upper_bound_microusd: int | None = None
     deadline: float | None = None
+    caller: str | None = None   # kota kaydındaki 's' etiketi: açıkça verilir
     cancelled: Any = None
     route: str | None = None
     # Provenance of the items this request carries (privacy_sources labels). When supplied,
@@ -924,11 +926,21 @@ def exhausted_message(attempts, skipped_now, *, recovery='fallback_possible'):
     return user, technical
 
 
+def _callsite_label() -> str:
+    """run_request çağrısını yapan Jarvis fonksiyonu (kota etiketi)."""
+    frame = sys._getframe(2)
+    name = frame.f_code.co_filename.replace('\\', '/')
+    return name.rsplit('/', 1)[-1].removesuffix('.py') + '.' + frame.f_code.co_name
+
+
 def run_request(request: ModelRequest, adapter: ProviderAdapter,
                 *, validator: Callable[[str], Any] | None = None) -> RouteResult:
-    from modules import llm
+    from modules import llm, usage_meter
     requests_state.request_identity(request.owner)
-    with llm.owner_context(request.owner):return _run_owned_request(request,adapter,validator=validator)
+    label = request.caller or _callsite_label()
+    with usage_meter.caller_scope(label):
+        with llm.owner_context(request.owner):
+            return _run_owned_request(request,adapter,validator=validator)
 
 
 def _run_owned_request(request: ModelRequest, adapter: ProviderAdapter,
