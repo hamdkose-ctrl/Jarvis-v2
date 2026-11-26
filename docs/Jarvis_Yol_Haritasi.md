@@ -1806,3 +1806,11 @@ D
 - **Yeniden ölçüm:** `state=passed`, **0,95** (19/20), yanlış işlem **0**, efekt **0**; gruplar: diagnose 5/5, export 4/5, explanation 3/3, irony 2/2, missing_output 2/2, negation 3/3.
 - **Kanıt:** `test_brain_model_understanding`, `test_brain_output_diagnose_holdout`, orphan/güvenlik/defter bekçileri → 102 test OK; kapanış dosyası §5 güncellendi.
 - **Sınır (dürüst):** `state=passed` raporu tek başına "Brain tamamen kapandı" değildir; aynı SHA'nın yeşil Windows CI'ı ve aynı SHA PC watcher koşusu ayrıca beklenir.
+
+
+### 2026-11-26 — M-1 kapanış ölçümü: bu PC'de tam doğrulama exit 0
+
+- Kurulu ağaç (main `d71f62bd`) üzerinde `python -m modules.validation` → **exit 0**, "Tüm test grupları başarılı".
+- `scripts/pc_test_watcher.py --once --pattern refs/remotes/origin/main` çalıştırıldı: **aday üretmedi** (tasarım gereği yalnız açık PR dallarını izler; `main` için aday yok). Bu, kusur değil sözleşme; "watcher passed" diye yazılmadı.
+- Kurulu ağaç git deposu değil (`.git` kopyalanmıyor) → watcher kökü scratch klondan alındı; bu sınır kayda geçti.
+- M-1 durumu: holdout `state=passed` (%95, yanlış işlem 0) + bu PC'de tam doğrulama exit 0. Kapanış dosyası §6 eklendi.
