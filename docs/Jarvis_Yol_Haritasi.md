@@ -1909,3 +1909,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Ses:** `_announce` artık varsayılan **açık**; kapatmak için `watch_voice=false`.
 - **Süzgeç:** `watch_tick` `kind == "window"` adayını varsayılan olarak **konuşmaz**, yalnız günlüğe yazar. `watch_window_notice=true` ile açılabilir.
 - **Kanıt:** `WindowNoticesAreQuiet` (yeni) + watch süitleri + `test_cleanup_security` → 21 OK.
+
+
+### 2026-11-26 — Mail/takvim geri geldi ("bir şey olduğunda söylesin")
+
+- **Kullanıcı kararı:** #850'de kaldırılan mail/takvim **geri gelsin** ve **bir şey olduğunda söylesin**.
+- **Yapılan:** `pc_autonomy_queue._inbox_and_calendar()` geri eklendi; `watch_tick` durumu `unread_count()` ve `day_events(0)` ile besliyor. `tests/test_watch_sources.py` geri geldi.
+- **Ses/süzgeç dengesi:** pencere değişimi **konuşulmaz** (varsayılan), mail/takvim adayları **konuşulur** (ses varsayılan açık).
+- **Dürüst durum:** bu PC'de Google **bağlı değil** (`connected() == False`, `unread_count()` → `PermissionError: yeniden giriş yap`). Yani uyarılar **Google bağlanana kadar sessiz kalır**; bağlanınca kendiliğinden çalışır.
+- **Kanıt:** `test_watch_sources` (4) + watch süitleri + `test_cleanup_security` → 25 OK.
