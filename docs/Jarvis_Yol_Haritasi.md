@@ -1992,3 +1992,10 @@ Ayrıca iki teknik bulgu loglandı:
 - **`usage_meter.note_recent()`:** `record()` içinde çağrılır — dosya okumadan, bellekte son 600 kayıt; `recent_usage()` model başına (istek, token) döndürür.
 - **Kanıt:** `test_rate_brake` (6) + `test_rate_limits` + `test_ready_provider_routing` + uyanıklık süitleri + `test_quota_caller_tag` + `test_request_limit_trim` + `test_cleanup_security` → **54 OK**.
 - **Kabul (7 gün):** hız kaynaklı 429 **3 → 0**.
+
+
+### 2026-11-26 — Günlük kota ayrımı: geri alındı, kanıt toplanacak
+
+- **Deneme:** `_QUOTA_EXHAUSTED_RE`'ye `exceeded your current quota` / `free tier` eklendi → **CI kırmızı**: `test_failure_classification_backoff`, dakikalık metriği (`GenerateRequestsPerMinute`) günlük saydı.
+- **Doğru sözleşme (testte zaten yazılı):** `…PerMinute…` → **RATE_LIMIT**, `…PerDay…` → **QUOTA_EXHAUSTED**. Test gevşetilmedi; **mekanizma** yanlıştı, PR (#863) gerekçesiyle kapatıldı.
+- **Şimdi:** gerçek Gemini 429 gövdesi log'da 300 karakterde kesiliyordu → **1500 karaktere** çıkarıldı (`gemini istek reddedildi`). Bir sonraki 429'da gövdede `PerDay`/`PerMinute` metriği **görülecek**; kalıp ancak ondan sonra genişletilecek.

@@ -973,7 +973,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
             _record_failure('modules/llm.py:_send_provider:gemini_transport')
             # Canlı kusur (26 Kasım 13:39): 400 Bad Request gövdesi log'a düşmüyordu,
             # kök neden görülemiyordu. Gövdeyi kısaltarak yaz.
-            log.warning("gemini istek reddedildi: %s | %s", type(exc).__name__, str(exc)[:300])
+            log.warning("gemini istek reddedildi: %s | %s", type(exc).__name__, str(exc)[:1500])
             # Routed Gemini calls otherwise lose failed attempts from the meter.
             if model is not None:
                 usage_meter.record('gemini', router_model or chosen_model,
