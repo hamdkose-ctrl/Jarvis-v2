@@ -101,7 +101,12 @@ def status_code(exc: BaseException) -> int | None:
 
 # Yalnız açık günlük/hesap kotası ifadesi kalıcı sayılır. Gemini her 429'da "exceeded your current quota"
 # yazdığı için bu cümle ve çıplak 429 kalıcı kota kanıtı değildir.
-_QUOTA_EXHAUSTED_RE = re.compile(r'per ?day|daily|günlük|insufficient_quota|\btpd\b|\brpd\b', re.I)
+_QUOTA_EXHAUSTED_RE = re.compile(
+    r'per ?day|daily|günlük|insufficient_quota|\btpd\b|\brpd\b'
+    # Canlı bulgu (26 Kasım): Gemini'nin 429 gövdesi "You exceeded your current quota"
+    # diyor ama "daily/per day" geçmiyordu; bu yüzden günlük kota, dakikalık hız aşımı
+    # sanılıp hemen yeniden deneniyordu. İki kalıp bu ayrımı düzeltir.
+    r'|exceeded your current quota|free_tier|free tier', re.I)
 _LOCAL_MODEL_TYPES = {'localmodelerror', 'imagecapabilityerror'}
 
 

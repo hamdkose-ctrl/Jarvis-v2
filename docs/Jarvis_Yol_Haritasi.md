@@ -1992,3 +1992,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **`usage_meter.note_recent()`:** `record()` içinde çağrılır — dosya okumadan, bellekte son 600 kayıt; `recent_usage()` model başına (istek, token) döndürür.
 - **Kanıt:** `test_rate_brake` (6) + `test_rate_limits` + `test_ready_provider_routing` + uyanıklık süitleri + `test_quota_caller_tag` + `test_request_limit_trim` + `test_cleanup_security` → **54 OK**.
 - **Kabul (7 gün):** hız kaynaklı 429 **3 → 0**.
+
+
+### 2026-11-26 — Günlük kota ile dakikalık hız aşımı ayrıldı
+
+- **Bulgu (ölçüldü):** 13 adet 429'un **10'u** düşük hacimde geldi (2–5 istek/dk, 0–5K token) → hız değil, **günlük kota**. Ama Gemini'nin gövdesi *"You exceeded your current quota…"* diyor, "daily/per day" demiyor; bu yüzden `quota_exhausted_text` **False** dönüyor ve günlük kota dakikalık hız sanılıp hemen yeniden deneniyordu.
+- **Düzeltme:** `_QUOTA_EXHAUSTED_RE` genişledi: `exceeded your current quota`, `free_tier`, `free tier`. Artık günlük kota **QUOTA_EXHAUSTED** olarak sınıflanır (bekleme/tekrar politikası buna göre).
+- **Kanıt:** `test_quota_exhausted_class` (4) — Gemini gövdesi **günlük**, düz "429 Too Many Requests" **hız**; + `test_provider_error_language` + `test_quota_routing` + `test_rate_brake` + `test_cleanup_security` → 39 OK.
+- **Kabul (7 gün):** günlük kota kaynaklı boş tekrar denemeleri **0**; kullanıcıya "kota doldu" mesajı doğru sınıfla gider.
