@@ -154,9 +154,14 @@ def watch_tick(runtime=None) -> list[dict]:
     state = {"window": foreground_window()}
     items = awareness_watch.candidates(state, seen=_SEEN,
                                        quiet=awareness_watch.quiet_bounds(settings))
+    # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
+    # gibi zaten gözünün önünde olan şeyler konuşulmaz; yalnız günlüğe yazılır.
+    speak_windows = _truthy(settings.get("watch_window_notice"))
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
             runtime.log.info("uyanıklık: %s", item["text"])
+        if item.get("kind") == "window" and not speak_windows:
+            continue
         _announce(item["text"])
     awareness_watch.mark_seen(items, _SEEN)
     return items
@@ -172,10 +177,11 @@ def _truthy(value) -> bool:
 
 
 def _announce(text: str) -> bool:
-    """Bildirimi seslendirir — yalnız `watch_voice` açıksa.
+    """Bildirimi seslendirir — ses varsayılan **açık**, kapatmak için `watch_voice=false`.
 
-    Canlı istek (26 Kasım): uyanıklık **ses çıkarmasın**. Varsayılan sessiz; bilgi
-    günlüğe ve arayüze yazılır, konuşma yapılmaz. Ses istenirse `watch_voice=true`.
+    Canlı düzeltme (26 Kasım): kullanıcı "sesi aç ama gereksiz bilgi vermesin" dedi.
+    Ses yolu açık kalır; gereksizlik `watch_tick` içinde süzülür (pencere değişimi
+    varsayılan olarak konuşulmaz).
     """
     try:
         from config import load_settings
@@ -183,7 +189,7 @@ def _announce(text: str) -> bool:
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:_announce_settings")
         return False
-    if not _truthy(settings.get("watch_voice")):
+    if "watch_voice" in settings and not _truthy(settings.get("watch_voice")):
         return False
     try:
         from modules import voice_runtime

@@ -1901,3 +1901,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Yapılan:** `pc_autonomy_queue._inbox_and_calendar()` ve `tests/test_watch_sources.py` **kaldırıldı**; uyanıklık yalnız **pencere değişimi** üretir, o da **sessiz** (yalnız günlük).
 - **Neden:** Google bağlı değilken boş dönüyordu; kullanıcı için değer üretmiyordu. Az parça = az arıza.
 - **Ayar yüzeyi küçüldü:** `watch_enabled` (aç/kapa), `watch_voice` (ses), `watch_quiet_start/end` (sessiz saat).
+
+
+### 2026-11-26 — Ses açık, gereksiz bilgi yok
+
+- **Kullanıcı düzeltmesi:** "sesi aç ama gereksiz bilgi vermesin" — yani konuşma yolu **açık** kalsın, sadece **pencere değişimi** gibi zaten görünen şeyler söylenmesin.
+- **Ses:** `_announce` artık varsayılan **açık**; kapatmak için `watch_voice=false`.
+- **Süzgeç:** `watch_tick` `kind == "window"` adayını varsayılan olarak **konuşmaz**, yalnız günlüğe yazar. `watch_window_notice=true` ile açılabilir.
+- **Kanıt:** `WindowNoticesAreQuiet` (yeni) + watch süitleri + `test_cleanup_security` → 21 OK.
