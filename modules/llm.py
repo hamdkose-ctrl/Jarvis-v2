@@ -871,9 +871,10 @@ def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',ro
 
 BRAKE_STEP_SECONDS = 2.5
 BRAKE_MAX_SECONDS = 20.0
+BRAKE_PAY_SECONDS = 1.5   # fren bütçenin tamamını yemesin
 
 
-def apply_rate_brake(spec, *, sleeper=None) -> float:
+def apply_rate_brake(spec, *, sleeper=None, deadline=None) -> float:
     """Ölçülmüş tavanın %90'ına yaklaşıldıysa kısa bekler (tek ağ kapısı: `dispatch`).
 
     Sayılar `modules/rate_limits.py` içinde kullanıcının kendi AI Studio ekranından
@@ -884,8 +885,17 @@ def apply_rate_brake(spec, *, sleeper=None) -> float:
     if rate_limits.limit_for(getattr(spec, 'model', '')) is None:
         return 0.0
     sleep = sleeper or time.sleep
+    # Canlı kusur (B-01): fren yalnız iptali denetliyordu, **kalan bütçeyi** değil.
+    # `check_ready_connection` bütçesi 12 sn iken fren 20 sn bekleyebiliyor ve istek
+    # kendi freniyle zaman aşımına düşüyordu. Bütçe yetmiyorsa beklememek doğrudur.
+    allowed = BRAKE_MAX_SECONDS
+    if deadline is not None:
+        remaining = deadline - time.monotonic() - BRAKE_PAY_SECONDS
+        allowed = min(BRAKE_MAX_SECONDS, max(0.0, remaining))
+        if allowed < BRAKE_STEP_SECONDS:
+            return 0.0
     waited = 0.0
-    while waited < BRAKE_MAX_SECONDS:
+    while waited + BRAKE_STEP_SECONDS <= allowed:
         rpm, tpm = usage_meter.recent_usage(getattr(spec, 'model', ''))
         if not rate_limits.should_wait(rpm, tpm, getattr(spec, 'model', '')):
             break
@@ -899,7 +909,7 @@ def apply_rate_brake(spec, *, sleeper=None) -> float:
 
 def dispatch(request,spec,prompt,system,history=None,*,image_path=None):
     """One exact-model adapter boundary, including explicit owner custom connections."""
-    apply_rate_brake(spec)
+    apply_rate_brake(spec, deadline=getattr(request, 'deadline', None))
     token=_key_context.set(request.owner)
     try:
         requests_state.request_identity(request.owner)

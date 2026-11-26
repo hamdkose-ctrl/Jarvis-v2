@@ -1999,3 +1999,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Deneme:** `_QUOTA_EXHAUSTED_RE`'ye `exceeded your current quota` / `free tier` eklendi → **CI kırmızı**: `test_failure_classification_backoff`, dakikalık metriği (`GenerateRequestsPerMinute`) günlük saydı.
 - **Doğru sözleşme (testte zaten yazılı):** `…PerMinute…` → **RATE_LIMIT**, `…PerDay…` → **QUOTA_EXHAUSTED**. Test gevşetilmedi; **mekanizma** yanlıştı, PR (#863) gerekçesiyle kapatıldı.
 - **Şimdi:** gerçek Gemini 429 gövdesi log'da 300 karakterde kesiliyordu → **1500 karaktere** çıkarıldı (`gemini istek reddedildi`). Bir sonraki 429'da gövdede `PerDay`/`PerMinute` metriği **görülecek**; kalıp ancak ondan sonra genişletilecek.
+
+
+### 2026-11-26 — T0 (B-01): fren **kalan bütçeyle** sınırlı
+
+- **Canlı kusur (ölçüldü):** `apply_rate_brake` yalnız `requests_state.check()` (iptal) denetliyordu, `request.deadline`'ı okumuyordu. `check_ready_connection` bütçesi **12 sn**, fren üst sınırı **20 sn** → istek kendi freniyle `LocalDeadline`'a düşebiliyordu ("bağlantı zamanında yanıt vermedi").
+- **Düzeltme:** `apply_rate_brake(spec, *, sleeper=None, deadline=None)`; üst sınır `min(BRAKE_MAX_SECONDS, max(0, deadline - now - BRAKE_PAY_SECONDS))` (**pay 1,5 sn**). Kalan süre bir adımdan (2,5 sn) küçükse **hiç beklenmez** — beklemek isteği öldürecekse beklememek doğrudur. `dispatch` artık `request.deadline` geçirir.
+- **Ölçülen senaryolar:** bütçe **3 sn** → bekleme **0 sn** · bütçe **6 sn** → bekleme **≤ 4,5 sn** · bütçe **60 sn** → bekleme **≤ 20 sn** · iptal → adım ortasında durur.
+- **Kanıt:** `test_rate_brake` (10) + `test_ready_provider_routing` + `test_rate_limits` + `test_cleanup_security` → 35 OK; **tam süit** `python -X utf8 -m modules.validation` → **exit 0**, "Tüm test grupları başarılı".
+- **K-07 durumu:** fren kalıyor; sayı tek kaynak `rate_limits.LIMITS`; `router_quota.POLICIES` dolduğunda fren kaldırılacak.
