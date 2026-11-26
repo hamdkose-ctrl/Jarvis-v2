@@ -529,6 +529,21 @@ def transport_timeouts(connect: float, read: float) -> tuple[float, float]:
     return (min(connect, ceiling), min(read, ceiling))
 
 
+def trim_for_request_limit(msgs: list[dict], keep: int = 4) -> list[dict] | None:
+    """413 geldiğinde gövdeyi **bir kez** küçültür: sistem mesajı + son `keep` mesaj.
+
+    Canlı ölçüm (26 Kasım): 12 istek 413 aldı ve aynı gövde yedek sağlayıcıya aynen
+    gittiği için o da 413 veriyordu — yani yedek sağlayıcı hiç devreye girmiyordu.
+    Kırpma sonrası hâlâ büyükse `None` döner: sonsuz tekrar yok.
+    """
+    rows = [m for m in msgs if isinstance(m, dict)]
+    system = rows[:1] if rows and rows[0].get('role') == 'system' else []
+    rest = rows[len(system):]
+    if len(rest) <= keep:
+        return None
+    return system + rest[-keep:]
+
+
 def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | None = None) -> str:
     """One Groq transport attempt for the router-decided model."""
     key = user_groq_key(current_user())
@@ -552,6 +567,14 @@ def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | No
         usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
     if r.status_code in (401, 403):
         raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+    if r.status_code == 413:
+        # Gövde çok büyükse **bir kez** kırpıp aynı sağlayıcıda yeniden dene; aksi hâlde
+        # aynı dev gövde yedek sağlayıcıya gidip orada da 413 alıyordu (canlı 26 Kasım).
+        trimmed = trim_for_request_limit(msgs)
+        if trimmed is not None:
+            usage_meter.record('groq', model, 0, 0, '413-trim')
+            r = requests.post(_GROQ_URL, headers=headers,
+                              json={**body, 'messages': trimmed}, timeout=transport_timeouts(5, 30))
     if r.status_code == 413:
         # Groq also uses 413 when one request exceeds its model's entire TPM
         # capacity. Preserve that finding without a raw body or provider cooldown.

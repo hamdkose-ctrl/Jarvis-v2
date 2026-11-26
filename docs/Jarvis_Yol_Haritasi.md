@@ -1954,3 +1954,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Düzeltme:** `usage_meter.caller_scope(label)` (ContextVar) + `smart_router._callsite_label()`; `run_request` çağrı sahibini (`brain_model_understanding.propose` gibi) **açıkça** etiketler. Yığın taraması yalnız yedek. `ModelRequest.caller` alanı: isteyen çağrı kendi etiketini verebilir.
 - **Kanıt:** `test_quota_caller_tag` (6) — kapsam taramayı ezer, kapsam geri döner, `record()` satırına etiket yazılır, `run_request` ağ olmadan doğru etiketi verir; + `test_quota_routing` + `test_cleanup_security`.
 - **Kabul (7 gün sonra ölçülecek):** "bilinmiyor" oranı **%23,8 → %0**.
+
+
+### 2026-11-26 — B · 413 kırpma (yedek sağlayıcı artık gerçekten devreye girer)
+
+- **Ölçülen sorun:** 753 istekte **12× 413**. Aynı dev gövde yedek sağlayıcıya aynen gittiği için o da 413 veriyordu → **yedek sağlayıcı pratikte hiç çalışmıyordu**.
+- **Düzeltme:** `llm.trim_for_request_limit(msgs, keep=4)` — sistem mesajı korunur, en eski çiftler atılır, son 4 mesaj kalır. Groq 413 dönerse gövde **bir kez** kırpılıp **aynı sağlayıcıda** yeniden denenir (`413-trim` kaydı düşer). Kırpma sonrası hâlâ büyükse `None` → sonsuz tekrar yok.
+- **Kanıt:** `test_request_limit_trim` (4) + `test_provider_error_language` + `test_gemini_deadline` + `test_cleanup_security` → 23 OK.
+- **Kabul (7 gün):** 413 sayısı **12 → 0**.
