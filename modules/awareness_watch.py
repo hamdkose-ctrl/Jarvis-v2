@@ -25,12 +25,29 @@ def enabled(settings: dict | None = None) -> bool:
     return bool(value)
 
 
-def in_quiet_hours(hour: int) -> bool:
-    return hour >= QUIET_START or hour < QUIET_END
+def quiet_bounds(settings: dict | None = None) -> tuple[int, int]:
+    """Sessiz saat sınırları ayardan gelir; geçersiz değerde varsayılan (22–08)."""
+    settings = settings or {}
+    try:
+        start = int(settings.get("watch_quiet_start", QUIET_START))
+        end = int(settings.get("watch_quiet_end", QUIET_END))
+    except (TypeError, ValueError):
+        return QUIET_START, QUIET_END
+    if not (0 <= start <= 23 and 0 <= end <= 23) or start == end:
+        return QUIET_START, QUIET_END
+    return start, end
+
+
+def in_quiet_hours(hour: int, bounds: tuple[int, int] = (QUIET_START, QUIET_END)) -> bool:
+    start, end = bounds
+    if start > end:                      # gece devreden saat (22 → 08)
+        return hour >= start or hour < end
+    return start <= hour < end
 
 
 def candidates(state: dict, *, seen: set[str], now: float | None = None,
-               hour: int | None = None) -> list[dict]:
+               hour: int | None = None,
+               quiet: tuple[int, int] = (QUIET_START, QUIET_END)) -> list[dict]:
     """Durumdan bildirilebilir adaylar; gürültü süzülmüş."""
     now = time.time() if now is None else now
     hour = time.localtime(now).tm_hour if hour is None else hour
@@ -44,7 +61,7 @@ def candidates(state: dict, *, seen: set[str], now: float | None = None,
     minutes = state.get("next_event_minutes")
     if isinstance(minutes, (int, float)) and 0 <= minutes <= 30:
         items.append(_item("calendar", f"{int(minutes)} dakika sonra takvimde bir iş var.", str(minutes)))
-    if in_quiet_hours(hour):
+    if in_quiet_hours(hour, quiet):
         return []
     fresh = [item for item in items if item["key"] not in seen]
     return fresh[:MAX_PER_TICK]

@@ -1759,3 +1759,10 @@ D
 - **Canlı kusur (ölçüldü):** `watch_tick` penceresi `pc_awareness.find_window("")` ile okunuyordu; boş sorgu "pencere yok" döndüğü için uyanıklık **hiç aday üretmiyordu** ve log'da tek satır yoktu.
 - **Düzeltme:** `pc_autonomy_queue.foreground_window()` → `win32gui.GetWindowText(GetForegroundWindow())`; kütüphane yoksa/hata olursa boş döner ve tanılamaya yazılır.
 - **Kanıt:** `test_watch_foreground` (2: başlık aday üretir, kütüphane yoksa sessiz) + `test_watch_settings` + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK.
+
+
+### 2026-11-25 — Sessiz saat ayarlanabilir (canlı test bulgusu)
+
+- **Canlı bulgu:** uyanıklık 21:59'da çalıştı, sonra **hiç konuşmadı**. Neden kusur değil, tasarım: saat 22:00'yi geçtiği için **sessiz saat** devreye girmişti.
+- **Değişiklik:** sessiz saat artık **ayarlanabilir** — `watch_quiet_start` / `watch_quiet_end` (varsayılan 22–08, geçersiz değerde varsayılana döner). `awareness_watch.quiet_bounds(settings)` ve `candidates(..., quiet=...)` imzası eklendi; gece devreden saat (22→08) ve gündüz aralığı (09→17) ikisi de doğru.
+- **Kanıt:** `test_awareness_watch` + `test_watch_settings` + `test_watch_delivery` + `test_watch_foreground` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK. Testler artık saatten bağımsız (kendi sessiz saat ayarını veriyor).
