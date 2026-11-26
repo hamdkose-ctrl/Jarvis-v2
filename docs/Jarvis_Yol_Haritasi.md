@@ -1836,3 +1836,11 @@ D
 - **3 Form doldurma:** ayrı özellik değil, `pc_task` zinciri — "ad alanına Ahmet yaz, sonra telefon alanına 0555 yaz" → **2 `pc_type` adımı** (ölçüldü). Sınır: alanlar arası otomatik odak geçişi yok.
 - **4 Zamanlı iş:** `autonomy_when.parse_when` (tahmin yok, "09:00 kabul ettim" notu) → kuyruk.
 - **Kanıt:** karne 6/6, `modules.validation` exit 0, holdout %95.
+
+
+### 2026-11-26 — Form alanları arası odak geçişi (Tab)
+
+- **Kapanan boşluk:** aynı pencerede iki alan doldurulurken odak geçmiyordu; UIA alanı görmeyen uygulamalarda (Not Defteri) ikinci metin birinci alana gidiyordu.
+- **Yeni:** `pc_hands.press_key(window, key, times)` — `tab/enter/down` eşlemesi; bilinmeyen tuşta **uydurmadan** `unsupported`. `pc_task` son işlemesi (`_with_field_tabs`) art arda iki `pc_type` adımı arasına `pc_key: tab` koyar.
+- **Ölçüm:** "not defterinde ad alanına Ahmet yaz, sonra telefon alanına 0555 yaz" → `pc_type, pc_key, pc_type`; tek alanlık komutta Tab **yok**.
+- **Kanıt:** `FieldTabs` (3 yeni test) + `test_pc_task` + `test_pc_hands` + güvenlik bekçisi → 147 test (1 bilinen yerel hata: `test_brain_pr10c_final_cutover`, temiz main'de de aynı).

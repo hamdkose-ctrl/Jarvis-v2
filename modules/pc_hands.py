@@ -474,6 +474,37 @@ def type_address_bar(window: str, text: str, *, abort=None) -> dict:
 ENTERED = "{window} penceresinde Enter'a bastım."
 
 
+KEYS = {"tab": "tab", "sekme": "tab", "down": "down", "aşağı": "down", "enter": "enter"}
+
+
+def press_key(window: str, key: str, *, times: int = 1, abort=None) -> dict:
+    """Pencereye tek tuş gönderir (alanlar arası geçiş: Tab).
+
+    Canlı boşluk (26 Kasım): UIA metin alanı görmeyen uygulamalarda (Not Defteri) iki
+    alanı doldurmak için arada Tab gerekiyordu; ajan bunu kendisi yapmıyordu.
+    """
+    if abort is not None and abort.is_set():
+        return {"status": "stopped", "text": "Durduruldu."}
+    mapped = KEYS.get(str(key or "").casefold().strip())
+    if not mapped:
+        return {"status": "unsupported", "text": f"“{key}” tuşunu bilmiyorum."}
+    found = pc_awareness.find_window(window)
+    target = found.get("match")
+    if not target:
+        return {"status": "no_window", "text": NO_TARGET if not window else found.get("reason", "")}
+    if not _focus(target):
+        return {"status": "failed", "text": PASTE_FAILED.format(window=target["title"][:40], reason="pencere öne alınamadı")}
+    try:
+        import pyautogui
+        for _ in range(max(1, int(times))):
+            pyautogui.press(mapped)
+            time.sleep(0.05)
+    except Exception:
+        _record_failure("modules/pc_hands.py:press_key")
+        return {"status": "failed", "text": "Tuş gönderilemedi."}
+    return {"status": "done", "text": f"{target['title'][:40]}: {mapped} tuşuna bastım."}
+
+
 def press_enter(window: str, *, abort=None) -> dict:
     """Odaktaki pencereye Enter gönderir (yazdıktan sonra aramayı başlatmak için)."""
     if abort is not None and abort.is_set():

@@ -127,3 +127,21 @@ class OneSentence(unittest.TestCase):
             result = pc_task.run("chrome aç, youtube yaz, enter")
         self.assertEqual(result["status"], "done")
         self.assertEqual([call[0] for call in calls], ["open", "type", "enter"])
+
+
+class FieldTabs(unittest.TestCase):
+    """Aynı pencerede art arda iki alan: arada Tab odak geçişi."""
+
+    def test_two_fields_in_same_window_get_a_tab(self):
+        from modules import pc_task
+        plan = pc_task.plan("not defterinde ad alanına Ahmet yaz, sonra telefon alanına 0555 yaz")
+        self.assertEqual([step[1] for step in plan["steps"]], ["pc_type", "pc_key", "pc_type"])
+
+    def test_single_field_has_no_tab(self):
+        from modules import pc_task
+        plan = pc_task.plan("not defterinde ad alanına Ahmet yaz")
+        self.assertEqual([step[1] for step in plan["steps"]], ["pc_type"])
+
+    def test_press_key_rejects_unknown_key(self):
+        from modules import pc_hands
+        self.assertEqual(pc_hands.press_key("not defteri", "uçan tuş")["status"], "unsupported")
