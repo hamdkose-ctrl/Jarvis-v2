@@ -1639,3 +1639,182 @@ D
 - `engine_intents case "pc_click_result"` → `pc_hands.click_search_result`; `brain_core_map` kaydı (`fast.pc.click_result`).
 - Canlı doğrulama (Jarvis fonksiyonu üzerinden): `pc_click_result({"query":"jira"})` → "Ekranda “jira” yazısını göremedim; tıklamadım." (ekranda yok — tahmin etmedi).
 - Kanıt: `test_pc_hands` 52 + `test_fast_commands` + orphan bekçisi + `test_cleanup_security` → 102 test OK.
+
+
+### 2026-11-25 — Tek cümle zinciri: "chrome aç, youtube yaz, enter"
+
+- `pc_task.plan()`: `app_open` adımı pencere devralmayı başlatır; **pencere söylenmeyen** "…yaz" adımı tarayıcıda **adres çubuğu**, diğer uygulamada **metin alanı** olur; çıplak "enter/ara" önceki pencerede çalışır.
+- Canlı sınır (dürüst): uygulama açma **izin kapısından** geçiyor; Jarvis süreci dışından çağrıldığında `PermissionError` alınıyor. Bu durumda zincir yalan söylemiyor: "“chrome” uygulamasını ben açamıyorum (izin kapısı). Sen açarsan kalan adımları yaparım." (`refused`)
+- Yani "chrome aç, youtube yaz, enter" **planı** 3 adıma doğru açılıyor; uygulama zaten açıksa 2. ve 3. adımlar çalışır; kapalıysa açma adımı izin kapısına takılır ve söylenir.
+- Kanıt: `test_pc_task` 15 test (3 yeni) OK.
+
+
+### 2026-11-25 — Yetenek beyni: serbest cümle → yetenek eşleşmesi
+
+- **Sorun:** kalıplar yalnız ezberlenmiş cümlelerde çalışıyordu; kullanıcı aynı işi farklı söyleyince Jarvis hiçbir şey yapmıyordu ("kelime kalıpları basit işler için, gerisi sancılı").
+- `modules/capability_catalog.py`: 12 yetenek, her biri **insan dilinde** tanımlı (ne yapar, hangi bilgiler gerekir, örnek cümleler, anahtar sözcükler).
+- `modules/capability_brain.py`: `resolve(cümle)` → sıra: (1) hızlı kalıp, (2) katalog eşleşmesi (Türkçe ek toleranslı sözcük/eylem puanlaması), (3) hiçbiri tutmazsa **yapmaz**.
+  - `ok` → yetenek + alanlar; `need` → eksik bilgi (tek soru); `uncertain` → iş yapılmaz, adaylar söylenir.
+  - Alan çıkarımı: pencere adı sözlüğü, "indirilenler/masaüstü/belgeler" → gerçek klasör, dosya adı **tek eşleşiyorsa** yol (belirsizse sorma).
+- `engine_loop._fast_command_turn`: kalıp tutmazsa beyin denenir; `ok` → doğrudan dispatch (model çağrılmaz), `need` → tek soru.
+- Canlı ölçüm (fonksiyon üzerinden): "chrome a youtube yaz" → `pc_type` (window=chrome, text=youtube); "indirilenler klasöründe ne var" → `file_list` (gerçek Downloads yolu); "youtube a git" → `need` (hangi pencere?); "dün akşam ne yedim" → `uncertain` (iş yapmadı).
+- Kanıt: `test_capability_brain` 11 test + `test_fast_commands` + orphan bekçisi + `test_engine_modular` → 78 test OK.
+- Sınır (dürüst): eşleştirme **sözcük tabanlı**; çok dolaylı anlatımda (`"şu işi hallediversene"`) hâlâ `uncertain` der. Model destekli anlam eşleşmesi ayrı adım.
+
+
+### 2026-11-25 — Model destekli anlam (katalog yetmediğinde)
+
+- **Sorun:** katalog eşleşmesi sözcük tabanlı; dolaylı cümlelerde `uncertain` kalıyordu. Anlam iyi değilse yapılan iş boşa gider.
+- `modules/capability_llm.py`: modele **yalnız seçim** sorulur ("hangi yetenek + hangi alanlar"), yapma yetkisi verilmez.
+  - Zorunlu JSON: `{"capability","slots","confidence"}`; `confidence < 0,5` → yok sayılır.
+  - **Doğrulama:** katalogda olmayan yetenek reddedilir; var olmayan dosya yolu atılır; eksik alan → tek soru.
+  - Model yok/bozuk yanıt → sessizce `uncertain` (normal sohbet akışı).
+  - Aynı cümle 5 dk önbellekte (tekrar model çağrısı yok).
+- `engine_loop`: katalog `uncertain` derse model katmanı denenir; `ok` → doğrudan dispatch, `need` → tek soru.
+- Kanıt: `test_capability_llm` 8 test + `test_engine_modular` + `test_capability_brain` + `test_fast_commands` + orphan bekçisi → 86 test OK.
+- Sınır (dürüst): model kararı sınırlı şemaya bağlı; yanlış seçim yaparsa eylem **doğrulama** adımlarına (pencere/dosya/ekran kontrolü) takılır ve yine "yapamadım" der.
+
+
+### 2026-11-25 — Anlam karnesi + iki canlı kusur
+
+- `scripts/understand_scorecard.py`: 24 olumlu, 5 negatif cümle; **eylem çalıştırmadan** yalnız anlama ölçer. Kademe dağılımı: kalıp 17, katalog 4, katalog-soru 3, belirsiz 0.
+- **Kusur 1 (ciddi):** `fast_commands.resolve` zamanlı cümlede **sonsuz özyineleme** (RecursionError) — "5 dakika sonra chrome da enter" hattı kilitliyordu. Düzeltme: normalize edilmiş kalan metin karşılaştırması + `_depth` sınırı (2).
+- **Kusur 2 (yanlış iş):** "bana bir şiir yaz" → `pc_type`, "yarınki toplantıyı hatırlat" → `autonomy_schedule` sanılıyordu. Düzeltme: pencere gerektiren yeteneklerde pencere söylenmemişse **tahmin yok**; zamanlı iş yalnız içinde gerçek PC adımı varsa kabul.
+- Kanıt: `test_understand_guard` 4 test + 62 test → 66 test OK; karnede **yanlış eylem 0/5**.
+
+
+### 2026-11-25 — Kısa komutlar (kullanıcının günlük tarzı)
+
+- Kullanıcı kısa konuşuyor: "youtube aç", "maili aç", "ilk mail ne", "müzik aç", "kapat".
+- `capability_catalog`: iki yeni yetenek — `pc_open_site` (tarayıcıda site aç, izin kapısı gerekmez), `screen_read_text` (ekrandaki yazıyı oku).
+- `capability_brain`: `SITES` sözlüğü (youtube→youtube.com, mail/gmail→gmail.com, müzik→music.youtube.com, google, haber, harita…); "oku/ne yazıyor/ilk mail" ipuçları; klasör sözcüklerinde ek toleransı (`masaustundeki` → Desktop).
+- `engine_intents`: `pc_open_site` (adres çubuğu + Enter), `screen_read_text` (OCR ilk 12 kelime); `brain_core_map` kayıtları.
+- Karne: kısa komut isabeti **10/11** ("bunu kaydet", "yarın 9 da bunu yap", "kapat" bilinçli olarak `uncertain` — bağlam/bellek gerekiyor); yanlış eylem **0/4**.
+- Kanıt: `test_short_commands` 4 + 100 test → 104 test OK.
+- Sınır: "bunu kaydet / bunu yap" **önceki cümleye** gönderme yapıyor; bellek kapısı (A7) gelmeden tahmin edilmiyor.
+
+
+### 2026-11-25 — Tek beyin (çoklu beyin kaldırıldı)
+
+- **Kullanıcı kararı:** "beyin kelimeye dayalı olmasın, çoklu beyin istemiyorum."
+- **Yeni tek karar noktası:** `modules/capability_router.route(cümle, bağlam)` — motor yalnız buraya sorar.
+  - `source=brain`: anlam kararı (model, katalog = veri).
+  - `source=offline`: yalnız model yokken devreye giren yedek (kalıp/katalog) — **beyin değil**.
+  - `status=run|ask|none`: iş yap / tek soru sor / hiç yapma.
+- **Bağlam** karara girer: açık pencere, son adım, bekleyen onay → "bunu" gibi ifadeler tahmin edilmez.
+- `capability_llm.resolve(text, context)`: bağlam şemaya eklenir, karara `confidence` eklenir.
+- `engine_loop`: üç ayrı kademe çağrısı kaldırıldı; tek `route()` çağrısı. Selamlama/hesap/saat yalnız **salt yerel** işler olarak ayrı kaldı (beyin kararı değil).
+- Kanıt: `test_capability_router` 5 test + 104 test → 109 test OK.
+- Sınır (dürüst): model yoksa anlam katmanı devre dışı; o durumda yedek yol çalışır ve yedek **kelime tabanlı** olduğu için anlama zayıflar. Karar `source` alanıyla görünür.
+
+
+### 2026-11-25 — Tek anlama sahibi: paralel beyin kaldırıldı
+
+**Karar (Hamdi):** "beyin kelimeye dayalı olmasın, çoklu beyin istemiyorum … minimum kelime kalıbı hızlı işler aynen devam." Brain = anlama, Core = izin/onay/kanıt, el = `engine_intents` + `pc_*`; yeni anlam katmanı eklenmez.
+
+**Değişiklik:** 25 Kasım'da eklenen paralel anlama yolu geri alındı — `modules/capability_router.py`, `capability_brain.py`, `capability_llm.py`, `capability_catalog.py` ve testleri/karne script'i (`test_capability_router`, `test_capability_brain`, `test_capability_llm`, `test_short_commands`, `test_understand_guard`, `scripts/understand_scorecard.py`) silindi; `engine_loop._fast_command_turn` mevcut tek yola (hızlı yol + Brain/Core) döndü. Mevcut Brain (`brain_model_understanding`), Core sahipliği ve parmak izi/re-kabul ölçümü **değişmedi**; parmak izinin inceltilmesi işler bitince ele alınacak (kullanıcı notu).
+
+**Kayıp ölçümü (bilgi amaçlı, eylem yok):** 10 kısa komutun bugünkü hızlı yoldaki karşılığı — `youtube aç`→app_open, `saat kaç`→fast_time, `ekranda ne var`→screen_summary, `hava durumu`→weather; `maili aç`, `müzik aç`, `ilk mail ne`, `indirilenler ne var`, `kapat`, `bunu kaydet` artık Brain (bulut) yolundan geçer. **Kalıp taşıma yapılmadı** — ihtiyaç kullanımda çıkarsa ayrı iş.
+
+**Bekçi:** `tests/test_architecture_single_understanding.py` — `capability_brain/llm/router/catalog/understand` adlı paralel anlama modülleri yasak; `fast_commands.resolve` yalnız `engine_loop.py` ve `pc_task.py` (adım bölücü) tarafından çağrılabilir, yeni çağıran bilinçli kayıt ister.
+
+**Kanıt:** `test_architecture_single_understanding` + `test_engine_modular` + `test_fast_commands` + `test_brain_orphan_dispatch_guard` + `test_cleanup_security` → 80 test OK.
+
+
+### 2026-11-25 — Bellek kapısı (A7), uyanıklık (A8), Core güvenlik şeması (A10), dünya olay akışı (A5)
+
+- **A7 `modules/memory_gate.py`:** sınır 40 tur / 12.000 karakter; aşılınca **özetle** (son 12 tur ham kalır); `remember/forget/pinned` ile sabit notlar (`~/.jarvis/bellek/sabitler.json`); `resolve_reference("bunu kaydet", last_action)` yalnız **gerçekleşmiş son adımın** hedefine çözülür, yoksa `None` (tahmin yok).
+- **A8 `modules/awareness_watch.py`:** varsayılan **kapalı** (`watch_enabled`); pencere değişimi, okunmamış mail, 30 dk içindeki takvim işi aday olur; **sessiz saat 22:00–08:00** susturur; aynı olay parmak iziyle tekrar bildirilmez; bir turda en fazla 1 aday. Gösterme kararı mevcut bildirim sahibinde kalır.
+- **A10 `modules/core_policy.py`:** `decide(action) → free|ask|forbid`; şifre/banka → **forbid** (Türkçe katlamalı), sil/ödeme/gönder → **ask**, okuma → **free**, yazma yalnız `~/.jarvis/sandbox` içinde serbest. Böylece risk/sandbox kararı tek yerde; `pc_hands`/`pc_files` kendi kurallarını sürdürür (davranış değişmedi).
+- **A5 `modules/world_events.py`:** GDELT doküman API (ücretsiz, anahtarsız, yalnız okuma); tekrar süzgeci Türkçe katlamalı; `rank(items, interests)` ilgiye göre sıralar ama **ilgisizleri gizlemez** (kutuplaşma koruması); ağ yoksa `offline` — uydurma başlık yok.
+- **Kanıt:** `test_memory_gate` (7), `test_awareness_watch` (6), `test_core_policy` (7), `test_world_events` (5) + `test_cleanup_security` + mimari bekçi + `test_fast_commands` → 63 test OK.
+- **Sınır (dürüst):** bu dört modül **karar/kapı** katmanıdır; hiçbiri yeni bir yürütme sahibi ya da ikinci beyin değildir. Bağlama (engine hattı) ayrı ve ölçülü adımda yapılacak.
+
+
+### 2026-11-25 — Dört madde hatta bağlandı (A7, A8, A10, A5)
+
+- **A7 bellek:** `engine_voice._recent_turns` artık `memory_gate.summarise_history` üzerinden geçer (sınır aşılırsa eskiler tek özet satırına iner). `pc_save` çağrısında ad yoksa `memory_gate.resolve_reference("bunu kaydet", last_action)` çözülür; başarılı kaydetme `record_action` ile son adım olarak yazılır (tahmin yok, yoksa sorulur).
+- **A10 Core:** `pc_hands.is_risky` mevcut kelime listesine ek olarak `core_policy.decide` kararına danışır (birleşim → daha güvenli); şifre/banka `forbid`, sil/ödeme/gönder `ask`.
+- **A8 uyanıklık:** `engine_loop` içinde `uyaniklik` daemon thread'i (120 sn) → `pc_autonomy_queue.watch_tick`; varsayılan **kapalı**, açıkken adaylar yalnız günlüğe yazılır, sessiz saat ve tekrar engeli modülün içinde.
+- **A5 dünya olayları:** `fast_commands` "dünya olayları / dünyada ne var / dünya gündemi" → `world_events`; `engine_intents` case GDELT'ten okur, `news_interests` ayarına göre sıralar, ağ yoksa dürüst `offline`; `brain_core_map` `fast.world.events` kaydı (orphan bekçisi için).
+- **Kanıt:** `test_four_wiring` (5) + `test_memory_gate`, `test_awareness_watch`, `test_core_policy`, `test_world_events`, `test_pc_hands`, `test_pc_autonomy_queue`, `test_fast_commands`, `test_brain_orphan_dispatch_guard`, `test_engine_modular`, `test_cleanup_security`, mimari bekçi → 171 test OK.
+- **Sınır (dürüst):** uyanıklık bildirimi şimdilik yalnız günlük ve varsayılan kapalı; ekrana/sese gösterim mevcut bildirim sahibine ayrı adımda bağlanacak.
+
+
+### 2026-11-25 — Uyanıklık bildirimi mevcut sahibe bağlandı (A8 teslim)
+
+- `pc_autonomy_queue.watch_tick` artık adayları **gösterir**: `voice_runtime.announce_active(text, background=True)` (mevcut tek bildirim/ses sahibi). Yeni bildirim kanalı açılmadı.
+- Tekrar engeli kalıcı: `_SEEN` kümesi (`awareness_watch.mark_seen`) — aynı olay ikinci kez söylenmez.
+- Ana anahtar hâlâ `watch_enabled` (**varsayılan kapalı**): kapalıyken hiçbir aday üretilmez, hiçbir çağrı yapılmaz.
+- Sessiz saat (22:00–08:00) korunur; ses kapalıysa bildirim yazılı yola düşer (sahibin kendi kuralı).
+- **Kanıt:** `test_watch_delivery` (2) + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 27 test OK.
+
+
+### 2026-11-25 — Uyanıklık ayarı canlı kusur düzeltmesi
+
+- **Canlı kusur:** `watch_tick` ayarı `runtime.profile.settings` diye okumaya çalışıyordu; `Profile` sınıfında böyle bir alan **yok**. Sonuç: `watch_enabled=true` yazıldığı hâlde uyanıklık hiç çalışmadı ve log'da tek satır bile görünmedi (sessiz kusur).
+- **Düzeltme:** ayarın gerçek tek sahibi `config.load_settings()` kullanılıyor; okuma hatasında uyanıklık **kapalı** kalır (fail-closed) ve tanılamaya yazılır.
+- **Canlı doğrulama:** `~/.jarvis/settings.json` → `watch_enabled=true`, Jarvis yeniden başlatıldı; `uyaniklik` thread'i 120 sn'de bir çalışıyor. (Not: pencerede değişiklik yoksa aday üretmez — tasarım gereği.)
+- **Kanıt:** `test_watch_settings` (3: gerçek ayar açar, anahtar yoksa kapalı, ayar hatasında kapalı) + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 30 test OK.
+
+
+### 2026-11-25 — Uyanıklık: ön pencere okuması (ikinci sessiz kusur)
+
+- **Canlı kusur (ölçüldü):** `watch_tick` penceresi `pc_awareness.find_window("")` ile okunuyordu; boş sorgu "pencere yok" döndüğü için uyanıklık **hiç aday üretmiyordu** ve log'da tek satır yoktu.
+- **Düzeltme:** `pc_autonomy_queue.foreground_window()` → `win32gui.GetWindowText(GetForegroundWindow())`; kütüphane yoksa/hata olursa boş döner ve tanılamaya yazılır.
+- **Kanıt:** `test_watch_foreground` (2: başlık aday üretir, kütüphane yoksa sessiz) + `test_watch_settings` + `test_watch_delivery` + `test_awareness_watch` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK.
+
+
+### 2026-11-25 — Sessiz saat ayarlanabilir (canlı test bulgusu)
+
+- **Canlı bulgu:** uyanıklık 21:59'da çalıştı, sonra **hiç konuşmadı**. Neden kusur değil, tasarım: saat 22:00'yi geçtiği için **sessiz saat** devreye girmişti.
+- **Değişiklik:** sessiz saat artık **ayarlanabilir** — `watch_quiet_start` / `watch_quiet_end` (varsayılan 22–08, geçersiz değerde varsayılana döner). `awareness_watch.quiet_bounds(settings)` ve `candidates(..., quiet=...)` imzası eklendi; gece devreden saat (22→08) ve gündüz aralığı (09→17) ikisi de doğru.
+- **Kanıt:** `test_awareness_watch` + `test_watch_settings` + `test_watch_delivery` + `test_watch_foreground` + `test_pc_autonomy_queue` + `test_cleanup_security` → 32 test OK. Testler artık saatten bağımsız (kendi sessiz saat ayarını veriyor).
+
+
+### 2026-11-26 — Uyanıklık: başlıksız ön pencere yedeği
+
+- **Canlı ölçüm:** ön pencere `Shell_Flyout` (görev çubuğu/başlat uçucu penceresi) ve başlık boş dönünce uyanıklık **aday üretmiyordu**.
+- **Düzeltme:** `foreground_window()` artık başlık boşsa `GetAncestor(GA_ROOT)` → `GetWindow(GW_OWNER)` sırasıyla sahibin başlığını dener; bulamazsa boş döner (uydurma yok).
+- **Kanıt:** `test_watch_foreground` + `EmptyForeground` sınıfı + `test_cleanup_security` → 13 test OK.
+
+
+
+### 2026-11-26 — "Birlikte aç" penceresi kusuru (dosya açma türü)
+
+- **Canlı kusur (kullanıcı ekran görüntüsü):** Jarvis bir dosyayı `os.startfile` ile açınca Windows'un **"Bu dosyayı nasıl açmak istiyorsunuz?"** penceresi çıkıyor ve Jarvis'in penceresini kilitliyordu (uzantı ilişkilendirilmemiş: `.md`, `.json`, `.log` gibi).
+- **Düzeltme:** `file_ops_local.open_file` artık tür ayrımı yapıyor:
+  - `SHELL_EXTENSIONS` (txt/pdf/görsel/office/medya) → varsayılan uygulama,
+  - `TEXT_EXTENSIONS` (md/json/log/py/yaml/ini/html) → **Not Defteri** ile açılır (pencere çıkmaz),
+  - tanınmayan tür → **açılmaz**, açıkça söylenir ("birlikte aç penceresi çıkmasın diye açmadım").
+- **Kanıt:** `OpenFileTypes` (2 test) + `test_file_ops_local` + `test_cleanup_security` → 19 test OK.
+
+
+### 2026-11-26 — BRAIN-00 … BRAIN-11 defteri kapandı (iş kuyruğu olarak)
+
+**Karar (Hamdi):** "brain 0-11 defterini kapat." Kapanış kaydı: `docs/architecture/BRAIN_00_11_KAPANIS_2026-11-26.md`.
+
+- **Kapandı (kod + kendi kanıtı):** BRAIN-00, 01, 02, 04, 06, 07, 08, 09, 10 — merge/kabul kayıtları kendi dosyalarında.
+- **Kod kapandı, ölçüm açık:** BRAIN-03 (dilimler: #527/#537/#538/#613) ve BRAIN-05 (#541) — canlı model semantiği ölçülmedi.
+- **Ölçüm kalemi:** BRAIN-11 Windows ürün kabulü + WhatsApp GUI turu (brain defteri maddesi değil, ürün kabulü).
+- **Defter kuralı:** yeni `BRAIN-NN` maddesi açılmaz; bir madde ancak **yeni ölçüm kanıtıyla** (regresyon/kırmızı kabul) yeniden açılır. `docs/BEKLEYEN_ISLER.md` bu maddeler için tarihsel kayıt taşır, güncel hüküm kapanış dosyasındadır.
+- **Kalan tek boşluk M-1:** canlı semantik kabul (20 vaka, %95, yanlış-action=0, aynı SHA Full `state=passed` + aynı SHA PC watcher). Bugün **ölçülmedi**; rota çiti gevşetilmedi. `state=passed` gelmeden hiçbir yerde "Brain tamamen kapandı" denmez.
+- **Kanıt:** `tests/test_brain_ledger_closure.py` (3) + `test_roadmap_drift_check` → 22 test OK.
+
+
+### 2026-11-26 — M-1 canlı semantik kabul ölçüldü: 0,90 → 0,95 passed
+
+- **İlk gerçek ölçüm:** `scripts/brain_output_diagnose_holdout.py --run` → `state=failed`, doğruluk **0,90** (18/20), yanlış işlem önerisi 0, efekt 0.
+- **Kök neden (ölçüldü):** düşen iki vaka export grubunda; model `documents.export` seçti ama **cümlede geçmeyen `format`** alanını uydurdu → Core `ARGUMENT_SOURCE_INVALID` ile reddetti (kanıtsız alan yürütülmez; davranış doğru).
+- **Düzeltme:** `documents.export` şeması + yetenek amacı artık açıkça söylüyor: format **isteğe bağlı**, kullanıcı kap belirtmediyse **hiç yazılmaz**, varsayılan seçilmez. Kelime listesi eklenmedi.
+- **Yeniden ölçüm:** `state=passed`, **0,95** (19/20), yanlış işlem **0**, efekt **0**; gruplar: diagnose 5/5, export 4/5, explanation 3/3, irony 2/2, missing_output 2/2, negation 3/3.
+- **Kanıt:** `test_brain_model_understanding`, `test_brain_output_diagnose_holdout`, orphan/güvenlik/defter bekçileri → 102 test OK; kapanış dosyası §5 güncellendi.
+- **Sınır (dürüst):** `state=passed` raporu tek başına "Brain tamamen kapandı" değildir; aynı SHA'nın yeşil Windows CI'ı ve aynı SHA PC watcher koşusu ayrıca beklenir.
+
+
+### 2026-11-26 — M-1 kapanış ölçümü: bu PC'de tam doğrulama exit 0
+
+- Kurulu ağaç (main `d71f62bd`) üzerinde `python -m modules.validation` → **exit 0**, "Tüm test grupları başarılı".
+- `scripts/pc_test_watcher.py --once --pattern refs/remotes/origin/main` çalıştırıldı: **aday üretmedi** (tasarım gereği yalnız açık PR dallarını izler; `main` için aday yok). Bu, kusur değil sözleşme; "watcher passed" diye yazılmadı.
+- Kurulu ağaç git deposu değil (`.git` kopyalanmıyor) → watcher kökü scratch klondan alındı; bu sınır kayda geçti.
+- M-1 durumu: holdout `state=passed` (%95, yanlış işlem 0) + bu PC'de tam doğrulama exit 0. Kapanış dosyası §6 eklendi.

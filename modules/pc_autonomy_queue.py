@@ -116,6 +116,65 @@ def summary() -> str:
 TICK_SECONDS = 120.0
 
 
+def foreground_window() -> str:
+    """Öndeki pencerenin başlığı. Canlı kusur (25 Kasım): `find_window("")` boş sorguyla
+    "pencere yok" döndüğü için uyanıklık hiç aday üretmiyordu."""
+    try:
+        import win32gui
+        handle = win32gui.GetForegroundWindow()
+        title = str(win32gui.GetWindowText(handle) or "")
+        if title:
+            return title
+        # Başlıksız ön pencere (görev çubuğu/Shell_Flyout gibi): kök sahibine çık.
+        GA_ROOT = 2
+        root = win32gui.GetAncestor(handle, GA_ROOT)
+        title = str(win32gui.GetWindowText(root) or "") if root else ""
+        if title:
+            return title
+        owner = win32gui.GetWindow(handle, 4)      # GW_OWNER
+        return str(win32gui.GetWindowText(owner) or "") if owner else ""
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:foreground_window")
+        return ""
+
+
+def watch_tick(runtime=None) -> list[dict]:
+    """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır."""
+    from modules import awareness_watch
+    # Ayarın tek sahibi `config.load_settings`; canlı kusur (25 Kasım): varsayılan
+    # `profile.settings` diye bir alan yok, bu yüzden uyanıklık hiç açılamıyordu.
+    try:
+        from config import load_settings
+        settings = load_settings() or {}
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:watch_tick_settings")
+        settings = {}
+    if not awareness_watch.enabled(settings):
+        return []
+    state = {"window": foreground_window()}
+    items = awareness_watch.candidates(state, seen=_SEEN,
+                                       quiet=awareness_watch.quiet_bounds(settings))
+    for item in items:
+        if runtime is not None and hasattr(runtime, "log"):
+            runtime.log.info("uyanıklık: %s", item["text"])
+        _announce(item["text"])
+    awareness_watch.mark_seen(items, _SEEN)
+    return items
+
+
+_SEEN: set[str] = set()
+
+
+def _announce(text: str) -> bool:
+    """Bildirimi mevcut tek sahibe (voice_runtime.notice) devreder; yoksa sessiz."""
+    try:
+        from modules import voice_runtime
+        return bool(voice_runtime.announce_active(text, background=True))
+    except Exception:
+        _record_failure("modules/pc_autonomy_queue.py:_announce")
+        return False
+
+
 def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleeper=None,
               max_ticks: int | None = None) -> None:
     """Arka planda periyodik olarak kuyruğa bakar. Ana anahtar kapalıysa hiç iş yapmaz.
@@ -126,6 +185,7 @@ def tick_loop(stop_event, *, interval: float = TICK_SECONDS, runner=None, sleepe
     import time as _time
     run = runner or run_due
     wait = sleeper or _time.sleep
+    runtime_holder = getattr(stop_event, "runtime", None)
     ticks = 0
     while stop_event is not None and not stop_event.is_set():
         if max_ticks is not None and ticks >= max_ticks:

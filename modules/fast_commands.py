@@ -121,6 +121,9 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     # --- salt-okuma: hava, gündem, not sayısı (model gerekmez) ---
     (re.compile(r'(hava (durumu )?nasil( bugun)?|bugun hava (durumu )?nasil|hava durumu)'),
      ('weather', {})),
+    # Dünya olay akışı (A5): kamuya açık GDELT, yalnız okuma; model gerekmez.
+    (re.compile(r'(dunya(daki)? (olaylar[ıi]?|haberler[ıi]?)|dunyada ne (var|oluyor)|'
+                r'dunya gundemi)'), ('world_events', {})),
     (re.compile(r'(bugun|bugunku) (ne var|neler var|planim ne|programim ne)'),
      ('agenda_read', {'view': 'day_plan', 'period': 'today'})),
     (re.compile(r'(yarin|yarinki) (ne var|neler var|planim ne|programim ne)'),
@@ -219,7 +222,7 @@ def compute(command: str):
     return f'Sonuc {_bicimle(sonuc)}.'
 
 
-def resolve(command: str) -> tuple[str, dict] | None:
+def resolve(command: str, *, _depth: int = 0) -> tuple[str, dict] | None:
     """Tam eşleşen hızlı komutu (intent, args) olarak döndürür; yoksa None."""
     metin = normalize(command)
     if not metin or len(metin) > MAX_CHARS:
@@ -227,9 +230,12 @@ def resolve(command: str) -> tuple[str, dict] | None:
     # Zamanlı iş: cümle zamanla başlıyorsa ve kalanı bir PC adımıysa kuyruğa gider.
     # (Regex sırasına güvenmek yerine burada tek kontrole bakıyoruz.)
     from modules import autonomy_when
-    parsed = autonomy_when.parse_when(command)
-    if parsed.get("when") and parsed.get("rest") and parsed["rest"] != metin:
-        inner = resolve(parsed["rest"])
+    parsed = autonomy_when.parse_when(command) if _depth == 0 else {"when": None}
+    inner_rest = normalize(parsed.get("rest") or "")
+    if parsed.get("when") and inner_rest and inner_rest != metin and _depth < 2:
+        # Özyineleme koruması: canlı kusur (25 Kasım) — kalan metin küçülmediğinde
+        # resolve kendini sonsuz çağırıyordu (RecursionError).
+        inner = resolve(parsed["rest"], _depth=_depth + 1)
         if inner and inner[0].startswith("pc_"):
             return "autonomy_schedule", {"phrase": command}
     for pattern, hedef in _PATTERNS:

@@ -130,6 +130,8 @@ def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     return result
 
 
+from modules.diagnostics import record_failure as _record_failure
+
 def _fast_command_turn(runtime, cmd):
     """Kapalı sözlükteki komutu model çağırmadan mevcut sahibinde çalıştırır.
 
@@ -416,6 +418,16 @@ def main(runtime, ui=None):
     from modules import pc_autonomy_queue
     runtime.threading.Thread(target=pc_autonomy_queue.tick_loop, args=(runtime.stop_event,),
                              daemon=True, name="otonomi-saati").start()
+
+    def _uyaniklik_saati():
+        """Uyanıklık (A8): kapalıysa hiçbir şey yapmaz; açıksa adayları günlüğe yazar."""
+        while not runtime.stop_event.wait(120.0):
+            try:
+                pc_autonomy_queue.watch_tick(runtime)
+            except Exception:
+                _record_failure("modules/engine_loop.py:_uyaniklik_saati")
+
+    runtime.threading.Thread(target=_uyaniklik_saati, daemon=True, name="uyaniklik").start()
     import release_guard
     release_guard.ready("engine")
     try:

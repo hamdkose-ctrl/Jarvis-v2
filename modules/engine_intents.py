@@ -5,6 +5,8 @@ This dispatcher does not classify again or create a new request identity.
 """
 from __future__ import annotations
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 class ActionOutcome(str):
     """A domain result with an explicit success signal, retaining the string interface."""
@@ -144,8 +146,19 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import pc_hands
             return pc_hands.click_search_result(str(a.get("query") or ""))["text"]
         case "pc_save":
+            from modules import memory_gate
+            args_ = dict(a)
+            if not args_.get("name"):
+                ref = memory_gate.resolve_reference(command, memory_gate.last_action())
+                if ref:
+                    args_["name"] = ref["target"]
+                    if not args_.get("window") and ref.get("window"):
+                        args_["window"] = ref["window"]
             from modules import pc_files
-            return pc_files.save_as(str(a.get("window") or ""), str(a.get("name") or ""))["text"]
+            sonuc = pc_files.save_as(str(args_.get("window") or ""), str(args_.get("name") or ""))
+            if sonuc.get("status") == "done":
+                memory_gate.record_action("pc_save", args_, sonuc)
+            return sonuc["text"]
         case "pc_search":
             from modules import pc_hands
             return pc_hands.press_enter(str(a.get("window") or ""))["text"]
@@ -165,6 +178,34 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import pc_hands
             return pc_hands.type_text(str(a.get("window") or ""), str(a.get("target") or ""),
                                       str(a.get("text") or ""))["text"]
+        case "world_events":
+            # A5: GDELT kamuya açık akış; yalnız okuma, ilgi alanına göre sıralama.
+            from modules import world_events
+            interests = []
+            try:
+                interests = list((runtime.profile.settings or {}).get("news_interests") or [])
+            except Exception:
+                _record_failure("modules/engine_intents.py:world_events_interests")
+            feed = world_events.fetch()
+            if feed["status"] != "ok":
+                return feed["text"]
+            return world_events._text(world_events.rank(feed["items"], interests))
+        case "pc_open_site":
+            # Site açma = tarayıcıda gezinme: izin kapısı gerekmez, pencere içinde kalır.
+            from modules import pc_hands
+            address = pc_hands.type_address_bar(str(a.get("window") or "chrome"), str(a.get("text") or ""))
+            if address.get("status") != "done":
+                return address["text"]
+            enter = pc_hands.press_enter(str(a.get("window") or "chrome"))
+            return enter["text"] if enter.get("status") != "done" else f"{address['text']} {enter['text']}"
+        case "screen_read_text":
+            # Ekrandaki yazıyı okumak da yalnız okumadır.
+            from modules import pc_vision
+            words = pc_vision.read_screen()
+            if not words:
+                return "Ekrandaki yazıyı okuyamadım."
+            first = [item["text"] for item in words[:12]]
+            return "Ekranda şunlar yazıyor: " + ", ".join(first)
         case "screen_controls":
             # 2. dilim: pencere içini okumak da yalnız okumadır; model çağrılmaz.
             from modules import pc_awareness
