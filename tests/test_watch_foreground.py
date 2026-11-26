@@ -34,3 +34,28 @@ class Foreground(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyForeground(unittest.TestCase):
+    """Görev çubuğu/Shell_Flyout gibi başlıksız pencereler aday üretmemeli."""
+
+    def test_empty_titles_fall_back_to_owner(self):
+        class Fake:
+            @staticmethod
+            def GetForegroundWindow():
+                return 5
+
+            @staticmethod
+            def GetWindowText(handle):
+                return "Hesap Makinesi" if handle == 9 else ""
+
+            @staticmethod
+            def GetAncestor(handle, flag):
+                return 0
+
+            @staticmethod
+            def GetWindow(handle, flag):
+                return 9
+
+        with patch.dict("sys.modules", {"win32gui": Fake}):
+            self.assertEqual(pc_autonomy_queue.foreground_window(), "Hesap Makinesi")
