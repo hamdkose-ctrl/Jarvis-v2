@@ -138,8 +138,12 @@ def foreground_window() -> str:
         return ""
 
 
-def watch_tick(runtime=None) -> list[dict]:
-    """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır."""
+def watch_tick(runtime=None, *, hour=None) -> list[dict]:
+    """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır.
+
+    `hour` yalnız testler içindir: duvar saatine bağlı testler CI'da farklı saatte
+    düşüyordu (sessiz saat 22–08). Üretimde None → gerçek saat kullanılır.
+    """
     from modules import awareness_watch
     # Ayarın tek sahibi `config.load_settings`; canlı kusur (25 Kasım): varsayılan
     # `profile.settings` diye bir alan yok, bu yüzden uyanıklık hiç açılamıyordu.
@@ -154,7 +158,7 @@ def watch_tick(runtime=None) -> list[dict]:
     state = {"window": foreground_window()}
     # Mail/takvim geri geldi (kullanıcı isteği 26 Kasım 16:5x): "bir şey olduğunda söylesin".
     state.update(_inbox_and_calendar())
-    items = awareness_watch.candidates(state, seen=_SEEN,
+    items = awareness_watch.candidates(state, seen=_SEEN, hour=hour,
                                        quiet=awareness_watch.quiet_bounds(settings))
     # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
     # gibi zaten gözünün önünde olan şeyler konuşulmaz; yalnız günlüğe yazılır.

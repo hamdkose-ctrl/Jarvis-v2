@@ -32,7 +32,7 @@ class Sources(unittest.TestCase):
              mock.patch("modules.google_api.connected", return_value=True), \
              mock.patch("modules.google_api.unread_count", return_value=2), \
              mock.patch("modules.google_api.day_events", return_value=[(soon, "toplantı")]):
-            items = pc_autonomy_queue.watch_tick(None)
+            items = pc_autonomy_queue.watch_tick(None, hour=12)
         kinds = {item["kind"] for item in items} if items else set()
         self.assertTrue(kinds & {"mail", "calendar", "window"})
 
