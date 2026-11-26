@@ -78,6 +78,17 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
     (re.compile(r"([a-z0-9 ]+?)[’']?(?:[ny])?[dt][ae]\s+(.+?)\s+(?:alanina|kutusuna|yerine)\s+(.+?)\s+yaz"),
      ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': m.group(2).strip(),
                             'text': m.group(3).strip()})),
+    # "not defterine merhaba yaz": alan adı söylenmese de pencere adı verilmişse
+    # uygulamaya yazılır (canlı kusur 26 Kasım: "not defterine merhaba yaz" → "Not aldım").
+    # Yalnız bilinen uygulama adı + hâl eki: "not defterine merhaba yaz".
+    # Uygulama adı tanınmıyorsa kalıp devreye girmez (canlı kusur 26 Kasım:
+    # "not defterine merhaba yaz" → "Not aldım" diyordu; "bana bir şiir yaz" ise
+    # yanlışlıkla pencere adı sanılmamalı).
+    (re.compile(r"(not defteri|notepad|hesap makinesi|calculator|chrome|edge|firefox|"
+                r"word|excel|outlook|spotify|discord|telegram|whatsapp|paint)"
+                r"(?:[ny]?[dt][ae]|[ny][ae])\s+(.+?)\s+yaz"),
+     ('pc_type', lambda m: {'window': m.group(1).strip(), 'target': '',
+                            'text': m.group(2).strip()})),
     # --- arama sonucuna tıklama (ekrandaki yazı) ---
     (re.compile(r"(?:ekranda\s+|ekrandaki\s+)?(.+?)\s+sonucuna\s+(?:tikla|bas)"),
      ('pc_click_result', lambda m: {'query': m.group(1).strip()})),

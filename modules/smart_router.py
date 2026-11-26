@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from typing import Any, Callable, Protocol
 import json
 import hashlib
+import logging
 from pathlib import Path
 import re
 import threading
@@ -15,6 +16,8 @@ import requests
 from config import DATA_DIR
 from modules import privacy, provider_privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
+
+log = logging.getLogger("jarvis.smart_router")
 
 _LOCK = threading.RLock()
 _HEALTH = {}
@@ -811,6 +814,10 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                         raise
                     except Exception as exc:
                         _record_failure('modules/smart_router.py:response_validation')
+                        # Canlı kusur (26 Kasım 13:40): 20,8 sn süren turda hangi alanın
+                        # uymadığı görülemiyordu; nedeni kısaca yaz (metin değil, tip+mesaj).
+                        log.warning("yanıt sözleşmeye uymadı: %s | %s",
+                                    type(exc).__name__, str(exc)[:240])
                         raise ResponseValidationError('Model yanıtı istenen sözleşmeyi karşılamadı.') from exc
                 _check_request(request)
                 attempt.update(ok=True,state='completed',seconds=round(time.monotonic()-started,2))

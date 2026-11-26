@@ -1844,3 +1844,15 @@ D
 - **Yeni:** `pc_hands.press_key(window, key, times)` — `tab/enter/down` eşlemesi; bilinmeyen tuşta **uydurmadan** `unsupported`. `pc_task` son işlemesi (`_with_field_tabs`) art arda iki `pc_type` adımı arasına `pc_key: tab` koyar.
 - **Ölçüm:** "not defterinde ad alanına Ahmet yaz, sonra telefon alanına 0555 yaz" → `pc_type, pc_key, pc_type`; tek alanlık komutta Tab **yok**.
 - **Kanıt:** `FieldTabs` (3 yeni test) + `test_pc_task` + `test_pc_hands` + güvenlik bekçisi → 147 test (1 bilinen yerel hata: `test_brain_pr10c_final_cutover`, temiz main'de de aynı).
+
+
+### 2026-11-26 — Canlı komut karnesi: 3 bulgu
+
+Kullanıcı canlıda üç komut verdi (13:39–13:42). Kanıtlar `~/.jarvis/history/hamdi.jsonl`:
+- **"wathsaap tan mesaj at bitanem merhba yaz"** → doğru: "Rehberinde 'Bitanem' diye kayıtlı kişi yok; göndermedim." **Kök neden:** WhatsApp adı telefon rehberinde değil; ajan WhatsApp'ın kendi listesine bakmıyor.
+- **"not defterine merhaba yaz"** → **yanlış**: "Not aldım: merhaba" (not oluşturma). Düzeltildi: bilinen uygulama adı + hâl eki + "yaz" → `pc_type` (alan adı gerekmez). "bana bir şiir yaz", "bugüne not yaz" kalıba **girmez** (yanlış pencere sanılmaz).
+- **"ekranda ne var"** → doğru (önde msedge, açık programlar listesi).
+
+Ayrıca iki teknik bulgu loglandı:
+- 13:39:23 Gemini **400 Bad Request** — gövde log'a düşmüyordu → artık `log.warning("gemini istek reddedildi: …")`.
+- 13:40:21 **ResponseValidationError** ve tur 20,8 sn — hangi alanın uymadığı görülemiyordu → artık tip+mesaj yazılıyor.
