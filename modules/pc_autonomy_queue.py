@@ -121,7 +121,18 @@ def foreground_window() -> str:
     "pencere yok" döndüğü için uyanıklık hiç aday üretmiyordu."""
     try:
         import win32gui
-        return str(win32gui.GetWindowText(win32gui.GetForegroundWindow()) or "")
+        handle = win32gui.GetForegroundWindow()
+        title = str(win32gui.GetWindowText(handle) or "")
+        if title:
+            return title
+        # Başlıksız ön pencere (görev çubuğu/Shell_Flyout gibi): kök sahibine çık.
+        GA_ROOT = 2
+        root = win32gui.GetAncestor(handle, GA_ROOT)
+        title = str(win32gui.GetWindowText(root) or "") if root else ""
+        if title:
+            return title
+        owner = win32gui.GetWindow(handle, 4)      # GW_OWNER
+        return str(win32gui.GetWindowText(owner) or "") if owner else ""
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:foreground_window")
         return ""
