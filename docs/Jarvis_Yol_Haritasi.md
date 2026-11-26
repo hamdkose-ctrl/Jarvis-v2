@@ -1946,3 +1946,11 @@ Ayrıca iki teknik bulgu loglandı:
 - **Düzeltme:** kod ayrıldı — **`ACTION_CAPABILITY_UNKNOWN`** (modelin uydurduğu yetenek) ve `CAPABILITY_NOT_OFFERED` tek düzeltici tekrarı tetikler; **`ACTION_REFERENCE_INVALID`** (yuva/atıf hatası) tetiklemez, çünkü o gerçek komutlarda çıkar ve "tek çağrı" garantisi korunmalı. `retry_after_invalid_action()` + `CHAT_CORRECTION` ile **tek** tekrar: modele "eylem gerekmiyorsa `operation=\"chat\"`, `actions=[]`" denir ve yanıt **yeniden doğrulanır**. İkinci ret aynen kalır (sonsuz döngü yok). Her deneme tanılamaya yazılır.
 - **Kanıt:** `test_brain_chat_retry` (4) + `test_brain_goal_holdout` + `test_brain_output_diagnose_holdout` + `test_brain_ledger_closure` + `test_brain_03_observation_parity` (tek çağrı garantisi korunuyor) + `test_cleanup_security` → 77 test (1 bilinen yerel hata `test_brain_pr10c_final_cutover`, temiz main'de de aynı).
 - **Açık:** canlı tur ölçümü (kullanıcı "İstanbul dersin" yazınca cevap gelmeli) — bir sonraki adımda doğrulanacak.
+
+
+### 2026-11-26 — C · Ölçüm etiketi (kota kaydında "bilinmiyor" biter)
+
+- **Sorun (ölçüldü):** 753 isteğin **179'u (%23,8)** `s = "bilinmiyor"` — hangi adımın kotayı yaktığı görünmüyordu. Etiket yığın taramasıyla tahmin ediliyordu; iç içe/lambda yollarda çözülemiyor.
+- **Düzeltme:** `usage_meter.caller_scope(label)` (ContextVar) + `smart_router._callsite_label()`; `run_request` çağrı sahibini (`brain_model_understanding.propose` gibi) **açıkça** etiketler. Yığın taraması yalnız yedek. `ModelRequest.caller` alanı: isteyen çağrı kendi etiketini verebilir.
+- **Kanıt:** `test_quota_caller_tag` (6) — kapsam taramayı ezer, kapsam geri döner, `record()` satırına etiket yazılır, `run_request` ağ olmadan doğru etiketi verir; + `test_quota_routing` + `test_cleanup_security`.
+- **Kabul (7 gün sonra ölçülecek):** "bilinmiyor" oranı **%23,8 → %0**.
