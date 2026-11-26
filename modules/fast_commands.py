@@ -94,6 +94,9 @@ _PATTERNS: tuple[tuple[re.Pattern, object], ...] = (
      ('pc_click_result', lambda m: {'query': m.group(1).strip()})),
     (re.compile(r"ekrandaki\s+(.+?)\s+(?:yaziya|yazisina|linke|basliga)\s+(?:tikla|bas)"),
      ('pc_click_result', lambda m: {'query': m.group(1).strip()})),
+    # WhatsApp onayı: "gönder" / "onaylıyorum" → bekleyen mesaj gider (onay kullanıcıdan).
+    (re.compile(r"^(?:whatsapp ?t?[ae]n?\s+)?(gonder|gönder|onayla|onayliyorum|onaylıyorum)$"),
+     ('whatsapp_send', {})),
     # --- zamanlı iş (otonomi kuyruğu) ---
     # --- otonomi ana anahtarı ---
     (re.compile(r"(otonomiyi|otonomi yi)?\s*(ac|aç|baslat|başlat)"), ('autonomy_on', {})),

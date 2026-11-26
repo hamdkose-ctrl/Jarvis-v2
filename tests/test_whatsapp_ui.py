@@ -64,5 +64,35 @@ class Search(unittest.TestCase):
         self.assertNotIn(("enter",), pressed)          # gönderme yok
 
 
+class Wiring(unittest.TestCase):
+    """Rehberde numara yoksa WhatsApp arayüzünde aranır; onay iki adımlı."""
+
+    def test_missing_phone_searches_whatsapp_instead_of_giving_up(self):
+        from modules import messaging
+        with mock.patch.object(whatsapp_ui, "open_search", return_value={"status": "done"}) as search,              mock.patch.object(whatsapp_ui, "remember_pending") as remember:
+            answer = messaging.send_whatsapp("bitanem", "merhaba")
+        self.assertTrue(search.called)
+        self.assertTrue(remember.called)
+        self.assertIn("gönder", answer)
+
+    def test_confirm_command_is_recognised(self):
+        from modules import fast_commands
+        for phrase in ("gönder", "onaylıyorum"):
+            self.assertEqual(fast_commands.resolve(phrase), ("whatsapp_send", {}))
+
+    def test_other_commands_are_not_hijacked(self):
+        from modules import fast_commands
+        self.assertNotEqual(fast_commands.resolve("youtube aç"), ("whatsapp_send", {}))
+
+    def test_pending_round_trip_and_send_needs_confirm(self):
+        whatsapp_ui.remember_pending("bitanem", "merhaba")
+        try:
+            self.assertEqual(whatsapp_ui.pending()["text"], "merhaba")
+            self.assertEqual(whatsapp_ui.send_pending()["status"], "needs_confirm")
+        finally:
+            whatsapp_ui.clear_pending()
+        self.assertIsNone(whatsapp_ui.pending())
+
+
 if __name__ == "__main__":
     unittest.main()

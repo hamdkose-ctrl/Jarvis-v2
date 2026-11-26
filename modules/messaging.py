@@ -200,6 +200,15 @@ def _send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
     if not phone:
         # Numara yoksa hiçbir uygulama açılmaz, arama kutusu kullanılmaz: ad benzerliğiyle
         # hedef seçmek yanlış kişiye mesaj riskidir (kaldırılan GUI yolu).
+        # Numarası yok ama WhatsApp'ta kayıtlı olabilir (canlı bulgu 26 Kasım 14:13:
+        # "Bitanem" rehberde yok, WhatsApp'ta var). Kişiyi SEÇMEYİZ: arayüzde arar,
+        # doğru sohbeti kullanıcı seçer; mesaj onay verilmeden gitmez.
+        from modules import whatsapp_ui
+        arama = whatsapp_ui.open_search(name)
+        if arama.get("status") == "done":
+            whatsapp_ui.remember_pending(name, text)
+            return (f"Rehberde “{name}” yok; WhatsApp’ta arattım. Ekranda çıkan sohbetlerden "
+                    f"doğru olanı sen aç, sonra “gönder” de: “{text}” mesajını yazıp göndereyim mi?")
         return f"{name} için kayıtlı bir numara yok; mesajı göndermedim."
     # Son güvenlik sınırı: çözümleme normalize etmiş olsa bile URI'ye yalnız KANONİK numara
     # girer. Ham değer (boşluk, +, enjeksiyon karakteri, rakam dışı metin) burada reddedilir;

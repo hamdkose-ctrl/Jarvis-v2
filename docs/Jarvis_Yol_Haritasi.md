@@ -1866,3 +1866,12 @@ Ayrıca iki teknik bulgu loglandı:
 - **Canlı ölçüm (26 Kasım):** pencere bulundu (`handle 2164312`, kapalıyken bile), `open_search("bitanem")` → `done`, ekran OCR'ında **"bitanem"** görüldü. Gönderme **yapılmadı** (onay yok).
 - **Kanıt:** `test_whatsapp_ui` (6) — pencere bulma, onaysız gönderimin reddi, aramanın Enter basmadığı.
 - **Kalan (dürüst):** canlı komut hattına bağlanmadı; "hangi sohbet?" onay turu ve gönderme onayı engine'e bağlanacak.
+
+
+### 2026-11-26 — WhatsApp hattı bağlandı (isimle mesaj)
+
+- **Önce:** "whatsapp tan mesaj at bitanem merhaba yaz" → "Rehberinde yok; göndermedim" (numara yok → çıkış).
+- **Şimdi:** numara yoksa `messaging.send_whatsapp` → `whatsapp_ui.open_search(name)` ile **WhatsApp arayüzünde arar**, mesajı **bekleyen** olarak saklar ve şunu söyler: *"Rehberde 'bitanem' yok; WhatsApp'ta arattım. Ekrandaki sohbetlerden doğru olanı sen aç, sonra 'gönder' de: 'merhaba' mesajını yazıp göndereyim mi?"*
+- **Onay ucu:** "gönder"/"onaylıyorum" → `whatsapp_send` → `whatsapp_ui.send_pending(confirm=True)` → panodan yapıştır + Enter; başarılıysa bekleyen kayıt silinir.
+- **Güvenlik:** kişi **hiçbir zaman otomatik seçilmez** (yanlış kişiye mesaj riski); tek adımda gönderim yok; arama Enter basmaz.
+- **Kanıt:** `test_whatsapp_ui` (10) + `test_fast_commands` + `test_brain_orphan_dispatch_guard` + `test_cleanup_security` → 130 test (1 bilinen yerel hata, temiz main'de de aynı).

@@ -13,6 +13,7 @@ Güvenlik sınırı (kaldırılan eski GUI yolundan farkı):
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from modules.diagnostics import record_failure as _record_failure
 
@@ -88,6 +89,57 @@ def open_search(name: str) -> dict:
         return {"status": "failed", "text": "WhatsApp'ta arama yapamadım."}
     return {"status": "done", "text": f"WhatsApp'ta “{query}” arattım.",
             "next": "Ekrandaki sonuçlardan hangisi doğru kişi? Onaylamadan mesaj yazmam."}
+
+
+PENDING_FILE = Path.home() / ".jarvis" / "bellek" / "whatsapp-bekleyen.json"
+
+
+def _pending_path():
+    return PENDING_FILE
+
+
+def remember_pending(name: str, text: str) -> None:
+    """Onay bekleyen mesajı saklar (kişi + metin)."""
+    import json
+    path = _pending_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"name": name, "text": text}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        _record_failure("modules/whatsapp_ui.py:remember_pending")
+
+
+def pending() -> dict | None:
+    import json
+    try:
+        data = json.loads(_pending_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except Exception:
+        _record_failure("modules/whatsapp_ui.py:pending")
+        return None
+    return data if isinstance(data, dict) and data.get("text") else None
+
+
+def clear_pending() -> None:
+    try:
+        _pending_path().unlink(missing_ok=True)
+    except Exception:
+        _record_failure("modules/whatsapp_ui.py:clear_pending")
+
+
+def send_pending(*, confirm: bool = False) -> dict:
+    """Onay verilirse bekleyen mesajı yazar ve gönderir."""
+    data = pending()
+    if not data:
+        return {"status": "empty", "text": "Bekleyen bir WhatsApp mesajı yok."}
+    if not confirm:
+        return {"status": "needs_confirm",
+                "text": f"“{data['name']}” için “{data['text']}” mesajını göndereyim mi?"}
+    result = send_text(str(data["text"]), confirm=True)
+    if result["status"] == "done":
+        clear_pending()
+    return result
 
 
 def send_text(text: str, *, confirm: bool = False) -> dict:
