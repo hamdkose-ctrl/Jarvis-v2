@@ -217,3 +217,22 @@ class Chitchat(unittest.TestCase):
         body = source[source.index("def _fast_command_turn"):]
         self.assertIn("chitchat(cmd)", body)
         self.assertLess(body.index("chitchat(cmd)"), body.index("fast_commands.compute(cmd)"))
+
+
+class WindowTypingWithoutField(unittest.TestCase):
+    """Pencere adı verilmişse alan adı olmadan da o pencereye yazılır (canlı kusur 26 Kasım)."""
+
+    def test_notepad_gets_the_text(self):
+        from modules import fast_commands
+        self.assertEqual(fast_commands.resolve("not defterine merhaba yaz"),
+                         ("pc_type", {"window": "not defteri", "target": "", "text": "merhaba"}))
+
+    def test_unknown_app_is_not_treated_as_window(self):
+        from modules import fast_commands
+        self.assertIsNone(fast_commands.resolve("bana bir şiir yaz"))
+        self.assertIsNone(fast_commands.resolve("bugüne not yaz"))
+
+    def test_whatsapp_message_is_not_a_pc_type(self):
+        from modules import fast_commands
+        resolved = fast_commands.resolve("whatsapp tan mesaj at bitanem merhaba yaz")
+        self.assertNotEqual(resolved[0] if resolved else None, "pc_type")
