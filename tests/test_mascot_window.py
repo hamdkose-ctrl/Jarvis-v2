@@ -167,6 +167,16 @@ class MascotLogicTests(unittest.TestCase):
         self.assertIsNot(frames["thinking"], frames["working"])
         self.assertEqual(len(frames["working"]), 36)
 
+    def test_greeting_shows_only_while_idle_and_until_the_timer_runs_out(self):
+        # Açılışta bir kez selamlama; konuşma sürerken selamlama araya girmez.
+        self.assertEqual(mascot_window.greeting_state("idle", 100.0, 99.0), "greeting")
+        self.assertEqual(mascot_window.greeting_state("idle", 100.0, 100.0), "idle")
+        self.assertEqual(mascot_window.greeting_state("idle", 100.0, 140.0), "idle")
+        self.assertEqual(mascot_window.greeting_state("idle", 0.0, 5.0), "idle")
+        for state in ("listening", "thinking", "working", "speaking"):
+            self.assertEqual(mascot_window.greeting_state(state, 100.0, 5.0), state)
+        self.assertIn("greeting", mascot_window.CLIPS)
+
     def test_every_state_finds_its_frames_in_the_preload_dictionary(self):
         # preload() durum adıyla anahtarlar; _show_clip klip adıyla ararsa pencere hep gizli kalır.
         frames = mascot_window.preload()
