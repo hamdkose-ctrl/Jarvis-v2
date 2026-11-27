@@ -122,8 +122,8 @@ def dispatch(context, command, normalized):
             session.speech_override = desktop_agent.spoken(owner)
             return result
 
-    from modules import usage_meter, smart_router, system_doctor
-    for admin in (usage_meter.handle, smart_router.handle, system_doctor.handle):
+    from modules import usage_meter, smart_router, system_doctor, turn_metrics
+    for admin in (usage_meter.handle, smart_router.handle, system_doctor.handle, turn_metrics.handle):
         result = admin(owner, command)
         if result is not None:
             return result

@@ -26,6 +26,16 @@ def emit(runtime, kind: str, text: str = "", extra: str = "") -> None:
                 learning.observe(owner, text)
             except Exception:
                 runtime._record_failure('main.py:emit')
+        # Tur ölçümü: istek alındığı an ile yanıt yazıldığı an arasındaki süre; mesaj metni
+        # yazılmaz. Ölçüm hatası turu etkilemez (modules/turn_metrics.py).
+        try:
+            from modules import turn_metrics
+            if kind == "user":
+                turn_metrics.start(runtime._cur_rid, owner.slug, extra)
+            else:
+                turn_metrics.finish(runtime._cur_rid, "ok")
+        except Exception:
+            runtime._record_failure('main.py:emit')
         if runtime._guest is not None and owner.slug != runtime.pc_profile().slug:
             return       # başka kullanıcının (telefondaki) konuşması bilgisayar ekranında görünmez
     elif kind == "step":

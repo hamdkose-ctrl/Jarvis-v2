@@ -1,3 +1,10 @@
+### 2026-11-28 — T13: tur ölçümü (süre + sonuç, metin yok)
+
+- **Ne:** "Jarvis ne kadar sürdü, kaç tur, kaçı hata" sorusunun yazılı cevabı yoktu; süreler yalnız dağınık `runtime.log.info` satırlarında duruyordu. Artık her tur kayıtlı: isteğin alındığı an ile yanıtın yazıldığı an arasındaki süre, kaynak (yazı/ses/fotoğraf) ve sonuç.
+- **Yapılan:** `modules/turn_metrics.py` (kullanıcıya özel `~/.jarvis/tur/<kullanıcı>.jsonl`, 2 MB'ta arşiv, 14 gün saklama, ölçüm hatası turu etkilemez, **mesaj metni yazılmaz**). Bağlantı: `modules/engine_output.py` içindeki tek olay noktası (`user` → başlat, `assistant` → bitir) ve `modules/command_manager.py` admin zinciri. `bugün kaç tur` / `tur ölçümü` komutu modele gitmeden özet verir.
+- **Ölçülen:** `tests.test_turn_metrics` **9 OK** (süre, tekrar başlatma, bozuk satır, gün ayrımı, rotasyon, komut). Gerçek makine smoke'u (geçici veri klasörü): 300 ms'lik tur "1 tur, ortalama 300 ms, 1 cevap" olarak özetlendi. Architecture Guard OK; kardeş ölçüm testleri (`tests.test_baseline`) ve ön kapı yetki testleri **93 OK**.
+- **Dürüst sınır:** Süre **sesin duyulduğu an değil**, yanıtın yazıldığı andır; ses gecikmesi `voice_runtime`'ın `speech_pace` satırında kalıyor. İptal/hata sonucu şu an yalnız `finish(outcome=...)` çağrısıyla yazılır; tur döngüsündeki iptal dalı henüz bu çağrıyı yapmıyor, yani iptaller bir süre "cevap" görünebilir. Onay sayısı ve sahne bazlı kırılım bu PR'da yok.
+
 ### 2026-11-28 — T12: kapsam filtresi — beş kullanıcı senaryosu + PR şablonu
 
 - **Ne:** İş seçimi kişisel tercihe kalınca kapsam dağılıyordu. Artık her PR, Jarvis'in çözdüğü **beş kullanıcı senaryosundan** birine hizmet etmek ya da onları mümkün kılan gerçek bir bağımlılığı kaldırmak zorunda. Hizmet etmeyen iş yapılmıyor; silinmiyor, kenara yazılıyor.
