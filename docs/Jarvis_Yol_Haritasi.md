@@ -1,3 +1,8 @@
+### 2026-11-27 — T10: maskot açılışta selamlıyor (2,4 sn), sonra canlı duruma dönüyor)
+
+- **Ne:** Masaüstü maskotu açılırken artık bir kez `greeting` (selamlama) klibini gösteriyor: `greeting_state()` saf yardımcısı eklendi, `GREETING_SECS = 2.4`, `open()` ve `_tick_state()` aynı yardımcıyı kullanıyor. Selamlama yalnız **boştayken** devreye girer; uygulama konuşma sırasında açılırsa doğrudan gerçek durum (dinleme/düşünme/çalışma) gösterilir.
+- **Ölçülen:** Canlı pencere denemesi (ana iş parçacığında Tk kökü varken): t=1,0 sn → durum `greeting`, 36 fotoğraf (selamlama klibi); t=3,5 sn → durum `idle`, 45 fotoğraf (boşta). Odaklı maskot testleri **35 OK** (yeni: `greeting_state` süre/boşta/konuşma kuralları).
+- **Dürüst sınır:** Selamlama süresi sabit 2,4 sn; selamlama klibi tek tur oynar (döngü yok). Ekran görüntüsüyle kare kare doğrulanmadı, ölçüm pencere durumundan yapıldı. DPI %125'te pencere mantıksal 160×206, ekranda 200×258 çiziliyor.
 ### 2026-11-27 — T9: maskot penceresi görünür oldu (Tk fotoğrafı yanlış yorumlayıcıdaydı)
 
 - **Ne:** `_photo()` içinde `ImageTk.PhotoImage(...)` **master verilmeden** kuruluyordu. Uygulamanın ana iş parçacığında Tk kökü olduğu için varsayılan kök ana yorumlayıcıya gidiyor, maskot iş parçacığındaki pencere Win32 tarafında `WS_VISIBLE` almıyordu (`IsWindowVisible=0`). Fotoğraf artık `master=self.window` ile maskotun kendi yorumlayıcısına bağlanıyor.

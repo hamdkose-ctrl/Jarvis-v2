@@ -22,9 +22,11 @@ from modules.diagnostics import record_failure as _record_failure
 
 import sys
 import threading
+import time
 from pathlib import Path
 
 BASE_SIZE = (160, 206)          # mevcut webui kliplerinin kare boyutu
+GREETING_SECS = 2.4             # açılışta bir kez selamlama; boştaysa
 MAX_SCALE = 3.0
 FPS = 30
 KEY_HEX = "#010203"             # saydam sayılacak renk
@@ -71,6 +73,15 @@ def display_state(state, flags=None) -> str:
         return "idle"
     name = str(state or "idle").strip().lower()
     return name if name in STATES else "idle"
+
+
+def greeting_state(wanted: str, until: float, now: float) -> str:
+    """Açılışta kısa selamlama. Yalnız boştayken; süre dolunca istenen duruma döner."""
+    if wanted != "idle":
+        return wanted
+    if until and now < until:
+        return "greeting"
+    return wanted
 
 
 def dpi_scale(ppi) -> float:
@@ -313,6 +324,7 @@ class MascotWindow:
         self._frames: dict = {}
         self._photos: dict = {}
         self._state = "idle"
+        self._greeting_until = 0.0
         self._frame_index = 0
         self._drag = None
         self._moved = False
@@ -375,7 +387,9 @@ class MascotWindow:
             widget.bind("<B1-Motion>", self._motion)
             widget.bind("<ButtonRelease-1>", self._release)
             widget.bind("<Button-3>", self._menu)
-        self._state = display_state(getattr(self.runtime.hub, "state", "idle"), {})
+        wanted = display_state(getattr(self.runtime.hub, "state", "idle"), {})
+        self._greeting_until = time.monotonic() + GREETING_SECS
+        self._state = greeting_state(wanted, self._greeting_until, time.monotonic())
         self._show_clip(self._state)
         self._apply_click_through()
         self._tick_state()
@@ -418,10 +432,11 @@ class MascotWindow:
             self.close()
             return
         try:
-            state = display_state(self.runtime.hub.state, dict(self.runtime.engine.flags))
+            wanted = display_state(self.runtime.hub.state, dict(self.runtime.engine.flags))
         except Exception:       # noqa: BLE001
             _record_failure("modules/mascot_window.py:_tick_state")
-            state = "idle"
+            wanted = "idle"
+        state = greeting_state(wanted, self._greeting_until, time.monotonic())
         if state != self._state:
             self._state = state
             self._show_clip(state)
