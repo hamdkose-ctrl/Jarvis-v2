@@ -45,6 +45,7 @@
         <section class="reactor" aria-label="Jarvis çekirdeği">
           <div class="reactor-state"><span aria-hidden="true">◉</span><span id="core-state">Hazır</span><i aria-hidden="true"></i></div>
           <canvas id="reactor-canvas" width="420" height="320" aria-hidden="true"></canvas>
+          <img class="mascot" alt="" aria-hidden="true" decoding="async" hidden>
           <img id="home-media" hidden alt="Canlı önizleme">
           <div class="reactor-actions"><button class="btn alert halt" id="halt" type="button">Durdur</button><button class="btn alert round" id="mic-toggle" data-act="mic" type="button" aria-label="Konuş">${ic("mic")}</button></div>
         </section>
@@ -326,6 +327,8 @@
       else img.removeAttribute('src');
       img.hidden = !valid;
       find('#reactor-canvas').hidden = valid;
+      const mascot = find('.reactor .mascot');
+      if (mascot) mascot.hidden = valid;          // canlı önizleme maskotu örter
     }
 
     async function pollPreview() {
