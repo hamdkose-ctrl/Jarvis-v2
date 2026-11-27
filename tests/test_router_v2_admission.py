@@ -81,8 +81,8 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(llm.current_user(), "before")
 
     def test_plan_uses_request_owners_real_model_preference_and_restores_reader(self):
-        user_models.save_choice("alice", provider="auto", groq_model="model-a")
-        user_models.save_choice("bob", provider="auto", groq_model="model-b")
+        user_models.save_choice("alice", provider="auto", groq_model="openai/gpt-oss-120b")
+        user_models.save_choice("bob", provider="auto", groq_model="openai/gpt-oss-20b")
         router.configure('alice', gemini_scopes=['conversation'])
         llm.set_user_context("bob")
         self.addCleanup(llm.set_user_context, None)
@@ -92,7 +92,7 @@ class AdmissionTests(unittest.TestCase):
             patch("modules.cloudflare_chat.configured", return_value=False),
         ):
             plan = router.plan(router.ModelRequest(owner="alice"))
-        self.assertEqual(plan.candidates[0].model, "model-a")
+        self.assertEqual(plan.candidates[0].model, "openai/gpt-oss-120b")
         self.assertEqual(llm.current_user(), "bob")
 
     def test_model_wait_carries_foreground_or_background_class_into_research(self):
