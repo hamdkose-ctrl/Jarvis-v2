@@ -8,6 +8,10 @@ Windows are rolling 60s and 24h (conservative).
 No keys, user text or model responses are stored. This is not a provider billing
 hard stop, and neuron usage is not currently metered. Token policies require a
 trusted caller-provided upper bound for total input+output, not guessed tokens.
+
+A policy row is one exact key plus the fields listed in POLICY_FIELDS. A missing
+required field is never filled in and an unknown field is refused, so a half-copied
+row from another model or provider blocks instead of quietly applying.
 """
 from __future__ import annotations
 
@@ -182,34 +186,81 @@ class ReservationExhausted(RuntimeError):
         super().__init__('Yerel model istek rezervasyon limiti doldu.')
 
 
-def _policy(provider: str, model: str, now: float) -> tuple[int, int, int | None, int | None] | None:
-    row = POLICIES.get((provider, model))
-    if row is None:
-        return None
+# (T3) POLICIES şeması: alanlar burada yazılır; eksik alan **doldurulmaz**, uydurulmaz.
+# Yeni alan eklemek bu sözlüğü değiştirmeyi gerektirir; bilinmeyen alan fail-closed'dur.
+POLICY_FIELDS = {
+    'source_url': 'Yayımlanmış resmî limit sayfası: https, host zorunlu, kimlik bilgisi yasak.',
+    'verified_at': 'Geliştiricinin sayfayı okuduğu an (epoch sn; 60 sn\'den fazla gelecek olamaz).',
+    'expires_at': 'Doğrulamanın geçerlilik sonu (epoch sn; verified_at + en çok 31 gün).',
+    'rpm': 'Dakikadaki istek: 1..5000.',
+    'rpd': 'Gündeki istek: rpm..500000.',
+    'tpm': 'Dakikadaki token: 1..50.000.000 (yazılırsa tpd de zorunlu).',
+    'tpd': 'Gündeki token: tpm..1.000.000.000 (yazılırsa tpm de zorunlu).',
+    'provider': 'İsteğe bağlı kimlik; yazılırsa POLICIES anahtarıyla eşleşmeli.',
+    'model': 'İsteğe bağlı kimlik; yazılırsa POLICIES anahtarıyla eşleşmeli.',
+}
+POLICY_REQUIRED = frozenset({'source_url', 'verified_at', 'expires_at', 'rpm', 'rpd'})
+POLICY_OPTIONAL = frozenset(POLICY_FIELDS) - POLICY_REQUIRED
+
+
+def validate_policy(provider, model, row, now):
+    """Şemayı uygular ve (rpm, rpd, tpm, tpd) döndürür; hiçbir alan doldurulmaz.
+
+    Ret nedeni tek bir "geçersiz" cümlesine sıkışmaz: eksik/yabancı alan, kimlik
+    uyuşmazlığı, kaynak, tarih ve limit ayrı ayrı söylenir; başka modelden kopyalanan
+    satır hangi alanda yanlış olduğunu göstererek durur (sessiz varsayılan yok).
+    """
     if not isinstance(row, dict):
-        raise ReservationUnavailable('Yerel kota politikası geçersiz.')
-    source = row.get('source_url')
+        raise ReservationUnavailable('Yerel kota politikası geçersiz: satır sözlük değil.')
+    missing = sorted(POLICY_REQUIRED - set(row))
+    if missing:
+        raise ReservationUnavailable('Yerel kota politikası eksik: ' + ', '.join(missing)
+                                     + '. Eksik alan doldurulmaz.')
+    unknown = sorted(str(field) for field in set(row) - set(POLICY_FIELDS))
+    if unknown:
+        raise ReservationUnavailable('Yerel kota politikası bilinmeyen alan taşıyor: '
+                                     + ', '.join(unknown) + '.')
+    for field, expected in (('provider', provider), ('model', model)):
+        if field in row and row[field] != expected:
+            raise ReservationUnavailable('Yerel kota politikası kimliği uyuşmuyor: '
+                                         + field + '=' + repr(row[field])
+                                         + ' ≠ ' + repr(expected) + '.')
+    source = row['source_url']
     try:
         uri = urlsplit(source) if isinstance(source, str) else None
         source_ok = bool(uri and uri.scheme == 'https' and uri.hostname
                          and not uri.username and not uri.password)
     except ValueError:
         source_ok = False
-    verified, expires = row.get('verified_at'), row.get('expires_at')
+    if not source_ok:
+        raise ReservationUnavailable('Yerel kota kaynağı doğrulanmadı: source_url https, '
+                                     'hostlu ve kimliksiz olmalı.')
+    verified, expires = row['verified_at'], row['expires_at']
     valid_date = (type(verified) in (int, float) and type(expires) in (int, float)
                   and math.isfinite(verified) and math.isfinite(expires)
                   and 0 < verified <= now + 60 and verified < expires
                   and now < expires and expires - verified <= 31 * 86400)
-    rpm, rpd = row.get('rpm'), row.get('rpd')
-    valid_limits = (type(rpm) is int and type(rpd) is int
-                    and 1 <= rpm <= 5000 and rpm <= rpd <= 500000)
+    if not valid_date:
+        raise ReservationUnavailable('Yerel kota geçerliliği doğrulanmadı: verified_at ≤ now, '
+                                     'expires_at gelecekte ve en çok 31 gün sonra olmalı.')
+    rpm, rpd = row['rpm'], row['rpd']
+    if not (type(rpm) is int and type(rpd) is int
+            and 1 <= rpm <= 5000 and rpm <= rpd <= 500000):
+        raise ReservationUnavailable('Yerel kota istek limitleri doğrulanmadı: 1≤rpm≤rpd≤500000.')
     tpm, tpd = row.get('tpm'), row.get('tpd')
-    if tpm is not None or tpd is not None:
-        valid_limits = (valid_limits and type(tpm) is int and type(tpd) is int
-                        and 1 <= tpm <= 50_000_000 and tpm <= tpd <= 1_000_000_000)
-    if not (source_ok and valid_date and valid_limits):
-        raise ReservationUnavailable('Yerel kota kaynağı veya geçerliliği doğrulanmamış.')
+    if (tpm is None) != (tpd is None):
+        raise ReservationUnavailable('Yerel kota token limitleri yarım: tpm ve tpd birlikte yazılır.')
+    if tpm is not None and not (type(tpm) is int and type(tpd) is int
+                                and 1 <= tpm <= 50_000_000 and tpm <= tpd <= 1_000_000_000):
+        raise ReservationUnavailable('Yerel kota token limitleri doğrulanmadı: 1≤tpm≤tpd≤1.000.000.000.')
     return rpm, rpd, tpm, tpd
+
+
+def _policy(provider: str, model: str, now: float) -> tuple[int, int, int | None, int | None] | None:
+    row = POLICIES.get((provider, model))
+    if row is None:
+        return None
+    return validate_policy(provider, model, row, now)
 
 def _window_wait(rows: list[tuple[float, int]], *, now: float, window: int,
                  max_requests: int, max_tokens: int | None, cost: int) -> int:
