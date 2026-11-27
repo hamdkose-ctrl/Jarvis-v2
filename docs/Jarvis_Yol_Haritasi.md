@@ -1,3 +1,10 @@
+### 2026-11-28 — T12: kapsam filtresi — beş kullanıcı senaryosu + PR şablonu
+
+- **Ne:** İş seçimi kişisel tercihe kalınca kapsam dağılıyordu. Artık her PR, Jarvis'in çözdüğü **beş kullanıcı senaryosundan** birine hizmet etmek ya da onları mümkün kılan gerçek bir bağımlılığı kaldırmak zorunda. Hizmet etmeyen iş yapılmıyor; silinmiyor, kenara yazılıyor.
+- **Yapılan:** `docs/Kullanici_Senaryolari.md` (S1 sabah brifingi, S2 yazışma, S3 dosya, S4 araştırma, S5 bilgisayarda iş; her biri için ölçülebilir kabul ve dürüst bugünkü durum) ve `.github/PULL_REQUEST_TEMPLATE.md` (kategori, senaryo, zorunlu ölçüm tablosu, doğrulama, risk/geri alma, roadmap satırı). Kategori kontenjanı: %70 kullanıcı işi, %20 zemin, %10 keşif (her 10 PR'da en çok 1).
+- **Ölçülen:** Belge PR'ı; çalışma zamanı ölçümü yok. Şablon 6 zorunlu bölüm ve 5 onay kutusu içeriyor; senaryo belgesi 5 senaryo + 6 satırlık dürüst durum tablosu.
+- **Dürüst sınır:** Kategori kuralını CI zorlamıyor; denetim PR incelemesinde yapılıyor. Belgenin söylediği "bugünkü durum" yol haritası kayıtlarına dayanıyor, her senaryo gerçek PC'de yeniden ölçülmedi.
+
 ### 2026-11-28 — T11: ses geri geldi (Piper ses paketi kurulum listesinde yoktu)
 
 - **Ne:** Kullanıcının gerçek turunda (`00:14:56`) yanıt yazıldı ama ses hiç çıkmadı: `OfflineVoiceUnavailable`. Kök neden: `piper-tts` **ne `requirements.lock.txt` içinde ne de kurulu ortamda** vardı; süreç içi Piper yolu `ImportError` ile sessizce düşüyor, CLI yolu da (`piper` komutu) bulunamıyordu. Ayrıca kabul ön kontrolü (`voice_acceptance.preflight`) yalnızca `shutil.which("piper")` baktığı için paket kurulu olsa bile sesi "kurulu değil" sayıyordu.
