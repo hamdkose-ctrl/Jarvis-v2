@@ -387,7 +387,8 @@ class MascotWindow:
     def _photo(self, frame):
         from PIL import ImageTk
 
-        return ImageTk.PhotoImage(key_flat(frame, self.size))
+        # master açıkça verilir: Tk kökü başka iş parçacığındaysa varsayılan kök yanlış yorumlayıcıya gider.
+        return ImageTk.PhotoImage(key_flat(frame, self.size), master=self.window)
 
     def _show_clip(self, state: str) -> None:
         clip = state_key(state)
