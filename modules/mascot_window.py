@@ -52,6 +52,18 @@ def clip_name(state: str) -> str:
     return CLIPS.get(name, CLIPS["idle"])
 
 
+def state_key(state: str) -> str:
+    """preload() sözlüğünün anahtarı: bilinen durum adı, bilinmeyen boşta."""
+    name = str(state or "idle").strip().lower()
+    return name if name in CLIPS else "idle"
+
+
+def frames_for(frames, state: str) -> list:
+    """Bir durumun kareleri. preload() durum adıyla anahtarlar, klip adıyla değil."""
+    frames = frames or {}
+    return frames.get(state_key(state)) or frames.get("idle") or []
+
+
 def display_state(state, flags=None) -> str:
     """Motor durumunu maskotun anlayacağı altı ada indirger (ikinci kaynak yok)."""
     flags = flags or {}
@@ -378,8 +390,8 @@ class MascotWindow:
         return ImageTk.PhotoImage(key_flat(frame, self.size))
 
     def _show_clip(self, state: str) -> None:
-        clip = clip_name(state)
-        frames = self._frames.get(clip) or self._frames.get(clip_name("idle")) or []
+        clip = state_key(state)
+        frames = frames_for(self._frames, state)
         if not frames:
             self.window.withdraw()
             return
@@ -418,7 +430,7 @@ class MascotWindow:
     def _tick_frame(self) -> None:
         if self._closed:
             return
-        photos = self._photos.get(clip_name(self._state)) or []
+        photos = self._photos.get(state_key(self._state)) or []
         if photos and self.window.winfo_viewable():
             self.label.configure(image=photos[self._frame_index % len(photos)])
             self._frame_index += 1

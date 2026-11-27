@@ -167,6 +167,36 @@ class MascotLogicTests(unittest.TestCase):
         self.assertIsNot(frames["thinking"], frames["working"])
         self.assertEqual(len(frames["working"]), 36)
 
+    def test_every_state_finds_its_frames_in_the_preload_dictionary(self):
+        # preload() durum adıyla anahtarlar; _show_clip klip adıyla ararsa pencere hep gizli kalır.
+        frames = mascot_window.preload()
+        self.assertEqual(len(mascot_window.frames_for(frames, "idle")), len(frames["idle"]))
+        self.assertGreaterEqual(len(mascot_window.frames_for(frames, "idle")), 36)
+        for state in mascot_window.STATES:
+            self.assertTrue(mascot_window.frames_for(frames, state), state)
+            self.assertIs(mascot_window.frames_for(frames, state), frames[state], state)
+        self.assertIs(mascot_window.frames_for(frames, "bilinmeyen"), frames["idle"])
+        self.assertIs(mascot_window.frames_for(frames, ""), frames["idle"])
+        self.assertEqual(mascot_window.frames_for({}, "idle"), [])
+        self.assertEqual(mascot_window.frames_for(None, "idle"), [])
+
+    def test_show_clip_builds_photos_for_the_current_state_not_the_clip_name(self):
+        frames = mascot_window.preload()
+        window = mascot_window.MascotWindow(_Runtime())
+        window._frames = frames
+        window.window = type("W", (), {"winfo_viewable": lambda self: True,
+                                       "withdraw": lambda self: None,
+                                       "deiconify": lambda self: None})()
+        window.label = type("L", (), {"configure": lambda self, **kw: None})()
+        with patch.object(mascot_window.MascotWindow, "_photo", side_effect=lambda frame: object()):
+            window._show_clip("thinking")
+            self.assertEqual(len(window._photos.get("thinking", [])), len(frames["thinking"]))
+            window._show_clip("working")
+            self.assertEqual(len(window._photos.get("working", [])), len(frames["working"]))
+            # Yalnız bulunulan durumun fotoğrafları tutulur (bellek): eski durum atılır.
+            self.assertNotIn("thinking", window._photos)
+            self.assertEqual(len(window._photos["working"]), 36)
+
     def test_click_through_wanted_requires_the_setting_and_idle(self):
         self.assertFalse(mascot_window.click_through_wanted(False, "idle"))
         self.assertFalse(mascot_window.click_through_wanted(False, "listening"))
