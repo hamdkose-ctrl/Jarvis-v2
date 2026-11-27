@@ -510,6 +510,8 @@ def ui_settings() -> dict:
     from modules import learning, personalization
     out["learn_from_chat"] = learning.enabled(personalization.Profile(personalization.get_active()))
     out["widget_on"] = s.get("widget_on", True) is not False
+    out["mascot_window"] = s.get("mascot_window", False) is True
+    out["mascot_click_through"] = s.get("mascot_click_through", False) is True
     out["proactive_suggestions"] = s.get("proactive_suggestions", True) is not False
     out["voice_turn_reopen"] = s.get("voice_turn_reopen", False) is True
     engine = str(s.get("voice_engine") or "edge")
@@ -528,7 +530,8 @@ def ui_set(key: str, value) -> dict:
         personalization.Profile(personalization.get_active()).set_pref(key, bool(value))
     elif key == "voice_engine" and value in ("edge", "windows", "piper"):
         save_settings(voice_engine=value)
-    elif key in ("nx_notify", "tray", "wake_beep", "proactive_suggestions", "voice_turn_reopen"):
+    elif key in ("nx_notify", "tray", "wake_beep", "proactive_suggestions", "voice_turn_reopen",
+                 "mascot_window", "mascot_click_through"):
         save_settings(**{key: bool(value)})
     elif key == "wake_sensitivity":
         save_settings(wake_sensitivity=max(1, min(5, int(value))))

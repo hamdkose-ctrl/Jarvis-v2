@@ -1642,6 +1642,16 @@ def _start_tray() -> None:
     return web_window._start_tray(sys.modules[__name__])
 
 
+def _start_mascot() -> bool:
+    """T5 masaüstü maskotu: yalnız `mascot_window` ayarı açıksa ayrı pencerede."""
+    from modules import mascot_window
+    try:
+        return bool(mascot_window.start(sys.modules[__name__]))
+    except Exception:       # noqa: BLE001 - masaüstü süsü açılışı düşürmesin
+        _record_failure('web.py:_start_mascot')
+        return False
+
+
 def serve(port: int = 0) -> tuple[Server, str]:
     from modules import pc_guide
     pc_guide.configure(sys.modules[__name__])
@@ -1715,6 +1725,7 @@ def main() -> None:
         except OSError as exc:
             print(f"Telefon erişimi açılamadı: {type(exc).__name__}")
     _start_tray()
+    _start_mascot()
     print(f"Jarvis Komut Merkezi: {url}")
     for _old in ("index.html", "core.js", "cc.js", "pages.js", "pages2.js", "pages3.js", "reactor.js", "boot.js",
                  "style.css", "ironman.png", "ring.png"):     # eski arayüzün dosyaları (tek arayüz: nx)
