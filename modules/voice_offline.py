@@ -25,6 +25,31 @@ class OfflineVoiceUnavailable(RuntimeError):
     pass
 
 
+def _piper_executable() -> str | None:
+    """Piper komutu: PATH'te ya da uygulamanın kendi sanal ortamında."""
+    return shutil.which("piper") or shutil.which(
+        "piper", path=str(Path(sys.executable).parent))
+
+
+def piper_available() -> bool:
+    """Ses için Piper gerçekten kullanılabilir mi: süreç içi paket ya da CLI.
+
+    Kullanıcının kurulumunda yalnızca komut satırı aranıyordu; paket kurulu
+    olmasına rağmen ses "kurulu değil" sayıldı. Tek kaynak burasıdır: hem
+    sentez yolu hem kabul ön kontrolü bu işlevi kullanır.
+    """
+    try:
+        import piper  # noqa: F401
+        return True
+    except Exception:
+        # Paket yok: CLI yolu hâlâ geçerli. Tanılama, sessiz yutkunma olmasın.
+        _record_failure("modules/voice_offline.py:piper_available")
+        return bool(_piper_executable())
+
+
+_MISSING_PIPER = ("Piper ses motoru kurulu değil: 'pip install piper-tts' "
+                  "ya da piper komutunu PATH'e ekleyin.")
+
 _PIPER_LENGTH_BASE = 1.24   # kullanıcı: 'çok az yavaşlat' (1.18 -> 1.24, ~%5)
 _TOK_CHAIN = ("bass=g=7:f=130:w=0.9,acompressor=threshold=-14dB:ratio=4:"
               "attack=4:release=160,volume=1.9,alimiter=limit=0.95,aresample=48000")
@@ -193,10 +218,9 @@ class PiperSynthesizer:
             _validate_wave(inprocess)
             return _tok(inprocess)
         # Piper uygulamanın kendi sanal ortamına kurulur; Scripts PATH'te değil.
-        executable = shutil.which("piper") or shutil.which(
-            "piper", path=str(Path(sys.executable).parent))
+        executable = _piper_executable()
         if not executable:
-            raise OfflineVoiceUnavailable("Piper executable is not installed.")
+            raise OfflineVoiceUnavailable(_MISSING_PIPER)
         if not text or len(text) > 12000:
             raise ValueError("Speech text is empty or exceeds limit.")
         with tempfile.TemporaryDirectory(prefix="jarvis-voice-piper-") as folder:
