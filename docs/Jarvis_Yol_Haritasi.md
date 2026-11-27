@@ -1,3 +1,8 @@
+### 2026-11-27 — T9: maskot penceresi görünür oldu (Tk fotoğrafı yanlış yorumlayıcıdaydı)
+
+- **Ne:** `_photo()` içinde `ImageTk.PhotoImage(...)` **master verilmeden** kuruluyordu. Uygulamanın ana iş parçacığında Tk kökü olduğu için varsayılan kök ana yorumlayıcıya gidiyor, maskot iş parçacığındaki pencere Win32 tarafında `WS_VISIBLE` almıyordu (`IsWindowVisible=0`). Fotoğraf artık `master=self.window` ile maskotun kendi yorumlayıcısına bağlanıyor.
+- **Ölçülen:** Aynı süreçte ana iş parçacığında Tk kökü varken canlı deneme: düzeltme öncesi pencere 160×206 ama `win32_visible=0`; düzeltme sonrası `win32_visible=1` ve masaüstünde görünüyor. Uygulamanın kendisinde (`gui.py` → `web.main` → `_start_mascot`) yeniden başlatmada pencere görünür hâle geldi; ekran görüntüsü `docs/evidence/t9_maskot_masaustu.png`. Odaklı maskot testleri **37 OK** (T8'deki iki regresyon testi dâhil).
+- **Dürüst sınır:** Bu hata yalnız canlı masaüstünde görüldü; birim testleri Tk yorumlayıcı sahipliğini ölçemiyor. Boşta animasyonun kare hızı ekran görüntüsüyle tek tek doğrulanmadı; DPI %125/%150, tıklama geçişi ve çoklu monitör hâlâ canlı ölçülmedi.
 ### 2026-11-27 — T8: masaüstü maskotu ilk kez gerçekten göründü (kare arama hatası)
 
 - **Ne:** `modules/mascot_window.py` içinde `preload()` kareleri **durum adıyla** (`idle`, `listening`, …) anahtarlıyor, `_show_clip()` ise **klip adıyla** (`bosta`, `dinleme`, …) arıyordu. Arama her durumda boş dönüyor, pencere `withdraw()` ile gizleniyordu: T5'ten beri masaüstü maskotu hiç görünmedi (T5 elle kabulü yapılmadığı için yakalanmamıştı). Kare seçimi tek yardımcıya alındı: `state_key()` + `frames_for()`; `_tick_frame` de aynı anahtarı kullanıyor.
