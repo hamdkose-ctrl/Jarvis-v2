@@ -106,6 +106,49 @@ class MascotLogicTests(unittest.TestCase):
         self.assertFalse(mascot_window.click_style(on, False) & mascot_window.WS_EX_TRANSPARENT)
         self.assertTrue(mascot_window.click_style(on, False) & mascot_window.WS_EX_LAYERED)
 
+    def test_key_flat_keys_only_zero_alpha_and_keeps_source_rgb(self):
+        from PIL import Image
+
+        source = Image.new("RGBA", (4, 1))
+        source.putdata([
+            (10, 20, 30, 0),        # tam saydam -> KEY
+            (10, 20, 30, 1),        # yarı saydam kenar -> kaynak RGB aynen
+            (200, 100, 50, 128),
+            (0, 0, 0, 255),
+        ])
+        flat = mascot_window.key_flat(source, (4, 1))
+        self.assertEqual(flat.mode, "RGB")
+        self.assertEqual(flat.getpixel((0, 0)), mascot_window.KEY_RGB)
+        self.assertEqual(flat.getpixel((1, 0)), (10, 20, 30))
+        self.assertEqual(flat.getpixel((2, 0)), (200, 100, 50))
+        self.assertEqual(flat.getpixel((3, 0)), (0, 0, 0))
+
+    def test_key_flat_does_not_blend_semi_transparent_pixels_into_key(self):
+        from PIL import Image
+
+        source = Image.new("RGBA", (1, 1), (100, 150, 200, 128))
+        background = Image.new("RGBA", (1, 1), mascot_window.KEY_RGB + (255,))
+        old = Image.alpha_composite(background, source).convert("RGB")
+        self.assertNotEqual(old.getpixel((0, 0)), (100, 150, 200))
+        self.assertEqual(mascot_window.key_flat(source, (1, 1)).getpixel((0, 0)), (100, 150, 200))
+
+    def test_key_flat_matches_every_pixel_of_a_real_frame(self):
+        source = mascot_window.preload()["idle"][0]
+        flat = mascot_window.key_flat(source, source.size)
+        for y in range(source.height):
+            for x in range(source.width):
+                red, green, blue, alpha = source.getpixel((x, y))
+                expected = mascot_window.KEY_RGB if alpha == 0 else (red, green, blue)
+                self.assertEqual(flat.getpixel((x, y)), expected)
+
+    def test_key_flat_resizes_uniform_colors_without_contamination(self):
+        from PIL import Image
+
+        opaque = Image.new("RGBA", (2, 2), (123, 45, 67, 255))
+        transparent = Image.new("RGBA", (2, 2), (123, 45, 67, 0))
+        self.assertEqual(mascot_window.key_flat(opaque, (7, 9)).getcolors(100), [(63, (123, 45, 67))])
+        self.assertEqual(mascot_window.key_flat(transparent, (7, 9)).getcolors(100), [(63, mascot_window.KEY_RGB)])
+
     def test_monitor_normalization_drops_invalid_rectangles(self):
         self.assertEqual(mascot_window.normalize_monitors([(0, 0, 10, 10), (5, 5, 5, 9), "x"]),
                          [(0, 0, 10, 10)])
@@ -120,6 +163,37 @@ class MascotLogicTests(unittest.TestCase):
             self.assertEqual(frames[state][0].size, mascot_window.BASE_SIZE)
         # thinking ve working aynı dosyadır: kareler yeniden okunmaz/çoğaltılmaz.
         self.assertIs(frames["thinking"], frames["working"])
+
+    def test_click_through_wanted_requires_the_setting_and_idle(self):
+        self.assertFalse(mascot_window.click_through_wanted(False, "idle"))
+        self.assertFalse(mascot_window.click_through_wanted(False, "listening"))
+        self.assertTrue(mascot_window.click_through_wanted(True, "idle"))
+        self.assertFalse(mascot_window.click_through_wanted(True, "speaking"))
+
+    def test_default_click_through_is_off_and_never_enabled(self):
+        window = mascot_window.MascotWindow(_Runtime())
+        self.assertFalse(window._click_through_setting)
+        window.window = object()
+        with patch.object(mascot_window, "set_click_through", return_value=True) as fake:
+            window._apply_click_through()
+            fake.assert_called_once_with(window.window, False)
+            self.assertFalse(window._click_through)
+            fake.reset_mock()
+            window._apply_click_through()
+            fake.assert_not_called()       # kapalıyken tekrar denenmez
+
+    def test_setting_on_enables_idle_and_clears_in_other_states(self):
+        window = mascot_window.MascotWindow(_Runtime({"mascot_click_through": True}))
+        self.assertTrue(window._click_through_setting)
+        window.window = object()
+        with patch.object(mascot_window, "set_click_through", return_value=True) as fake:
+            window._apply_click_through()
+            self.assertEqual(fake.call_args.args, (window.window, True))
+            self.assertTrue(window._click_through)
+            window._state = "listening"
+            window._apply_click_through()
+            self.assertEqual(fake.call_args.args, (window.window, False))
+            self.assertFalse(window._click_through)
 
     def test_preload_memory_stays_under_the_desktop_budget(self):
         frames = mascot_window.preload()

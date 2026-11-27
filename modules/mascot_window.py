@@ -8,9 +8,12 @@ ayar kapalıyken hiçbir pencere/Tk kökü oluşturulmaz. Yalnız Windows'ta aç
 - Kareler açılışta bir kez ön yüklenir (WebP, 30 fps). Kare yoksa pencere
   sessizce açılmaz. Oynatıcı yalnız bulunduğu durumun Tk fotoğraflarını tutar;
   durum değişince önceki küme bırakılır (bellek sınırı).
-- Boştayken `WS_EX_TRANSPARENT` ile tıklama alttaki pencereye geçer;
-  dinliyor/düşünüyor/konuşuyor durumunda geri açılır. Bu yüzden sürükleme ve
-  sağ tık menüsü yalnız etkileşim durumunda kullanılabilir.
+- `WS_EX_TRANSPARENT` varsayılan **kapalıdır**; yalnız `mascot_click_through`
+  ayarı açıksa ve maske boştayken tıklama alttaki pencereye geçer. Ayar
+  kapalıyken sürükleme ve sağ tık menüsü her durumda çalışır.
+- Kare anahtarlama `key_flat` ile yapılır: `alpha==0` → `KEY_RGB`, `alpha>0` →
+  kaynak RGB aynen. `alpha_composite` yarı saydam kenarları KEY'e karıştırıp
+  siyah kontur üretirdi; artık karıştırma yok.
 - Konum ve boyut `settings.json` içinde `mascot_pos` / `mascot_size` olarak
   saklanır; konum her zaman bir monitörün çalışma alanına kelepçelenir.
 """
@@ -134,11 +137,34 @@ def restore_size(saved, scale: float) -> tuple[int, int]:
     return width, height
 
 
+def click_through_wanted(setting, state: str) -> bool:
+    """Tıklama geçişi yalnız ayar açıkken ve maske boştayken istenir."""
+    return bool(setting) and str(state or "").strip().lower() == "idle"
+
+
 def click_style(style: int, enabled: bool) -> int:
     """Boştayken tıklamayı geçiren uzatılmış pencere stili (saf bit mantığı)."""
     if enabled:
         return int(style) | WS_EX_LAYERED | WS_EX_TRANSPARENT
     return int(style) & ~WS_EX_TRANSPARENT
+
+
+def key_flat(image, size):
+    """RGBA kareyi KEY/RGB düzlemine indirger; alfa eşiği dışında karıştırmaz.
+
+    `alpha==0` tam `KEY_RGB` olur; `alpha>0` pikselin kaynak RGB'si aynen
+    korunur. Böylece yarı saydam kenar KEY rengine karışıp siyah kontur
+    üretmez. Dönen görüntü RGB'dir (Tk renk anahtarı alfayı kullanmaz).
+    """
+    from PIL import Image
+
+    width, height = max(1, int(size[0])), max(1, int(size[1]))
+    source = image.convert("RGBA")
+    if source.size != (width, height):
+        source = source.resize((width, height), Image.LANCZOS)
+    mask = source.getchannel("A").point(lambda alpha: 255 if alpha else 0)
+    background = Image.new("RGB", (width, height), KEY_RGB)
+    return Image.composite(source.convert("RGB"), background, mask)
 
 
 def load_frames(path) -> list:
@@ -281,6 +307,7 @@ class MascotWindow:
         self._closed = False
         self._hidden = False
         self._click_through = None
+        self._click_through_setting = (self._settings().get("mascot_click_through", False) is True)
 
     # ------------------------------------------------------------- ayarlar
     def _settings(self) -> dict:
@@ -310,6 +337,7 @@ class MascotWindow:
         except tk.TclError:
             self.scale = 1.0
         settings = self._settings()
+        self._click_through_setting = (settings.get("mascot_click_through", False) is True)
         self.size = restore_size(settings.get("mascot_size"), self.scale)
         monitors = windows_monitors(self.root)
         saved = settings.get("mascot_pos")
@@ -345,14 +373,9 @@ class MascotWindow:
 
     # ------------------------------------------------------------- oynatma
     def _photo(self, frame):
-        from PIL import Image, ImageTk
+        from PIL import ImageTk
 
-        image = frame
-        if image.size != self.size:
-            image = image.resize(self.size, Image.LANCZOS)
-        background = Image.new("RGBA", image.size, KEY_RGB + (255,))
-        flat = Image.alpha_composite(background, image.convert("RGBA")).convert("RGB")
-        return ImageTk.PhotoImage(flat)
+        return ImageTk.PhotoImage(key_flat(frame, self.size))
 
     def _show_clip(self, state: str) -> None:
         clip = clip_name(state)
@@ -402,7 +425,9 @@ class MascotWindow:
         self.window.after(max(10, int(1000 / self.fps)), self._tick_frame)
 
     def _apply_click_through(self) -> None:
-        want = self._state == "idle"
+        if self.window is None:
+            return
+        want = click_through_wanted(self._click_through_setting, self._state)
         if want == self._click_through:
             return
         if set_click_through(self.window, want):
