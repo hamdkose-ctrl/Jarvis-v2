@@ -239,13 +239,28 @@ def request_route(request):
     return _DEFAULT_ROUTE
 
 
-def _health_key(owner,provider,model,*,connection_id=None,revision=None):
+def _local_endpoint_fingerprint():
+    """Yerel sunucunun kimliği: yalnız sunucu türü + adres, tek okumada anlık görüntü.
+
+    `llm.provider_configuration()` istek sırasında değişir (seçili sağlayıcı, keşfedilen
+    yerel model). Sağlık anahtarı bu değişken sözlüğün hash'i olursa soğutma yazıldığı
+    anahtarla okunamıyordu (kayıt 5e6cb21e…, okuma b3c0e55c… → bekleme 0). Kimlik artık
+    bitiş noktasına bağlı; model zaten anahtarın kendi parçasıdır.
+    """
     from modules import llm
+    config=llm.provider_configuration()
+    snapshot={'backend':str(config.get('backend') or ''),'url':str(config.get('url') or '')}
+    return hashlib.sha256(json.dumps(snapshot,sort_keys=True).encode()).hexdigest()
+
+
+def _health_key(owner,provider,model,*,connection_id=None,revision=None):
     # Key rotation/model/endpoint changes do not inherit another credential's fault.
     if connection_id:
         identity=connection_id+':'+str(revision)
+    elif provider=='ollama':
+        identity=_local_endpoint_fingerprint()
     else:
-        identity=_connection_fingerprint(owner,provider) if provider!='ollama' else hashlib.sha256(json.dumps(llm.provider_configuration(),sort_keys=True).encode()).hexdigest()
+        identity=_connection_fingerprint(owner,provider)
     return (owner,provider,model,identity)
 
 

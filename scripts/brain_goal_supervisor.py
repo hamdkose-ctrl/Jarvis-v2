@@ -88,8 +88,13 @@ def _verified_verdict(row: object, metadata: dict, exit_code: int | None) -> boo
 def supervise(*, script: Path, args: list[str], cwd: Path,
               report_path: Path | None, metadata: dict,
               stall_seconds: float = DEFAULT_STALL_SECONDS,
-              poll_seconds: float = DEFAULT_POLL_SECONDS) -> int:
-    """Supervise a real child; never auto-retry a stalled provider request."""
+              poll_seconds: float = DEFAULT_POLL_SECONDS,
+              monotonic=time.monotonic) -> int:
+    """Supervise a real child; never auto-retry a stalled provider request.
+
+    `monotonic` yalnız testlerde sahte saat vermek içindir: bekleme süresi gerçek
+    uykuyla değil enjekte edilen saatle ölçülebilsin (zamanlama yarışı testi).
+    """
     if stall_seconds <= 0 or poll_seconds <= 0:
         raise ValueError('Watchdog duration must be positive.')
     output = None if report_path is None else Path(report_path)
@@ -122,23 +127,34 @@ def supervise(*, script: Path, args: list[str], cwd: Path,
             else:
                 tail = ''
                 offset = 0
-                last_activity = time.monotonic()
+                last_activity = monotonic()
                 last_notice = last_activity
+
+                def drain() -> str:
+                    """Günlüğe yazılmış ilerlemeyi oku; yazma ile karar arasındaki yarışı kapat."""
+                    nonlocal offset, tail, last_case, last_activity
+                    with logfile.open('r', encoding='utf-8', errors='replace') as reader:
+                        reader.seek(offset)
+                        chunk = reader.read()
+                        offset = reader.tell()
+                    if chunk:
+                        tail, seen = _parse_progress(tail, chunk, show=True)
+                        last_case = max(last_case, seen)
+                        last_activity = monotonic()
+                    return chunk
+
                 try:
                     while True:
-                        with logfile.open('r', encoding='utf-8', errors='replace') as reader:
-                            reader.seek(offset)
-                            chunk = reader.read()
-                            offset = reader.tell()
-                        if chunk:
-                            tail, seen = _parse_progress(tail, chunk, show=True)
-                            last_case = max(last_case, seen)
-                            last_activity = time.monotonic()
+                        drain()
                         return_code = child.poll()
                         if return_code is not None:
                             break
-                        now = time.monotonic()
+                        now = monotonic()
                         if now - last_activity >= stall_seconds:
+                            # (T3d) '0 != 8': alt süreç satırı tam bu okuma ile karar arasında
+                            # yazmış olabilir. Son bir okuma yap; ilerleme geldiyse durdurma.
+                            if drain():
+                                continue
                             state_error = 'HOLDOUT_STALLED'
                             print('Test ilerlemiyor; alt süreç durduruluyor. '
                                   f'Son başlayan senaryo: {last_case or "bilinmiyor"}.', flush=True)

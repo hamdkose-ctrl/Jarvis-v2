@@ -22,6 +22,10 @@ class AtomicQuotaTests(unittest.TestCase):
         self.folder = Path(self.tmp.name)
         p = patch.object(quota, 'POLICIES', {})
         p.start(); self.addCleanup(p.stop)
+        # (T3d) Bayat satır uyarısı süreç ömrü boyunca susturulmasın: her test kendi
+        # kümesiyle başlar, günlüğü de kendisi sahiplenir.
+        p = patch.object(quota, '_STALE_LOGGED', set())
+        p.start(); self.addCleanup(p.stop)
 
     def reserve(self, owner='alice', model='m', now=NOW):
         return quota.reserve(owner, 'groq', model, directory=self.folder, now=now)
@@ -67,7 +71,11 @@ class AtomicQuotaTests(unittest.TestCase):
         # (T3b) Süresi geçmiş satır fail-closed DEĞİL: 31 günden eski doğrulama yeni limit
         # uygulamaz, gönderimi de kesmez. Şekli bozuk satır aşağıda hâlâ durur.
         quota.POLICIES[('groq','m')] = policy(expires_at=NOW-1)
-        self.assertFalse(self.reserve())
+        with self.assertLogs('jarvis', level='ERROR') as logs:
+            self.assertFalse(self.reserve())
+            self.assertFalse(self.reserve())     # (T3d) aynı satır ikinci kez bağırmaz
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn('policy_expired', logs.records[0].getMessage())
         self.assertFalse((self.folder/'atomic_requests.sqlite3').exists())
 
     def test_malformed_or_unreadable_policy_fails_closed(self):
