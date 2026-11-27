@@ -13,14 +13,14 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import shutil
 import threading
 from typing import Callable
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import VoiceSpec
 from modules.voice_offline import (
-    OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer, _validate_wave,
+    _MISSING_PIPER, OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer,
+    _validate_wave, piper_available,
 )
 
 _PHRASE = (
@@ -46,8 +46,9 @@ def preflight(synth: PiperSynthesizer, spec: VoiceSpec) -> None:
     hz = data["audio"].get("sample_rate")
     if type(hz) is not int or not 8000 <= hz <= 48000:
         raise OfflineVoiceUnavailable("Selected voice sample rate is unsupported.")
-    if not shutil.which("piper"):
-        raise OfflineVoiceUnavailable("Piper executable is not installed.")
+    # Süreç içi paket yeterlidir; CLI yalnızca paket yokken gerekir.
+    if not piper_available():
+        raise OfflineVoiceUnavailable(_MISSING_PIPER)
 
 
 def probe(

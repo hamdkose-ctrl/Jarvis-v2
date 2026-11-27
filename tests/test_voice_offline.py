@@ -13,7 +13,8 @@ import wave
 
 from modules.voice_core import VoiceSpec
 from modules.voice_offline import (OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer,
-                                   _piper_inprocess, _validate_wave, piper_length_scale)
+                                   _piper_inprocess, _validate_wave, piper_available,
+                                   piper_length_scale)
 
 
 def wav_bytes(*, silent=False):
@@ -110,6 +111,18 @@ class OfflineVoiceTests(unittest.TestCase):
         with patch("modules.voice_offline.shutil.which", return_value=None):
             with self.assertRaises(OfflineVoiceUnavailable):
                 PiperSynthesizer(self.root)(self.spec(), "Merhaba", threading.Event())
+
+    def test_piper_available_accepts_the_inprocess_package_or_the_cli(self):
+        # Kullanıcının kurulumunda paket vardı, CLI yoktu: ses "kurulu değil"
+        # sayılıyordu. Bu ikisinden biri yeterli olmalı.
+        with patch("modules.voice_offline._piper_executable", return_value=None):
+            with patch.dict(sys.modules, {"piper": SimpleNamespace(PiperVoice=object)}):
+                self.assertTrue(piper_available())
+            with patch.dict(sys.modules, {"piper": None}):
+                self.assertFalse(piper_available())
+        with patch.dict(sys.modules, {"piper": None}), \
+                patch("modules.voice_offline._piper_executable", return_value=r"C:\tools\piper.exe"):
+            self.assertTrue(piper_available())
 
     def test_cancel_before_model_probe_is_noop(self):
         cancelled=threading.Event()

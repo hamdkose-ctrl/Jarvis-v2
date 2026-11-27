@@ -94,7 +94,7 @@ class VoiceAcceptanceTests(unittest.TestCase):
 
     def test_preflight_requires_exact_asset_metadata_and_piper_executable(self):
         synth = PiperSynthesizer(self.root)
-        with patch("modules.voice_acceptance.shutil.which", return_value="C:/piper/piper.exe"):
+        with patch("modules.voice_acceptance.piper_available", return_value=True):
             preflight(synth, self.spec)
             (self.root / "female.onnx.json").unlink()
             with self.assertRaises(OfflineVoiceUnavailable):
@@ -104,7 +104,7 @@ class VoiceAcceptanceTests(unittest.TestCase):
                 preflight(synth, self.spec)
         (self.root / "female.onnx.json").write_text(
             json.dumps({"audio": {"sample_rate": 22050}}), encoding="utf-8")
-        with patch("modules.voice_acceptance.shutil.which", return_value=None):
+        with patch("modules.voice_acceptance.piper_available", return_value=False):
             with self.assertRaises(OfflineVoiceUnavailable):
                 preflight(synth, self.spec)
 
