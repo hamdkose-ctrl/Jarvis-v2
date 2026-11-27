@@ -12,6 +12,7 @@ import contextlib
 import importlib.util
 import inspect
 import re
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from pathlib import Path
@@ -676,9 +677,13 @@ class ConversationSummaryParityTests(unittest.TestCase):
             profile=SimpleNamespace(slug="hamdi"), history=SimpleNamespace(read=lambda *_a, **_k: rows),
             datetime=SimpleNamespace(now=lambda: SimpleNamespace(strftime=lambda _f: "2026-11-01")),
             ask=lambda prompt: (asked.append(prompt), "Özet: kredi kartı borcu soruldu.")[1])
-        # Sıfırlama kesiti kullanıcıya özel dosyadan gelir; test gerçek ev dizinine bağlı kalmaz.
+        # (T3d) Sıfırlama kesiti gerçek ~/.jarvis dosyasından okunursa kullanıcının
+        # yeni sohbet sınırı bu satırları eleyip testi ortam bağımlı yapıyordu.
         from modules import conversation_reset
-        with patch.object(conversation_reset, "_resets", {}):
+        folder = tempfile.TemporaryDirectory(); self.addCleanup(folder.cleanup)
+        with patch.object(conversation_reset, "_resets", {}), \
+             patch.object(conversation_reset, "_reset_file",
+                          Path(folder.name) / "chat-sessions.json"):
             self.assertEqual(engine_output._conversation_summary(runtime), "Özet: kredi kartı borcu soruldu.")
             self.assertIn("kredi kartı borcu", asked[0])
             self.assertIn("en fazla 6 madde", asked[0])

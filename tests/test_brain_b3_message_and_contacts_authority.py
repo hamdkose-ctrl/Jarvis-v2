@@ -990,7 +990,10 @@ class RecipientResolutionTests(unittest.TestCase):
 
     def test_the_sender_refuses_a_recipient_without_a_number(self):
         # GUI yolu kapalı: numara yoksa uygulama açılmaz, arama kutusu kullanılmaz, Enter basılmaz.
-        with patch.object(messaging, "_find_window") as window:
+        # (T3d) Gerçek masaüstünde WhatsApp açıksa show() "done" dönüp arama yolu seçiliyordu;
+        # test makinenin pencere durumuna bağlı kalmadan reddi ölçer.
+        with patch.object(messaging, "_find_window") as window, \
+             patch("modules.whatsapp_ui.show", return_value={"status": "no_window"}):
             result = messaging._send_whatsapp("Zeynep", "selam", None)
         self.assertIn("göndermedim", result)
         window.assert_not_called()

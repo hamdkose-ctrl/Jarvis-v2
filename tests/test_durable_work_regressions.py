@@ -2,12 +2,14 @@
 from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+import config
 from modules import browser_agent as browser, task_agents as agents, docs, study, nxapi
 from modules import personalization, smart_router as router, llm, goal_executor, resource_leases
 
@@ -15,6 +17,18 @@ from modules import personalization, smart_router as router, llm, goal_executor,
 class DurableWorkTests(unittest.TestCase):
     def setUp(self):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);self.root=Path(folder.name)
+        # (T3d) Bu sınıf gerçek ~/.jarvis'e bakmaz: sağlayıcı seçimi/yerel model okuması
+        # kullanıcının kendi ayarlarından gelirse sağlık anahtarı ve kota yolu ortam
+        # bağımlı oluyordu (JARVIS_DATA_DIR yokken 2 FAIL). Veri kökü geçici klasördür.
+        data=self.root/'data'
+        self.enterContext(patch.dict(os.environ, {'JARVIS_DATA_DIR': str(data)}))
+        from modules import user_models
+        self.enterContext(patch.object(config, 'DATA_DIR', data))
+        self.enterContext(patch.object(config, 'SETTINGS_FILE', data/'settings.json'))
+        self.enterContext(patch.object(config, '_cache', {'key': None, 'text': '{}'}))
+        self.enterContext(patch.object(user_models, 'DATA_DIR', data))
+        self.enterContext(patch.object(router, '_STORE', data/'router'))
+        self.enterContext(patch.object(goal_executor, 'STORE', data/'goals'))
         for obj,name,value in [(agents,'STORE',self.root/'tasks'),(browser,'STORE',self.root/'browser'),
                               (nxapi,'FILES_DIR',self.root/'files'),(study,'ROOT',self.root/'study')]:
             p=patch.object(obj,name,value);p.start();self.addCleanup(p.stop)

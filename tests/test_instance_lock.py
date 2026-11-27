@@ -15,6 +15,10 @@ class InstanceLockTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.env=dict(os.environ,JARVIS_DATA_DIR=self.temp.name)
+        # (T3d) Alt süreç çıktısı konsol kod sayfasına düşmesin: tam takımda
+        # cp1254 baytları UTF-8 diye çözülünce test ortam bağımlı hata veriyordu.
+        self.env['PYTHONUTF8']='1'
+        self.env['PYTHONIOENCODING']='utf-8'
         self.env.pop('JARVIS_RESTART_WAIT',None)
         self.children=[];self.addCleanup(self.cleanup)
 
@@ -24,7 +28,7 @@ class InstanceLockTests(unittest.TestCase):
             child.communicate(timeout=5)
 
     def start(self,env=None,script=SCRIPT):
-        child=subprocess.Popen([sys.executable,'-u','-c',script],cwd=ROOT,env=env or self.env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        child=subprocess.Popen([sys.executable,'-u','-c',script],cwd=ROOT,env=env or self.env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8',errors='replace')
         self.children.append(child)
         return child
 

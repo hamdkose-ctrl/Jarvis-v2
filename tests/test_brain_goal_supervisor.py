@@ -1,10 +1,9 @@
 """Synthetic no-network subprocess tests for the Brain Goal watchdog."""
 import json
 from pathlib import Path
-import sys
 import tempfile
-import time
 import unittest
+from unittest.mock import patch
 
 from scripts import brain_goal_supervisor as runner
 
@@ -13,6 +12,33 @@ META = {
     'generated_at':'2026-11-10T00:00:00+00:00',
     'state':'unmeasured', 'semantic_acceptance':False,
 }
+
+class _JumpingClock:
+    """Gerçek uyku yerine enjekte edilen saat: her okumada bir saniye ilerler."""
+    def __init__(self):
+        self.now = 0.0
+    def __call__(self):
+        self.now += 1.0
+        return self.now
+
+
+class _RacingChild:
+    """İlerleme satırını tam okuma ile karar arasında yazan sahte alt süreç."""
+    def __init__(self, command, *, stdout=None, **kwargs):
+        self.log = stdout
+        self.killed = False
+        self.wrote = False
+    def poll(self):
+        if not self.wrote:
+            self.wrote = True
+            self.log.write('Semantic case 8/20\n')
+            self.log.flush()
+        return None
+    def kill(self):
+        self.killed = True
+    def wait(self, timeout=None):
+        return 0
+
 
 class GoalWatchdogTests(unittest.TestCase):
     def setUp(self):
@@ -31,10 +57,11 @@ class GoalWatchdogTests(unittest.TestCase):
         path.write_text(header + body, encoding='utf-8')
         return path
 
-    def invoke(self, script, **settings):
+    def invoke(self, script, monotonic=None, **settings):
+        options = {} if monotonic is None else {'monotonic': monotonic}
         return runner.supervise(script=script, args=['--run'], cwd=self.root,
                                 report_path=self.report, metadata=META,
-                                poll_seconds=.03, **settings)
+                                poll_seconds=.03, **options, **settings)
 
     def test_short_child_finishes_and_only_accepts_matching_version(self):
         body = ('print("Semantic case 1/20",flush=True)\n'
@@ -49,15 +76,28 @@ class GoalWatchdogTests(unittest.TestCase):
     def test_stalled_case_is_terminated_not_rescored_or_retried(self):
         body = ('print("Semantic case 8/20",flush=True)\n'
                 'time.sleep(12)\n')
-        start=time.monotonic()
         self.assertEqual(self.invoke(self.script(body),stall_seconds=.3),2)
-        self.assertLess(time.monotonic()-start,4)
         report=json.loads(self.report.read_text(encoding='utf-8'))
         self.assertEqual(report['state'],'unmeasured')
         self.assertFalse(report['semantic_acceptance'])
         self.assertEqual(report['reason_code'],'HOLDOUT_STALLED')
-        self.assertEqual(report['last_started_case'],8)
         self.assertNotIn('accuracy',report)
+
+    def test_progress_written_between_read_and_stall_decision_is_kept(self):
+        # (T3d) "0 != 8" yarışı: satır, okuma ile durdurma kararı arasında yazılır.
+        # Sahte saat ve sahte alt süreç sayesinde gerçek uyku/zamanlama yok.
+        children = []
+        def fake_popen(command, *, stdout=None, **kwargs):
+            child = _RacingChild(command, stdout=stdout, **kwargs)
+            children.append(child)
+            return child
+        with patch.object(runner.subprocess, 'Popen', side_effect=fake_popen):
+            self.assertEqual(self.invoke(self.script(''),
+                                         monotonic=_JumpingClock(), stall_seconds=.3), 2)
+        report = json.loads(self.report.read_text(encoding='utf-8'))
+        self.assertEqual(report['reason_code'], 'HOLDOUT_STALLED')
+        self.assertEqual(report['last_started_case'], 8)
+        self.assertTrue(children[0].killed)
 
     def test_pass_requires_complete_effect_free_metric_evidence(self):
         correct = {**META,'state':'passed','semantic_acceptance':True,
