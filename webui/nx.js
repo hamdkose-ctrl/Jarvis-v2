@@ -67,7 +67,7 @@ function render(navigation=false){
     if(S.page==='study'&&(navigation||focusedStudy))$('#studyq')?.focus();
     if(focused)$('#dock input')?.focus();
   }
-  drawDevelopment();updateHome();drawHomeMessages();drawAtt();drawMiniPreview();
+  drawDevelopment();updateHome();drawHomeMessages();drawAtt();drawMiniPreview();globalThis.Mascot?.set(S.orb);
 }
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');if(g){e.preventDefault();go(g.dataset.go);return}
@@ -1532,7 +1532,7 @@ function applyTheme(){const t=(S.ui||{}).nx_theme||'dark';const dark=t==='dark'|
 // ======================================================================= veri ve olaylar
 async function refresh(){const oldUser=((S.snap||{}).user||{}).name;try{S.snap=await api('snapshot')}catch(e){return}
   if(oldUser&&oldUser!==((S.snap||{}).user||{}).name){S.files=null;S.att=[];S.noteSelected=null;S.noteText='';S.noteTitle='';ACT.ntimageclear();document.querySelectorAll('.noteviewer').forEach(el=>el.click());S.hist=null;S.live=[];S.chat=[];S.day=null;S.since=0;S.waiting=false;S.sdoc=0;S.sans='';S.studyDraft='';S.studySourceOpen=false;S.mathDraft='';S.mathAttachment='';S.mathResponse=null;S.studyPdfPage=null;S.studySelection=null;S.mathUploadBusy=false;S.slesson=null;S.sov=null;S.squiz=null;S.sres=null;S.smedia=null;S.quizBusy=false;S.mockBusy=false;S.studyLessonRequest=null;S.studyQuizRequest=null;S.studyMediaRequest=null;S.studyOverviewRequest=null;S.studyBusy=false;S._sovLoading=0;await loadHist();render()}
-  if(!S.snap)return;S.orb=S.snap.orb||'idle';dockState();
+  if(!S.snap)return;S.orb=S.snap.orb||'idle';dockState();globalThis.Mascot?.set(S.orb);
   {const pk=JSON.stringify(((S.snap.study||{}).pending)||[]);if(S.page==='study'&&S._spk!==undefined&&pk!==S._spk){const was=S._spk;S._spk=pk;S.sov=null;render();const pd=S.snap.study.pending||[];if(pd.some(x=>x.state==='error'))toast('Bir kaynak eklenemedi; ayrıntı listede.','bad');else if(pd.length<JSON.parse(was).length)toast('Çalışma kaynağı eklendi.')}S._spk=pk;
    clearTimeout(S._spt);if(pk!=='[]'&&pk.includes('running'))S._spt=setTimeout(refresh,3000)}drawDevelopment();updateHome();
   if(oldUser&&oldUser!==((S.snap||{}).user||{}).name&&S.page==='team')render()}
@@ -1553,7 +1553,7 @@ function onEvent(m){
   else if(k==='step'){onStep(m);return}
   else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;drawMsgs()}
   else if(k==='state'){
-    S.orb=m.t||'idle';dockState();speechStateEvent(S.orb);updateHomeStatus();
+    S.orb=m.t||'idle';dockState();speechStateEvent(S.orb);updateHomeStatus();globalThis.Mascot?.set(S.orb);
     $$('.mic').forEach(button=>button.classList.toggle('live',S.orb==='listening'));
   }
   else if(k==='speech'){speechEvent(m);return}
