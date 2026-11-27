@@ -273,6 +273,16 @@ def _queued_audio(runtime, event, voice_session=None):
         else:
             _emit_idle_if_silent(runtime, voice_session)
 
+def _daily_checkpoint():
+    """Günde bir geri dönüş noktası; açılışı bekletmez ve hatası Jarvis'i durdurmaz."""
+    try:
+        from modules import checkpoint
+        checkpoint.maybe_daily()
+    except Exception:
+        from modules.diagnostics import record_failure
+        record_failure('modules/engine_loop.py:daily_checkpoint')
+
+
 def main(runtime, ui=None):
     from modules.engine_voice import VoiceSession
     voice_session = VoiceSession(runtime)
@@ -337,6 +347,7 @@ def main(runtime, ui=None):
     runtime.threading.Thread(target=runtime._morning_brief, daemon=True).start()
     from modules import perf
     perf.start(runtime.stop_event)
+    runtime.threading.Thread(target=_daily_checkpoint, daemon=True, name="geri-donus").start()
     from modules import task_queue
     from modules import event_channels
     def queue_notice(owner,qid,state,job_id):
