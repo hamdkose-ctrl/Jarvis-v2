@@ -2086,4 +2086,44 @@ Ayrıca iki teknik bulgu loglandı:
 - **Kanıt:** odaklı paket (8 dosya) **80 OK**; `test_router_health_key` 5, `test_durable_work_regressions` 5 (env'siz), `test_router_atomic_quota` 6, `test_brain_goal_supervisor` 6. Tam süit (repo kökü, env yok) **7556 test OK** (skipped=2, exit 0); geçici `JARVIS_DATA_DIR` ile aynı sonuç. `modules.validation`: exit 0, "Tüm test grupları başarılı."
 - **Dürüst sınır:** '0 != 8' doğal yük altında (6 CPU hog, 8 koşu) tekrar etmedi; yarış yukarıdaki deterministik harness ile üretildi. Düzeltme gerçek bir yarışı kapatır ama canlı Windows/PC kabulü değildir; gerçek Groq/Ollama trafiğiyle ayrıca ölçülmedi.
 
+## 2026-11-27 — T4–T7 tanımları (uygulama sırası)
+
+T3c/T3d kapandıktan sonraki dört maddenin sözleşmesi. Bu bölüm **yalnız tanımdır**; hiçbiri bu PR'da uygulanmadı ve hiçbir kabul sayısı ölçülmedi. T5 uygulaması ayrı PR'dır; T4, T6 ve T7 için kullanıcı girdisi (anahtar, GLB, onay) gerekir.
+
+### T4 — Canlı kota kabulü (gerçek Groq trafiği)
+
+- **Amaç:** Yerel `reserve` sınırının gerçek sağlayıcıda da tuttuğunu kanıtlamak. Gerçek Groq anahtarıyla dakikada **31 istek** üretilecek; sağlayıcıya giden çağrı **tam 30**, 31. istek **yerelde atlanacak**, **429 gözlenmeyecek**.
+- **Neden şimdi:** T3a–T3c sınırı kodda ve testte kapattı (31. istek sahte taşıyıcıda atlanıyor), ama gerçek Groq yanıtıyla canlı kabul yapılmadı. Kota hatası kullanıcıya 429 olarak dönerse yerel sınır üretimde işe yaramamış olur.
+- **Kabul kanıtı (sayı/adım):** (1) sayaç: yerel denemeler 31, sağlayıcı çağrısı 30; (2) 31. istek için tek tanı satırı (atlanma nedeni); (3) istek zaman damgaları (60 sn penceresi); (4) yanıtlarda **0 adet 429**. RPD için **24 saat beklenmez**; rapora "RPD canlı ölçülmedi" yazılır.
+- **Bağımlılık:** kullanıcının gerçek Groq anahtarı ve açık onayı; T3a–T3c `reserve` satırları (RPM 30/RPD 1000); canlı ağ.
+- **Risk:** 30 gerçek model çağrısı ücret/kota harcar; sağlayıcı tarafında ek 429 üretilebilir; anahtar rapora/loga yazılmamalı. Deneme tek seferlik ve kontrollü olmalı.
+- **Dürüst sınır:** Bu tanım aşamasında canlı trafik **ölçülmedi**. RPD ve günlük tavan canlı doğrulanmayacak; yalnız RPM davranışı ölçülecek.
+
+### T5 — Masaüstü maskot penceresi (Tk, yeni bağımlılık yok)
+
+- **Amaç:** Web arayüzünden bağımsız, her zaman üstte duran masaüstü maskot penceresi: arkası şeffaf, sürüklenebilir, boştayken tıklamayı geçiren, konumu hatırlayan, DPI'ya uyan; durum makinesi **dinliyor / düşünüyor / konuşuyor / boşta**. Mevcut webui maskotu kalır; bu ayrı bir penceredir.
+- **Neden şimdi:** T3d ile durum/kota yolu stabil; kullanıcı Jarvis'i masaüstünde konuşma sırasında görmek istiyor. Yeni bağımlılık gerekmiyor (tkinter + Pillow zaten kurulu).
+- **Kabul kanıtı:** (1) CI yeşil; (2) pencere **açmadan** çalışan saf mantık testleri: konum kelepçeleme, DPI ölçekleme, durum→kare eşlemesi, kare ön yükleme; (3) manuel senaryo listesi (sürükle, gizle, konum hatırla, dinliyor→kare değişti, boştayken tıklama alttaki pencereye geçti, ikinci monitöre taşındı).
+- **Bağımlılık:** mevcut durum kaynağı (`hub.state` / webui `Mascot` ile aynı olay); T6'nın kare hattı olmadan mevcut WebP klipleriyle çalışır; masaüstü maskot **varsayılan kapalı**, ayarla açılır.
+- **Risk:** Tk penceresi ana iş parçacığını/olay döngüsünü meşgul edebilir; click-through yanlış açık kalırsa menü/sürükleme erişilemez; çoklu monitör/DPI'da pencere ekran dışına çıkabilir; boşta CPU hedefi ≤ %2 ve bellek ≤ 60 MB aşılırsa pil/performans etkilenir.
+- **Dürüst sınır:** T5 uygulaması ayrı PR'dır. Gerçek CPU/bellek ve tıklama geçişi yalnız canlı Windows oturumunda ölçülebilir; bu tanımda **ölçülmedi**.
+
+### T6 — Maskot varlık hattı (GLB → kareler)
+
+- **Amaç:** Kullanıcının indireceği GLB'den **6 durum × 320×412** şeffaf kare üretmek; göz parlaması **emissive**; her durumda **ilk ve son kare aynı** (döngü); repoya giren maskot varlığı toplamı **≤ 3 MB**.
+- **Neden şimdi:** T5'in oynatıcısı mevcut WebP klipleriyle çalışır; kalıcı varlık hattı ve 6 durum standardı olmadan yeni klipler elle ve tekrar üretilemez halde kalır.
+- **Kabul kanıtı:** (1) yeniden üretilebilir betik (aynı GLB'den aynı kareler); (2) 6 durum × 320×412, alfa kanalı doğrulanmış kareler; (3) ilk/son kare eşitliği; (4) boyut ölçümü ve **≤ 3 MB** toplam; (5) emissive göz kanıtı.
+- **Bağımlılık:** kullanıcının indireceği GLB ve onun lisansı; T5'in kare oynatıcısı; repo boyut bütçesi.
+- **Risk:** GLB lisansı/boyutu; 6×320×412 şeffaf PNG'ler tek başına 3 MB'ı aşabilir (sıkıştırma/çözünürlük kararı gerekir); emissive malzeme dışa aktarımda kaybolabilir; ilk/son kare eşitliği otomatik doğrulanmazsa döngü atlar.
+- **Dürüst sınır:** GLB elde yok; bu tanımda **hiçbir kare üretilmedi ve boyut ölçülmedi**. 3 MB bütçesi henüz varlıkla sınanmadı.
+
+### T7 — Kota yaşlanma uyarısı
+
+- **Amaç:** `POLICIES` satırları `expires_at`'e **14 gün kala** tek tanı satırı üretsin; `python -m modules.quota_age` hangi satırın ne zaman bayatlayacağını yazsın. 26 Aralık 2026'da üç Groq satırının sessizce bayatlaması bu uyarıyla önceden görülsün.
+- **Neden şimdi:** T3c'de satırlar 30 günlük doğrulamayla yazıldı ve 26 Aralık 2026 riski belgelendi; ancak süre dolarken kimse uyarılmıyor, sınır sessizce sağlayıcı 429'una düşüyor.
+- **Kabul kanıtı:** (1) 14 gün kala tek uyarı satırı üreten test (tekrar etmez); (2) `python -m modules.quota_age` gerçek çıktısı: satır kimliği + `expires_at` + kalan gün; (3) 26 Aralık 2026 satırlarının çıktıda görünmesi.
+- **Bağımlılık:** T3c `POLICIES` satır biçimi (`verified_at`/`expires_at`); saat/tarih kaynağı; mevcut günlük altyapısı.
+- **Risk:** Yanlış saat dilimi/`now` ile erken veya geç uyarı; uyarının her çağrıda tekrarlanması (log seli); bayat satırın hâlâ fail-open davranması uyarıyı "sınır var" sanmaya yol açabilir.
+- **Dürüst sınır:** Bu tanımda modül ve uyarı **yok**; gerçek çıktı **ölçülmedi**. Uyarı yalnız tanıdır, kotayı yeniden doğrulamaz.
+
 
