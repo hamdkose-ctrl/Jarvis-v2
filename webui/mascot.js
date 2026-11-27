@@ -8,7 +8,7 @@
     idle: 'bosta',
     listening: 'dinleme',
     thinking: 'dusunme',
-    working: 'dusunme',
+    working: 'calisma',
     speaking: 'mutlu',
   });
   const GREETING = 'selamlama';

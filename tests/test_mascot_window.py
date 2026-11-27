@@ -35,11 +35,11 @@ class MascotLogicTests(unittest.TestCase):
         mascot_window._STOP.clear()
 
     def test_each_web_state_maps_to_the_same_clip_as_webui(self):
-        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking/working dusunme, speaking mutlu
+        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking dusunme, working calisma, speaking mutlu
         self.assertEqual(mascot_window.clip_name("idle"), "bosta")
         self.assertEqual(mascot_window.clip_name("listening"), "dinleme")
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
-        self.assertEqual(mascot_window.clip_name("working"), "dusunme")
+        self.assertEqual(mascot_window.clip_name("working"), "calisma")
         self.assertEqual(mascot_window.clip_name("speaking"), "mutlu")
         self.assertEqual(mascot_window.clip_name("greeting"), "selamlama")
 
@@ -153,7 +153,7 @@ class MascotLogicTests(unittest.TestCase):
         self.assertEqual(mascot_window.normalize_monitors([(0, 0, 10, 10), (5, 5, 5, 9), "x"]),
                          [(0, 0, 10, 10)])
 
-    def test_real_clips_preload_once_and_share_the_thinking_frames(self):
+    def test_real_clips_preload_once_per_distinct_clip(self):
         frames = mascot_window.preload()
         self.assertEqual(set(frames), set(mascot_window.STATES))
         for state in mascot_window.STATES:
@@ -161,8 +161,11 @@ class MascotLogicTests(unittest.TestCase):
             self.assertGreater(len(frames[state]), 1)
             self.assertEqual(frames[state][0].mode, "RGBA")
             self.assertEqual(frames[state][0].size, mascot_window.BASE_SIZE)
-        # thinking ve working aynı dosyadır: kareler yeniden okunmaz/çoğaltılmaz.
-        self.assertIs(frames["thinking"], frames["working"])
+        # Her durum kendi klibini gösterir; aynı dosyayı paylaşan durum kare çoğaltmaz.
+        self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
+        self.assertEqual(mascot_window.clip_name("working"), "calisma")
+        self.assertIsNot(frames["thinking"], frames["working"])
+        self.assertEqual(len(frames["working"]), 36)
 
     def test_click_through_wanted_requires_the_setting_and_idle(self):
         self.assertFalse(mascot_window.click_through_wanted(False, "idle"))

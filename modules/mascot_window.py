@@ -34,7 +34,7 @@ CLIPS = {
     "idle": "bosta",
     "listening": "dinleme",
     "thinking": "dusunme",
-    "working": "dusunme",
+    "working": "calisma",
     "speaking": "mutlu",
     "greeting": "selamlama",
 }
