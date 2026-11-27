@@ -59,3 +59,27 @@ Hazır Cloudflare kartı owner Account ID/token kaydını mevcut image_gen key s
 - Dosya listesi önbelleğinde tek yenileme yolu `nxapi.list_files(force=True)`dir; arayüzün "yenile"si de bunu kullanır. Test izolasyonu için üretime açık duran `nxapi.reset_file_cache` 18 Kasım 2026 ölçümünde üretimden hiç çağrılmıyordu ve kaldırıldı — belgelediği "yenile düğmesine ayrı zorlama yolu" iddiası gerçek sahibiyle (force) aynı şeydi. Test artık soğuk önbelleği kendi içinde kurar ve eski kopyayı geri koyar: `tests/test_repair_regressions.py`. Üretimde test hook'u bırakılmaz; negatif kilit `tests/test_dead_symbol_retirement_phase2.py`.
 
 - Küçük Jarvis şeridinin çizim sahibi tek modüldür: `modules/widget.py` kendi renk sözlüğü (`COLORS`) ile çalışır. `modules/widget_styles.py` (FAMILIES/validate/draw sözlüğü) 18 Kasım 2026 taramasında depo genelinde hiçbir yerden adlandırılmayan yetim bir dosya olarak ölçüldü ve silindi; ZIP aktarımından (`8d46466d`) kalma, hiç kullanıcı akışına bağlanmamıştı. Arayüzde görünen davranış değişmedi. Kilitle: `tests/test_dead_symbol_retirement_phase2.py` (`OrphanModuleIsGoneTests`, `test_live_widget_owns_its_own_drawing`).
+
+---
+
+## T5 masaüstü maskot penceresi — 27 Kasım 2026
+
+- **Ayrı pencere, web maskotu değişmedi:** `modules/mascot_window.py` yalnız Windows'ta, `mascot_window` ayarı açıksa `web.main` içinden ayrı bir Tk iş parçacığında `Toplevel` açar. `/nx.html` içindeki `webui/mascot.js` maskotu ve klipleri aynen kalır; iki pencere birbirini beslemez.
+- **Durum kaynağı tek:** oynatıcı `web.hub.state` + `engine.flags` okur; web arayüzünün `Mascot.set(S.orb)` aldığı kaynakla aynıdır. İkinci bir durum makinesi yoktur. Bilinmeyen durum boşta sayılır; `sleep` bayrağı maskotu boşta gösterir.
+- **Pencere:** `overrideredirect(True)`, `-topmost`, Windows'ta `-transparentcolor`; arka plan `#010203`. Kareler mevcut `webui/mascot/*.webp` kliplerinden açılışta **bir kez** ön yüklenir (5 dosya, 200 kare, 160×206 RGBA), DPI ölçeğinde 320×412'ye büyütülür; 30 fps döngü. Kare yoksa pencere hiç açılmaz (sessiz gizlenme).
+- **Tıklama geçişi:** boştayken `WS_EX_TRANSPARENT` (ctypes `SetWindowLongW`, `WS_EX_LAYERED` korunur) tıklamayı alttaki pencereye geçirir; dinliyor/düşünüyor/konuşuyor durumunda geri açılır. Bu nedenle sürükleme ve sağ tık menüsü yalnız etkileşim durumunda kullanılabilir (boşta tıklama bilinçli olarak geçer).
+- **Menü ve kalıcılık:** sağ tık menüsü **Gizle / Konum sıfırla / Çık**. Sürükleme bırakıldığında konum `mascot_pos`, açılışta boyut `mascot_size` olarak `settings.json`'a yazılır. Konum her zaman en çok örtüşen (yoksa en yakın) monitörün çalışma alanına kelepçelenir; "Konum sıfırla" ana monitörün sağ altına döner. Gizle yalnız bu oturum içindir; yeniden başlatma pencereyi ayara göre yeniden açar.
+- **Varsayılan kapalı:** `mascot_window` yoksa/`false` ise Tk kökü bile oluşturulmaz. Açmak için Ayarlar › Genel › **Masaüstü maskot** anahtarı (veya `mascot_window=true`) kullanılır; değişiklik **yeniden başlatınca** uygulanır. `nxapi.ui_settings` alanı `mascot_window`, `ui_set` allowlist'i aynı anahtarı taşır.
+- **Ölçülen (pencere açmadan):** `tests/test_mascot_window.py` **19 test OK** — durum→kare eşlemesi (6 durum), DPI (96/120/144/192 + kelepçe), 320×412 boyut, tek/çok monitör kelepçeleme, ekran dışı → en yakın monitör, taşan pencere, sağ alt sıfırlama, bozuk kayıtlı boyut, click-through bitleri, monitör normalizasyonu, gerçek klipler (5 dosya/200 kare/RGBA/160×206), thinking↔working kare paylaşımı, bellek bütçesi, boş varlık dizini, ayar kapalıyken thread açılmaması, Windows dışı uyarısı, Tk kökünün varlığı (yoksa skip). Odaklı çalışma: `tests.test_mascot_window` + `tests.test_nxapi_turn_reopen` **23 OK**.
+- **Bellek ölçümü:** ham kareler **25,15 MB** (5×40 kare, 160×206 RGBA) + bulunulan durumun Tk fotoğrafları **20,12 MB** (40×320×412×4) = **45,26 MB** ≤ 60 MB hedefi. Yalnız bulunulan durumun fotoğrafları tutulur; durum değişince önceki küme bırakılır. Boşta CPU **ölçülmedi** (pencere canlı açılmadı).
+- **Manuel senaryo listesi (Hamdi'nin PC'sinde, ayar açık + yeniden başlatma sonrası):**
+  1. Maskot her zaman üstte mi; arkası şeffaf mı (masaüstü/başka pencere üstünde)?
+  2. Dinliyor durumuna geçince kare değişiyor mu; konuşma bitince boşta klibine dönüyor mu?
+  3. Etkileşim durumunda (dinlerken/konuşurken) sürükle; bırakınca konum değişti mi?
+  4. Jarvis'i kapatıp aç; pencere aynı konumda ve aynı boyutta açıldı mı?
+  5. Boştayken maskot üzerine tıkla; tıklama alttaki pencereye geçti mi (maskot tepki vermedi mi)?
+  6. Maskotu ikinci monitöre taşı; pencere tamamen o monitörde kaldı mı, ekran dışına taşmadı mı?
+  7. Sağ tık: Gizle / Konum sıfırla / Çık beklendiği gibi çalışıyor mu?
+  8. DPI %150 veya %200 iken pencere keskin ve doğru boyutta mı?
+- **Tam doğrulama:** `python -X utf8 -m modules.validation` **exit 0**, çıktı "Tüm test grupları başarılı." (Python tarafı 7575 test / 2 skip; Node grupları ayrıca OK).
+- **Dürüst sınır:** Bu PR'da pencere canlı açılmadı; CPU ≤ %2, gerçek tıklama geçişi, sürükleme, ikinci monitör ve DPI davranışı **ölçülmedi**. Oynatıcı Tk iş parçacığında çalışır; monitörler arası DPI değişimi açılışta bir kez okunur, taşıma sırasında yeniden ölçeklenmez. Yol haritasının T5 tanımı ayrı PR'dadır; bu PR çakışma olmaması için `docs/Jarvis_Yol_Haritasi.md` bölümünü değiştirmez.
