@@ -886,13 +886,42 @@ def _timed(name: str, fn):
     return out
 
 
-def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',route=None,structured=False,evidence=None):
+MESSAGE_OVERHEAD_BYTES = 32   # mesaj başına JSON çerçevesi (rol adı, ayraçlar) payı
+
+
+def token_upper_bound(prompt: str, system: str, max_tokens: int, history=None) -> int:
+    """İstek gövdesinin bayt sayısı + çıktı tavanı: toplam token için ÜST sınır.
+
+    Bayt tabanlı tokenizer'da bir token en az bir bayt kaplar (token ≤ bayt), bu yüzden
+    gönderilen metnin UTF-8 baytı artı üretilebilecek en çok token, gerçek toplam tokenın
+    üst sınırıdır; tahmin edilmiş token sayısı değildir. Karakter sayısı kullanılmaz:
+    Türkçe harfler UTF-8'de birden çok bayttır ve karakter ölçümü sınırı düşürürdü.
+    Gönderilen metin maskelenmiş (redakte) metindir; ölçüm tam olarak onu sayar.
+    """
+    # `_ohist_msgs` sözlük döndürür; geçmiş gerçekten gönderilen metne çevrilir, tahmin yok.
+    texts = [('user', row.get('content') or '') for row in _ohist_msgs(history)]
+    texts += [('system', system or ''), ('user', prompt or '')]
+    total = MESSAGE_OVERHEAD_BYTES * len(texts)
+    for _, text in texts:
+        total += len(privacy.redact(str(text)).encode('utf-8'))
+    return total + int(max_tokens)
+
+
+def _request_token_budget(prompt, system, max_tokens, history=None):
+    # Router toplam token tavanı 2.000.000; ölçülen üst sınır onu aşarsa sayı uydurulmaz,
+    # sınır verilmez (token politikası varsa rezervasyon fail-closed durur).
+    bound = token_upper_bound(prompt, system, max_tokens, history)
+    return bound if bound <= 2_000_000 else None
+
+
+def _request(max_tokens,*,profile='long_worker',data_scope='selected_content',route=None,structured=False,evidence=None,token_budget=None):
     from modules import smart_router
     owner=current_user()
     return smart_router.ModelRequest(owner=owner,request_id=requests_state.request_identity(owner) or '',
         profile=profile,data_scope=data_scope,route=route,evidence=evidence,
         selection_mode='local_only' if provider()=='ollama' else 'configured',
         work_class=requests_state.model_work_class() or ('background' if profile in ('long_worker','public_research') else 'interactive'),max_output_tokens=max_tokens,
+        token_budget=token_budget,
         features=frozenset({'text','structured_output'} if structured else {'text'}))
 
 
@@ -955,7 +984,8 @@ def dispatch(request,spec,prompt,system,history=None,*,image_path=None):
 
 def _send(prompt: str, system: str, max_tokens: int, history, route=None,*,profile='conversation',data_scope='conversation') -> str:
     from modules import smart_router
-    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route)
+    request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route,
+                     token_budget=_request_token_budget(prompt,system,max_tokens,history))
     return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system,history)).text
 
 
@@ -1095,7 +1125,7 @@ def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=Non
          profile='long_worker',data_scope='selected_content',evidence=None) -> str:
     from modules import smart_router
     request=_request(max_tokens,profile=profile,data_scope=data_scope,route=route,structured=validator is not None,
-                     evidence=evidence)
+                     evidence=evidence,token_budget=_request_token_budget(prompt,system,max_tokens))
     return smart_router.run_request(request,lambda spec:dispatch(request,spec,prompt,system),validator=validator).text
 
 
