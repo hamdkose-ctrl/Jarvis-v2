@@ -1,3 +1,9 @@
+### 2026-11-27 — T5: masaüstü maskot penceresi (varsayılan kapalı)
+
+- **Ne:** `modules/mascot_window.py` ayrı bir Tk `Toplevel` açar: `overrideredirect`, her zaman üstte, `-transparentcolor` ile şeffaf; boştayken `WS_EX_TRANSPARENT` tıklamayı alttaki pencereye geçirir. Durum tek kaynaktan (`web.hub.state` + `engine.flags`) okunur; mevcut `webui/mascot.js` maskotu değişmedi. `mascot_window` ayarı **varsayılan kapalı**; `web.main` → `_start_mascot()` ile, yeniden başlatmada açılır. Konum/boyut `settings.json`'da saklanır ve monitör çalışma alanına kelepçelenir.
+- **Ölçülen (pencere açmadan):** `tests/test_mascot_window.py` **19 test OK**; odaklı koşu **23 OK**; bellek **45,26 MB** (25,15 MB ham kare + 20,12 MB Tk fotoğrafları) ≤ 60 MB; tam `python -X utf8 -m modules.validation` **exit 0** ("Tüm test grupları başarılı.").
+- **Dürüst sınır:** Pencere bu PR'da canlı açılmadı; boşta CPU ≤ %2, gerçek tıklama geçişi, sürükleme, ikinci monitör ve DPI davranışı **ölçülmedi**. Monitörler arası DPI açılışta bir kez okunur; gizle yalnız oturum içindir.
+- **Tanım:** T4–T7 tanımı ayrı PR **#874**'tedir; çakışma olmaması için bu kayıt yalnız uygulama durumudur.
 # Karar 3 — tek JARVIS kişiliği: sunumun tek sahibi — 18 Kasım 2026
 
 **Karar:** Hamdi'nin "tek kişilik" kararı kodda tek sahipliğe bağlandı: kimlik, dokuz sunum tercihi, teslim kanalı (yazı/web/scheduler, ekran, ses/telefon, bildirim) ve anlatım biçimi (düz Unicode / LaTeX) tek yerden, `persona.prompt` + `persona_contract` sözcük listesinden üretilir. Yüzeyler yalnız kendi içerik sözleşmesini yazar; hiçbir modül sahibin cümlesini yeniden yazmaz. Persona model, Router, yeni store veya yetki sahibi değildir; sunum tercihi hedef/alıcı/izin/onay/gizlilik/risk/tamamlanma yetkisi vermez.

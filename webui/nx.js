@@ -1247,6 +1247,7 @@ async function drawSettings(){
     srow('bell','Bildirimler','Ekranda kısa bilgi mesajları',sw('nx_notify',u.nx_notify!==false))+
     srow('spark','Proaktif öneriler','İlgili bir risk ya da fırsat görünce “Burada dikkat et” / “Bunu da düşünebilirsin” der',sw('proactive_suggestions',u.proactive_suggestions!==false))+
     srow('grid','Küçük Jarvis','Pencereyi simge durumuna küçültünce köşede görünür',`<button class="sw ${u.widget_on!==false?'on':''}" data-act="wset" data-v="${u.widget_on!==false?0:1}"></button>`)+
+    srow('eye','Masaüstü maskot','Jarvis durumunu masaüstünde ayrı, her zaman üstte bir pencerede gösterir; varsayılan kapalı, yeniden başlatınca uygulanır',`<button class="sw ${u.mascot_window===true?'on':''}" data-act="sset" data-k="mascot_window" data-v="${u.mascot_window===true?0:1}"></button>`)+
     srow('globe','Şehir','Hava durumu için (boş = konumundan bulur)',`<input class="sel" id="city" style="max-width:200px" value="${esc((sn.prefs||{}).city||'')}" placeholder="İstanbul">`))}
   else if(k==='kullanici'){let keys=[];try{keys=await api('user_keys')}catch(e){}const me=(sn.user||{}).name;
     h+=sbox('user','Kullanıcılar','Her kullanıcı kendi hafızası, sohbeti ve kendi API anahtarıyla çalışır; anahtarlar paylaşılmaz.',
