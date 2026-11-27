@@ -9,9 +9,11 @@ No keys, user text or model responses are stored. This is not a provider billing
 hard stop, and neuron usage is not currently metered. Token policies require a
 trusted caller-provided upper bound for total input+output, not guessed tokens.
 
-A policy row is one exact key plus the fields listed in POLICY_FIELDS. A missing
-required field is never filled in and an unknown field is refused, so a half-copied
-row from another model or provider blocks instead of quietly applying.
+A policy row is one exact key plus the fields listed in POLICY_FIELDS, including the
+provider/model identity inside the row. A missing required field is never filled in and
+an unknown field is refused, so a half-copied row from another model or provider blocks
+instead of quietly applying. A row whose verification has expired applies no limit and
+blocks nothing; only a malformed row is fail-closed.
 """
 from __future__ import annotations
 
@@ -194,12 +196,13 @@ POLICY_FIELDS = {
     'expires_at': 'Doğrulamanın geçerlilik sonu (epoch sn; verified_at + en çok 31 gün).',
     'rpm': 'Dakikadaki istek: 1..5000.',
     'rpd': 'Gündeki istek: rpm..500000.',
-    'tpm': 'Dakikadaki token: 1..50.000.000 (yazılırsa tpd de zorunlu).',
-    'tpd': 'Gündeki token: tpm..1.000.000.000 (yazılırsa tpm de zorunlu).',
-    'provider': 'İsteğe bağlı kimlik; yazılırsa POLICIES anahtarıyla eşleşmeli.',
-    'model': 'İsteğe bağlı kimlik; yazılırsa POLICIES anahtarıyla eşleşmeli.',
+    'tpm': 'Dakikadaki token: 1..50.000.000 (tek başına geçerli).',
+    'tpd': 'Gündeki token: tpm..1.000.000.000 (tpm olmadan yazılamaz).',
+    'provider': 'Zorunlu kimlik; POLICIES anahtarındaki sağlayıcıyla eşleşmeli.',
+    'model': 'Zorunlu kimlik; POLICIES anahtarındaki modelle eşleşmeli.',
 }
-POLICY_REQUIRED = frozenset({'source_url', 'verified_at', 'expires_at', 'rpm', 'rpd'})
+POLICY_REQUIRED = frozenset({'provider', 'model', 'source_url', 'verified_at',
+                             'expires_at', 'rpm', 'rpd'})
 POLICY_OPTIONAL = frozenset(POLICY_FIELDS) - POLICY_REQUIRED
 
 
@@ -209,6 +212,10 @@ def validate_policy(provider, model, row, now):
     Ret nedeni tek bir "geçersiz" cümlesine sıkışmaz: eksik/yabancı alan, kimlik
     uyuşmazlığı, kaynak, tarih ve limit ayrı ayrı söylenir; başka modelden kopyalanan
     satır hangi alanda yanlış olduğunu göstererek durur (sessiz varsayılan yok).
+
+    `None` dönüşü yalnız "bu doğrulamanın süresi geçti" demektir: satır yeni limit
+    uygulamaz, çağrı da kesilmez. Şekli bozuk satır (eksik/yabancı alan, kimlik,
+    kaynak, tarih aralığı, limit aralığı) her zaman ReservationUnavailable ile durur.
     """
     if not isinstance(row, dict):
         raise ReservationUnavailable('Yerel kota politikası geçersiz: satır sözlük değil.')
@@ -221,7 +228,7 @@ def validate_policy(provider, model, row, now):
         raise ReservationUnavailable('Yerel kota politikası bilinmeyen alan taşıyor: '
                                      + ', '.join(unknown) + '.')
     for field, expected in (('provider', provider), ('model', model)):
-        if field in row and row[field] != expected:
+        if row[field] != expected:
             raise ReservationUnavailable('Yerel kota politikası kimliği uyuşmuyor: '
                                          + field + '=' + repr(row[field])
                                          + ' ≠ ' + repr(expected) + '.')
@@ -239,20 +246,30 @@ def validate_policy(provider, model, row, now):
     valid_date = (type(verified) in (int, float) and type(expires) in (int, float)
                   and math.isfinite(verified) and math.isfinite(expires)
                   and 0 < verified <= now + 60 and verified < expires
-                  and now < expires and expires - verified <= 31 * 86400)
+                  and expires - verified <= 31 * 86400)
     if not valid_date:
-        raise ReservationUnavailable('Yerel kota geçerliliği doğrulanmadı: verified_at ≤ now, '
-                                     'expires_at gelecekte ve en çok 31 gün sonra olmalı.')
+        raise ReservationUnavailable('Yerel kota geçerliliği doğrulanmadı: verified_at ≤ now+60, '
+                                     'verified_at < expires_at ve süre en çok 31 gün olmalı.')
     rpm, rpd = row['rpm'], row['rpd']
     if not (type(rpm) is int and type(rpd) is int
             and 1 <= rpm <= 5000 and rpm <= rpd <= 500000):
         raise ReservationUnavailable('Yerel kota istek limitleri doğrulanmadı: 1≤rpm≤rpd≤500000.')
     tpm, tpd = row.get('tpm'), row.get('tpd')
-    if (tpm is None) != (tpd is None):
-        raise ReservationUnavailable('Yerel kota token limitleri yarım: tpm ve tpd birlikte yazılır.')
-    if tpm is not None and not (type(tpm) is int and type(tpd) is int
-                                and 1 <= tpm <= 50_000_000 and tpm <= tpd <= 1_000_000_000):
-        raise ReservationUnavailable('Yerel kota token limitleri doğrulanmadı: 1≤tpm≤tpd≤1.000.000.000.')
+    if tpd is not None and tpm is None:
+        # Ters yön serbesttir: resmî sayfalarda TPM yazılıp TPD "-" olabiliyor (Groq
+        # Developer planı gibi); TPD tek başına ise dakika sınırı olmadan gün sınırı demek
+        # olur ve satırın yarısı kopyalanmış olduğunu gösterir.
+        raise ReservationUnavailable('Yerel kota token limitleri yarım: tpd tek başına yazılamaz, tpm de gerekli.')
+    if tpm is not None and not (type(tpm) is int and 1 <= tpm <= 50_000_000):
+        raise ReservationUnavailable('Yerel kota token limitleri doğrulanmadı: 1≤tpm≤50.000.000.')
+    if tpd is not None and not (type(tpd) is int and tpm <= tpd <= 1_000_000_000):
+        raise ReservationUnavailable('Yerel kota token limitleri doğrulanmadı: tpm≤tpd≤1.000.000.000.')
+    if now >= expires:
+        # (T3b) Süresi geçmiş doğrulama yeni limit UYGULAMAZ ama gönderimi de kesmez:
+        # expires_at en çok 31 gün ileri olabildiği için sert durdurma, doğrulama
+        # tazelenmediği gün tüm bulut trafiğini keserdi; sağlayıcının kendi 429/413
+        # sınırı (T2'de tipli hata) konuşmaya devam eder. Şekli bozuk satır yukarıda durur.
+        return None
     return rpm, rpd, tpm, tpd
 
 
@@ -310,8 +327,9 @@ def reserve(owner: str, provider: str, model: str, *, directory: Path,
         raise ReservationUnavailable('Model token rezervasyon üst sınırı geçersiz.')
     if tpm is not None and token_budget is None:
         raise ReservationUnavailable('Doğrulanmış token üst sınırı olmadan istek yasak.')
-    if tpm is not None and (token_budget > tpm or token_budget > tpd):
-        raise ReservationExhausted(86400 if token_budget > tpd else 60)
+    if tpm is not None and (token_budget > tpm
+                            or (tpd is not None and token_budget > tpd)):
+        raise ReservationExhausted(86400 if tpd is not None and token_budget > tpd else 60)
     path = Path(directory) / 'atomic_requests.sqlite3'
     if path.is_symlink():raise ReservationUnavailable('Kota kaydı sembolik bağ olamaz.')
     db = None

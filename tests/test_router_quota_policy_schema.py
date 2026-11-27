@@ -10,7 +10,8 @@ NOW = 1794300000.
 
 
 def policy(**changes):
-    row = {'source_url': 'https://provider.example/rate-limits',
+    row = {'provider': 'groq', 'model': 'm',
+           'source_url': 'https://provider.example/rate-limits',
            'verified_at': NOW - 60, 'expires_at': NOW + 2 * 86400,
            'rpm': 1, 'rpd': 2}
     row.update(changes)
@@ -43,8 +44,8 @@ class PolicySchemaTests(unittest.TestCase):
         self.assertEqual(set(quota.POLICY_REQUIRED) | set(quota.POLICY_OPTIONAL),
                          set(quota.POLICY_FIELDS))
         self.assertEqual(quota.POLICY_REQUIRED,
-                         frozenset({'source_url', 'verified_at', 'expires_at',
-                                    'rpm', 'rpd'}))
+                         frozenset({'provider', 'model', 'source_url', 'verified_at',
+                                    'expires_at', 'rpm', 'rpd'}))
 
     def test_complete_row_without_token_limits_is_accepted(self):
         self.assert_accepted(policy())
@@ -80,11 +81,20 @@ class PolicySchemaTests(unittest.TestCase):
                 self.refuse(policy(source_url=url), message='source_url')
 
     def test_validity_window_is_at_most_31_days_and_never_in_the_future(self):
-        for changes in ({'expires_at': NOW - 1}, {'verified_at': NOW + 100},
+        for changes in ({'verified_at': NOW + 100},
                         {'expires_at': NOW + 32 * 86400}, {'verified_at': '2026'},
                         {'expires_at': True}):
             with self.subTest(changes=changes):
                 self.refuse(policy(**changes), message='geçerliliği')
+
+    def test_expired_verification_is_no_policy_not_a_failed_shape(self):
+        # T3b kararı: süresi geçmiş doğrulama sert durdurma değildir; limit uygulanmaz.
+        row = policy(expires_at=NOW - 1)
+        self.assertIsNone(quota.validate_policy('groq', 'm', row, NOW))
+        quota.POLICIES[('groq', 'm')] = row
+        self.assertFalse(quota.reserve('alice', 'groq', 'm',
+                                       directory=self.directory, now=NOW))
+        self.assertFalse((self.directory / 'atomic_requests.sqlite3').exists())
 
     def test_request_limits_ranges(self):
         for changes in ({'rpm': 0}, {'rpm': 5001}, {'rpd': 500001},
@@ -92,11 +102,13 @@ class PolicySchemaTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.refuse(policy(**changes), message='istek limitleri')
 
-    def test_token_limits_are_all_or_nothing_and_ranged(self):
-        self.refuse(policy(tpm=100), message='yarım')
-        self.refuse(policy(tpd=100), message='yarım')
+    def test_tpm_alone_is_valid_and_tpd_never_stands_without_it(self):
+        # (T3b) Gerçek veri: Groq Developer planında TPM 250K yazılı, TPD "-".
+        self.assertEqual(quota.validate_policy('groq', 'm', policy(tpm=100), NOW),
+                         (1, 2, 100, None))
+        self.refuse(policy(tpd=100), message='tpd')
         for changes in ({'tpm': 100, 'tpd': 90}, {'tpm': 0, 'tpd': 10},
-                        {'tpm': 10, 'tpd': 1_000_000_001}):
+                        {'tpm': 10, 'tpd': 1_000_000_001}, {'tpm': True}):
             with self.subTest(changes=changes):
                 self.refuse(policy(**changes), message='token limitleri')
         self.assertEqual(quota.validate_policy('groq', 'm', policy(tpm=100, tpd=180), NOW),

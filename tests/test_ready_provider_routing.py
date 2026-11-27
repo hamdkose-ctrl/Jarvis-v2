@@ -35,10 +35,14 @@ class ReadyProviderRoutingTests(unittest.TestCase):
         self.assertEqual(smart_router.candidates('alice', 'chat'), ['groq', 'cloudflare', 'ollama'])
         smart_router.configure('alice', gemini_scopes=['conversation'])
         self.assertEqual(smart_router.candidates('alice', 'chat'), ['gemini', 'groq', 'cloudflare', 'ollama'])
-        with patch.object(router_quota, 'reserve', side_effect=AssertionError('local quota')), \
+        # (T3b) Bulut adayı artık doğrulanmış yerel politikaya da danışır; POLICIES boşken
+        # reserve limitlerden önce False döner, yani hâlâ hiçbir yerel limit uygulanmaz.
+        with patch.object(router_quota, 'reserve', wraps=router_quota.reserve) as reserve, \
              patch.object(router_quota, 'admission', side_effect=AssertionError('local semaphore')):
             result = smart_router.run_request(self.request(), lambda spec: spec.provider)
         self.assertEqual(result.text, 'gemini')
+        self.assertEqual(reserve.call_count, 1)
+        self.assertEqual(reserve.call_args.args[:2], ('alice', 'gemini'))
         self.assertEqual(self.ready('gemini')['state'], 'ok')
 
     def test_ready_connections_work_with_fresh_evidence(self):

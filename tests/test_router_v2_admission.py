@@ -275,6 +275,8 @@ class AdmissionTests(unittest.TestCase):
         now = time.time()
         policy = {
             ("groq", "m"): {
+                "provider": "groq",
+                "model": "m",
                 "rpm": 10,
                 "rpd": 100,
                 "tpm": 100,

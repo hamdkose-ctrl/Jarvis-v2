@@ -10,7 +10,8 @@ NOW = 1794300000.
 
 def policy(**updates):
     row = {'rpm':1, 'rpd':2, 'source_url':'https://provider.example/rate-limits',
-           'verified_at':NOW-60, 'expires_at':NOW+2*86400}
+           'verified_at':NOW-60, 'expires_at':NOW+2*86400,
+           'provider':'groq', 'model':'m'}
     row.update(updates)
     return row
 
@@ -42,7 +43,7 @@ class AtomicQuotaTests(unittest.TestCase):
 
     def test_isolated_by_owner_provider_and_exact_model(self):
         quota.POLICIES[('groq','m')] = policy()
-        quota.POLICIES[('groq','m2')] = policy()
+        quota.POLICIES[('groq','m2')] = policy(model='m2')
         self.assertTrue(self.reserve())
         self.assertTrue(self.reserve(owner='bob'))
         self.assertTrue(self.reserve(model='m2'))
@@ -62,8 +63,15 @@ class AtomicQuotaTests(unittest.TestCase):
         self.assertEqual(result.count(True), 1)
         self.assertEqual(result.count(False), 7)
 
-    def test_expired_invalid_or_unreadable_policy_fails_closed(self):
-        for update in ({'expires_at':NOW-1}, {'rpm':True}, {'rpd':0},
+    def test_expired_verification_means_no_policy(self):
+        # (T3b) Süresi geçmiş satır fail-closed DEĞİL: 31 günden eski doğrulama yeni limit
+        # uygulamaz, gönderimi de kesmez. Şekli bozuk satır aşağıda hâlâ durur.
+        quota.POLICIES[('groq','m')] = policy(expires_at=NOW-1)
+        self.assertFalse(self.reserve())
+        self.assertFalse((self.folder/'atomic_requests.sqlite3').exists())
+
+    def test_malformed_or_unreadable_policy_fails_closed(self):
+        for update in ({'rpm':True}, {'rpd':0},
                        {'source_url':'http://example.invalid'},
                        {'verified_at':NOW+100}):
             with self.subTest(update=update):

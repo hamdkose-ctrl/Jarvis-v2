@@ -771,6 +771,12 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                     admission_stack.enter_context(router_quota.admission(request,spec,directory=_STORE))
                 if spec.connection_id:
                     router_quota.reserve_custom(request.owner,spec.connection_id,spec.connection_revision,directory=_STORE,attempt_id=attempt_id,cost_bound=request.cost_upper_bound_microusd)
+                elif spec.provider in _CLOUD_PROVIDERS:
+                    # (T3b) Yönetilen bulut adayı da doğrulanmış yerel politikaya tabidir. POLICIES
+                    # boşken reserve limitlerden ÖNCE erken False döner: davranış ve disk aynı kalır,
+                    # sayı uydurulmaz. Token üst sınırı yoksa token politikası fail-closed durur.
+                    router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE,
+                                         token_budget=request.token_budget,attempt_id=attempt_id)
             except (router_quota.ReservationUnavailable,router_quota.ReservationExhausted) as exc:
                 # This skipped provider made no actual HTTP attempt. Never bypass a
                 # configured limit merely because its local SQLite store is locked.
@@ -795,7 +801,9 @@ def _run_request(request: ModelRequest, adapter: ProviderAdapter,
                         request, lambda: adapter(spec), enabled=alternatif)
                 raw_usage=response.usage if isinstance(response,AdapterResponse) else measured['usage']
                 attempt['usage']={k:raw_usage.get(k) if type(raw_usage.get(k)) is int and raw_usage[k]>=0 else None for k in ('input_tokens','output_tokens','reasoning_tokens','cached_tokens','total_tokens')}
-                if spec.connection_id:
+                if spec.connection_id or spec.provider in _CLOUD_PROVIDERS:
+                    # Gerçek sağlayıcı toplamı varsa rezervasyon üst sınırı gerçek maliyete iner;
+                    # toplam yoksa (iptal/bozuk yanıt) üst sınır muhafazakâr biçimde kalır.
                     router_quota.reconcile(request.owner,attempt_id,raw_usage,directory=_STORE)
                 _check_request(request)
                 reported=response if isinstance(response,AdapterResponse) else AdapterResponse(response,

@@ -13,6 +13,7 @@ NOW = 1794300000.
 
 def policy(**changes):
     row = dict(rpm=5, rpd=9, tpm=100, tpd=180,
+               provider='groq', model='exact',
                source_url='https://provider.example/rates',
                verified_at=NOW-60, expires_at=NOW+2*86400)
     row.update(changes)
@@ -49,13 +50,14 @@ class AtomicTokenQuotaTests(unittest.TestCase):
                 self.reserve(units)
         self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
 
-    def test_expired_trusted_policy_still_fails_closed(self):
-        with self.assertRaises(q.ReservationUnavailable):
-            self.reserve(25, now=NOW+2*86400)
+    def test_expired_trusted_policy_stops_applying_without_blocking(self):
+        # (T3b) Doğrulamanın süresi geçtiyse yerel politika yoktur: limit uygulanmaz,
+        # gönderim kesilmez. Yanlış-düşük sayı sessizce kesmektense sağlayıcı 429'u konuşur.
+        self.assertFalse(self.reserve(25, now=NOW+2*86400))
         self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
 
     def test_malformed_or_partial_token_policy_fails_closed(self):
-        for bad in ({'tpm':True}, {'tpd':None}, {'tpm':None},
+        for bad in ({'tpm':True}, {'tpm':None},
                     {'tpm':101, 'tpd':100}, {'tpm':0},
                     {'tpd':-1}, {'tpm':100_000_000}):
             with self.subTest(bad=bad):
@@ -75,6 +77,15 @@ class AtomicTokenQuotaTests(unittest.TestCase):
         # The unknown row may expire, but cannot be silently counted as free.
         self.assertTrue(self.reserve(25, now=NOW+86400))
 
+    def test_tpm_without_tpd_limits_the_minute_only(self):
+        # Groq Developer planı gibi gerçek satırlar: TPM yazılı, TPD yok.
+        q.POLICIES[('groq','exact')]=policy(tpd=None)
+        self.assertTrue(self.reserve(60))
+        with self.assertRaises(q.ReservationExhausted) as minute:
+            self.reserve(50)
+        self.assertEqual(minute.exception.retry_after, 60)
+        self.assertTrue(self.reserve(50, now=NOW+60))
+
     def test_switching_from_request_only_policy_does_not_erase_usage(self):
         q.POLICIES[('groq','exact')]=policy(tpm=None,tpd=None)
         self.assertTrue(self.reserve(None))
@@ -86,7 +97,7 @@ class AtomicTokenQuotaTests(unittest.TestCase):
     def test_owner_and_exact_model_isolation(self):
         self.assertTrue(self.reserve(95))
         self.assertTrue(self.reserve(95,owner='bob'))
-        q.POLICIES[('groq','other')]=policy()
+        q.POLICIES[('groq','other')]=policy(model='other')
         self.assertTrue(q.reserve('alice','groq','other',
                                   directory=self.directory,now=NOW,token_budget=95))
         with self.assertRaises(q.ReservationExhausted):
