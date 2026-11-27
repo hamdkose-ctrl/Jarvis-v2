@@ -13,7 +13,8 @@ A policy row is one exact key plus the fields listed in POLICY_FIELDS, including
 provider/model identity inside the row. A missing required field is never filled in and
 an unknown field is refused, so a half-copied row from another model or provider blocks
 instead of quietly applying. A row whose verification has expired applies no limit and
-blocks nothing; only a malformed row is fail-closed.
+blocks nothing, and is reported once per process per row; only a malformed row is
+fail-closed.
 """
 from __future__ import annotations
 
@@ -28,8 +29,25 @@ import time
 from urllib.parse import urlsplit
 from modules.diagnostics import record_failure as _record_failure
 
-POLICIES: dict[tuple[str, str], dict] = {}
+# (T3c) Tek canlı satır kümesi: Groq Free plan, resmî rate-limits sayfası.
+# tpm/tpd **bilinçli olarak yok**: metin tabanlı token üst sınırı sağlayıcının gizli
+# şablonunu saymaz ve `ask_image` yolu `token_budget` taşımaz; yazılı bir tpm görsel
+# analizi sert şekilde durdururdu. Token tarafını sağlayıcının kendi 429'u yönetir.
+_GROQ_FREE_LIMITS = {
+    'provider': 'groq',
+    'source_url': 'https://console.groq.com/docs/rate-limits',
+    'verified_at': 1795651200,      # 26 Kas 2026 00:00 UTC
+    'expires_at': 1798243200,       # +30 gün (kural: en çok 31 gün)
+    'rpm': 30,
+    'rpd': 1000,
+}
+POLICIES: dict[tuple[str, str], dict] = {
+    ('groq', 'openai/gpt-oss-120b'): dict(_GROQ_FREE_LIMITS, model='openai/gpt-oss-120b'),
+    ('groq', 'openai/gpt-oss-20b'): dict(_GROQ_FREE_LIMITS, model='openai/gpt-oss-20b'),
+    ('groq', 'qwen/qwen3.8-27b'): dict(_GROQ_FREE_LIMITS, model='qwen/qwen3.8-27b'),
+}
 _OWNER = re.compile(r'^[\w-]{1,100}$', re.UNICODE)
+_STALE_LOGGED: set[tuple[str, str]] = set()
 
 
 def write_trace(owner, record, *, directory):
@@ -273,11 +291,32 @@ def validate_policy(provider, model, row, now):
     return rpm, rpd, tpm, tpd
 
 
+class _StalePolicy(RuntimeError):
+    """Yalnız teşhis satırı: `diagnostics.record_failure` etkin bir istisna ister."""
+
+
+def _note_stale(provider: str, model: str, row: dict) -> None:
+    """Süresi geçmiş doğrulamayı süreç başına bir kez kaydet (aynı anahtar tekrar yazmaz)."""
+    key = (provider, model)
+    if key in _STALE_LOGGED:
+        return
+    _STALE_LOGGED.add(key)
+    try:
+        raise _StalePolicy('Yerel kota doğrulamasının süresi geçti: ' + provider + '/' + model
+                           + ' (expires_at=' + repr(row.get('expires_at')) + ')')
+    except _StalePolicy:
+        _record_failure('modules/router_quota.py:policy_expired:' + provider + '/' + model)
+
+
 def _policy(provider: str, model: str, now: float) -> tuple[int, int, int | None, int | None] | None:
     row = POLICIES.get((provider, model))
     if row is None:
         return None
-    return validate_policy(provider, model, row, now)
+    limits = validate_policy(provider, model, row, now)
+    if limits is None:
+        # (T3c) Süresi geçmiş satır limite dönüşmez ama sessiz de kalmaz: tek satır.
+        _note_stale(provider, model, row)
+    return limits
 
 def _window_wait(rows: list[tuple[float, int]], *, now: float, window: int,
                  max_requests: int, max_tokens: int | None, cost: int) -> int:
