@@ -1,11 +1,11 @@
 """Position and draw the mascot’s desktop speech bubble."""
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageDraw
 
 from modules.mascot_window import KEY_RGB, clamp_position
 
 
 def place(bounds, body_width, body_height, monitors):
-    """Anchor the glass above the hood, with a side placement near the top edge."""
+    """Anchor the caption above the hood, with a side placement near the top edge."""
     x, y, w, h = bounds
     head_x = x + round(w * .55)
     hood_y = y + round(h * .09)
@@ -30,42 +30,13 @@ def place(bounds, body_width, body_height, monitors):
 
 
 def artwork(body_width, body_height, trail, anchor):
-    """Render the curved glass, edge reflections and short light trail at 3×."""
+    """Draw a small aqua reflection beneath the type, with no enclosing shape."""
     scale = 3
     pad = 25
     offset = pad if trail == "left" else 0
     width = body_width + (pad if trail != "down" else 0)
     height = body_height + (pad if trail == "down" else 0)
-    dimensions = (body_width * scale, body_height * scale)
-    mask = Image.new("L", dimensions)
-    radius = min(21, body_height // 2 - 2)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (scale, scale, dimensions[0] - scale - 1, dimensions[1] - scale - 1),
-        radius * scale, fill=255,
-    )
-
-    gradient = Image.linear_gradient("L").resize(dimensions)
-    glass = ImageOps.colorize(gradient, "#173044", "#0a1522", mid="#102336")
-    rim = ImageChops.subtract(mask, mask.filter(ImageFilter.MinFilter(7)))
-    edge = ImageOps.colorize(gradient, "#83a8b5", "#2d6878", mid="#304758")
-    glass.paste(edge, mask=rim)
-
-    # A local reflection at the lower edge reads as glass without adding chrome behind the text.
-    reflection = Image.new("L", dimensions)
-    pencil = ImageDraw.Draw(reflection)
-    if trail == "down":
-        light_x = anchor * scale
-        pencil.ellipse((light_x - 29*scale, dimensions[1] - 7*scale,
-                        light_x + 29*scale, dimensions[1] + 2*scale), fill=150)
-    else:
-        light_x = 0 if trail == "left" else dimensions[0]
-        pencil.ellipse((light_x - 7*scale, (anchor - 20)*scale,
-                        light_x + 7*scale, (anchor + 20)*scale), fill=140)
-    reflection = reflection.filter(ImageFilter.GaussianBlur(2.7 * scale))
-    glass.paste("#91f1f3", mask=ImageChops.multiply(rim, reflection))
-
     layer = Image.new("RGBA", (width * scale, height * scale))
-    layer.paste(glass, (offset * scale, 0), mask)
     pencil = ImageDraw.Draw(layer)
 
     if trail == "down":
@@ -79,11 +50,16 @@ def artwork(body_width, body_height, trail, anchor):
         return tuple(round((origin[i] + forward[i] * distance + across[i] * sideways) * scale)
                      for i in (0, 1))
 
-    for distance, half_width, color in ((3, 11, "#81d8e5"), (9, 7, "#4e9cac"), (15, 4, "#34677a")):
-        pencil.line([point(distance, -half_width), point(distance + 2, 0), point(distance, half_width)],
-                    fill=color, width=scale, joint="curve")
-    cx, cy = point(21, 0)
-    pencil.ellipse((cx-scale, cy-scale, cx+scale, cy+scale), fill="#78d4e6")
+    pencil.line([point(4 + .008 * x*x, x) for x in range(-22, 23)],
+                fill="#2b596b", width=3 * scale)
+    pencil.line([point(4 + .008 * x*x, x) for x in range(-16, 17)],
+                fill="#66c7d6", width=scale)
+    pencil.line([point(4 + .008 * x*x, x) for x in range(-7, 8)],
+                fill="#a8f1f2", width=scale)
+    for distance, sideways, radius in ((12, -2, 1.5), (19, 3, 1)):
+        cx, cy = point(distance, sideways)
+        r = round(radius * scale)
+        pencil.ellipse((cx-r, cy-r, cx+r, cy+r), fill="#72cfdd")
 
     layer = layer.resize((width, height), Image.Resampling.LANCZOS)
     background = Image.new("RGB", layer.size, KEY_RGB)

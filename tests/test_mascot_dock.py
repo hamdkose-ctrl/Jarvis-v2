@@ -85,7 +85,9 @@ class MascotDockTests(unittest.TestCase):
         image, inset = mascot_bubble.artwork(260, 90, trail, anchor)
         self.assertEqual((image.size, inset), ((285, 90), 25))
         self.assertEqual(image.getpixel((0, 0)), mascot_window.KEY_RGB)
-        self.assertNotEqual(image.getpixel((130, 45)), mascot_window.KEY_RGB)
+        self.assertEqual(image.getpixel((130, 45)), mascot_window.KEY_RGB)
+        trail_area = image.crop((0, 0, inset, 90))
+        self.assertGreater(len(trail_area.getcolors(inset * 90)), 1)
 
     def test_native_card_opens_and_renders_reply(self):
         if not mascot_window.available():
@@ -115,7 +117,7 @@ class MascotDockTests(unittest.TestCase):
                 self.assertEqual(dock.active_rid, "")
                 dock.open_console()
                 self.runtime._show_main.assert_called_once()
-                self.runtime.bridge.listen_once.assert_called_once()
+                self.runtime.bridge.listen_once.assert_not_called()
                 observations.put(None)
             except BaseException as exc:
                 observations.put(exc)
@@ -127,8 +129,18 @@ class MascotDockTests(unittest.TestCase):
                 dock = mascot.dock
                 dock.next_jobs = float("inf")
                 mascot._welcome()
-                self.assertEqual(dock.bubble_view, "listen")
+                self.assertIsNone(dock.bubble_view)
+                contents = [dock.bubble_canvas.itemcget(item, "text")
+                            for item in dock.bubble_canvas.find_withtag("message")]
+                self.assertEqual(contents, ["Merhaba, hoş geldin."])
                 dock.open_bubble()
+                mascot.label.event_generate("<ButtonPress-1>", x=70, y=60)
+                mascot.label.event_generate("<ButtonRelease-1>", x=70, y=60)
+                self.assertIsNone(dock.panel)
+                self.runtime.bridge.listen_once.assert_not_called()
+                dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                root.update_idletasks()
+                self.assertTrue(dock.bubble_visible())
                 self.assertIsNone(dock.panel)
                 dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
                 root.update_idletasks()

@@ -449,8 +449,8 @@ class MascotWindow:
 
     # ------------------------------------------------------------- oynatma
     def _welcome(self):
-        if self._state == "greeting" and self.runtime.engine.flags.get("mic", True):
-            self.dock.show_bubble("Merhaba. Konuşmak için tıkla.", seconds=4, view="listen")
+        if self._state == "greeting":
+            self.dock.show_bubble("Merhaba, hoş geldin.", seconds=4, view=None)
 
     def _photo(self, frame):
         from PIL import ImageTk
@@ -604,8 +604,6 @@ class MascotWindow:
                                  self.size[0], self.size[1], windows_monitors(self.root))
             self.window.geometry(f"+{pos[0]}+{pos[1]}")
             self._save(mascot_pos=list(pos))
-        elif self._drag and self.dock:
-            self.dock.listen()
         self._drag = None
 
     def _menu(self, event) -> None:
@@ -616,7 +614,6 @@ class MascotWindow:
             menu.add_command(label="Yaz", command=lambda: self.dock.open(focus=True))
             if self.dock.last_reply:
                 menu.add_command(label="Son yanıtı aç", command=self.dock.open_reply)
-            menu.add_command(label="Konuş", command=self.dock.listen)
             menu.add_command(label="Mikrofonu aç/kapat", command=self.dock.toggle_mic)
             menu.add_command(label="Sesi kes", command=self.dock.stop_speech)
             menu.add_command(label="Kısayolu değiştir", command=self.dock.change_shortcut)

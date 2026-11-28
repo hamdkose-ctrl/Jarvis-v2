@@ -227,7 +227,6 @@ class MascotDock:
         self._button(self.composer, "Gönder", self.send, accent=True).pack(side="right")
         footer = tk.Frame(body, bg=BG)
         footer.pack(fill="x", pady=(6, 0))
-        self._button(footer, "Konuş", self.listen, tint=True).pack(side="left", padx=(0, 5))
         self._button(footer, "Son işler", self.show_jobs).pack(side="left")
         self._button(footer, "Dosya bul", self.find_files).pack(side="left")
         self._button(footer, "⋯", self._menu).pack(side="right")
@@ -236,12 +235,12 @@ class MascotDock:
         self._update_actions()
 
     @staticmethod
-    def _button(parent, label, command, accent=False, tint=False):
+    def _button(parent, label, command, accent=False):
         import tkinter as tk
 
         return tk.Button(parent, text=label, command=command,
-                         bg=ACCENT if accent else (CARD if tint else parent.cget("bg")),
-                         fg=BG if accent else (ACCENT if tint else TEXT),
+                         bg=ACCENT if accent else parent.cget("bg"),
+                         fg=BG if accent else TEXT,
                          activebackground=BORDER, activeforeground=TEXT, cursor="hand2",
                          font=("Segoe UI", 9, "bold"), relief="flat", bd=0, padx=9, pady=5,
                          highlightthickness=0, takefocus=True)
@@ -303,7 +302,7 @@ class MascotDock:
             self.entry.focus_force()
 
     def show_bubble(self, text, *, seconds=None, view="reply"):
-        """Show a non-activating speech bubble over the hood."""
+        """Show a short, non-activating caption over the hood."""
         from PIL import ImageTk
         from modules import mascot_bubble
         from modules.mascot_window import set_no_activate, windows_monitors
@@ -321,12 +320,13 @@ class MascotDock:
             self.bubble.after_cancel(self.bubble_close)
         canvas = self.bubble_canvas
         canvas.delete("all")
-        item = canvas.create_text(0, 0, text=excerpt, width=228, anchor="nw", fill=TEXT,
-                                  font=("Segoe UI", 10), tags="message")
+        font = ("Segoe UI", 11, "bold" if view is None else "normal")
+        item = canvas.create_text(0, 0, text=excerpt, width=254, anchor="nw", fill=TEXT,
+                                  justify="center", font=font, tags="message")
         left, top, right, bottom = canvas.bbox(item)
         text_width, text_height = right - left, bottom - top
-        body_width = max(122, text_width + 40)
-        body_height = max(42, text_height + 28)
+        body_width = max(122, text_width + 24)
+        body_height = max(30, text_height + 14)
         window = self.mascot.window
         bounds = (window.winfo_x(), window.winfo_y(), *self.mascot.size)
         x, y, trail, anchor = mascot_bubble.place(
@@ -335,7 +335,13 @@ class MascotDock:
         self.bubble_photo = ImageTk.PhotoImage(art, master=self.bubble)
         bg = canvas.create_image(0, 0, image=self.bubble_photo, anchor="nw")
         canvas.tag_lower(bg)
-        canvas.coords(item, inset + (body_width - text_width) // 2, (body_height - text_height) // 2)
+        text_x = inset + (body_width - text_width) // 2
+        text_y = (body_height - text_height) // 2
+        for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (0, 2)):
+            canvas.create_text(text_x + dx, text_y + dy, text=excerpt, width=254, anchor="nw",
+                               fill="#07121b", justify="center", font=font)
+        canvas.coords(item, text_x, text_y)
+        canvas.tag_raise(item)
         w, h = art.size
         self.bubble.geometry(f"{w}x{h}+{x}+{y}")
         self.bubble.update_idletasks()
@@ -349,9 +355,8 @@ class MascotDock:
         self.open(focus=True)
 
     def open_bubble(self):
-        if self.bubble_view == "listen":
+        if self.bubble_view is None:
             self.dismiss_bubble()
-            self.listen()
         elif self.bubble_view == "jobs":
             self.show_jobs()
             self.open(focus=True)
@@ -426,22 +431,6 @@ class MascotDock:
         if self.mascot._state == "idle" and not flags.get("mic", True):
             return "Mikrofon kapalı"
         return STATUS.get(self.mascot._state, "Hazır")
-
-    def listen(self):
-        try:
-            if not self.runtime.engine.flags.get("mic", True):
-                self._set_notice("Mikrofon kapalı.")
-                self.show_bubble("Mikrofon kapalı.", seconds=3)
-            else:
-                if self.runtime.engine.flags.get("sleep"):
-                    self.runtime.bridge.sleep(False)
-                accepted = self.runtime.bridge.listen_once()
-                self._set_notice("Dinleme başlatılıyor…" if accepted else "Mikrofon kapalı.")
-                if accepted:
-                    self.show_bubble("Dinliyorum…", seconds=4)
-        except ValueError as exc:
-            self._set_notice(exc)
-            self.show_bubble(str(exc), seconds=5)
 
     def stop_speech(self):
         self.runtime.bridge.stop_speaking()
@@ -840,7 +829,7 @@ class MascotDock:
             if not self.active_rid or (value != "idle" and (not rid or rid == self.active_rid)):
                 self._set_notice("")
             if value != self.shown_state and value in {"listening", "thinking"}:
-                self.show_bubble(STATUS[value] + "…", seconds=5)
+                self.show_bubble(STATUS[value] + "…", seconds=5, view=None)
             self.shown_state = value
         elif kind == "step" and rid and rid == self.active_rid:
             self._set_notice(value[:100])
