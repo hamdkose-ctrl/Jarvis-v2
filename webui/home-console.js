@@ -2,6 +2,7 @@
 (() => {
   const markup = () => `  <header class="topbar">
     <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>Jarvis</strong>
+    <span class="statusline" id="statusline" hidden></span>
     <button class="btn" data-home-action="theme" aria-haspopup="dialog"><span class="theme-current-swatch" aria-hidden="true"></span>Tema</button>
   </header>
 
@@ -377,6 +378,9 @@
       const label = mode === 'camera' ? 'Kamera açık' : mode === 'screen' ? 'Ekran paylaşılıyor' :
         !S.snap ? 'Bağlanıyor…' : reactorPaused && !active ? 'Duraklatıldı' : active ? DOCK_ST[state] || 'Hazır' : heyTxt();
       find('#core-state').textContent = label;
+      const line = String(S.snap?.status_line || ''), bar = find('#statusline');
+      bar.textContent = line;
+      bar.hidden = !line;
       find('#halt').textContent = mode ? 'Paylaşımı kapat' : reactorPaused && !active ? 'Başlat' : 'Durdur';
       const mic = find('#mic-toggle');
       mic.setAttribute('aria-pressed', String(state === 'listening'));
