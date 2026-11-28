@@ -717,6 +717,9 @@ def run(owner, task, dependencies):
                     continue
                 source_claims.append({'subject':focus,'scope':claim.get('scope',''),'as_of':claim.get('as_of',''),
                                       'value':claim['value'],'url':cu,'evidence':claim['quote']})
+        kaynak_listesi=[{'title':(row.get('title') or row.get('url') or url),'url':(row.get('url') or url)} for row in (independent or [])]
+        if len(kaynak_listesi)>1:  # tek kaynakta eski bicim korunur
+            summary += '\nKaynaklar:\n' + research_providers.format_citations(kaynak_listesi)
         return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {}),**({'source_claims':source_claims} if source_claims else {}),**({'event_evidence':event_proof} if event_proof else {})}
     if kind=='browser': return browser_task(owner,data)
     if kind=='coder':
