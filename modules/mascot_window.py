@@ -528,23 +528,38 @@ class MascotWindow:
 
     def _show_clip(self, state: str) -> None:
         self._cancel_frame()
-        if state == "speaking" and self._extra_frames.get("speaking_alt"):
-            state = "speaking_alt" if self._last_speech_clip == "speaking" else "speaking"
-            self._last_speech_clip = state
+        if state == "speaking":
+            primary = ASSET_DIR / "konusma.jclip"
+            alternative = ASSET_DIR / "konusma2.jclip"
+            has_alt = (alternative.is_file() if primary.is_file()
+                       else bool(self._extra_frames.get("speaking_alt")))
+            if has_alt:
+                state = "speaking_alt" if self._last_speech_clip == "speaking" else "speaking"
+                self._last_speech_clip = state
         elif state == "idle" and self._idle_clip is None and self._extra_frames.get("rest"):
             state = "rest"
-        clip = state if state in self._extra_frames else state_key(state)
+        clip = state if state in self._extra_frames or state == "speaking_alt" else state_key(state)
         self._active_clip = clip
         source = self._extra_frames.get(clip) or frames_for(self._frames, state)
         self._release_clip()
         try:
-            self._active_frames = FrameStream(
-                source, size=self.size,
-                first_only=self._reduced_motion or clip == "rest",
-            )
-            if not len(self._active_frames):
-                raise ValueError("empty mascot clip")
-            self._draw_frame(0)
+            first_only = self._reduced_motion or clip == "rest"
+            if clip in ("speaking", "speaking_alt"):
+                name = "konusma2" if clip == "speaking_alt" else "konusma"
+                asset = ASSET_DIR / f"{name}.jclip"
+                if asset.is_file():
+                    try:
+                        from modules.mascot_face_runtime import HybridFrameStream
+                        self._active_frames = HybridFrameStream(asset, size=self.size, first_only=first_only)
+                        self._draw_frame(0)
+                    except Exception:  # noqa: BLE001 - keep existing fallback
+                        _record_failure("modules/mascot_window.py:hybrid_asset")
+                        self._release_clip()
+            if self._active_frames is None:
+                self._active_frames = FrameStream(source, size=self.size, first_only=first_only)
+                if not len(self._active_frames):
+                    raise ValueError("empty mascot clip")
+                self._draw_frame(0)
         except Exception:  # noqa: BLE001
             _record_failure("modules/mascot_window.py:_show_clip")
             self._release_clip()
