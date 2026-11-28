@@ -360,21 +360,28 @@ def finance_tick(owner, emit, *, now=None, price_getter=None):
     from modules import finance_alert_tick
     return finance_alert_tick.tick(owner, emit, now=now, price_getter=price_getter)
 
+def emitters(runtime, owner, topic):
+    """İki ayrı teslim başlığı: klasör izleme ve finans alarmı telefonda karışmasın.
+
+    Aynı gövde teslim edilir; yalnız bildirim başlığı ayrılır (3-D alarm maddesi).
+    """
+    def make(title):
+        def emit(text):
+            runtime._emit_for(owner, "assistant", text, "izleme")
+            if topic:   # telefon bildirimi açıksa kısa haber
+                runtime.notify.send(topic, title, text.split("\n", 1)[0][:200])
+        return emit
+    return make("Jarvis klasör izleme"), make("Jarvis finans alarmı")
+
+
 def loop(runtime) -> None:
     """Arka plan döngüsü: yalnız PC'nin aktif kullanıcısının kuralları çalışır."""
     while not runtime.stop_event.wait(INTERVAL):
         try:
             owner = runtime.pc_profile()
             topic = (owner.data.get("prefs") or {}).get("ntfy_topic")
-
-            def emit(text, o=owner, notification_title="Jarvis klasör izleme"):
-                runtime._emit_for(o, "assistant", text, "izleme")
-                if topic:   # telefon bildirimi açıksa kısa haber
-                    runtime.notify.send(topic, notification_title, text.split("\n", 1)[0][:200])
-            finance_tick(
-                owner.slug,
-                lambda text: emit(text, notification_title="Jarvis finans alarmı"),
-            )
+            emit, finance_emit = emitters(runtime, owner, topic)
+            finance_tick(owner.slug, finance_emit)
             if load(owner.slug):
                 runtime._llm.set_user_context(owner.slug)       # bu iş parçacığında yalnız o kullanıcının anahtarı
                 tick(owner.slug, emit)

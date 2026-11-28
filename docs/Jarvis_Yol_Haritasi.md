@@ -4,6 +4,13 @@
 - `Breathing Idle`, `Happy Idle`, `Talking (1)` ve modelin başını eğdiği yerleşik klip, dokulu GLB’den 160×206 şeffaf WebP olarak üretildi. Boşta bekleme hareketleri art arda aynı klibi seçmez.
 - Uçtan uca kabul Windows’ta fiziksel mikrofon/hoparlör, pencere odağı ve global kısayol ile yapılır. Çoklu monitör ve DPI davranışı aynı kabulde kontrol edilir.
 
+### 2026-11-28 — T17: finans alarmı bildirim başlığı ayrıldı (Faz 3, 3-D)
+
+- **Ne:** Faz 3'ün kalan tek maddesi, finans alarmının telefonda ayrı başlıkla gitmesiydi. Başlık kodu `watcher.loop` içinde gömülü bir closure'daydı: test edilemiyor, canlı kabulü yapılamıyordu.
+- **Yapılan:** `watcher.emitters(runtime, owner, topic)` ayrıldı — aynı gövde, iki başlık: `Jarvis klasör izleme` ve `Jarvis finans alarmı`. `notify.SERVER` artık `JARVIS_NTFY_SERVER` ile değiştirilebiliyor (varsayılan `https://ntfy.sh`); böylece kabul, telefona dokunmadan yerel alıcıya karşı yapılabiliyor.
+- **Ölçülen:** `tests/test_finance_notification_title.py` 6/6 OK. Gerçek kabul: gerçek `finance_alert_tick.tick` + gerçek `watcher.emitters` + gerçek `notify.send` → yerel HTTP alıcısına ulaşan gövde: `BASLIK: Jarvis finans alarmı · MESAJ: USDTRY 40,00 TL'nin üstüne çıktı; güncel fiyat 41,20 TL.`; sohbet olayı da düştü (`assistant`, kaynak `izleme`).
+- **Dürüst sınır:** Fiyat bacak canlı kaynaktan alınamadı (sağlayıcı zaman aşımı), kabulde fiyat enjekte edildi; telefondaki gerçek bildirim, kullanıcı ntfy konusunu açmadığı için denenmedi.
+
 ### 2026-11-28 — T16: durum satırı (Faz 1 arayüz parçası)
 
 - **Ne:** Ekran yalnız "Hazır / Düşünüyor" diyordu; hangi sağlayıcı/model, bugün kaç tur döndüğü ve telefon erişiminin açık olup olmadığı görünmüyordu. Faz 1 kapanışı ekranın gerçek bağlantı sonucunu ve yanıt veren modeli göstermesini istiyor.
@@ -198,7 +205,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: üst çubuk durum satırı 28 Kasım 2026'da eklendi: etkin sağlayıcı · model · bugünkü tur sayısı · telefon durumu (T16, canlı PC kabulü ile); provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 4 durumu (22 Kasım 2026 ölçümü): yedi salt-okuma modülünün hepsi üretim kodundan çağrılıyor ve her dalın kendi bağlama testi var (`test_phase4_*_wiring`, toplam 55 test OK). Per-letter "akışa bağlı değil" hükümleri geçersiz; kalan kapı exact-head CI + gerçek PC kabulü. Kapsam işleri (SearXNG kendi sunucu, Tavily/Exa/Firecrawl API anahtarı, canlı OHLCV serisi, CDP gerçek profil, 4G UIA pilotu) kullanıcı kararı/hesap bekliyor.
-- Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan: 3-D alarm teslim başlığı canlı kabulü)
+- Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; 3-D alarm başlığı ayrıldı ve canlı kabul edildi (T17); `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan yok: 3-D canlı kabulü tamamlandı (T17, 28 Kasım 2026).
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 modül üretimden çağrılıyor; kalan anahtar/kendi sunucu gerektiren arama sağlayıcıları, canlı OHLCV, CDP, 4G UIA pilotu, F-002 kabul PR'ları)
 - Faz 5: Güvenilirlik ve gözlem
 - Faz 6: Sandbox, skill, kod ajanı
@@ -342,7 +349,8 @@ Finance ve envanter ayrı domain sözleşmelerine bağlanır. Worker'ların okuy
 - 🟡 (#362) `[1✓ 2✓ 3✓ 4🔄]` Finance ayrı domain olarak sözleşmeye bağlanacak: veri, alarm, analiz, kaynak doğrulama dalları ve kod göçü planı. Karar belgesi var, kod hâlâ iletişim tarafında. Salt okuma, para hareketi yok. **`source_verification` dalı kapatıldı (22 Kasım 2026, PR #757):** dal sözleşmede vardı ama `modules: ()` ve giriş noktaları **başka dalın** dosyasını gösteriyordu (`modules/finance.py:dated_rate`, `_safe_xml`) — yani ayrı bir doğrulama dalı fiilen yoktu, kurallar `dated_rate` içinde satır arasındaydı ve `validate()` bunu yakalamıyordu. Doğrulama `modules/finance_verification.py:verify_rate_evidence/parse_rate_body` altına taşındı; `dated_rate` **aynı** fonksiyonu çağırıyor (kural ikinci kez yazılmıyor), dal artık kendi modülüne bağlı. `validate()` yeni kuralı: giriş noktası dalın modülünde değilse veya modülde tanımlı değilse hata — hayalet dal sessizce geri gelemez. Davranış değişmedi: 129 finance testi OK (`test_finance_source_verification.py` 10 yeni test: para birimi uyuşmazlığı, gelecek tarih, geçersiz kur, güvensiz adres/boş gövde, bozuk JSON, efekt yetkisi üretmeme, dal sözleşmesi).
   - ✅ 3-B `watcher._finance_price` → `finance.quote` (`modules/watcher.py:354-356`)
   - ✅ 3-C `watcher.finance_tick` ve yardımcıları → `finance_alert_tick.py` (`modules/watcher.py:359-361`)
-  - 🟡 3-D alarm teslimi Communication'da, ntfy başlığı ayrılır (`finance_domain.BRANCHES['alarm']` alarm dallarını `notify/outbox` dışında tutuyor; teslim başlığı ayrımı canlı kabul bekliyor)
+  - ✅ 3-D alarm teslimi ayrı başlıkla: `watcher.emitters` klasör izleme ve finans alarmını ayırır (`Jarvis klasör izleme` / `Jarvis finans alarmı`); canlı kabul 28 Kasım 2026'da yerel alıcıya karşı yapıldı (6 test + gerçek tur, T17). `finance_domain.BRANCHES['alarm']` alarm dallarını `notify/outbox` dışında tutmaya devam ediyor.
+    Kanıt: PR=#888; SHA=222f1a5853eae4c78fab83f4e96c6a0357925403; Contract=#888; Migration=n/a; Wiring=#888; Acceptance=watcher-pass@222f1a5853eae4c78fab83f4e96c6a0357925403; Cleanup=verified
   - ✅ 3-E `domain_tools.exchange` → `finance.dated_rate` (`modules/domain_tools.py:100`)
   - ✅ 3-F `domain_tools.csv_analysis` finans kolu → `finance_analysis.csv_summary` (`modules/domain_tools.py:27-31`)
 - ✅ (#360) `[1✓ belge PR'ı]` 705 maddelik envanter repoya Capability Intake ikinci dalga olarak işlenecek ve Hermes sürüm referansı commit SHA'ya sabitlenecek. Şu an ilk dalga 20 aday var. Yalnız belge PR'ı.

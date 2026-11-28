@@ -1,12 +1,15 @@
 """Telefona bildirim (ntfy.sh). Konu adı tahmin edilemez uzun bir rastgele addır; kimseyle paylaşma."""
 from __future__ import annotations
 
+import os
 import re
 import secrets
 
 import requests
 
-SERVER = "https://ntfy.sh"
+# Varsayılan herkese açık ntfy sunucusu. Kendi sunucunu ya da yerel bir test alıcısını
+# kullanmak için `JARVIS_NTFY_SERVER` ayarlanır; varsayılan davranış değişmez.
+SERVER = (os.environ.get("JARVIS_NTFY_SERVER") or "https://ntfy.sh").rstrip("/")
 
 
 def new_topic() -> str:
