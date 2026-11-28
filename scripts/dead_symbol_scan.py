@@ -17,9 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _sources():
     files = sorted((ROOT / "modules").glob("*.py"))
-    entry = ROOT / "web.py"
-    if entry.exists():
-        files.append(entry)
+    files += sorted(ROOT.glob("*.py"))   # web.py ve web_*.py kök modülleri de üretim
     return files
 
 
@@ -47,9 +45,12 @@ def _occurrences() -> Counter:
             except OSError:
                 continue
             counts.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text))
-    entry = ROOT / "web.py"
-    if entry.exists():
-        counts.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", entry.read_text(encoding="utf-8")))
+    for entry in ROOT.glob("*.py"):
+        try:
+            counts.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*",
+                                      entry.read_text(encoding="utf-8")))
+        except OSError:
+            continue
     return counts
 
 

@@ -4,13 +4,6 @@
 # hâlâ bulursa yine düşer; kayıt ile gerçek ayrışamaz.
 #
 # Biçim: <modül>.<fonksiyon>  —  <neden bekliyor>
-camera_bridge.viewer_leave   # izleyici ayrılma yolu; canlı oda akışı bağlanmadı
-git_publish.protect_local    # yerel koruma dalı; yayın akışında kullanılmıyor
+git_publish.protect_local    # yayın öncesi yerel koruma; güncelleyici akışına bağlanmadı
 news_pipeline.synthesis_input # sentez girdisi; sentez adımı henüz bağlanmadı
-nxapi.import_folder          # klasör ithali; komut yüzeyi yok
-nxapi.pick_folder            # klasör seçici; komut yüzeyi yok
-router_connections.record_vision_observation # vizyon gözlemi kaydı; çağrı yok
-smart_router.qualification_session           # yeterlilik oturumu; bağlanmadı
-study.set_mode               # çalışma kipi; komut yüzeyi yok
-studyexam.set_courses        # sınav ders listesi; akış bağlanmadı
-studyexam.wrong_next         # yanlışlardan devam; akış bağlanmadı
+smart_router.qualification_session # yeterlilik oturumu; bağlanmadı
