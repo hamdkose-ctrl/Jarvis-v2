@@ -1,12 +1,9 @@
-### 2026-11-28 — T20: araç olayı canonical hook hattına bağlandı; gateway'de üretici yok
+### 2026-11-28 — T20: hook çift teslim hatası düzeltildi; T19'daki "araç emit'i yok" ölçümü yanlıştı
 
-- **Ne:** T19'da bulunan boşluk: `tool` ve `gateway` hook adları vardı, üretimde yayan çağrı yoktu.
-- **Yapılan:** `permission_gate.decide` artık kararı üretiyor **ve** `hooks.observe('tool', …)` ile yayınlıyor; hedef metni gizlilik için gönderilmiyor (yalnız `class`, `via`, `decision`). Saf çekirdek `_decide` olarak ayrıldı.
-- **Yol boyu bulunan gerçek hata:** `hooks.emit` sahipsiz olayda global gözlemci listesini **iki kez** ekliyordu — her global gözlemci olayı iki kez alıyordu. Düzeltildi, test eklendi.
-- **Ölçülen:** `tests/test_tool_hook.py` 4/4 OK, `test_observer_hooks` 2/2 OK, `test_permission*.py` 95/95 OK, mimari denetim OK.
-- **Gateway gerçeği:** Kod tabanında "gateway" kavramı yok (tek geçtiği yer `HOOK_NAMES`). Uydurma emit eklemek yerine kayıt olarak bırakıldı; yol haritasındaki "gateway observation" maddesi ürün içinde karşılığı olmadığı için not düşüldü.
-### 2026-11-28 — T19: Faz 2 brifing kapanış kabulü; hook boşlukları ölçüldü
-
+- **Düzeltme (önce dürüstlük):** T19'da "üretimde `tool` emit'i yok" yazmıştım; ölçüm hatasıydı. Aramayı `hooks.emit` üzerinden yapmıştım, üretim ise `hooks.observe` kullanıyor. Araç olayı `task_worker_adapter` içinde `phase: start/end` olarak zaten yayınlanıyor.
+- **Gerçek hata:** `hooks.emit` sahipsiz olayda global gözlemci listesini **iki kez** ekliyordu; her global gözlemci aynı olayı iki kez alıyordu. Düzeltildi.
+- **Ölçülen:** `tests/test_observer_hooks.py` 4/4 OK (ikisi yeni regresyon testi), `test_phase2_wiring` 25/25 OK, mimari denetim OK.
+- **Gateway gerçeği:** Üründe "gateway" kavramı yok; tek geçtiği yer `HOOK_NAMES`. Uydurma emit eklenmedi; yol haritasındaki gateway maddesi ürün karşılığı olmadığı için açık kalıyor.
 - **Ne:** Faz 2'nin "kapanış kabulü bekliyor" maddeleri gerçek PC'de ölçüldü.
 - **Ölçülen (brifing):** Uygulama iki kez açıldı. İlk açılışta `main_planner._daily_briefing` **1 kez** çağrıldı, metin üretildi (model çağrısı 2,2 sn), `last_brief=2026-11-28` yazıldı. Aynı gün ikinci açılışta **0 kez** çağrıldı ve `last_brief` değişmedi — koruma (`_BRIEF_LOCK` + `last_brief`) çalışıyor.
 - **Ölçülen (hook):** Aynı açılışta gerçek bir sohbet turu (`/api/send`, `{"ok": true}`) atıldı ve canonical `modules/hooks.py` hattı **3 model olayı** teslim etti (`hook:model:{call, provider, ok, seconds}`). `gateway_hooks.py` dosyası yok; tek registry `hooks.py`.

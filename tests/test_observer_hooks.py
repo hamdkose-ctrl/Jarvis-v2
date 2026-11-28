@@ -20,6 +20,21 @@ class ObserverHooksTests(unittest.TestCase):
             "agent", "tool", "model", "approval", "session", "sub_agent", "kanban", "gateway",
         })
 
+    def test_ownerless_event_reaches_global_observer_once(self):
+        seen = []
+        hooks.register('tool', seen.append)
+        hooks.emit('tool', {'tool': 'read'})
+        self.assertEqual(len(seen), 1)
+
+    def test_ownerless_event_skips_owner_lists(self):
+        seen = []
+        hooks.register('tool', lambda event: seen.append('global'))
+        hooks.register('tool', lambda event: seen.append('hamdi'), owner='hamdi')
+        hooks.emit('tool', {'tool': 'read'})
+        self.assertEqual(seen, ['global'])
+        hooks.emit('tool', {'tool': 'read'}, owner='hamdi')
+        self.assertEqual(seen, ['global', 'global', 'hamdi'])
+
     def test_observer_cannot_change_execution_and_failure_isolated(self):
         payload = {"allowed": True}
 
