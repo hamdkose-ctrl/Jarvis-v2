@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.roadmap_completion_evidence_check import (
+    _entries_with_completion,
     check_completion_evidence,
     validate_ci_provenance,
 )
@@ -152,6 +153,44 @@ class RoadmapCompletionEvidenceTests(unittest.TestCase):
             changed_paths=["docs/Jarvis_Yol_Haritasi.md", "modules/camera_bridge.py"],
         )
         self.assertTrue(any("kod değişikliği" in error for error in errors))
+
+
+class GirişDosyasiKanitTestleri(unittest.TestCase):
+    """Giriş dosyalarında tamamlanma iddiası (`- ✅`) denetimden kaçamamalı."""
+
+    def _yaz(self, klasor, ad, icerik):
+        yol = klasor / "docs" / "yol_haritasi_girisler" / ad
+        yol.parent.mkdir(parents=True, exist_ok=True)
+        yol.write_text(icerik, encoding="utf-8")
+        return yol
+
+    def test_tamam_isareti_giris_dosyasinda_yakalanir(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            self._yaz(kok, "T99.md", "# T99\n\n- ✅ Faz 9 bitti\n")
+            self.assertEqual(
+                _entries_with_completion(kok),
+                ["docs/yol_haritasi_girisler/T99.md"],
+            )
+
+    def test_tamam_isareti_yoksa_temiz(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            self._yaz(kok, "T98.md", "# T98\n\n- Kısmi dilim\n")
+            self.assertEqual(_entries_with_completion(kok), [])
+
+    def test_klasor_yoksa_bos(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(_entries_with_completion(Path(tmp)), [])
 
 
 if __name__ == "__main__":

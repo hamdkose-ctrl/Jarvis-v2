@@ -22,6 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROADMAP_FILE = "docs/Jarvis_Yol_Haritasi.md"
+# Girişler artık PR başına ayrı dosyaya yazılabiliyor; tamamlanma iddiası (`- ✅`)
+# yalnız ana yol haritasında olabilir, yoksa kanıt denetimi atlanır.
+ENTRIES_DIR = "docs/yol_haritasi_girisler"
 COMPLETION_MARKER = "✅"
 EVIDENCE_PREFIX = "Kanıt:"
 REQUIRED_FIELDS = (
@@ -237,6 +240,19 @@ def _provenance_from_git(
     )
 
 
+def _entries_with_completion(root: Path) -> list[str]:
+    """Giriş dosyalarında tamamlanma iddiası (`- ✅`) varsa yollarını döndürür."""
+    klasor = root / ENTRIES_DIR
+    if not klasor.is_dir():
+        return []
+    bulunan: list[str] = []
+    for yol in sorted(klasor.rglob("*.md")):
+        metin = yol.read_text(encoding="utf-8", errors="replace")
+        if any(satir.lstrip().startswith("- ✅") for satir in metin.splitlines()):
+            bulunan.append(yol.relative_to(root).as_posix())
+    return bulunan
+
+
 def main() -> int:
     current_path = ROOT / ROADMAP_FILE
     if not current_path.is_file():
@@ -247,6 +263,14 @@ def main() -> int:
         base_text = _roadmap_on_main(ROOT)
     except RuntimeError as exc:
         print(f"ROADMAP COMPLETION EVIDENCE: {exc}")
+        return 1
+
+    yanlis_yer = _entries_with_completion(ROOT)
+    if yanlis_yer:
+        print("ROADMAP COMPLETION EVIDENCE: tamamlanma iddiasi giris dosyasinda olamaz:")
+        for yol in yanlis_yer:
+            print(f"  - {yol}")
+        print(f"  Kanit satiri {ROADMAP_FILE} icinde olmali; giris dosyalari kanit denetiminden gecmez.")
         return 1
 
     current_text = current_path.read_text(encoding="utf-8", errors="replace")
