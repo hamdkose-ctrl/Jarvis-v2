@@ -313,11 +313,19 @@ class MascotDock:
         if not excerpt:
             return
         self.bubble_view = view
+        if self.bubble is not None and self.bubble_close is not None:
+            self.bubble.after_cancel(self.bubble_close)
+            self.bubble_close = None
+        # A withdrawn Win32 layered/no-activate Toplevel may remain withdrawn
+        # after deiconify. Recreate the lightweight caption when it is hidden;
+        # keep its existing surface only while updating a visible caption.
+        if self.bubble is not None and not self.bubble_visible():
+            self.bubble.destroy()
+            self.bubble = None
+            self.bubble_photo = None
         if self.bubble is None:
             self.bubble, self.bubble_canvas = self._surface()
             self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_bubble())
-        if self.bubble_close is not None:
-            self.bubble.after_cancel(self.bubble_close)
         canvas = self.bubble_canvas
         canvas.delete("all")
         font = ("Segoe UI", 11, "bold" if view is None else "normal")

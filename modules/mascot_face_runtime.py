@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from modules import mascot_audio_meter
+from modules.diagnostics import record_failure as _record_failure
 
 SIZE = (480, 618)
 CROP = (110, 125, 250, 165)
@@ -57,6 +58,7 @@ class HybridFrameStream:
             if first_only:
                 self.count = 1
         except Exception:
+            _record_failure("modules/mascot_face_runtime.py:open_clip")
             self.archive.close()
             raise
         self.size = tuple(size)
