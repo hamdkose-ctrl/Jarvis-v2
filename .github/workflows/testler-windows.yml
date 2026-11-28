@@ -71,8 +71,15 @@ jobs:
             Write-Host "Bilinmeyen olay ($($env:GITHUB_EVENT_NAME)); tam paket zorunlu."
             exit 0
           }
-          $changed = @(git diff --name-only $aralik)
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $changed = @(git diff --name-only $aralik 2>$null)
+          if ($LASTEXITCODE -ne 0) {
+            # Karşılaştırma yapılamıyorsa (force-push sonrası before SHA yok, sığ klon,
+            # yeniden yazılmış geçmiş) kırmızı düşmek yerine GÜVENLİ tarafa geç: tam paket.
+            # Kırmızı koşu test çalıştırmadan düşüyordu; bu, main push'unda sahte arıza üretir.
+            "agir=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Değişiklik listesi alınamadı ($aralik); güvenli taraf: tam paket."
+            exit 0
+          }
           # Sınıflandırıcı PR başından koşar; PR kendi sınıflandırıcısını ya da
           # workflow'u değiştiriyorsa hızlı yola güvenilmez, tam paket koşar.
           $mekanizma = @($changed | Where-Object {
