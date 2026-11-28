@@ -214,9 +214,11 @@ def watch_tick(runtime=None, *, hour=None, now=None) -> list[dict]:
             runtime.log.info("uyanıklık: %s", item["text"])
         if item.get("kind") == "window" and not speak_windows:
             continue
-        _announce(item["text"])
-        _LAST_SPOKEN = {"text": str(item["text"])[:160],
-                        "at": time.time() if now is None else float(now)}
+        # Yalnız **gerçekten söylenen** bildirim kaydedilir; ses kapalıyken ya da
+        # konuşma başarısızken teşhis "son bildirim" göstermemeli (yanlış tanı).
+        if _announce(item["text"]):
+            _LAST_SPOKEN = {"text": str(item["text"])[:160],
+                            "at": time.time() if now is None else float(now)}
     awareness_watch.mark_seen(items, _SEEN)
     return items
 
