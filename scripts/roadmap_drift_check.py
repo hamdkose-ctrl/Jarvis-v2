@@ -30,6 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROADMAP_FILE = "docs/Jarvis_Yol_Haritasi.md"
+ROADMAP_ENTRIES_DIR = "docs/yol_haritasi_girisler/"
 
 EXCLUDED_PREFIXES = (
     "tests/",
@@ -157,7 +158,9 @@ def classify(
     roadmap_updated = False
 
     for path in changed_files:
-        if path == ROADMAP_FILE:
+        # Yol haritasi girişi artık PR basina ayri dosyaya yazilabiliyor (çakışma önlemi):
+        # docs/yol_haritasi_girisler/T<no>.md de "yol haritasi güncellendi" sayilir.
+        if path == ROADMAP_FILE or path.startswith(ROADMAP_ENTRIES_DIR):
             roadmap_updated = True
             continue
         if _is_excluded(path):

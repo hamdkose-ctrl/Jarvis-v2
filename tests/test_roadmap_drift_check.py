@@ -62,6 +62,19 @@ class RoadmapDriftClassifyTests(unittest.TestCase):
         self.assertTrue(result["roadmap_updated"])
         self.assertTrue(result["pass"])
 
+    def test_ayri_giris_dosyasi_da_roadmap_guncellemesi_sayilir(self):
+        """PR girişi docs/yol_haritasi_girisler/ altına yazdıysa drift geçer (çakışma önlemi)."""
+        result = classify(
+            ["modules/new_capability.py", "docs/yol_haritasi_girisler/T99.md"],
+            ROOT,
+            is_new_file=lambda p: True,
+            symbol_delta=_new_symbol("NewCapability"),
+            body_delta=_body_unchanged,
+        )
+        self.assertTrue(result["roadmap_required"])
+        self.assertTrue(result["roadmap_updated"])
+        self.assertTrue(result["pass"])
+
     def test_only_test_changes_no_roadmap_required(self):
         """Sadece test dosyasi degisikligi -> roadmap zorunlu degil, PASS."""
         result = classify(
