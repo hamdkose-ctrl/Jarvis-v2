@@ -138,6 +138,46 @@ def foreground_window() -> str:
         return ""
 
 
+def observation_report(settings=None, *, hour=None) -> str:
+    """"Şu an ne görüyorsun?" sorusunun tek satırlık cevabı.
+
+    Gözlem katmanının gerçekten bildiği şeyleri yazar; bilmediğini uydurmaz.
+    Bildirim üretmez, `_SEEN` durumuna dokunmaz: rapor sormak gelecekteki
+    bildirimleri yutmaz.
+    """
+    if settings is None:
+        try:
+            from config import load_settings
+            settings = load_settings() or {}
+        except Exception:       # noqa: BLE001
+            _record_failure('modules/pc_autonomy_queue.py:observation_report')
+            settings = {}
+    from modules import awareness_watch
+    parts: list[str] = []
+    if awareness_watch.enabled(settings):
+        start, end = awareness_watch.quiet_bounds(settings)
+        parts.append(f"uyanıklık açık (sessiz {start:02d}:00–{end:02d}:00)")
+    else:
+        parts.append("uyanıklık kapalı")
+    state: dict = {}
+    try:
+        state.update(_inbox_and_calendar())
+    except Exception:       # noqa: BLE001
+        _record_failure('modules/pc_autonomy_queue.py:observation_report:mail')
+    unread = state.get("unread_mail")
+    if isinstance(unread, int) and unread > 0:
+        parts.append(f"{unread} okunmamış mail")
+    minutes = state.get("next_event_minutes")
+    if isinstance(minutes, (int, float)):
+        parts.append(f"sıradaki iş {int(minutes)} dakika sonra")
+    last = _LAST_SPOKEN
+    if last.get("at"):
+        parts.append("son bildirim " + time.strftime("%H:%M", time.localtime(float(last["at"]))))
+    else:
+        parts.append("henüz bildirim yok")
+    return " · ".join(parts)
+
+
 def announce_state() -> dict:
     """Son gerçekten söylenen uyanıklık bildirimi (teşhis için); yoksa boş sözlük."""
     return dict(_LAST_SPOKEN)
