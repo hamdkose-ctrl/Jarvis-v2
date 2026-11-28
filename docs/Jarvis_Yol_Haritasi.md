@@ -1,3 +1,9 @@
+### 2026-11-28 — T15: yedek kapsamı — kanıt defterleri dışarıda
+
+- **Ne:** Gerçek makinede ilk yedek **87.660 dosya / 26,9 MB** tuttu; %99'u `file-effect-claims` kanıt defteriydi. Yedek hem yavaştı hem de yanlış şeyi koruyordu.
+- **Yapılan:** `file-effect-claims`, `browser-session-claims`, `interactive-claims`, `sandbox` kapsam dışına alındı; kullanıcı verisi (users, goals, router, permission_audit, kb, uploads, kök JSON'lar) aynı kaldı. Test kapsam dışı klasörü kilitliyor.
+- **Ölçülen:** 87.660 dosya / 26,9 MB → **186 dosya / 0,6 MB**; süre ~20 sn → **< 1 sn**. `tests.test_checkpoint` 8 OK, Architecture Guard OK.
+- **Dürüst sınır:** Kanıt defterleri yedekte değil; geri dönüşten sonra "hangi dosyaya dokunuldu" kaydı yedekten gelmez.
 ### 2026-11-28 — T14: geri dönüş noktası (veri yedeği + kuru prova ile geri alma)
 
 - **Ne:** Jarvis'in verisi (kullanıcılar, notlar, ayarlar, hedefler, bilgi tabanı) bozulduğunda geri dönülecek bir nokta yoktu; git yalnız kodu koruyordu.
