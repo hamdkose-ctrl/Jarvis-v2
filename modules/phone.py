@@ -32,6 +32,17 @@ from modules.phone_pages import PAGE, SIRI_PAGE
 
 PORT = 8765
 TOKEN_FILE = DATA_DIR / "phone_token.txt"
+_LAST_ERROR = ""
+
+
+def note_error(message: str) -> None:
+    """Son başlatma hatasını saklar; panel ve durum satırı aynı metni gösterir."""
+    global _LAST_ERROR
+    _LAST_ERROR = " ".join(str(message or "").split())[:300]
+
+
+def last_error() -> str:
+    return _LAST_ERROR
 
 def _harden_token_file() -> None:
     _harden(TOKEN_FILE)

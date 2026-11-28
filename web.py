@@ -1725,7 +1725,9 @@ def main() -> None:
         try:
             phone.start()           # "Jarvis açılınca telefon erişimini aç" seçiliyse
         except OSError as exc:
-            print(f"Telefon erişimi açılamadı: {type(exc).__name__}")
+            # Sebep yutulmaz: panel ve durum satırı aynı metni okuyabilsin.
+            phone.note_error(str(exc) or type(exc).__name__)
+            print(f"Telefon erişimi açılamadı: {exc}")
     _start_tray()
     _start_mascot()
     print(f"Jarvis Komut Merkezi: {url}")
