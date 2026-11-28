@@ -1,6 +1,7 @@
 import contextvars
 import queue
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -124,51 +125,92 @@ class MascotDockTests(unittest.TestCase):
             finally:
                 root.quit()
 
-        def observe():
-            try:
-                dock = mascot.dock
-                dock.next_jobs = float("inf")
-                mascot._welcome()
-                self.assertIsNone(dock.bubble_view)
-                root.update_idletasks()
-                self.assertTrue(dock.bubble_visible(), "initial welcome caption not mapped")
-                contents = [dock.bubble_canvas.itemcget(item, "text")
-                            for item in dock.bubble_canvas.find_withtag("message")]
-                self.assertEqual(contents, ["Merhaba, hoş geldin."])
-                dock.open_bubble()
-                root.update_idletasks()
-                self.assertFalse(dock.bubble_visible())
-                mascot.label.event_generate("<ButtonPress-1>", x=70, y=60)
-                mascot.label.event_generate("<ButtonRelease-1>", x=70, y=60)
-                self.assertIsNone(dock.panel)
-                self.runtime.bridge.listen_once.assert_not_called()
-                with patch.object(dock, "show_bubble", wraps=dock.show_bubble) as show:
-                    dock._event({"user": "hamdi", "k": "state", "t": "listening"})
-                    show.assert_called_once_with("Dinliyorum…", seconds=5, view=None)
-                self.assertEqual(dock.shown_state, "listening")
-                root.update_idletasks()
-                self.assertTrue(dock.bubble_visible(),
-                                f"caption state={dock.bubble.state()}, mapped={dock.bubble.winfo_ismapped()}")
-                self.assertEqual([dock.bubble_canvas.itemcget(item, "text")
-                                  for item in dock.bubble_canvas.find_withtag("message")],
-                                 ["Dinliyorum…"])
-                self.assertIsNone(dock.panel)
-                dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
-                root.update_idletasks()
-                self.assertIsNone(dock.panel)
-                self.assertTrue(dock.bubble.winfo_viewable())
-                self.assertEqual(dock.badge, "")
-                dock.open_bubble()
-                self.assertFalse(dock.bubble.winfo_viewable())
-                dock.entry.insert(0, "Bugün ne var?")
-                self.runtime.bridge.send.return_value = True
-                dock.send()
-                root.after(180, verify_send)
-            except BaseException as exc:
-                observations.put(exc)
-                root.quit()
+        def guarded(callback):
+            def run():
+                try:
+                    callback()
+                except BaseException as exc:
+                    observations.put(exc)
+                    root.quit()
+            return run
 
-        root.after(250, observe)
+        def after_visibility(window, visible, then, label):
+            # Tk's idle queue is not its native Windows event queue. Wait for
+            # actual map/unmap notifications on the live event loop, not sleeps
+            # or a simulated boolean; fail on a bounded real deadline.
+            deadline = time.monotonic() + 2.0
+
+            def poll():
+                if bool(window.winfo_viewable()) == visible:
+                    then()
+                    return
+                if time.monotonic() >= deadline:
+                    self.fail(f"{label}: expected viewable={visible}, "
+                              f"state={window.state()}, mapped={window.winfo_ismapped()}, "
+                              f"mascot_mapped={mascot.window.winfo_ismapped()}, "
+                              f"root_state={root.state()}")
+                root.after(20, guarded(poll))
+
+            root.after(0, guarded(poll))
+
+        def observe():
+            dock = mascot.dock
+            dock.next_jobs = float("inf")
+            mascot._welcome()
+            self.assertIsNone(dock.bubble_view)
+            after_visibility(dock.bubble, True, welcome_visible, "welcome caption")
+
+        def welcome_visible():
+            dock = mascot.dock
+            contents = [dock.bubble_canvas.itemcget(item, "text")
+                        for item in dock.bubble_canvas.find_withtag("message")]
+            self.assertEqual(contents, ["Merhaba, hoş geldin."])
+            dock.open_bubble()
+            after_visibility(dock.bubble, False, welcome_hidden, "dismissed welcome")
+
+        def welcome_hidden():
+            dock = mascot.dock
+            mascot.label.event_generate("<ButtonPress-1>", x=70, y=60)
+            mascot.label.event_generate("<ButtonRelease-1>", x=70, y=60)
+            self.assertIsNone(dock.panel)
+            self.runtime.bridge.listen_once.assert_not_called()
+            with patch.object(dock, "show_bubble", wraps=dock.show_bubble) as show:
+                dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                show.assert_called_once_with("Dinliyorum…", seconds=5, view=None)
+            self.assertEqual(dock.shown_state, "listening")
+            after_visibility(dock.bubble, True, listening_visible, "listening caption")
+
+        def listening_visible():
+            dock = mascot.dock
+            self.assertEqual([dock.bubble_canvas.itemcget(item, "text")
+                              for item in dock.bubble_canvas.find_withtag("message")],
+                             ["Dinliyorum…"])
+            self.assertIsNone(dock.panel)
+            dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
+            after_visibility(dock.bubble, True, reply_visible, "reply caption")
+
+        def reply_visible():
+            dock = mascot.dock
+            self.assertIsNone(dock.panel)
+            self.assertEqual(dock.badge, "")
+            self.assertEqual([dock.bubble_canvas.itemcget(item, "text")
+                              for item in dock.bubble_canvas.find_withtag("message")],
+                             ["Sesli yanıt"])
+            dock.open_bubble()
+            after_visibility(dock.bubble, False, reply_hidden, "reply caption dismissed")
+
+        def reply_hidden():
+            dock = mascot.dock
+            after_visibility(dock.panel, True, compose_visible, "reply card")
+
+        def compose_visible():
+            dock = mascot.dock
+            dock.entry.insert(0, "Bugün ne var?")
+            self.runtime.bridge.send.return_value = True
+            dock.send()
+            root.after(180, verify_send)
+
+        root.after(250, guarded(observe))
         try:
             with patch.object(tk, "Tk", return_value=root):
                 self.assertTrue(mascot.open())

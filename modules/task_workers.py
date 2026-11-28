@@ -388,6 +388,26 @@ def file_task(data):
         matches = file_worker_extensions.search_files(data['path'], query, max_files=limit)
         return {'state': 'done', 'text': 'Arama tamamlandı: ' + str(len(matches)) + ' dosya eşleşti.',
                 'matches': matches, 'operation': 'search_files'}
+    if data.get('operation') == 'create_pptx':
+        from modules import file_worker_extensions
+        kayit = file_worker_extensions.create_pptx_with_consent(
+            data['path'], data.get('slides'),
+            consent=data.get('allow_write') is True,
+            allowed_root=data.get('allowed_root'),
+        )
+        return {'state': 'done',
+                'text': 'Sunum oluşturuldu.',
+                'operation': 'create_pptx', **kayit}
+    if data.get('operation') == 'patch_text':
+        from modules import file_worker_extensions
+        kayit = file_worker_extensions.apply_patch(
+            data['path'], data.get('replacements'),
+            consent=data.get('allow_write') is True,
+            allowed_root=data.get('allowed_root'),
+        )
+        return {'state': 'done',
+                'text': 'Metin yaması uygulandı: ' + str(kayit['chars']) + ' karakter.',
+                'operation': 'patch_text', **kayit}
     if data.get('operation') != 'extract_obligations':
         raise ValueError('Dosya worker işlemi geçersiz.')
     from modules import file_worker, file_worker_extensions

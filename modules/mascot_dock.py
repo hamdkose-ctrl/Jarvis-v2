@@ -317,17 +317,15 @@ class MascotDock:
         if self.bubble is not None and self.bubble_close is not None:
             self.bubble.after_cancel(self.bubble_close)
             self.bubble_close = None
-        # A withdrawn Win32 layered/no-activate Toplevel may remain withdrawn
-        # after deiconify. Recreate the lightweight caption when it is hidden;
-        # keep its existing surface only while updating a visible caption.
-        if self.bubble is not None and not self.bubble_visible():
+        # A withdrawn surface is safe to replace. Do not destroy a window
+        # whose native map notification is still pending.
+        if self.bubble is not None and self.bubble.state() == "withdrawn":
             self.bubble.destroy()
             self.bubble = None
             self.bubble_photo = None
         if self.bubble is None:
-            # Override-redirect caption maps naturally on Tk's next idle pass.
-            # Do not force an initially withdrawn native wrapper to deiconify.
             self.bubble, self.bubble_canvas = self._surface(withdrawn=False)
+            self.bubble.bind("<Map>", self._caption_mapped)
             self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_bubble())
         canvas = self.bubble_canvas
         canvas.delete("all")
@@ -355,15 +353,19 @@ class MascotDock:
         canvas.tag_raise(item)
         w, h = art.size
         self.bubble.geometry(f"{w}x{h}+{x}+{y}")
-        # Map the override-redirect window before touching its Win32 wrapper.
-        # Setting WS_EX_NOACTIVATE on the withdrawn wrapper can block Tk's map.
-        self.bubble.update_idletasks()
-        if not self.bubble.winfo_viewable():
-            self.bubble.deiconify()
-            self.bubble.update_idletasks()
-        set_no_activate(self.bubble, True)
+        # The native wrapper can be mapped asynchronously. Do not change its
+        # style before the actual Map event or recursively pump Tk here.
+        self.bubble.deiconify()
+        if self.bubble.winfo_ismapped():
+            set_no_activate(self.bubble, True)
         timeout = seconds if seconds is not None else min(12, max(5, len(excerpt) / 24))
         self.bubble_close = self.bubble.after(round(timeout * 1000), self._expire_bubble)
+
+    def _caption_mapped(self, event):
+        from modules.mascot_window import set_no_activate
+
+        if event.widget is self.bubble:
+            set_no_activate(self.bubble, True)
 
     def open_reply(self):
         self.switch("reply")
@@ -381,7 +383,6 @@ class MascotDock:
     def _expire_bubble(self):
         self.bubble_close = None
         self.bubble.withdraw()
-        self.bubble.update_idletasks()
 
     def dismiss_bubble(self):
         if self.bubble is not None:
@@ -389,7 +390,6 @@ class MascotDock:
                 self.bubble.after_cancel(self.bubble_close)
                 self.bubble_close = None
             self.bubble.withdraw()
-            self.bubble.update_idletasks()
 
     def _update_actions(self):
         for widget, shown in ((self.speech_button, self.mascot._state == "speaking"),
