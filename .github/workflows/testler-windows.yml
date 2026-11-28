@@ -38,6 +38,20 @@ jobs:
           git fetch origin main:refs/remotes/origin/main 2>$null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           py -3.13 scripts/roadmap_drift_check.py
+      - name: Değişiklik sınıfı (hızlı yol)
+        # Yalnız markdown değişen PR'da tam test paketi koşmaz: kapılar (drift +
+        # kanıt) her zaman çalışır, ağır adımlar yalnız kod değişince çalışır.
+        id: sinif
+        if: github.event_name == 'pull_request'
+        env:
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $changed = @(git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $sinif = (py -3.13 scripts/ci_change_class.py --paths @changed).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "agir=$sinif" >> $env:GITHUB_OUTPUT
+          Write-Host "Değişiklik sınıfı: $sinif ($($changed.Count) dosya)"
       - name: Roadmap tamamlanma kanıtı kontrolü
         env:
           JARVIS_PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -56,6 +70,7 @@ jobs:
             throw "Node 24 gerekli; bulunan: $nodeVersion"
           }
       - name: Sabit Windows paketleri ve ekleri
+        if: steps.sinif.outputs.agir != 'false'
         run: |
           py -3.13 -m pip install --upgrade pip
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -66,8 +81,10 @@ jobs:
           py -3.13 -m pip check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sözdizimi kontrolü
+        if: steps.sinif.outputs.agir != 'false'
         run: py -3.13 -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
       - name: Tam doğrulama (Python, JavaScript ve smoke)
+        if: steps.sinif.outputs.agir != 'false'
         env:
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
         run: py -3.13 -X utf8 -m modules.validation
