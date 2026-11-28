@@ -1,5 +1,9 @@
-### 2026-11-28 — T19: Faz 2 brifing kapanış kabulü; hook boşlukları ölçüldü
+### 2026-11-28 — T20: hook çift teslim hatası düzeltildi; T19'daki "araç emit'i yok" ölçümü yanlıştı
 
+- **Düzeltme (önce dürüstlük):** T19'da "üretimde `tool` emit'i yok" yazmıştım; ölçüm hatasıydı. Aramayı `hooks.emit` üzerinden yapmıştım, üretim ise `hooks.observe` kullanıyor. Araç olayı `task_worker_adapter` içinde `phase: start/end` olarak zaten yayınlanıyor.
+- **Gerçek hata:** `hooks.emit` sahipsiz olayda global gözlemci listesini **iki kez** ekliyordu; her global gözlemci aynı olayı iki kez alıyordu. Düzeltildi.
+- **Ölçülen:** `tests/test_observer_hooks.py` 4/4 OK (ikisi yeni regresyon testi), `test_phase2_wiring` 25/25 OK, mimari denetim OK.
+- **Gateway gerçeği:** Üründe "gateway" kavramı yok; tek geçtiği yer `HOOK_NAMES`. Uydurma emit eklenmedi; yol haritasındaki gateway maddesi ürün karşılığı olmadığı için açık kalıyor.
 - **Ne:** Faz 2'nin "kapanış kabulü bekliyor" maddeleri gerçek PC'de ölçüldü.
 - **Ölçülen (brifing):** Uygulama iki kez açıldı. İlk açılışta `main_planner._daily_briefing` **1 kez** çağrıldı, metin üretildi (model çağrısı 2,2 sn), `last_brief=2026-11-28` yazıldı. Aynı gün ikinci açılışta **0 kez** çağrıldı ve `last_brief` değişmedi — koruma (`_BRIEF_LOCK` + `last_brief`) çalışıyor.
 - **Ölçülen (hook):** Aynı açılışta gerçek bir sohbet turu (`/api/send`, `{"ok": true}`) atıldı ve canonical `modules/hooks.py` hattı **3 model olayı** teslim etti (`hook:model:{call, provider, ok, seconds}`). `gateway_hooks.py` dosyası yok; tek registry `hooks.py`.
