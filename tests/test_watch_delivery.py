@@ -127,5 +127,31 @@ class TekrarVeSinir(unittest.TestCase):
         self.assertTrue(say.called)
 
 
+class SonBildirimDogruMu(unittest.TestCase):
+    """Ses kapalıyken/başarısızken "son bildirim" gösterilmemeli (sağlık P3)."""
+
+    AYAR = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
+
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+        pc_autonomy_queue._LAST_SPOKEN.clear()
+
+    def _tick(self, seslendi):
+        with patch("config.load_settings", return_value=self.AYAR), \
+             patch.object(pc_autonomy_queue, "_inbox_and_calendar",
+                          lambda: {"unread_mail": 3}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value=""), \
+             patch("modules.pc_autonomy_queue._announce", return_value=seslendi):
+            return pc_autonomy_queue.watch_tick(None, hour=12)
+
+    def test_ses_kapaliyken_kayit_yok(self):
+        self.assertEqual(len(self._tick(False)), 1)
+        self.assertEqual(pc_autonomy_queue.announce_state(), {})
+
+    def test_sesliyken_kayit_var(self):
+        self._tick(True)
+        self.assertIn("mail", pc_autonomy_queue.announce_state()["text"])
+
+
 if __name__ == '__main__':
     unittest.main()
