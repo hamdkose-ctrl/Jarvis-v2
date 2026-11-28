@@ -162,12 +162,13 @@ class MascotDock:
             self.stop_key.set()
         self.runtime.hub.unsubscribe(self.messages, desktop=True)
 
-    def _surface(self):
+    def _surface(self, *, withdrawn=True):
         import tkinter as tk
         from modules.mascot_window import KEY_HEX
 
         window = tk.Toplevel(self.mascot.root)
-        window.withdraw()
+        if withdrawn:
+            window.withdraw()
         window.overrideredirect(True)
         window.attributes("-topmost", True)
         if sys.platform.startswith("win"):
@@ -324,7 +325,9 @@ class MascotDock:
             self.bubble = None
             self.bubble_photo = None
         if self.bubble is None:
-            self.bubble, self.bubble_canvas = self._surface()
+            # Override-redirect caption maps naturally on Tk's next idle pass.
+            # Do not force an initially withdrawn native wrapper to deiconify.
+            self.bubble, self.bubble_canvas = self._surface(withdrawn=False)
             self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_bubble())
         canvas = self.bubble_canvas
         canvas.delete("all")
@@ -352,11 +355,12 @@ class MascotDock:
         canvas.tag_raise(item)
         w, h = art.size
         self.bubble.geometry(f"{w}x{h}+{x}+{y}")
+        # Map the override-redirect window before touching its Win32 wrapper.
+        # Setting WS_EX_NOACTIVATE on the withdrawn wrapper can block Tk's map.
         self.bubble.update_idletasks()
-        set_no_activate(self.bubble, True)
-        self.bubble.deiconify()
-        # Flush the native window remap before exposing its visibility.
-        self.bubble.update_idletasks()
+        if not self.bubble.winfo_viewable():
+            self.bubble.deiconify()
+            self.bubble.update_idletasks()
         set_no_activate(self.bubble, True)
         timeout = seconds if seconds is not None else min(12, max(5, len(excerpt) / 24))
         self.bubble_close = self.bubble.after(round(timeout * 1000), self._expire_bubble)

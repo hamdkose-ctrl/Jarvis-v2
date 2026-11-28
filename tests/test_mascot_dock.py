@@ -130,6 +130,8 @@ class MascotDockTests(unittest.TestCase):
                 dock.next_jobs = float("inf")
                 mascot._welcome()
                 self.assertIsNone(dock.bubble_view)
+                root.update_idletasks()
+                self.assertTrue(dock.bubble_visible(), "initial welcome caption not mapped")
                 contents = [dock.bubble_canvas.itemcget(item, "text")
                             for item in dock.bubble_canvas.find_withtag("message")]
                 self.assertEqual(contents, ["Merhaba, hoş geldin."])
@@ -140,7 +142,10 @@ class MascotDockTests(unittest.TestCase):
                 mascot.label.event_generate("<ButtonRelease-1>", x=70, y=60)
                 self.assertIsNone(dock.panel)
                 self.runtime.bridge.listen_once.assert_not_called()
-                dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                with patch.object(dock, "show_bubble", wraps=dock.show_bubble) as show:
+                    dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                    show.assert_called_once_with("Dinliyorum…", seconds=5, view=None)
+                self.assertEqual(dock.shown_state, "listening")
                 root.update_idletasks()
                 self.assertTrue(dock.bubble_visible(),
                                 f"caption state={dock.bubble.state()}, mapped={dock.bubble.winfo_ismapped()}")

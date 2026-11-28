@@ -479,7 +479,14 @@ _RESEARCH_NEWS_TOPIC = re.compile(r"(?<!\w)(?:haber\w*|gelişme\w*|gelisme\w*)(?
 # Taze dış veri isteğinin tek canonical tanımını taşırlar (eski modules/freshness kuralı).
 _RESEARCH_FRESH_TOPIC = re.compile(
     r"(?<!\w)(?:haber\w*|gelişme\w*|gelisme\w*|fiyat\w*|kuru?(?!\w)|dolar|euro|altın|altin|borsa|piyasa|skor\w*|"
-    r"maç sonucu\w*|mac sonucu\w*)(?!\w)"
+    r"maç sonucu\w*|mac sonucu\w*|"
+    # Kural/mevzuat da taze dış veridir: yönetmelik ve tebliğ değişir, ezberden yanıtlanamaz.
+    r"mevzuat\w*|yönetmelik\w*|yonetmelik\w*|tebliğ\w*|teblig\w*|genelge\w*|sirküler\w*|sirkuler\w*|"
+    r"resm[iî]\s+gazete\w*)(?!\w)"
+)
+_RESEARCH_REGULATION_TOPIC = re.compile(
+    r"(?<!\w)(?:mevzuat\w*|yönetmelik\w*|yonetmelik\w*|tebliğ\w*|teblig\w*|genelge\w*|"
+    r"sirküler\w*|sirkuler\w*|resm[iî]\s+gazete\w*)(?!\w)"
 )
 _RESEARCH_FRESH_MARK = re.compile(
     r"(?<!\w)(?:güncel|guncel|bugünkü|bugunku|mevcut|son|bugün|bugun|şu an|su an|şu anda|su anda|şimdi|simdi|"
@@ -529,7 +536,9 @@ def _needs_fresh_external_data(text: str) -> bool:
     if not fresh:
         news = _RESEARCH_NEWS_TOPIC.search(text) is not None and _RESEARCH_FRESH_ASK.search(text) is not None
         market = _RESEARCH_MARKET_NOW.search(text) is not None and _RESEARCH_FRESH_ASK.search(text) is not None
-        if not (news or market):
+        # "2026 mevzuat değişiklikleri neler" tazelik sözcüğü taşımaz ama kural verisi ister.
+        kural = _RESEARCH_REGULATION_TOPIC.search(text) is not None
+        if not (news or market or kural):
             return False
         if _RESEARCH_DEFINITION.search(text) is not None:
             return False
