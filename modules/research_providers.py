@@ -605,6 +605,14 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
                              'reason': 'Bağımsız kaynak çelişkili taraflardan birini doğruladı.'}}
 
 
+def format_citations(results, limit: int = 5) -> str:
+    """Kaynak listesini numaralı gösterime çevirir (en çok `limit` kaynak)."""
+    if not isinstance(results, (list, tuple)) or type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError("Kaynak listesi geçersiz.")
+    satirlar = [format_citation(r, i + 1) for i, r in enumerate(results) if isinstance(r, dict)][:limit]
+    return "\n".join(satirlar)
+
+
 def format_citation(result: dict, number: int) -> str:
     if not isinstance(result, dict) or type(number) is not int or number < 1:
         raise ValueError("Kaynak gösterimi geçersiz.")
