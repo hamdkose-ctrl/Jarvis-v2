@@ -1,6 +1,8 @@
 """Ortak izin kapısının saf karar çekirdeği; mevcut yürütme yollarına bağlı değildir."""
 import time
 
+from modules.diagnostics import record_failure as _record_failure
+
 READ = 'read'
 LOCAL_REVERSIBLE = 'local_reversible'
 LOCAL_DESTRUCTIVE = 'local_destructive'
@@ -51,7 +53,7 @@ def _active_message_grant(grants, target, now):
     return False
 
 
-def decide(action: dict, grants: dict | None = None, now: float | None = None) -> dict:
+def _decide(action: dict, grants: dict | None = None, now: float | None = None) -> dict:
     """Verilen eylem için yalnız girdilere bakarak allow/ask/deny kararı üretir."""
     if not isinstance(action, dict):
         return _result(ASK, '', 'Eylem bilgisi belirsiz; onay gerekli.')
@@ -97,3 +99,24 @@ def _never_hit(never, target):
         text = str(value).strip().casefold()
         return text[:-4] if text.endswith('.exe') else text
     return norm(target) in {norm(item) for item in never}
+
+
+def _observe(action, result: dict) -> None:
+    """Araç olayını canonical hook hattına bildirir; hedef metni gönderilmez."""
+    try:
+        from modules import hooks
+        row = action if isinstance(action, dict) else {}
+        hooks.observe('tool', {
+            'class': str(row.get('class') or '')[:40],
+            'via': str(row.get('via') or '')[:20],
+            'decision': str(result.get('decision') or '')[:20],
+        })
+    except Exception:
+        _record_failure('modules/permission_gate.py:_observe')
+
+
+def decide(action: dict, grants: dict | None = None, now: float | None = None) -> dict:
+    """Kararı üretir, sonucu araç olayı olarak yayınlar."""
+    result = _decide(action, grants, now)
+    _observe(action, result)
+    return result

@@ -58,7 +58,9 @@ def emit(name: str, payload: dict, *, owner: str | None = None) -> list[str]:
     if not isinstance(payload, dict):
         raise ValueError("Hook yükü sözlük olmalı.")
     with _LOCK:
-        callbacks = tuple(_HOOKS.get((None, name), ())) + tuple(_HOOKS.get((owner, name), ()))
+        callbacks = tuple(_HOOKS.get((None, name), ()))
+        if owner is not None:      # sahipsiz olayda global liste ikinci kez eklenmesin
+            callbacks += tuple(_HOOKS.get((owner, name), ()))
     event = {
         "name": name,
         "owner": owner,

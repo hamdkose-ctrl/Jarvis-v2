@@ -1,3 +1,10 @@
+### 2026-11-28 — T20: araç olayı canonical hook hattına bağlandı; gateway'de üretici yok
+
+- **Ne:** T19'da bulunan boşluk: `tool` ve `gateway` hook adları vardı, üretimde yayan çağrı yoktu.
+- **Yapılan:** `permission_gate.decide` artık kararı üretiyor **ve** `hooks.observe('tool', …)` ile yayınlıyor; hedef metni gizlilik için gönderilmiyor (yalnız `class`, `via`, `decision`). Saf çekirdek `_decide` olarak ayrıldı.
+- **Yol boyu bulunan gerçek hata:** `hooks.emit` sahipsiz olayda global gözlemci listesini **iki kez** ekliyordu — her global gözlemci olayı iki kez alıyordu. Düzeltildi, test eklendi.
+- **Ölçülen:** `tests/test_tool_hook.py` 4/4 OK, `test_observer_hooks` 2/2 OK, `test_permission*.py` 95/95 OK, mimari denetim OK.
+- **Gateway gerçeği:** Kod tabanında "gateway" kavramı yok (tek geçtiği yer `HOOK_NAMES`). Uydurma emit eklemek yerine kayıt olarak bırakıldı; yol haritasındaki "gateway observation" maddesi ürün içinde karşılığı olmadığı için not düşüldü.
 ### 2026-11-28 — T19: Faz 2 brifing kapanış kabulü; hook boşlukları ölçüldü
 
 - **Ne:** Faz 2'nin "kapanış kabulü bekliyor" maddeleri gerçek PC'de ölçüldü.
