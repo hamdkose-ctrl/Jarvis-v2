@@ -51,8 +51,15 @@ def in_quiet_hours(hour: int, bounds: tuple[int, int] = (QUIET_START, QUIET_END)
 
 def candidates(state: dict, *, seen: set[str], now: float | None = None,
                hour: int | None = None,
-               quiet: tuple[int, int] = (QUIET_START, QUIET_END)) -> list[dict]:
-    """Durumdan bildirilebilir adaylar; gürültü süzülmüş."""
+               quiet: tuple[int, int] = (QUIET_START, QUIET_END),
+               sessiz_turler: tuple[str, ...] = ()) -> list[dict]:
+    """Durumdan bildirilebilir adaylar; gürültü süzülmüş.
+
+    `sessiz_turler`: yalnız günlüğe yazılan, **konuşulmayan** türler. Bunlar sırayı
+    tüketmez; aksi hâlde her tikte pencere değişimi olan bir makinede mail/takvim
+    bildirimi hiç konuşulmaz (canlı kusur, 28 Kasım: her tik "Pencere değişti"
+    üretiyordu ve MAX_PER_TICK=1 yüzünden 67 okunmamış mail hiç söylenmedi).
+    """
     now = time.time() if now is None else now
     hour = time.localtime(now).tm_hour if hour is None else hour
     items: list[dict] = []
@@ -71,7 +78,10 @@ def candidates(state: dict, *, seen: set[str], now: float | None = None,
     if in_quiet_hours(hour, quiet):
         return []
     fresh = [item for item in items if item["key"] not in seen]
-    return fresh[:MAX_PER_TICK]
+    konusulan = [item for item in fresh if item["kind"] not in sessiz_turler]
+    sessiz = [item for item in fresh if item["kind"] in sessiz_turler]
+    # Kota yalnız konuşulabilir türler için; sessiz türler günlüğe yazılır ama sıra yemez.
+    return konusulan[:MAX_PER_TICK] + sessiz
 
 
 def mark_seen(items: list[dict], seen: set[str]) -> set[str]:

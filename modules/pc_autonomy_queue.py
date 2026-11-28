@@ -203,11 +203,13 @@ def watch_tick(runtime=None, *, hour=None, now=None) -> list[dict]:
     state = {"window": foreground_window()}
     # Mail/takvim geri geldi (kullanıcı isteği 26 Kasım 16:5x): "bir şey olduğunda söylesin".
     state.update(_inbox_and_calendar())
-    items = awareness_watch.candidates(state, seen=_SEEN, hour=hour,
-                                       quiet=awareness_watch.quiet_bounds(settings))
+    speak_windows = _truthy(settings.get("watch_window_notice"))
+    items = awareness_watch.candidates(
+        state, seen=_SEEN, hour=hour,
+        quiet=awareness_watch.quiet_bounds(settings),
+        sessiz_turler=() if speak_windows else ("window",))
     # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
     # gibi zaten gözünün önünde olan şeyler konuşulmaz; yalnız günlüğe yazılır.
-    speak_windows = _truthy(settings.get("watch_window_notice"))
     global _LAST_SPOKEN
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):

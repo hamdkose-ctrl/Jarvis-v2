@@ -69,7 +69,9 @@ class WindowNoticesAreQuiet(unittest.TestCase):
         from unittest import mock
         pc_autonomy_queue._SEEN.clear()
         runtime = mock.Mock()
-        with mock.patch("config.load_settings", return_value={"watch_enabled": True}),              mock.patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"),              mock.patch.object(voice_runtime, "announce_active") as announce:
+        # Gerçek gelen kutusuna bağlanma: test makineye bağlı kalmasın.
+        with mock.patch("config.load_settings", return_value={"watch_enabled": True}), \
+             mock.patch.object(pc_autonomy_queue, "_inbox_and_calendar", lambda: {}),              mock.patch("modules.pc_autonomy_queue.foreground_window", return_value="Chrome"),              mock.patch.object(voice_runtime, "announce_active") as announce:
             items = pc_autonomy_queue.watch_tick(runtime, hour=12)
         self.assertEqual(len(items), 1)
         self.assertFalse(announce.called)
