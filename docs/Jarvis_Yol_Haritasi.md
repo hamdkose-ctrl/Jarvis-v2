@@ -1,3 +1,10 @@
+### 2026-11-28 — T23: sınıflandırıcı kendini değiştiremez (inceleme bulgusu)
+
+- **Bulgu (bağımsız inceleme):** Hızlı yol sınıflandırıcısı PR başından koştuğu için, PR `scripts/ci_change_class.py`'yi "hep false yaz" diye değiştirirse ağır adımlar atlanabilirdi.
+- **Düzeltme:** Workflow, PR `.github/*`, `scripts/ci_change_class.py` veya `tests/test_ci_change_class.py` değiştiriyorsa sınıflandırıcıya hiç sormadan tam paketi zorunlu kılar.
+- **İkinci düzeltme:** `prompts/`, `skills/`, `tools/`, `.claude/` altındaki `.md` dosyaları doküman sayılmaz (runtime/ajan verisi).
+- **Ölçülen:** `tests/test_ci_change_class.py` 9/9 OK; workflow YAML ayrıştırma OK; mimari denetim OK.
+- **Dürüst sınır:** Bu bir savunma derinliği önlemi; "her zaman tam paket" tarafına düşen yanlışlar zararsız, kaçış yolu bilerek daraltıldı.
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.

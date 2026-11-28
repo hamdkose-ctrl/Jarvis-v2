@@ -8,6 +8,7 @@ import sys
 # Kod sayılan önekler: biri bile değişirse tam doğrulama şart.
 _KOD_ONEK = (
     'modules/', 'scripts/', 'tests/', 'webui/', 'android/', 'assets/', '.github/',
+    'prompts/', 'skills/', 'tools/', '.claude/',
     'requirements',
 )
 _MD = re.compile(r"\.md\Z", re.IGNORECASE)
