@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-BASE_SIZE = (160, 206)          # mevcut webui kliplerinin kare boyutu
+BASE_SIZE = (160, 206)          # mantıksal pencere boyutu; kaynak kare daha büyük olabilir
 GREETING_SECS = 2.4             # açılışta bir kez selamlama; boştaysa
 MAX_SCALE = 3.0
 FPS = 30
@@ -183,14 +183,23 @@ def key_flat(image, size):
     return Image.composite(source.convert("RGB"), background, mask)
 
 
-def load_frames(path) -> list:
-    """Bir WebP/GIF klibinin tüm karelerini RGBA olarak okur."""
+def load_frames(path, *, size=None, first_only=False) -> list:
+    """Yalnız istenen klibi, varsa ekran boyutuna indirerek RGBA olarak okur."""
     from PIL import Image, ImageSequence
 
     frames = []
     with Image.open(path) as image:
         for frame in ImageSequence.Iterator(image):
-            frames.append(frame.convert("RGBA").copy())
+            rgba = frame.convert("RGBA")
+            # WebP duration decoder load() sonrasında kullanılabilir.
+            duration = frame.info.get("duration")
+            if size is not None and rgba.size != tuple(size):
+                rgba = rgba.resize(tuple(size), Image.Resampling.LANCZOS)
+            if isinstance(duration, int):
+                rgba.info["duration"] = duration
+            frames.append(rgba)
+            if first_only:
+                break
     return frames
 
 
@@ -202,13 +211,16 @@ def frame_delay_ms(frame, fps: int) -> int:
     return max(10, int(1000 / max(1, fps)))
 
 
-def preload(directory=None) -> dict:
-    """Tüm durum kliplerini bir kez okur; aynı dosya paylaşılır (bellek)."""
+def preload(directory=None, *, lazy=False) -> dict:
+    """Durum kliplerini kataloglar; masaüstü yalnız etkin klibi çözer."""
     root = Path(directory) if directory is not None else ASSET_DIR
     loaded: dict[str, list] = {}
     for name in sorted(set(CLIPS.values())):
         path = root / f"{name}.webp"
         if not path.exists():
+            continue
+        if lazy:
+            loaded[name] = path
             continue
         try:
             loaded[name] = load_frames(path)
@@ -384,8 +396,14 @@ class MascotWindow:
     def open(self) -> bool:
         import tkinter as tk
 
-        self._frames = preload()
+        self._frames = preload(lazy=True)
         if not self._frames.get("idle") or _STOP.is_set():
+            return False
+        try:
+            if not load_frames(self._frames["idle"], first_only=True):
+                return False
+        except (OSError, ValueError):
+            _record_failure("modules/mascot_window.py:idle_asset")
             return False
         self.root = tk.Tk()
         self.root.withdraw()
@@ -424,12 +442,11 @@ class MascotWindow:
         for slot, name in EXTRA_CLIPS.items():
             if self._reduced_motion and slot != "breathing":
                 continue
-            try:
-                self._extra_frames[slot] = load_frames(ASSET_DIR / name)
-            except OSError:
-                _record_failure("modules/mascot_window.py:extra_clip")
+            path = ASSET_DIR / name
+            if path.is_file():
+                self._extra_frames[slot] = path
         if self._extra_frames.get("breathing"):
-            self._extra_frames["rest"] = self._extra_frames["breathing"][:1]
+            self._extra_frames["rest"] = self._extra_frames["breathing"]
         self._hidden = settings.get("widget_on", True) is False and bool(self.runtime._tray)
         for widget in (self.window, self.label):
             widget.bind("<ButtonPress-1>", self._press)
@@ -478,21 +495,24 @@ class MascotWindow:
             state = "rest"
         clip = state if state in self._extra_frames else state_key(state)
         self._active_clip = clip
-        frames = self._extra_frames.get(clip) or frames_for(self._frames, state)
-        if not frames:
-            self.window.withdraw()
-            return
-        for key in list(self._photos):     # yalnız bulunulan durumun fotoğrafları
-            if key != clip:
-                self._photos.pop(key, None)
+        source = self._extra_frames.get(clip) or frames_for(self._frames, state)
+        # Bir önceki klibin hem Tk görüntülerini hem ham karelerini bırak.
         if clip not in self._photos:
+            self._photos.clear()
+            self._active_frames = []
             try:
-                selected = frames[:1] if self._reduced_motion else frames
-                self._photos[clip] = [self._photo(frame) for frame in selected]
+                first_only = self._reduced_motion or clip == "rest"
+                if isinstance(source, Path):
+                    frames = load_frames(source, size=self.size, first_only=first_only)
+                else:
+                    frames = source[:1] if first_only else source
+                if not frames:
+                    raise ValueError("empty mascot clip")
+                self._photos[clip] = [self._photo(frame) for frame in frames]
+                self._active_frames = frames
             except Exception:       # noqa: BLE001
                 _record_failure("modules/mascot_window.py:_show_clip")
                 self._photos[clip] = []
-        self._active_frames = frames
         self._frame_index = 1
         if not self._photos.get(clip):
             self.window.withdraw()

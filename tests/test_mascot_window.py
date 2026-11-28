@@ -179,7 +179,7 @@ class MascotLogicTests(unittest.TestCase):
             self.assertTrue(frames[state], state)
             self.assertGreater(len(frames[state]), 1)
             self.assertEqual(frames[state][0].mode, "RGBA")
-            self.assertEqual(frames[state][0].size, mascot_window.BASE_SIZE)
+            self.assertIn(frames[state][0].size, (mascot_window.BASE_SIZE, (480, 618)))
         # Her durum kendi klibini gösterir; aynı dosyayı paylaşan durum kare çoğaltmaz.
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
         self.assertEqual(mascot_window.clip_name("working"), "calisma")
@@ -299,6 +299,30 @@ class MascotLogicTests(unittest.TestCase):
         raw = sum(mascot_window.frame_memory(items) for items in unique.values())
         photos = mascot_window.photo_memory(len(frames["idle"]), mascot_window.window_size(2.0))
         self.assertLessEqual(raw + photos, 60 * 1024 * 1024)
+
+    def test_lazy_catalogue_decodes_no_frames_at_startup(self):
+        with patch.object(mascot_window, "load_frames") as decode:
+            catalogue = mascot_window.preload(lazy=True)
+        decode.assert_not_called()
+        self.assertEqual(set(catalogue), set(mascot_window.STATES))
+        self.assertTrue(all(isinstance(path, Path) and path.is_file()
+                            for path in catalogue.values()))
+
+    def test_high_resolution_decode_uses_display_size_and_preserves_timing(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "test.webp"
+            first = Image.new("RGBA", (480, 618), (240, 220, 200, 255))
+            second = Image.new("RGBA", (480, 618), (20, 30, 40, 255))
+            first.save(path, save_all=True, append_images=[second],
+                       duration=[40, 90], loop=0, lossless=True)
+            frames = mascot_window.load_frames(path, size=(160, 206))
+            self.assertEqual([frame.size for frame in frames], [(160, 206)] * 2)
+            self.assertEqual([mascot_window.frame_delay_ms(frame, 30)
+                              for frame in frames], [40, 90])
+            self.assertEqual(len(mascot_window.load_frames(path, size=(160, 206),
+                                                           first_only=True)), 1)
 
     def test_missing_asset_directory_returns_empty_frames(self):
         with tempfile.TemporaryDirectory() as folder:
