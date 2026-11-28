@@ -247,6 +247,10 @@ def _inbox_and_calendar() -> dict:
             unread = google_api.unread_count()
             if isinstance(unread, int) and unread > 0:
                 state["unread_mail"] = unread
+                # Sayı tek başına yetmez: bir mail gelip biri okunursa sayı sabit kalır.
+                head = google_api.unread_head()
+                if head:
+                    state["mail_head"] = head
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:_inbox_and_calendar:mail")
     try:
