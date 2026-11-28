@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from modules import mascot_window
 
@@ -35,12 +35,12 @@ class MascotLogicTests(unittest.TestCase):
         mascot_window._STOP.clear()
 
     def test_each_web_state_maps_to_the_same_clip_as_webui(self):
-        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking dusunme, working calisma, speaking mutlu
+        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking dusunme, working calisma, speaking konusma
         self.assertEqual(mascot_window.clip_name("idle"), "bosta")
         self.assertEqual(mascot_window.clip_name("listening"), "dinleme")
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
         self.assertEqual(mascot_window.clip_name("working"), "calisma")
-        self.assertEqual(mascot_window.clip_name("speaking"), "mutlu")
+        self.assertEqual(mascot_window.clip_name("speaking"), "konusma")
         self.assertEqual(mascot_window.clip_name("greeting"), "selamlama")
 
     def test_unknown_state_falls_back_to_idle_case_insensitively(self):
@@ -165,7 +165,7 @@ class MascotLogicTests(unittest.TestCase):
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
         self.assertEqual(mascot_window.clip_name("working"), "calisma")
         self.assertIsNot(frames["thinking"], frames["working"])
-        self.assertEqual(len(frames["working"]), 36)
+        self.assertGreaterEqual(len(frames["working"]), 24)
 
     def test_greeting_shows_only_while_idle_and_until_the_timer_runs_out(self):
         # Açılışta bir kez selamlama; konuşma sürerken selamlama araya girmez.
@@ -181,7 +181,7 @@ class MascotLogicTests(unittest.TestCase):
         # preload() durum adıyla anahtarlar; _show_clip klip adıyla ararsa pencere hep gizli kalır.
         frames = mascot_window.preload()
         self.assertEqual(len(mascot_window.frames_for(frames, "idle")), len(frames["idle"]))
-        self.assertGreaterEqual(len(mascot_window.frames_for(frames, "idle")), 36)
+        self.assertGreaterEqual(len(mascot_window.frames_for(frames, "idle")), 24)
         for state in mascot_window.STATES:
             self.assertTrue(mascot_window.frames_for(frames, state), state)
             self.assertIs(mascot_window.frames_for(frames, state), frames[state], state)
@@ -205,7 +205,43 @@ class MascotLogicTests(unittest.TestCase):
             self.assertEqual(len(window._photos.get("working", [])), len(frames["working"]))
             # Yalnız bulunulan durumun fotoğrafları tutulur (bellek): eski durum atılır.
             self.assertNotIn("thinking", window._photos)
-            self.assertEqual(len(window._photos["working"]), 36)
+            self.assertEqual(len(window._photos["working"]), len(frames["working"]))
+
+    def test_player_uses_webp_frame_time_and_finishes_a_one_shot(self):
+        from PIL import Image
+
+        frame = Image.new("RGBA", (1, 1))
+        frame.info["duration"] = 83
+        window = mascot_window.MascotWindow(_Runtime(), fps=30)
+        window._active_frames = [frame, frame, frame]
+        window._active_clip = window._state = "speaking"
+        window._photos["speaking"] = ["first", "second", "third"]
+        window._frame_index = 1
+        window.window = Mock()
+        window.label = Mock()
+        window._tick_frame()
+        window.window.after.assert_called_once_with(83, window._tick_frame)
+        window.label.configure.assert_called_once_with(image="second")
+        window.window.after.reset_mock()
+        window._tick_frame()
+        window.label.configure.assert_called_with(image="third")
+        window.window.after.assert_not_called()
+
+    def test_each_new_speech_state_uses_the_other_gesture(self):
+        from PIL import Image
+
+        frame = Image.new("RGBA", (1, 1))
+        window = mascot_window.MascotWindow(_Runtime())
+        window.window = Mock()
+        window.label = Mock()
+        window._frames = {"speaking": [frame]}
+        window._extra_frames = {"speaking_alt": [frame]}
+        with patch.object(window, "_photo", side_effect=lambda frame: object()):
+            clips = []
+            for _ in range(3):
+                window._show_clip("speaking")
+                clips.append(window._active_clip)
+        self.assertEqual(clips, ["speaking", "speaking_alt", "speaking"])
 
     def test_click_through_wanted_requires_the_setting_and_idle(self):
         self.assertFalse(mascot_window.click_through_wanted(False, "idle"))

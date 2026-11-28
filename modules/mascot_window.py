@@ -21,14 +21,13 @@ KEY_HEX = "#010203"             # saydam sayılacak renk
 KEY_RGB = (1, 2, 3)
 ASSET_DIR = Path(__file__).resolve().parent.parent / "webui" / "mascot"
 EXTRA_CLIPS = {"breathing": "nefes.webp", "looking": "bakis.webp",
-               "happy": "memnun.webp", "talking": "konusma.webp"}
-EXTRA_FPS = 8
+               "happy": "memnun.webp", "speaking_alt": "konusma2.webp"}
 CLIPS = {
     "idle": "bosta",
     "listening": "dinleme",
     "thinking": "dusunme",
     "working": "calisma",
-    "speaking": "mutlu",
+    "speaking": "konusma",
     "greeting": "selamlama",
 }
 STATES = tuple(CLIPS)
@@ -193,6 +192,14 @@ def load_frames(path) -> list:
     return frames
 
 
+def frame_delay_ms(frame, fps: int) -> int:
+    """Honor encoded timing, including the longer holds in one-shot clips."""
+    duration = frame.info.get("duration")
+    if isinstance(duration, int) and duration > 0:
+        return max(10, min(1000, duration))
+    return max(10, int(1000 / max(1, fps)))
+
+
 def preload(directory=None) -> dict:
     """Tüm durum kliplerini bir kez okur; aynı dosya paylaşılır (bellek)."""
     root = Path(directory) if directory is not None else ASSET_DIR
@@ -341,6 +348,9 @@ class MascotWindow:
         self._state = "idle"
         self._greeting_until = 0.0
         self._frame_index = 0
+        self._frame_timer = None
+        self._active_frames = []
+        self._last_speech_clip = None
         self._drag = None
         self._moved = False
         self._closed = False
@@ -443,7 +453,6 @@ class MascotWindow:
         if not self._hidden and self._state == "greeting":
             self.window.after(160, self._welcome)
         self._tick_state()
-        self._tick_frame()
         self.root.mainloop()
         return True
 
@@ -459,8 +468,10 @@ class MascotWindow:
         return ImageTk.PhotoImage(key_flat(frame, self.size), master=self.window)
 
     def _show_clip(self, state: str) -> None:
-        if state == "speaking" and self._extra_frames.get("talking"):
-            state = "talking"
+        self._cancel_frame()
+        if state == "speaking" and self._extra_frames.get("speaking_alt"):
+            state = "speaking_alt" if self._last_speech_clip == "speaking" else "speaking"
+            self._last_speech_clip = state
         elif state == "idle" and self._idle_clip is None and self._extra_frames.get("rest"):
             state = "rest"
         clip = state if state in self._extra_frames else state_key(state)
@@ -479,13 +490,16 @@ class MascotWindow:
             except Exception:       # noqa: BLE001
                 _record_failure("modules/mascot_window.py:_show_clip")
                 self._photos[clip] = []
-        self._frame_index = 0
+        self._active_frames = frames
+        self._frame_index = 1
         if not self._photos.get(clip):
             self.window.withdraw()
             return
         if not self._hidden and not self.window.winfo_viewable():
             self.window.deiconify()
         self.label.configure(image=self._photos[clip][0])
+        if len(self._photos[clip]) > 1 and self._animate_clip():
+            self._schedule_frame(0)
 
     def _tick_state(self) -> None:
         if self._closed or _STOP.is_set():
@@ -520,9 +534,10 @@ class MascotWindow:
                 self._show_clip(state)
                 self._apply_click_through()
             if state == "idle" and not self._hidden and not self._reduced_motion and not flags.get("sleep"):
-                if self._celebrate_until >= now and "happy" in self._extra_frames and self._idle_clip != "happy":
+                if (self._idle_clip is None and self._celebrate_until >= now
+                        and self._extra_frames.get("happy") and self._last_idle_clip != "happy"):
                     self._celebrate_until = 0
-                    self._idle_clip = "happy"
+                    self._idle_clip = self._last_idle_clip = "happy"
                     self._show_clip("happy")
                 elif self._idle_clip is None and now >= self._next_idle:
                     options = [name for name in ("breathing", "looking")
@@ -550,22 +565,33 @@ class MascotWindow:
             _record_failure("modules/mascot_window.py:tick")
         self.window.after(_STATE_POLL_MS, self._tick_state)
 
+    def _animate_clip(self):
+        return (not self._closed and not self._hidden and not self._reduced_motion
+                and (self._state != "idle" or self._idle_clip is not None))
+
+    def _cancel_frame(self):
+        if self._frame_timer is not None:
+            self.window.after_cancel(self._frame_timer)
+            self._frame_timer = None
+
+    def _schedule_frame(self, shown):
+        delay = frame_delay_ms(self._active_frames[shown], self.fps)
+        self._frame_timer = self.window.after(delay, self._tick_frame)
+
     def _tick_frame(self) -> None:
-        if self._closed:
+        self._frame_timer = None
+        if not self._animate_clip():
             return
         photos = self._photos.get(self._active_clip) or []
-        visible = not self._hidden and self.window.winfo_viewable()
-        playing = not self._reduced_motion and visible and bool(photos) and (
-            self._state != "idle" or self._idle_clip is not None)
-        if playing and self._frame_index < len(photos):
-            self.label.configure(image=photos[self._frame_index])
+        shown = self._frame_index
+        if shown < len(photos):
+            self.label.configure(image=photos[shown])
             self._frame_index += 1
-        elif playing and self._idle_clip is not None:
+            if self._frame_index < len(photos) or self._idle_clip is not None:
+                self._schedule_frame(shown)
+        elif self._idle_clip is not None:
             self._idle_clip = None
             self._show_clip("idle")
-        fps = EXTRA_FPS if self._active_clip in self._extra_frames or self._active_clip == "greeting" else self.fps
-        delay = max(10, int(1000 / fps)) if playing and self._frame_index < len(photos) else 150
-        self.window.after(delay, self._tick_frame)
 
     def celebrate(self):
         if random.random() < .6:
@@ -651,9 +677,16 @@ class MascotWindow:
         return not self._closed and not self._hidden
 
     def show(self):
+        was_hidden = self._hidden
         self._hidden = False
         if self.window is not None:
             self.window.deiconify()
+            if was_hidden:
+                if self._idle_clip is not None:
+                    self._idle_clip = None
+                    self._show_clip(self._state)
+                elif self._animate_clip() and self._frame_index < len(self._photos.get(self._active_clip, [])):
+                    self._schedule_frame(self._frame_index - 1)
 
     def hide(self) -> None:
         if not self.runtime._tray and not (self.dock and self.dock.hotkey_registered):
@@ -662,6 +695,7 @@ class MascotWindow:
                 self.dock._set_notice("Tekrar açmak için tepsi simgesi veya çalışan bir kısayol gerekir.")
             return
         self._hidden = True
+        self._cancel_frame()
         if self.window is not None:
             self.window.withdraw()
         if self.dock:
@@ -678,6 +712,7 @@ class MascotWindow:
         if self._closed:
             return
         self._closed = True
+        self._cancel_frame()
         if self.dock:
             self.dock.close()
         try:
