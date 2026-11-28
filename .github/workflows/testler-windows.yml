@@ -48,8 +48,19 @@ jobs:
         run: |
           $changed = @(git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $sinif = (py -3.13 scripts/ci_change_class.py --paths @changed).Trim()
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Sınıflandırıcı PR başından koşar; PR kendi sınıflandırıcısını ya da
+          # workflow'u değiştiriyorsa hızlı yola güvenilmez, tam paket koşar.
+          $mekanizma = @($changed | Where-Object {
+            $_ -like '.github/*' -or $_ -eq 'scripts/ci_change_class.py' -or
+            $_ -eq 'tests/test_ci_change_class.py'
+          })
+          if ($mekanizma.Count -gt 0) {
+            $sinif = 'true'
+            Write-Host "CI mekanizması değişti ($($mekanizma -join ', ')); tam paket zorunlu."
+          } else {
+            $sinif = (py -3.13 scripts/ci_change_class.py --paths @changed).Trim()
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           "agir=$sinif" >> $env:GITHUB_OUTPUT
           Write-Host "Değişiklik sınıfı: $sinif ($($changed.Count) dosya)"
       - name: Roadmap tamamlanma kanıtı kontrolü
