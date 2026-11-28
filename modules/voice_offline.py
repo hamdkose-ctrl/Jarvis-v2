@@ -19,6 +19,7 @@ from typing import Callable
 import wave
 
 from modules.voice_core import VoiceSpec
+from modules import mascot_audio_meter
 
 
 class OfflineVoiceUnavailable(RuntimeError):
@@ -373,6 +374,7 @@ class WavePlayer:
             if chunk:
                 outdata[:len(chunk)] = chunk
                 state["pos"] += len(chunk)
+                mascot_audio_meter.observe(chunk, frames, rate, time_info, cancel)
             if len(chunk) < wanted:
                 outdata[len(chunk):] = bytes(wanted - len(chunk))
                 finished.set()

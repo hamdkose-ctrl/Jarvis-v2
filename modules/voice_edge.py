@@ -25,6 +25,7 @@ from typing import Callable
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import VoiceSpec
+from modules import mascot_audio_meter
 
 
 class EdgeVoiceUnavailable(ValueError):
@@ -345,6 +346,7 @@ class PcmSink:
         if chunk:
             outdata[:len(chunk)] = chunk
             job["pos"] = pos + len(chunk)
+            mascot_audio_meter.observe(chunk, frames, self._rate, time_info, cancel)
         if len(chunk) < step:
             outdata[len(chunk):] = bytes(step - len(chunk))
             self._job = None
