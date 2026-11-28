@@ -1,3 +1,10 @@
+### 2026-11-28 — T23: sınıflandırıcı kendini değiştiremez (inceleme bulgusu)
+
+- **Bulgu (bağımsız inceleme):** Hızlı yol sınıflandırıcısı PR başından koştuğu için, PR `scripts/ci_change_class.py`'yi "hep false yaz" diye değiştirirse ağır adımlar atlanabilirdi.
+- **Düzeltme:** Workflow, PR `.github/*`, `scripts/ci_change_class.py` veya `tests/test_ci_change_class.py` değiştiriyorsa sınıflandırıcıya hiç sormadan tam paketi zorunlu kılar.
+- **İkinci düzeltme:** `prompts/`, `skills/`, `tools/`, `.claude/` altındaki `.md` dosyaları doküman sayılmaz.
+- **Ölçülen:** `tests/test_ci_change_class.py` 9/9 OK; workflow YAML ayrıştırma OK; mimari denetim OK.
+- **Dürüst sınır:** Savunma derinliği önlemi; yanlışlar zararsız tarafa düşer, kaçış yolu bilerek daraltıldı.
 ### 2026-11-28 — T24: sınıflandırma testi ortam durumuna bağlıydı
 
 - **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).
@@ -10,13 +17,12 @@
 - **Geriye uyum:** Tek kaynakta eski `Kaynak: <url>` biçimi aynen korunur; mevcut kabul testleri değişmedi.
 - **Ölçülen:** `tests/test_citation_list.py` 4/4; `test_research_providers` + `test_academic_turkish_sources` ile birlikte 31/31 OK; mimari denetim OK.
 - **Dürüst sınır:** Bu dilim yalnız çok kaynaklı turda devreye giriyor; gerçek araştırma turunda canlı ölçüm henüz yapılmadı (R6 kapsamında).
-### 2026-11-28 — T23: sınıflandırıcı kendini değiştiremez (inceleme bulgusu)
+### 2026-11-28 — T27 (R2a): dosya araması görev yoluna bağlandı
 
-- **Bulgu (bağımsız inceleme):** Hızlı yol sınıflandırıcısı PR başından koştuğu için, PR `scripts/ci_change_class.py`'yi "hep false yaz" diye değiştirirse ağır adımlar atlanabilirdi.
-- **Düzeltme:** Workflow, PR `.github/*`, `scripts/ci_change_class.py` veya `tests/test_ci_change_class.py` değiştiriyorsa sınıflandırıcıya hiç sormadan tam paketi zorunlu kılar.
-- **İkinci düzeltme:** `prompts/`, `skills/`, `tools/`, `.claude/` altındaki `.md` dosyaları doküman sayılmaz.
-- **Ölçülen:** `tests/test_ci_change_class.py` 9/9 OK; workflow YAML ayrıştırma OK; mimari denetim OK.
-- **Dürüst sınır:** Savunma derinliği önlemi; yanlışlar zararsız tarafa düşer, kaçış yolu bilerek daraltıldı.
+- **Bulgu:** `file_worker_extensions.search_files` hiçbir üretim çağrısına sahip değildi; `file_task` yalnız `extract_obligations` kabul ettiği için dosya görevinde arama istenemiyordu.
+- **Değişiklik:** `task_workers.file_task` artık `operation='search_files'` dalını işliyor (`path`, `query`, `max_files`); eşleşmeler `matches` alanıyla dönüyor, yazma yok.
+- **Ölçülen:** `tests/test_file_search_operation.py` 4/4 (eşleşme bulunur, eşleşme yok, boş sorgu reddi, bilinmeyen işlem reddi); mimari denetim OK.
+- **Dürüst sınır (wiring):** Beynin dosya işlem sözlüğü (`open/summarize/analyze/locate/list/...`) henüz `search_files`'a eşlenmiyor; bugün bu dal yalnız görev verisi `operation=search_files` taşıdığında çalışır. Eşleme R2b.
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
