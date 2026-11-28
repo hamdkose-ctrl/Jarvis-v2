@@ -1,10 +1,3 @@
-### 2026-11-28 — T23: sınıflandırıcı kendini değiştiremez (inceleme bulgusu)
-
-- **Bulgu (bağımsız inceleme):** Hızlı yol sınıflandırıcısı PR başından koştuğu için, PR `scripts/ci_change_class.py`'yi "hep false yaz" diye değiştirirse ağır adımlar atlanabilirdi.
-- **Düzeltme:** Workflow, PR `.github/*`, `scripts/ci_change_class.py` veya `tests/test_ci_change_class.py` değiştiriyorsa sınıflandırıcıya hiç sormadan tam paketi zorunlu kılar.
-- **İkinci düzeltme:** `prompts/`, `skills/`, `tools/`, `.claude/` altındaki `.md` dosyaları doküman sayılmaz.
-- **Ölçülen:** `tests/test_ci_change_class.py` 9/9 OK; workflow YAML ayrıştırma OK; mimari denetim OK.
-- **Dürüst sınır:** Savunma derinliği önlemi; yanlışlar zararsız tarafa düşer, kaçış yolu bilerek daraltıldı.
 ### 2026-11-28 — T24: sınıflandırma testi ortam durumuna bağlıydı
 
 - **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).
