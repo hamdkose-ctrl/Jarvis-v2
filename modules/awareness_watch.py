@@ -74,7 +74,14 @@ def candidates(state: dict, *, seen: set[str], now: float | None = None,
         items.append(_item("mail", f"{unread} okunmamış mail var.", marker))
     minutes = state.get("next_event_minutes")
     if isinstance(minutes, (int, float)) and 0 <= minutes <= 30:
-        items.append(_item("calendar", f"{int(minutes)} dakika sonra takvimde bir iş var.", str(minutes)))
+        # Parmak izi olay kimliği + ufuk dilimi. Eski kod kalan dakikayı kullanıyordu:
+        # her tikte sayı değiştiği için aynı toplantı 2 dakikada bir, 30 dakika boyunca
+        # tekrar tekrar söyleniyordu (canlı kusur sınıfı: gürültü). Şimdi olay başına en
+        # fazla iki uyarı: "uzak" (30–11 dk) ve "yakin" (10–0 dk).
+        kimlik = str(state.get("next_event_id") or "")
+        dilim = "yakin" if minutes <= 10 else "uzak"
+        marker = f"{kimlik}:{dilim}" if kimlik else f"{int(minutes)}:{dilim}"
+        items.append(_item("calendar", f"{int(minutes)} dakika sonra takvimde bir iş var.", marker))
     if in_quiet_hours(hour, quiet):
         return []
     fresh = [item for item in items if item["key"] not in seen]
