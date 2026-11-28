@@ -2,6 +2,8 @@
 from __future__ import annotations
 import contextlib
 
+from modules.diagnostics import record_failure as _record_failure
+
 def _speech_blocks_mic(voice_session):
     """One speaker proof for manual listening and engine idle claims.
 
@@ -279,8 +281,7 @@ def _daily_checkpoint():
         from modules import checkpoint
         checkpoint.maybe_daily()
     except Exception:
-        from modules.diagnostics import record_failure
-        record_failure('modules/engine_loop.py:daily_checkpoint')
+        _record_failure('modules/engine_loop.py:daily_checkpoint')
 
 
 def main(runtime, ui=None):
