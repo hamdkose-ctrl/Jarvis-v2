@@ -16,6 +16,12 @@
 - **Değişiklik:** `modules/phone.py` içine `note_error`/`last_error` eklendi (son hata, 300 karakter); `web.py` hatayı kaydedip tam mesajı basıyor; `web_phone.phone_info` sunucu çalışmıyorken kayıtlı sebebi `last_error` olarak panele veriyor.
 - **Ölçülen:** `tests/test_phone_error_visibility.py` 3/3 OK; mimari denetim OK.
 - **Dürüst sınır:** Panelin `last_error` alanını gösteren arayüz etiketi henüz eklenmedi (webui ayrı dilim).
+### 2026-11-28 — T27 (R2a): dosya araması görev yoluna bağlandı
+
+- **Bulgu:** `file_worker_extensions.search_files` hiçbir üretim çağrısına sahip değildi; `file_task` yalnız `extract_obligations` kabul ettiği için dosya görevinde arama istenemiyordu.
+- **Değişiklik:** `task_workers.file_task` artık `operation='search_files'` dalını işliyor (`path`, `query`, `max_files`); eşleşmeler `matches` alanıyla dönüyor, yazma yok.
+- **Ölçülen:** `tests/test_file_search_operation.py` 4/4 (eşleşme bulunur, eşleşme yok, boş sorgu reddi, bilinmeyen işlem reddi); mimari denetim OK.
+- **Dürüst sınır (wiring):** Beynin dosya işlem sözlüğü (`open/summarize/analyze/locate/list/...`) henüz `search_files`'a eşlenmiyor; bugün bu dal yalnız görev verisi `operation=search_files` taşıdığında çalışır. Eşleme R2b.
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
