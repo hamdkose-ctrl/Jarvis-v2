@@ -1,3 +1,8 @@
+### 2026-11-28 — T24: sınıflandırma testi ortam durumuna bağlıydı
+
+- **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).
+- **Düzeltme:** Test artık iki geçerli yumuşak hata özetini kabul eder; asıl sözleşme (ham sağlayıcı metninin sızmaması) değişmeden korunuyor.
+- **Ölçülen:** `tests.test_failure_classification_backoff` 11/11 OK.
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
