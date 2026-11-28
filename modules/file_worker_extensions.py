@@ -1,10 +1,12 @@
 """Phase 4B FileWorker hardening: bounded read/search and explicit document outputs."""
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 import release_guard
@@ -108,6 +110,41 @@ def extract_obligations(text: str, *, source: str = "") -> list[dict]:
     return rows
 
 
+def apply_patch(
+    path: str | Path,
+    replacements: dict[str, str],
+    *,
+    consent: bool,
+    allowed_root: str | Path | None = None,
+) -> dict:
+    """Metin yamasını yalnız açık izinle ve izinli klasörde uygular.
+
+    `consent` tam olarak True değilse yazma yok. Hedef, `allowed_root`
+    (varsayılan: kullanıcı ev dizini) altında olmak zorunda. Başarıda
+    öncesi/sonrası özet ve yedek yolu döner.
+    """
+    if consent is not True:
+        raise FileWorkerExtensionError("Metin yaması için açık yazma izni gerekli.")
+    target = Path(path)
+    kok = Path(allowed_root) if allowed_root is not None else Path.home()
+    try:
+        hedef = target.resolve(strict=True)
+        izinli = kok.resolve(strict=True)
+    except OSError as exc:
+        raise FileWorkerExtensionError("Yazma hedefi çözümlenemedi.") from exc
+    if hedef != izinli and izinli not in hedef.parents:
+        raise FileWorkerExtensionError("Yazma izni verilen klasörün dışında.")
+    makbuz: dict = {}
+    updated = patch_text(hedef, replacements, _receipt=makbuz)
+    return {
+        "path": str(hedef),
+        "backup": makbuz.get("backup"),
+        "digest_before": makbuz.get("digest_before"),
+        "digest_after": makbuz.get("digest_after"),
+        "chars": len(updated),
+    }
+
+
 def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
     if not isinstance(destination, str) or not destination.strip() or not isinstance(slides, list) or not slides:
         raise ValueError("PPTX hedefi ve en az bir slayt gerekli.")
@@ -187,7 +224,19 @@ def search_files(root: str | Path, query: str, *, max_files: int = MAX_SEARCH_FI
     return results[:MAX_RESULTS]
 
 
-def patch_text(path: str | Path, replacements: dict[str, str]) -> str:
+def _yedek_yaz(target: Path, icerik: bytes) -> str:
+    """Yama öncesi içeriği yanına yazar; dönüş yedek yoludur."""
+    yedek = target.with_name(target.name + time.strftime(".bak-%Y%m%d%H%M%S"))
+    yedek.write_bytes(icerik)
+    return str(yedek)
+
+
+def patch_text(
+    path: str | Path,
+    replacements: dict[str, str],
+    *,
+    _receipt: dict | None = None,
+) -> str:
     target = Path(path)
     if not isinstance(replacements, dict) or not replacements or any(not isinstance(k, str) or not isinstance(v, str) for k, v in replacements.items()):
         raise ValueError("Metin yaması geçersiz.")
@@ -205,6 +254,12 @@ def patch_text(path: str | Path, replacements: dict[str, str]) -> str:
             # The complete new text is atomically published under the same
             # physical identity claim; a crash cannot truncate the old file.
             release_guard.atomic(target, updated.encode("utf-8"))
+            if _receipt is not None:
+                # Özet ve yedek, aynı kaynak kilidinin içinde alınır: araya giren
+                # yazma olmadığı için "önce/sonra" kanıtı gerçektir.
+                _receipt["digest_before"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                _receipt["digest_after"] = hashlib.sha256(updated.encode("utf-8")).hexdigest()
+                _receipt["backup"] = _yedek_yaz(target, text.encode("utf-8"))
             return updated
     except resource_leases.LeaseConflict as exc:
         raise FileWorkerExtensionError("Metin dosyası başka görev tarafından kullanılıyor.") from exc
