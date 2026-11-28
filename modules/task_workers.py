@@ -380,7 +380,14 @@ def browser_task(owner, data):
 
 
 def file_task(data):
-    """Read an allowed local file and return obligations with evidence, never writes."""
+    """Yerel dosya okur: yükümlülük çıkarır veya klasörde arar; asla yazmaz."""
+    if data.get('operation') == 'search_files':
+        from modules import file_worker_extensions
+        query = data.get('query')
+        limit = data.get('max_files', 20)
+        matches = file_worker_extensions.search_files(data['path'], query, max_files=limit)
+        return {'state': 'done', 'text': 'Arama tamamlandı: ' + str(len(matches)) + ' dosya eşleşti.',
+                'matches': matches, 'operation': 'search_files'}
     if data.get('operation') != 'extract_obligations':
         raise ValueError('Dosya worker işlemi geçersiz.')
     from modules import file_worker, file_worker_extensions
