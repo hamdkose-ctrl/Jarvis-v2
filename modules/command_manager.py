@@ -187,6 +187,24 @@ def engine_control(normalized, *, source, sleeping, close, set_sleep):
         if source == 'telefon':
             return 'Jarvis’i kapatma işlemini bilgisayarından yapabilirsin.'
         return close()
+    telefon_https = re.fullmatch(
+        r"\s*telefon\s+https(?:\s+(kur|kapat|kaldır|kaldir))?\s*[.!]*", normalized)
+    if telefon_https:
+        from modules import phone
+        aksiyon = (telefon_https[1] or 'kur').casefold()
+        acik = aksiyon == 'kur'
+        # Kullanıcı komutu kendisi yazdı: bu, sistem ayarını değiştirmek için açık izindir.
+        try:
+            kayit = phone.https_setup(consent=True, on=acik)
+        except ValueError as exc:
+            return str(exc)
+        if kayit['ok']:
+            if acik and kayit['url']:
+                return 'Telefon için Tailscale HTTPS hazır: ' + kayit['url']
+            return 'Tailscale HTTPS kapatıldı.' if not acik else 'Tailscale HTTPS açık.'
+        ayrinti = str(kayit.get('detail') or '').strip()
+        return ('Tailscale HTTPS açılamadı. ' + ayrinti).strip() if acik else (
+            'Tailscale HTTPS kapatılamadı. ' + ayrinti).strip()
     if re.fullmatch(r"\s*(?:uyu|uyku moduna geç|uyku modu|hazırda bekle|beklemeye geç|bekleme moduna geç)[\s.!]*", normalized):
         return set_sleep(True, announce=False)
     if sleeping and re.fullmatch(r"\s*(?:uyan|kalk|uyku modundan çık)[\s.!]*", normalized):
