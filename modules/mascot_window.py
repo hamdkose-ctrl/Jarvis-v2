@@ -203,6 +203,44 @@ def load_frames(path, *, size=None, first_only=False) -> list:
     return frames
 
 
+class FrameStream:
+    """Decode the current frame on demand, retaining no decoded frame list."""
+    def __init__(self, source, *, size, first_only=False):
+        from PIL import Image
+        self.image = Image.open(source) if isinstance(source, Path) else None
+        self.source = source if self.image is None else None
+        self.size = tuple(size)
+        count = getattr(self.image, "n_frames", 1) if self.image is not None else len(source)
+        self.count = min(count, 1) if first_only else count
+
+    def __len__(self):
+        return self.count
+
+    def __getitem__(self, index):
+        if not 0 <= index < self.count:
+            raise IndexError(index)
+        if self.image is not None:
+            self.image.seek(index)
+            source = self.image
+        else:
+            source = self.source[index]
+        rgba = source.convert("RGBA")
+        duration = source.info.get("duration")
+        if rgba.size != self.size:
+            from PIL import Image
+            rgba = rgba.resize(self.size, Image.Resampling.LANCZOS)
+        if isinstance(duration, int):
+            rgba.info["duration"] = duration
+        return rgba
+
+    def close(self):
+        if self.image is not None:
+            self.image.close()
+            self.image = None
+        self.source = None
+        self.count = 0
+
+
 def frame_delay_ms(frame, fps: int) -> int:
     """Honor encoded timing, including the longer holds in one-shot clips."""
     duration = frame.info.get("duration")
@@ -358,12 +396,14 @@ class MascotWindow:
         self.size = base
         self._frames: dict = {}
         self._extra_frames: dict = {}
-        self._photos: dict = {}
+        self._current_photo = None
+        self._current_delay = 33
+        self._draw_started = 0.0
         self._state = "idle"
         self._greeting_until = 0.0
         self._frame_index = 0
         self._frame_timer = None
-        self._active_frames = []
+        self._active_frames = None
         self._last_speech_clip = None
         self._drag = None
         self._moved = False
@@ -457,7 +497,7 @@ class MascotWindow:
         self._greeting_until = 0 if self._reduced_motion else time.monotonic() + GREETING_SECS
         self._state = greeting_state(wanted, self._greeting_until, time.monotonic())
         self._show_clip(self._state)
-        if _STOP.is_set() or not self._photos.get(self._active_clip):
+        if _STOP.is_set() or self._current_photo is None:
             return False
         from modules.mascot_dock import MascotDock
 
@@ -496,32 +536,39 @@ class MascotWindow:
         clip = state if state in self._extra_frames else state_key(state)
         self._active_clip = clip
         source = self._extra_frames.get(clip) or frames_for(self._frames, state)
-        # Bir önceki klibin hem Tk görüntülerini hem ham karelerini bırak.
-        if clip not in self._photos:
-            self._photos.clear()
-            self._active_frames = []
-            try:
-                first_only = self._reduced_motion or clip == "rest"
-                if isinstance(source, Path):
-                    frames = load_frames(source, size=self.size, first_only=first_only)
-                else:
-                    frames = source[:1] if first_only else source
-                if not frames:
-                    raise ValueError("empty mascot clip")
-                self._photos[clip] = [self._photo(frame) for frame in frames]
-                self._active_frames = frames
-            except Exception:       # noqa: BLE001
-                _record_failure("modules/mascot_window.py:_show_clip")
-                self._photos[clip] = []
-        self._frame_index = 1
-        if not self._photos.get(clip):
+        self._release_clip()
+        try:
+            self._active_frames = FrameStream(
+                source, size=self.size,
+                first_only=self._reduced_motion or clip == "rest",
+            )
+            if not len(self._active_frames):
+                raise ValueError("empty mascot clip")
+            self._draw_frame(0)
+        except Exception:  # noqa: BLE001
+            _record_failure("modules/mascot_window.py:_show_clip")
+            self._release_clip()
             self.window.withdraw()
             return
         if not self._hidden and not self.window.winfo_viewable():
             self.window.deiconify()
-        self.label.configure(image=self._photos[clip][0])
-        if len(self._photos[clip]) > 1 and self._animate_clip():
-            self._schedule_frame(0)
+        if len(self._active_frames) > 1 and self._animate_clip():
+            self._schedule_frame()
+
+    def _release_clip(self):
+        if self._active_frames is not None:
+            self._active_frames.close()
+        self._active_frames = None
+        self._current_photo = None
+
+    def _draw_frame(self, index):
+        self._draw_started = time.monotonic()
+        frame = self._active_frames[index]
+        self._current_delay = frame_delay_ms(frame, self.fps)
+        photo = self._photo(frame)
+        self.label.configure(image=photo)
+        self._current_photo = photo
+        self._frame_index = index + 1
 
     def _tick_state(self) -> None:
         if self._closed or _STOP.is_set():
@@ -596,24 +643,31 @@ class MascotWindow:
             self.window.after_cancel(self._frame_timer)
             self._frame_timer = None
 
-    def _schedule_frame(self, shown):
-        delay = frame_delay_ms(self._active_frames[shown], self.fps)
+    def _schedule_frame(self):
+        elapsed = round((time.monotonic() - self._draw_started) * 1000)
+        delay = max(1, self._current_delay - elapsed)
         self._frame_timer = self.window.after(delay, self._tick_frame)
 
     def _tick_frame(self) -> None:
         self._frame_timer = None
-        if not self._animate_clip():
+        if not self._animate_clip() or self._active_frames is None:
             return
-        photos = self._photos.get(self._active_clip) or []
-        shown = self._frame_index
-        if shown < len(photos):
-            self.label.configure(image=photos[shown])
-            self._frame_index += 1
-            if self._frame_index < len(photos) or self._idle_clip is not None:
-                self._schedule_frame(shown)
-        elif self._idle_clip is not None:
-            self._idle_clip = None
-            self._show_clip("idle")
+        try:
+            if self._frame_index < len(self._active_frames):
+                self._draw_frame(self._frame_index)
+                self._schedule_frame()
+            elif self._idle_clip is not None:
+                self._idle_clip = None
+                self._show_clip("idle")
+            elif self._state == "speaking":
+                self._show_clip("speaking")
+            elif self._state in {"listening", "thinking", "working"}:
+                self._draw_frame(0)
+                self._schedule_frame()
+        except Exception:  # noqa: BLE001
+            _record_failure("modules/mascot_window.py:_tick_frame")
+            self._release_clip()
+            self.window.withdraw()
 
     def celebrate(self):
         if random.random() < .6:
@@ -707,8 +761,9 @@ class MascotWindow:
                 if self._idle_clip is not None:
                     self._idle_clip = None
                     self._show_clip(self._state)
-                elif self._animate_clip() and self._frame_index < len(self._photos.get(self._active_clip, [])):
-                    self._schedule_frame(self._frame_index - 1)
+                elif self._animate_clip() and self._active_frames is not None and len(self._active_frames) > 1:
+                    self._draw_started = time.monotonic()
+                    self._schedule_frame()
 
     def hide(self) -> None:
         if not self.runtime._tray and not (self.dock and self.dock.hotkey_registered):
@@ -735,6 +790,7 @@ class MascotWindow:
             return
         self._closed = True
         self._cancel_frame()
+        self._release_clip()
         if self.dock:
             self.dock.close()
         try:

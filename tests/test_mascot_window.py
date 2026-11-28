@@ -209,42 +209,70 @@ class MascotLogicTests(unittest.TestCase):
         self.assertEqual(mascot_window.frames_for({}, "idle"), [])
         self.assertEqual(mascot_window.frames_for(None, "idle"), [])
 
-    def test_show_clip_builds_photos_for_the_current_state_not_the_clip_name(self):
-        frames = mascot_window.preload()
+    def test_show_clip_keeps_one_photo_and_releases_previous_decoder(self):
         window = mascot_window.MascotWindow(_Runtime())
-        window._frames = frames
-        window.window = type("W", (), {"winfo_viewable": lambda self: True,
-                                       "withdraw": lambda self: None,
-                                       "deiconify": lambda self: None})()
-        window.label = type("L", (), {"configure": lambda self, **kw: None})()
-        with patch.object(mascot_window.MascotWindow, "_photo", side_effect=lambda frame: object()):
+        window._frames = mascot_window.preload(lazy=True)
+        window.window = Mock()
+        window.label = Mock()
+        with patch.object(window, "_photo", side_effect=lambda frame: object()) as photo:
             window._show_clip("thinking")
-            self.assertEqual(len(window._photos.get("thinking", [])), len(frames["thinking"]))
+            previous = window._active_frames
+            self.assertGreater(len(previous), 1)
+            self.assertEqual(photo.call_count, 1)
             window._show_clip("working")
-            self.assertEqual(len(window._photos.get("working", [])), len(frames["working"]))
-            # Yalnız bulunulan durumun fotoğrafları tutulur (bellek): eski durum atılır.
-            self.assertNotIn("thinking", window._photos)
-            self.assertEqual(len(window._photos["working"]), len(frames["working"]))
+            self.assertEqual(photo.call_count, 2)
+            self.assertEqual(len(previous), 0)
+            self.assertIsNone(previous.image)
+            self.assertIsNotNone(window._current_photo)
+            window._release_clip()
 
-    def test_player_uses_webp_frame_time_and_finishes_a_one_shot(self):
+    def test_player_uses_frame_time_and_finishes_greeting(self):
         from PIL import Image
 
         frame = Image.new("RGBA", (1, 1))
         frame.info["duration"] = 83
         window = mascot_window.MascotWindow(_Runtime(), fps=30)
-        window._active_frames = [frame, frame, frame]
-        window._active_clip = window._state = "speaking"
-        window._photos["speaking"] = ["first", "second", "third"]
+        window._active_frames = mascot_window.FrameStream([frame, frame], size=(1, 1))
+        window._active_clip = window._state = "greeting"
         window._frame_index = 1
         window.window = Mock()
         window.label = Mock()
-        window._tick_frame()
-        window.window.after.assert_called_once_with(83, window._tick_frame)
-        window.label.configure.assert_called_once_with(image="second")
-        window.window.after.reset_mock()
-        window._tick_frame()
-        window.label.configure.assert_called_with(image="third")
-        window.window.after.assert_not_called()
+        with patch.object(window, "_photo", return_value="second"), patch.object(
+                mascot_window.time, "monotonic", return_value=1.0):
+            window._tick_frame()
+            window.window.after.assert_called_once_with(83, window._tick_frame)
+            window.label.configure.assert_called_once_with(image="second")
+            window.window.after.reset_mock()
+            window._tick_frame()
+            window.window.after.assert_not_called()
+
+    def test_persistent_speech_restarts_at_clip_end(self):
+        from PIL import Image
+
+        window = mascot_window.MascotWindow(_Runtime())
+        window._state = "speaking"
+        window._active_frames = mascot_window.FrameStream([Image.new("RGBA", (1, 1))], size=(1, 1))
+        window._frame_index = 1
+        with patch.object(window, "_show_clip") as restart:
+            window._tick_frame()
+            restart.assert_called_once_with("speaking")
+
+    def test_stream_reads_requested_frames_and_retains_timing(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "clip.webp"
+            frames = [Image.new("RGBA", (480, 618), (i * 20, 20, 30, 255)) for i in range(6)]
+            frames[0].save(path, save_all=True, append_images=frames[1:],
+                           duration=[33, 34, 33, 34, 33, 34], loop=0, lossless=True)
+            stream = mascot_window.FrameStream(path, size=(160, 206))
+            try:
+                self.assertEqual(len(stream), 6)
+                self.assertEqual(stream[0].size, (160, 206))
+                self.assertEqual(mascot_window.frame_delay_ms(stream[1], 30), 34)
+                self.assertEqual(mascot_window.frame_delay_ms(stream[0], 30), 33)
+            finally:
+                stream.close()
+            self.assertEqual(len(stream), 0)
 
     def test_each_new_speech_state_uses_the_other_gesture(self):
         from PIL import Image
@@ -293,12 +321,16 @@ class MascotLogicTests(unittest.TestCase):
             self.assertEqual(fake.call_args.args, (window.window, False))
             self.assertFalse(window._click_through)
 
-    def test_preload_memory_stays_under_the_desktop_budget(self):
-        frames = mascot_window.preload()
-        unique = {id(items): items for items in frames.values()}
-        raw = sum(mascot_window.frame_memory(items) for items in unique.values())
-        photos = mascot_window.photo_memory(len(frames["idle"]), mascot_window.window_size(2.0))
-        self.assertLessEqual(raw + photos, 60 * 1024 * 1024)
+    def test_stream_retains_no_decoded_frame_collection(self):
+        catalogue = mascot_window.preload(lazy=True)
+        stream = mascot_window.FrameStream(catalogue["idle"], size=(320, 412))
+        try:
+            self.assertIsNone(stream.source)
+            self.assertEqual(stream[0].size, (320, 412))
+            self.assertEqual(stream[1].size, (320, 412))
+            self.assertIsNone(stream.source)
+        finally:
+            stream.close()
 
     def test_lazy_catalogue_decodes_no_frames_at_startup(self):
         with patch.object(mascot_window, "load_frames") as decode:
