@@ -81,6 +81,72 @@ class MetinYamasiYazmaIzniTestleri(unittest.TestCase):
             self.assertEqual(sonuc["operation"], "patch_text")
             self.assertTrue(Path(sonuc["backup"]).is_file())
             self.assertEqual(yol.read_text(encoding="utf-8"), "yeni satır\n")
+class PptxYazmaIzniTestleri(unittest.TestCase):
+    """PPTX üretimi de aynı yazma kapısından geçer."""
+
+    def _slaytlar(self):
+        return [{"title": "Başlık", "bullets": ["bir", "iki"]}]
+
+    def _sahte_yazici(self, hedef: Path):
+        def yaz(payload):
+            hedef.write_text("pptx", encoding="utf-8")
+        return yaz
+
+    def test_izin_yoksa_dosya_olusmaz(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            hedef = kok / "sunum.pptx"
+            with self.assertRaises(ext.FileWorkerExtensionError):
+                ext.create_pptx_with_consent(hedef, self._slaytlar(), consent=False,
+                                             allowed_root=kok,
+                                             writer=self._sahte_yazici(hedef))
+            self.assertFalse(hedef.exists())
+
+    def test_klasor_disisnda_olusmaz(self):
+        import tempfile as tf
+
+        with tf.TemporaryDirectory() as ic, tf.TemporaryDirectory() as dis:
+            hedef = Path(dis) / "sunum.pptx"
+            with self.assertRaises(ext.FileWorkerExtensionError):
+                ext.create_pptx_with_consent(hedef, self._slaytlar(), consent=True,
+                                             allowed_root=ic,
+                                             writer=self._sahte_yazici(hedef))
+            self.assertFalse(hedef.exists())
+
+    def test_izinli_uretim_ozet_dondurur(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            hedef = kok / "sunum.pptx"
+            kayit = ext.create_pptx_with_consent(hedef, self._slaytlar(), consent=True,
+                                                 allowed_root=kok,
+                                                 writer=self._sahte_yazici(hedef))
+            self.assertTrue(hedef.is_file())
+            self.assertEqual(kayit["digest"],
+                             hashlib.sha256(b"pptx").hexdigest())
+
+    def test_var_olan_dosya_ezilmez(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            hedef = kok / "sunum.pptx"
+            hedef.write_text("eski", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                ext.create_pptx_with_consent(hedef, self._slaytlar(), consent=True,
+                                             allowed_root=kok,
+                                             writer=self._sahte_yazici(hedef))
+            self.assertEqual(hedef.read_text(encoding="utf-8"), "eski")
+
+    def test_file_task_izinsiz_reddeder(self):
+        from modules import task_workers
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kok = Path(tmp)
+            hedef = kok / "sunum.pptx"
+            with self.assertRaises(ValueError):
+                task_workers.file_task(
+                {"operation": "create_pptx", "path": str(hedef),
+                 "slides": self._slaytlar(), "allowed_root": str(kok)}
+            )
+            self.assertFalse(hedef.exists())
 
 
 if __name__ == "__main__":
