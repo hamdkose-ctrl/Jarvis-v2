@@ -42,6 +42,15 @@ class Handler(BaseHTTPRequestHandler):
         if len(body)!=size:raise ValueError('Gövde eksik.')
         return body
 
+    def _gateway_event(self,owner,source,payload):
+        """Dış kaynaktan gelen olayı canonical hook hattına bildirir; yük gönderilmez."""
+        try:
+            from modules import hooks
+            hooks.observe('gateway',{'event':'inbound','source':str(source)[:40],
+                                     'kind':str((payload or {}).get('kind') or '')[:40]},owner=owner)
+        except Exception:
+            _record_failure('modules/webhook_server.py:_gateway_event')
+
     def event_post(self,owner,source):
         token=llm._key_context.set(owner)
         try:
@@ -55,6 +64,7 @@ class Handler(BaseHTTPRequestHandler):
                 runtime_subscription.publish(owner,key,payload,kind='webhook_event')
             except Exception:
                 _record_failure('modules/webhook_server.py:event_subscription')
+            self._gateway_event(owner,source,payload or {})
             event_notify=getattr(self.server,'event_notify',None)
             if event_notify:
                 try:event_notify(owner,{'source':key,'kind':'incoming','payload':payload})
@@ -96,6 +106,7 @@ class Handler(BaseHTTPRequestHandler):
             stored=message_inbox.ingest(owner,body,self.headers.get('X-Hub-Signature-256',''))
             notify=getattr(self.server,'notify',None)
             event_notify=getattr(self.server,'event_notify',None)
+            self._gateway_event(owner,'mesaj',{'kind':'message'})
             if event_notify and stored['stored']:
                 try:event_notify(owner, {'source':'whatsapp','kind':'incoming_batch','payload':stored})
                 except Exception:
