@@ -283,12 +283,36 @@ class MascotLogicTests(unittest.TestCase):
         window.label = Mock()
         window._frames = {"speaking": [frame]}
         window._extra_frames = {"speaking_alt": [frame]}
-        with patch.object(window, "_photo", side_effect=lambda frame: object()):
+        with tempfile.TemporaryDirectory() as folder, patch.object(
+                mascot_window, "ASSET_DIR", Path(folder)), patch.object(
+                window, "_photo", side_effect=lambda frame: object()):
             clips = []
             for _ in range(3):
                 window._show_clip("speaking")
                 clips.append(window._active_clip)
         self.assertEqual(clips, ["speaking", "speaking_alt", "speaking"])
+
+    def test_single_hybrid_clip_does_not_alternate_with_legacy_face(self):
+        from PIL import Image
+
+        window = mascot_window.MascotWindow(_Runtime())
+        window.window = Mock()
+        window.label = Mock()
+        window._frames = {"speaking": [Image.new("RGBA", (1, 1))]}
+        window._extra_frames = {"speaking_alt": window._frames["speaking"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "konusma.jclip").touch()
+            with patch.object(mascot_window, "ASSET_DIR", root), patch.object(
+                    window, "_photo", return_value=object()), patch(
+                    "modules.mascot_face_runtime.HybridFrameStream",
+                    side_effect=lambda *args, **kwargs: mascot_window.FrameStream(
+                        window._frames["speaking"], size=window.size)) as hybrid:
+                for _ in range(3):
+                    window._show_clip("speaking")
+                    self.assertEqual(window._active_clip, "speaking")
+                self.assertEqual(hybrid.call_count, 3)
+        window._release_clip()
 
     def test_click_through_wanted_requires_the_setting_and_idle(self):
         self.assertFalse(mascot_window.click_through_wanted(False, "idle"))

@@ -2,6 +2,8 @@
 import math
 import time
 
+from modules.diagnostics import record_failure as _record_failure
+
 _enabled = False
 _samples = ()
 
@@ -32,7 +34,7 @@ def observe(pcm: bytes, frames: int, rate: int, time_info, cancel) -> None:
         if _enabled:
             _samples = (*_samples[-63:], (start, start + frames / rate, level, cancel))
     except Exception:
-        # Visual telemetry must never interfere with the existing PCM sink.
+        _record_failure("modules/mascot_audio_meter.py:observe")
         return
 
 

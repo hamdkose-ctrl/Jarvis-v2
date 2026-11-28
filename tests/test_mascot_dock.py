@@ -134,13 +134,19 @@ class MascotDockTests(unittest.TestCase):
                             for item in dock.bubble_canvas.find_withtag("message")]
                 self.assertEqual(contents, ["Merhaba, hoş geldin."])
                 dock.open_bubble()
+                root.update_idletasks()
+                self.assertFalse(dock.bubble_visible())
                 mascot.label.event_generate("<ButtonPress-1>", x=70, y=60)
                 mascot.label.event_generate("<ButtonRelease-1>", x=70, y=60)
                 self.assertIsNone(dock.panel)
                 self.runtime.bridge.listen_once.assert_not_called()
                 dock._event({"user": "hamdi", "k": "state", "t": "listening"})
                 root.update_idletasks()
-                self.assertTrue(dock.bubble_visible())
+                self.assertTrue(dock.bubble_visible(),
+                                f"caption state={dock.bubble.state()}, mapped={dock.bubble.winfo_ismapped()}")
+                self.assertEqual([dock.bubble_canvas.itemcget(item, "text")
+                                  for item in dock.bubble_canvas.find_withtag("message")],
+                                 ["Dinliyorum…"])
                 self.assertIsNone(dock.panel)
                 dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
                 root.update_idletasks()

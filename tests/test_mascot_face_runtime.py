@@ -42,3 +42,23 @@ class HybridFaceTests(unittest.TestCase):
             finally:
                 stream.close()
             self.assertEqual(len(stream), 0)
+
+    def test_shipped_hybrid_asset_decodes_real_body_and_face_maps(self):
+        path = Path(__file__).resolve().parents[1] / "webui" / "mascot" / "konusma.jclip"
+        self.assertTrue(path.is_file())
+        stream = face.HybridFrameStream(path, size=face.SIZE)
+        try:
+            self.assertEqual(len(stream), 540)
+            self.assertEqual(stream.fps, 30)
+            changes = []
+            for index in (0, 270, 539):
+                with patch.object(mascot_audio_meter, "aperture", return_value=0.0):
+                    quiet = np.asarray(stream[index])
+                with patch.object(mascot_audio_meter, "aperture", return_value=1.0):
+                    speaking = np.asarray(stream[index])
+                self.assertEqual(quiet.shape, (618, 480, 4))
+                changes.append(bool(np.any(quiet != speaking)))
+                self.assertEqual(int(quiet[0, 0, 3]), 0)
+            self.assertTrue(any(changes), "shipped face maps never change with audio")
+        finally:
+            stream.close()

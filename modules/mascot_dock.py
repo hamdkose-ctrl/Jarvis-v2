@@ -347,6 +347,9 @@ class MascotDock:
         self.bubble.update_idletasks()
         set_no_activate(self.bubble, True)
         self.bubble.deiconify()
+        # Flush the native window remap before exposing its visibility.
+        self.bubble.update_idletasks()
+        set_no_activate(self.bubble, True)
         timeout = seconds if seconds is not None else min(12, max(5, len(excerpt) / 24))
         self.bubble_close = self.bubble.after(round(timeout * 1000), self._expire_bubble)
 
@@ -366,6 +369,7 @@ class MascotDock:
     def _expire_bubble(self):
         self.bubble_close = None
         self.bubble.withdraw()
+        self.bubble.update_idletasks()
 
     def dismiss_bubble(self):
         if self.bubble is not None:
@@ -373,6 +377,7 @@ class MascotDock:
                 self.bubble.after_cancel(self.bubble_close)
                 self.bubble_close = None
             self.bubble.withdraw()
+            self.bubble.update_idletasks()
 
     def _update_actions(self):
         for widget, shown in ((self.speech_button, self.mascot._state == "speaking"),

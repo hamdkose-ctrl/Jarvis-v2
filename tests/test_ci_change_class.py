@@ -23,6 +23,12 @@ class ChangeClassTests(unittest.TestCase):
     def test_bos_liste_guvenli_tarafa_duser(self):
         self.assertEqual(classify([]), "code")
 
+    def test_prompt_markdown_runtime_verisi_tam_dogrulama(self):
+        self.assertEqual(classify(["prompts/sistem.md"]), "code")
+
+    def test_ajan_kural_markdown_tam_dogrulama(self):
+        self.assertEqual(classify(["tools/claude/agents/x.md"]), "code")
+
     def test_markdown_olmayan_dokuman_tam_dogrulama(self):
         self.assertEqual(classify(["docs/sema.json"]), "code")
 
