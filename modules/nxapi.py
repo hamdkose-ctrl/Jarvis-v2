@@ -510,7 +510,7 @@ def ui_settings() -> dict:
     from modules import learning, personalization
     out["learn_from_chat"] = learning.enabled(personalization.Profile(personalization.get_active()))
     out["widget_on"] = s.get("widget_on", True) is not False
-    out["mascot_window"] = s.get("mascot_window", False) is True
+    out["mascot_window"] = s.get("mascot_window", sys.platform.startswith("win")) is True
     out["mascot_click_through"] = s.get("mascot_click_through", False) is True
     out["proactive_suggestions"] = s.get("proactive_suggestions", True) is not False
     out["voice_turn_reopen"] = s.get("voice_turn_reopen", False) is True

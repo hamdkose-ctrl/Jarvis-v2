@@ -245,10 +245,10 @@ def _job(owner, job, kind):
             'goals':[{'text':_public(g.get('text')),'state':g.get('state')} for g in job.get('goals',[])]}
 
 
-def snapshot(owner):
-    """Bounded local journal reads only; never polls a model, account or device."""
+def jobs_snapshot(owner):
+    """Read the same bounded, verified job projection for both desktop surfaces."""
     _path(owner)
-    from modules import execution_record, goal_executor, task_agents, task_queue
+    from modules import execution_record, goal_executor, task_agents
     jobs, warnings = [], []
     goal_root = goal_executor.STORE/owner
     for kind,root,loader in (
@@ -286,6 +286,13 @@ def snapshot(owner):
                 if step['state']=='running':
                     step['state']='cancelled' if job['state']=='cancelled' else 'interrupted'
             if job['state']=='interrupted':job['question']='Çalışan yürütücü yok; kayıtlı iş kesilmiş olabilir. Sonucu inceleyerek sürdür.'
+    return jobs, warnings
+
+
+def snapshot(owner):
+    """Bounded local journal reads only; never polls a model, account or device."""
+    from modules import task_queue
+    jobs, warnings = jobs_snapshot(owner)
     scheduled = [{**row,'instruction':_public(row.get('instruction'))} for row in task_queue.rows(owner)]
     from modules import specialist_contracts,source_watch,capability_hub
     directory=members(owner)

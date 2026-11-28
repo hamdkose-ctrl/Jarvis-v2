@@ -166,6 +166,7 @@
     catch(e){if(host.isConnected&&id===generation){const n=host.querySelector('[data-team-notice]');n.textContent='Ekip durumu alınamadı: '+e.message;n.classList.add('is-error');host.querySelector('[data-team-status]').textContent='Durum güncellenemedi; görünen kayıtlar eski olabilir.'}}
     finally{host._teamLoading=false;if(host.isConnected&&id===generation&&!document.hidden)timer=setTimeout(()=>load(host,id),5000)}
   }
+  ACT.teamNavigate=key=>{selectedJob=key.replace('-',':');go('team')};
   PAGES.team=pg=>{
     clearTimeout(timer);generation++;current=null;selectedPerson=null;const id=generation;
     pg.innerHTML=`<section class="team-center">

@@ -1,9 +1,16 @@
+### Masaüstü maskottan günlük kullanım
+
+- Maskot konuşma, yazma, kısa sonuç, dosya bulma ve görev onayı/iptali için ana masaüstü girişidir. Windows’ta kart kurulumu doğrulandıktan sonra konsol isteğe bağlı açılır.
+- `Breathing Idle`, `Happy Idle`, `Talking (1)` ve modelin başını eğdiği yerleşik klip, dokulu GLB’den 160×206 şeffaf WebP olarak üretildi. Boşta bekleme hareketleri art arda aynı klibi seçmez.
+- Uçtan uca kabul Windows’ta fiziksel mikrofon/hoparlör, pencere odağı ve global kısayol ile yapılır. Çoklu monitör ve DPI davranışı aynı kabulde kontrol edilir.
+
 ### 2026-11-28 — T16: durum satırı (Faz 1 arayüz parçası)
 
 - **Ne:** Ekran yalnız "Hazır / Düşünüyor" diyordu; hangi sağlayıcı/model, bugün kaç tur döndüğü ve telefon erişiminin açık olup olmadığı görünmüyordu. Faz 1 kapanışı ekranın gerçek bağlantı sonucunu ve yanıt veren modeli göstermesini istiyor.
 - **Yapılan:** Yeni `modules/status_line.py` (saf `build`, 30 sn önbellekli `today`, hataya dayanıklı `for_snapshot`) + `web.snapshot()` içine `status_line` alanı + üst çubukta (`#statusline`) tek satır. Biçim: `Otomatik · gemini-3.5-flash-lite · bugün 1 tur · telefon kapalı`.
 - **Ölçülen:** 8 birim testi OK; mimari denetim OK; canlı gerçek PC kabulü — arayüzden bir mesaj gönderildi, tur ölçümü `ms=3472, src=yazı, r=ok` olarak yazıldı ve üst çubuk "bugün 1 tur" gösterdi.
 - **Dürüst sınır:** Satır **etkin** sağlayıcı/modeli gösterir; yedek modele düşülen turda yanıtı veren modeli göstermez (router izi ayrı ekranda). Tur sayacı yalnız bu makinede ve uygulama açıkken işler; iptal edilen turlar sayılmaz.
+
 ### 2026-11-28 — T15: yedek kapsamı — kanıt defterleri dışarıda
 
 - **Ne:** Gerçek makinede ilk yedek **87.660 dosya / 26,9 MB** tuttu; %99'u `file-effect-claims` kanıt defteriydi. Yedek hem yavaştı hem de yanlış şeyi koruyordu.

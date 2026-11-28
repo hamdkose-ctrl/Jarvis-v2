@@ -34,7 +34,7 @@ def _image():
 def start(on_show: Callable[[], None], on_mic: Callable[[], None], is_mic: Callable[[], bool],
           on_quit: Callable[[], None], on_sleep: Callable[[], None] | None = None,
           is_sleep: Callable[[], bool] | None = None, on_widget: Callable[[], None] | None = None,
-          is_widget: Callable[[], bool] | None = None, name: Callable[[], str] | None = None):
+          is_widget: Callable[[], bool] | None = None, on_console: Callable | None = None, name: Callable[[], str] | None = None):
     """Tepsi simgesini arka planda başlatır; başarılıysa simge nesnesini, değilse None döndürür."""
     if not available():
         return None
@@ -48,6 +48,7 @@ def start(on_show: Callable[[], None], on_mic: Callable[[], None], is_mic: Calla
                              checked=lambda _i: bool(is_sleep and is_sleep()), visible=on_sleep is not None),
             pystray.MenuItem(lambda _i: f"Masaüstü küçük {nm()}", lambda *_: on_widget and on_widget(),
                              checked=lambda _i: bool(is_widget and is_widget()), visible=on_widget is not None),
+            pystray.MenuItem("Komut Merkezi", lambda *_: on_console and on_console(), visible=on_console is not None),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Tamamen kapat", lambda *_: on_quit()),
         )
