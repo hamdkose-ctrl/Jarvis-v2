@@ -96,3 +96,36 @@ class ClockIndependent(unittest.TestCase):
     def test_quiet_hour_produces_nothing(self):
         self.assertEqual(self._tick(23), [])
         self.assertEqual(self._tick(3), [])
+
+class TekrarVeSinir(unittest.TestCase):
+    """Belge: aynı olay tekrar söylenmez, bir tikte en fazla bir aday döner."""
+
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+
+    def _tick(self, okunmamis):
+        ayar = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
+        with patch("config.load_settings", return_value=ayar), \
+             patch.object(pc_autonomy_queue, "_inbox_and_calendar",
+                          lambda: {"unread_mail": okunmamis}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value=""), \
+             patch("modules.pc_autonomy_queue._announce") as say:
+            items = pc_autonomy_queue.watch_tick(_Runtime(ayar), hour=12)
+        return items, say
+
+    def test_ayni_olay_ikinci_kez_soylenmez(self):
+        ilk, _ = self._tick(3)
+        self.assertEqual(len(ilk), 1)
+        ikinci, say = self._tick(3)
+        self.assertEqual(ikinci, [])
+        self.assertFalse(say.called)
+
+    def test_farkli_olay_beklemeden_soylenir(self):
+        self._tick(3)
+        ucuncu, say = self._tick(4)
+        self.assertEqual(len(ucuncu), 1)
+        self.assertTrue(say.called)
+
+
+if __name__ == '__main__':
+    unittest.main()
