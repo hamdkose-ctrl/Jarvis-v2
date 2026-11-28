@@ -170,6 +170,12 @@ def check_watch() -> dict | None:
     start, end = awareness_watch.quiet_bounds(settings)
     seen = len(pc_autonomy_queue._SEEN)
     detail = f"açık · sessiz saat {start:02d}:00–{end:02d}:00 · {seen} olay hatırlanıyor"
+    last = pc_autonomy_queue.announce_state()
+    if last.get("at"):
+        stamp = time.strftime("%d.%m %H:%M", time.localtime(float(last["at"])))
+        detail += f" · son bildirim {stamp}"
+    else:
+        detail += " · henüz bildirim yok"
     return _item("Uyanıklık", "ok", detail)
 
 
