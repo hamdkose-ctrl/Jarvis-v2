@@ -1,3 +1,10 @@
+### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
+
+- **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
+- **Çözüm:** `scripts/ci_change_class.py` değişen dosyaları sınıflar (`docs` / `code`); workflow ağır adımları (pip, derleme, tam doğrulama) yalnız `code` sınıfında çalıştırır. Kapılar (roadmap drift + kanıt kontrolü) her zaman koşar.
+- **Güvenli taraf:** Sınıflandırılamayan, boş ya da hatalı durumda sonuç `code` → bugünkü davranış aynen sürer; hızlı yol asla kapı atlamaz.
+- **Ölçülen:** `tests/test_ci_change_class.py` 7/7 OK (doküman, kod, test, workflow, kök python, boş liste, markdown olmayan doküman); `--paths docs/a.md` → `false`, `--paths web.py` → `true`; workflow YAML ayrıştırma OK (11 adım).
+- **Dürüst sınır:** Hızlı yolun gerçek kazancı ancak bir sonraki doküman-only PR'da ölçülecek; bu PR `.github/` ve `scripts/` değiştirdiği için kendisi tam paketi koşar.
 ### 2026-11-28 — T21: gateway giriş olayı canonical hook hattına bağlandı
 
 - **Ne:** Üründe "gateway" yalnız bir hook adıydı; canlı bir üretici yoktu. Artık gerçek giriş yolları bağlı: imzalı olay webhook'u (`/event/<owner>/<source>`) ve mesaj girişi.
