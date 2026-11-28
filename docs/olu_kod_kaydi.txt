@@ -1,0 +1,9 @@
+# Üretimde çağrılmayan ortak fonksiyonlar (kabul edilmiş kayıt).
+# Kural: scripts/dead_symbol_scan.py bir adı burada yokken bulursa test düşer —
+# yeni bir çağıransız yüzey sessizce giremez. Ad buradan silinirse ve tarama
+# hâlâ bulursa yine düşer; kayıt ile gerçek ayrışamaz.
+#
+# Biçim: <modül>.<fonksiyon>  —  <neden bekliyor>
+git_publish.protect_local    # yayın öncesi yerel koruma; güncelleyici akışına bağlanmadı
+news_pipeline.synthesis_input # sentez girdisi; sentez adımı henüz bağlanmadı
+smart_router.qualification_session # yeterlilik oturumu; bağlanmadı
