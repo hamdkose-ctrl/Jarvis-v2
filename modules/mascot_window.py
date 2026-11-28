@@ -440,12 +440,18 @@ class MascotWindow:
         if self.ready is not None:
             self.ready.set()
         self._next_idle = time.monotonic() + random.uniform(25, 55)
+        if not self._hidden and self._state == "greeting":
+            self.window.after(160, self._welcome)
         self._tick_state()
         self._tick_frame()
         self.root.mainloop()
         return True
 
     # ------------------------------------------------------------- oynatma
+    def _welcome(self):
+        if self._state == "greeting" and self.runtime.engine.flags.get("mic", True):
+            self.dock.show_bubble("Merhaba. Konuşmak için tıkla.", seconds=4, view="listen")
+
     def _photo(self, frame):
         from PIL import ImageTk
 
@@ -527,7 +533,9 @@ class MascotWindow:
                     self._next_idle = now + random.uniform(25, 55)
             if self.dock:
                 self.dock.tick()
-            if flags.get("sleep"):
+            if self.dock and self.dock.bubble_visible():
+                self.set_badge("")
+            elif flags.get("sleep"):
                 self.set_badge("Uykuda")
             elif state == "listening":
                 self.set_badge("Dinliyor")
@@ -536,7 +544,7 @@ class MascotWindow:
             elif state == "speaking":
                 self.set_badge("Konuşuyor")
             else:
-                badge = self.dock.badge if self.dock and not self.dock.bubble_visible() else ""
+                badge = self.dock.badge if self.dock else ""
                 self.set_badge(badge or ("Mikrofon kapalı" if not flags.get("mic", True) else ""))
         except Exception:  # noqa: BLE001 - a stale UI event must not stop the loop
             _record_failure("modules/mascot_window.py:tick")
@@ -555,7 +563,7 @@ class MascotWindow:
         elif playing and self._idle_clip is not None:
             self._idle_clip = None
             self._show_clip("idle")
-        fps = EXTRA_FPS if self._active_clip in self._extra_frames else self.fps
+        fps = EXTRA_FPS if self._active_clip in self._extra_frames or self._active_clip == "greeting" else self.fps
         delay = max(10, int(1000 / fps)) if playing and self._frame_index < len(photos) else 150
         self.window.after(delay, self._tick_frame)
 
@@ -581,8 +589,10 @@ class MascotWindow:
         if not self._drag:
             return
         dx, dy = event.x_root - self._drag[0], event.y_root - self._drag[1]
-        if abs(dx) + abs(dy) > 3:
+        if not self._moved and abs(dx) + abs(dy) > 3:
             self._moved = True
+            if self.dock:
+                self.dock.dismiss_bubble()
         if self._moved:
             x, y = clamp_position(self._drag[2] + dx, self._drag[3] + dy,
                                   self.size[0], self.size[1], windows_monitors(self.root))
@@ -604,6 +614,8 @@ class MascotWindow:
         menu = tk.Menu(self.window, tearoff=0)
         if self.dock:
             menu.add_command(label="Yaz", command=lambda: self.dock.open(focus=True))
+            if self.dock.last_reply:
+                menu.add_command(label="Son yanıtı aç", command=self.dock.open_reply)
             menu.add_command(label="Konuş", command=self.dock.listen)
             menu.add_command(label="Mikrofonu aç/kapat", command=self.dock.toggle_mic)
             menu.add_command(label="Sesi kes", command=self.dock.stop_speech)

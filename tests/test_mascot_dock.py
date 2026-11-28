@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import web
-from modules import mascot_dock, mascot_window
+from modules import mascot_bubble, mascot_dock, mascot_window
 
 
 class MascotDockTests(unittest.TestCase):
@@ -74,6 +74,19 @@ class MascotDockTests(unittest.TestCase):
         finally:
             dock.close()
 
+    def test_bubble_places_its_light_trail_towards_the_hood(self):
+        monitor = [(0, 0, 1300, 740)]
+        x, y, trail, anchor = mascot_bubble.place((1000, 520, 160, 206), 260, 90, monitor)
+        self.assertEqual(trail, "down")
+        self.assertLess(y + 115, 540)
+        self.assertEqual(x + anchor, 1088)
+        x, y, trail, anchor = mascot_bubble.place((10, 0, 160, 206), 260, 90, monitor)
+        self.assertEqual(trail, "left")
+        image, inset = mascot_bubble.artwork(260, 90, trail, anchor)
+        self.assertEqual((image.size, inset), ((285, 90), 25))
+        self.assertEqual(image.getpixel((0, 0)), mascot_window.KEY_RGB)
+        self.assertNotEqual(image.getpixel((130, 45)), mascot_window.KEY_RGB)
+
     def test_native_card_opens_and_renders_reply(self):
         if not mascot_window.available():
             self.skipTest("Tk/Pillow yok")
@@ -113,12 +126,16 @@ class MascotDockTests(unittest.TestCase):
             try:
                 dock = mascot.dock
                 dock.next_jobs = float("inf")
-                dock.listen()
+                mascot._welcome()
+                self.assertEqual(dock.bubble_view, "listen")
+                dock.open_bubble()
+                self.assertIsNone(dock.panel)
                 dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
                 root.update_idletasks()
                 self.assertIsNone(dock.panel)
                 self.assertTrue(dock.bubble.winfo_viewable())
-                dock.open(focus=True)
+                self.assertEqual(dock.badge, "")
+                dock.open_bubble()
                 self.assertFalse(dock.bubble.winfo_viewable())
                 dock.entry.insert(0, "Bugün ne var?")
                 self.runtime.bridge.send.return_value = True

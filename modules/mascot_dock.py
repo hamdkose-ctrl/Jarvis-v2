@@ -30,24 +30,16 @@ BG, CARD, BORDER = "#0c1521", "#142334", "#304759"
 TEXT, MUTED, ACCENT = "#edf5fa", "#9ab1c3", "#a4e5ed"
 
 
-def rounded_panel(canvas, width, height, radius=16, tail=""):
+def rounded_panel(canvas, width, height, radius=16):
     """Draw the native glass-panel silhouette with a single rounded outline."""
     canvas.delete("panel")
-    x, y = (9 if tail == "left" else 1), 1
-    right, bottom = width - (10 if tail == "right" else 2), height - 2
+    x, y, right, bottom = 1, 1, width - 2, height - 2
     r = max(2, min(radius, (right - x) // 2, (bottom - y) // 2))
     canvas.create_polygon(x+r, y, right-r, y, right, y, right, y+r,
                           right, bottom-r, right, bottom, right-r, bottom,
                           x+r, bottom, x, bottom, x, bottom-r, x, y+r, x, y,
                           smooth=True, splinesteps=24, fill=BG, outline=BORDER,
                           width=1, tags="panel")
-    if tail:
-        edge = x if tail == "left" else right
-        tip = 1 if tail == "left" else width - 2
-        mid = height // 2
-        canvas.create_polygon(edge, mid - 5, tip, mid, edge, mid + 5,
-                              fill=BG, outline=BORDER, tags="panel")
-        canvas.create_line(edge, mid - 4, edge, mid + 4, fill=BG, tags="panel")
     canvas.tag_lower("panel")
 
 
@@ -146,6 +138,8 @@ class MascotDock:
         self.panel = None
         self.bubble = None
         self.bubble_close = None
+        self.bubble_view = "reply"
+        self.bubble_photo = None
         self.shown_state = ""
         self.hotkey = str(mascot._settings().get("mascot_hotkey") or "Ctrl+Alt+J")
         self._register_hotkey()
@@ -264,20 +258,17 @@ class MascotDock:
         finally:
             menu.grab_release()
 
-    def _position(self, window, w, h, *, speech=False):
+    def _position(self, window, w, h):
         from modules.mascot_window import clamp_position, windows_monitors
 
         x = self.mascot.window.winfo_x()
         width, height = self.mascot.size
-        inset = width // 6 if speech else 0
-        anchor = int(height * .40) - h // 2 if speech else height - h
-        y = self.mascot.window.winfo_y() + anchor
+        y = self.mascot.window.winfo_y() + height - h
         screens = windows_monitors(self.mascot.root)
-        left, y = clamp_position(x + inset - w - 12, y, w, h, screens)
-        if left + w > x + inset:
-            left, y = clamp_position(x + width - inset + 12, y, w, h, screens)
+        left, y = clamp_position(x - w - 12, y, w, h, screens)
+        if left + w > x:
+            left, y = clamp_position(x + width + 12, y, w, h, screens)
         window.geometry(f"{w}x{h}+{left}+{y}")
-        return "right" if left < x else "left"
 
     def _place_card(self):
         if self.view != "reply":
@@ -311,34 +302,61 @@ class MascotDock:
         if focus:
             self.entry.focus_force()
 
-    def show_bubble(self, text, *, seconds=None):
-        """Transient, non-activating speech bubble. The main card stays closed."""
-        import tkinter as tk
-        from modules.mascot_window import set_no_activate
+    def show_bubble(self, text, *, seconds=None, view="reply"):
+        """Show a non-activating speech bubble over the hood."""
+        from PIL import ImageTk
+        from modules import mascot_bubble
+        from modules.mascot_window import set_no_activate, windows_monitors
 
         if self.mascot._hidden or self.panel_visible() or self.runtime._main_window_open():
             return
         excerpt = textwrap.shorten(" ".join(str(text).split()), width=236, placeholder="…")
         if not excerpt:
             return
+        self.bubble_view = view
         if self.bubble is None:
             self.bubble, self.bubble_canvas = self._surface()
-            self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_badge())
+            self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_bubble())
         if self.bubble_close is not None:
             self.bubble.after_cancel(self.bubble_close)
         canvas = self.bubble_canvas
-        canvas.delete("message")
-        item = canvas.create_text(16, 11, text=excerpt, width=252, anchor="nw", fill=TEXT,
+        canvas.delete("all")
+        item = canvas.create_text(0, 0, text=excerpt, width=228, anchor="nw", fill=TEXT,
                                   font=("Segoe UI", 10), tags="message")
-        bbox = canvas.bbox(item)
-        width, height = min(286, max(119, bbox[2] + 16)), bbox[3] + 11
-        tail = self._position(self.bubble, width, height, speech=True)
-        rounded_panel(canvas, width, height, radius=13, tail=tail)
+        left, top, right, bottom = canvas.bbox(item)
+        text_width, text_height = right - left, bottom - top
+        body_width = max(122, text_width + 40)
+        body_height = max(42, text_height + 28)
+        window = self.mascot.window
+        bounds = (window.winfo_x(), window.winfo_y(), *self.mascot.size)
+        x, y, trail, anchor = mascot_bubble.place(
+            bounds, body_width, body_height, windows_monitors(self.mascot.root))
+        art, inset = mascot_bubble.artwork(body_width, body_height, trail, anchor)
+        self.bubble_photo = ImageTk.PhotoImage(art, master=self.bubble)
+        bg = canvas.create_image(0, 0, image=self.bubble_photo, anchor="nw")
+        canvas.tag_lower(bg)
+        canvas.coords(item, inset + (body_width - text_width) // 2, (body_height - text_height) // 2)
+        w, h = art.size
+        self.bubble.geometry(f"{w}x{h}+{x}+{y}")
         self.bubble.update_idletasks()
         set_no_activate(self.bubble, True)
         self.bubble.deiconify()
         timeout = seconds if seconds is not None else min(12, max(5, len(excerpt) / 24))
         self.bubble_close = self.bubble.after(round(timeout * 1000), self._expire_bubble)
+
+    def open_reply(self):
+        self.switch("reply")
+        self.open(focus=True)
+
+    def open_bubble(self):
+        if self.bubble_view == "listen":
+            self.dismiss_bubble()
+            self.listen()
+        elif self.bubble_view == "jobs":
+            self.show_jobs()
+            self.open(focus=True)
+        else:
+            self.open_reply()
 
     def _expire_bubble(self):
         self.bubble_close = None
@@ -564,7 +582,7 @@ class MascotDock:
                     self._set_notice("İş · " + notice)
                     self.badge = "İşler"
                     if self.mascot._state == "idle" and not self.bubble_visible():
-                        self.show_bubble("İş · " + notice, seconds=5)
+                        self.show_bubble("İş · " + notice, seconds=5, view="jobs")
                     if job.get("state") == "done":
                         self.mascot.celebrate()
                     break
@@ -812,7 +830,6 @@ class MascotDock:
             self.last_reply = value
             if self.view == "reply" and self.panel is not None:
                 self._render()
-            self.badge = "Yanıt"
             if rid and rid == self.active_rid:
                 self.active_rid = ""
             self.show_bubble(value)
