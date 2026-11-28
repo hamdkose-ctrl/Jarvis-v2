@@ -16,6 +16,12 @@
 - **Değişiklik:** `task_workers.file_task` artık `operation='search_files'` dalını işliyor (`path`, `query`, `max_files`); eşleşmeler `matches` alanıyla dönüyor, yazma yok.
 - **Ölçülen:** `tests/test_file_search_operation.py` 4/4 (eşleşme bulunur, eşleşme yok, boş sorgu reddi, bilinmeyen işlem reddi); mimari denetim OK.
 - **Dürüst sınır (wiring):** Beynin dosya işlem sözlüğü (`open/summarize/analyze/locate/list/...`) henüz `search_files`'a eşlenmiyor; bugün bu dal yalnız görev verisi `operation=search_files` taşıdığında çalışır. Eşleme R2b.
+### 2026-11-28 — T28 (B4-4): kural/mevzuat taze dış veri sayılıyor
+
+- **Bulgu:** Tazelik konu listesinde haber/kur/borsa/skor vardı; `yönetmelik`, `tebliğ`, `mevzuat`, `genelge`, `Resmî Gazete` yoktu. "Güncel yönetmelik nelerdir" statik sohbet sayılıyor, ezberden (ve yanlış) yanıtlanıyordu.
+- **Değişiklik:** `_RESEARCH_FRESH_TOPIC` kural sözcükleriyle genişletildi; tazelik işareti taşımayan ama kural verisi isteyen cümleler ("2026 mevzuat değişiklikleri neler") için ayrı `_RESEARCH_REGULATION_TOPIC` dalı eklendi.
+- **Korunan:** Tanım soruları ("yönetmelik nedir", "mevzuat ne demek") statik kalır; "alarm kur" gibi fiil kullanımları etkilenmez.
+- **Ölçülen:** `tests/test_regulation_freshness.py` 3/3; `test_fresh_research_routing` + `test_quota_routing` ile birlikte 21/21 OK; mimari denetim OK.
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
