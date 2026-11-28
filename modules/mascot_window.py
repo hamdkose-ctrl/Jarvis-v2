@@ -19,6 +19,7 @@ MAX_SCALE = 3.0
 FPS = 30
 KEY_HEX = "#010203"             # saydam sayılacak renk
 KEY_RGB = (1, 2, 3)
+KEY_ALPHA_THRESHOLD = 128       # Tk renk anahtarında %50 piksel kapsaması
 ASSET_DIR = Path(__file__).resolve().parent.parent / "webui" / "mascot"
 EXTRA_CLIPS = {"breathing": "nefes.webp", "looking": "bakis.webp",
                "happy": "memnun.webp", "speaking_alt": "konusma2.webp"}
@@ -166,9 +167,10 @@ def click_style(style: int, enabled: bool) -> int:
 def key_flat(image, size):
     """RGBA kareyi KEY/RGB düzlemine indirger; alfa eşiği dışında karıştırmaz.
 
-    `alpha==0` tam `KEY_RGB` olur; `alpha>0` pikselin kaynak RGB'si aynen
-    korunur. Böylece yarı saydam kenar KEY rengine karışıp siyah kontur
-    üretmez. Dönen görüntü RGB'dir (Tk renk anahtarı alfayı kullanmaz).
+    Tk renk anahtarı kesirli alfayı gösteremez. Yeniden örnekleme sonrası
+    %50'den az kapsanan pikseller saydam kalır; diğerleri kaynak RGB'sini
+    korur. Lanczos'un düşük alfa saçakları tam opak bir kontura dönüşmez.
+    Gerçek kesirli alfa için ayrı Windows kompozisyon yolu gerekir.
     """
     from PIL import Image
 
@@ -176,7 +178,7 @@ def key_flat(image, size):
     source = image.convert("RGBA")
     if source.size != (width, height):
         source = source.resize((width, height), Image.LANCZOS)
-    mask = source.getchannel("A").point(lambda alpha: 255 if alpha else 0)
+    mask = source.getchannel("A").point(lambda alpha: 255 if alpha >= KEY_ALPHA_THRESHOLD else 0)
     background = Image.new("RGB", (width, height), KEY_RGB)
     return Image.composite(source.convert("RGB"), background, mask)
 

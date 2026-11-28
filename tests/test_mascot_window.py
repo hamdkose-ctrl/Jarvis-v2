@@ -106,22 +106,23 @@ class MascotLogicTests(unittest.TestCase):
         self.assertFalse(mascot_window.click_style(on, False) & mascot_window.WS_EX_TRANSPARENT)
         self.assertTrue(mascot_window.click_style(on, False) & mascot_window.WS_EX_LAYERED)
 
-    def test_key_flat_keys_only_zero_alpha_and_keeps_source_rgb(self):
+    def test_key_flat_keys_low_coverage_and_keeps_source_rgb(self):
         from PIL import Image
 
-        source = Image.new("RGBA", (4, 1))
+        source = Image.new("RGBA", (5, 1))
         source.putdata([
-            (10, 20, 30, 0),        # tam saydam -> KEY
-            (10, 20, 30, 1),        # yarı saydam kenar -> kaynak RGB aynen
+            (10, 20, 30, 0),
+            (10, 20, 30, 1),
+            (10, 20, 30, 127),
             (200, 100, 50, 128),
             (0, 0, 0, 255),
         ])
-        flat = mascot_window.key_flat(source, (4, 1))
+        flat = mascot_window.key_flat(source, (5, 1))
         self.assertEqual(flat.mode, "RGB")
-        self.assertEqual(flat.getpixel((0, 0)), mascot_window.KEY_RGB)
-        self.assertEqual(flat.getpixel((1, 0)), (10, 20, 30))
-        self.assertEqual(flat.getpixel((2, 0)), (200, 100, 50))
-        self.assertEqual(flat.getpixel((3, 0)), (0, 0, 0))
+        for x in range(3):
+            self.assertEqual(flat.getpixel((x, 0)), mascot_window.KEY_RGB)
+        self.assertEqual(flat.getpixel((3, 0)), (200, 100, 50))
+        self.assertEqual(flat.getpixel((4, 0)), (0, 0, 0))
 
     def test_key_flat_does_not_blend_semi_transparent_pixels_into_key(self):
         from PIL import Image
@@ -138,7 +139,7 @@ class MascotLogicTests(unittest.TestCase):
         for y in range(source.height):
             for x in range(source.width):
                 red, green, blue, alpha = source.getpixel((x, y))
-                expected = mascot_window.KEY_RGB if alpha == 0 else (red, green, blue)
+                expected = mascot_window.KEY_RGB if alpha < 128 else (red, green, blue)
                 self.assertEqual(flat.getpixel((x, y)), expected)
 
     def test_key_flat_resizes_uniform_colors_without_contamination(self):
@@ -148,6 +149,24 @@ class MascotLogicTests(unittest.TestCase):
         transparent = Image.new("RGBA", (2, 2), (123, 45, 67, 0))
         self.assertEqual(mascot_window.key_flat(opaque, (7, 9)).getcolors(100), [(63, (123, 45, 67))])
         self.assertEqual(mascot_window.key_flat(transparent, (7, 9)).getcolors(100), [(63, mascot_window.KEY_RGB)])
+
+    def test_key_flat_does_not_make_lanczos_fringe_opaque_at_high_dpi(self):
+        from PIL import Image, ImageDraw
+
+        source = Image.new("RGBA", (160, 206))
+        ImageDraw.Draw(source).ellipse((35, 40, 125, 166), fill=(240, 240, 240, 255))
+        size = (320, 412)
+        resized = source.resize(size, Image.LANCZOS)
+        flat = mascot_window.key_flat(source, size)
+        fringe = 0
+        for rgba, rgb in zip(resized.getdata(), flat.getdata()):
+            alpha = rgba[3]
+            if 0 < alpha < 128:
+                fringe += 1
+                self.assertEqual(rgb, mascot_window.KEY_RGB)
+            elif alpha >= 128:
+                self.assertEqual(rgb, rgba[:3])
+        self.assertGreater(fringe, 0)
 
     def test_monitor_normalization_drops_invalid_rectangles(self):
         self.assertEqual(mascot_window.normalize_monitors([(0, 0, 10, 10), (5, 5, 5, 9), "x"]),
