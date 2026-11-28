@@ -61,7 +61,10 @@ def candidates(state: dict, *, seen: set[str], now: float | None = None,
         items.append(_item("window", f"Pencere değişti: {window[:60]}", window))
     unread = int(state.get("unread_mail") or 0)
     if unread > 0:
-        items.append(_item("mail", f"{unread} okunmamış mail var.", str(unread)))
+        # Parmak izi: mail kimliği varsa kimlik (sayı sabit kalsa da yeni mail yakalanır),
+        # yoksa eski davranış — sayı.
+        marker = str(state.get("mail_head") or unread)
+        items.append(_item("mail", f"{unread} okunmamış mail var.", marker))
     minutes = state.get("next_event_minutes")
     if isinstance(minutes, (int, float)) and 0 <= minutes <= 30:
         items.append(_item("calendar", f"{int(minutes)} dakika sonra takvimde bir iş var.", str(minutes)))

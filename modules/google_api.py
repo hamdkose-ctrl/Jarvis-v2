@@ -380,6 +380,19 @@ def unread_count() -> int:
     return int(svc.users().labels().get(userId="me", id="INBOX").execute().get("messagesUnread", 0))
 
 
+def unread_head() -> str | None:
+    """En yeni okunmamış mailin kimliği (salt okuma; içerik okunmaz).
+
+    Neden sayı yetmiyor (canlı kusur sınıfı): uyanıklık mail parmak izini **sayı** ile
+    tutuyordu. Bir mail gelip bir başkası okunduğunda sayı aynı kalıyor (67 → 67) ve
+    yeni mail hiç bildirilmiyordu. Kimlik değişimi bunu yakalar.
+    """
+    svc = _service("gmail", "v1")
+    veri = svc.users().messages().list(userId="me", q="is:unread", maxResults=1).execute()
+    mesajlar = veri.get("messages") or []
+    return str(mesajlar[0]["id"]) if mesajlar else None
+
+
 def busy_between(start: datetime, end: datetime) -> list[tuple[datetime, datetime, str]]:
     """Google Takvim'de [start, end) aralığıyla kesişen saatli etkinlikler (salt okuma, çakışma uyarısı için).
 
