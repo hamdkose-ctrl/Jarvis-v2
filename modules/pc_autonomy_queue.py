@@ -261,14 +261,19 @@ def _inbox_and_calendar() -> dict:
             events = google_api.day_events(0)
             now = __import__("datetime").datetime.now()
             soonest = None
+            en_yakin = None
             for start, _summary in events:
                 if start is None:
                     continue
                 minutes = (start - now).total_seconds() / 60.0
                 if minutes >= 0 and (soonest is None or minutes < soonest):
                     soonest = minutes
+                    # Olay kimliği: aynı toplantıyı tekrar tekrar bildirmemek için.
+                    en_yakin = f"{start.isoformat()}|{str(_summary or '')[:40]}"
             if soonest is not None:
                 state["next_event_minutes"] = int(soonest)
+                if en_yakin:
+                    state["next_event_id"] = en_yakin
     except Exception:
         _record_failure("modules/pc_autonomy_queue.py:_inbox_and_calendar:calendar")
     return state
