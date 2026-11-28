@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ROADMAP_FILE = "docs/Jarvis_Yol_Haritasi.md"
 # Girişler artık PR başına ayrı dosyaya yazılabiliyor; tamamlanma iddiası (`- ✅`)
 # yalnız ana yol haritasında olabilir, yoksa kanıt denetimi atlanır.
+# Liste işareti ile ✅ arasında birden çok boşluk da yakalanır (elle yazım farkı).
+_TAMAM_ISARETI = re.compile(r"^\s*-\s*✅")
 ENTRIES_DIR = "docs/yol_haritasi_girisler"
 COMPLETION_MARKER = "✅"
 EVIDENCE_PREFIX = "Kanıt:"
@@ -248,7 +250,7 @@ def _entries_with_completion(root: Path) -> list[str]:
     bulunan: list[str] = []
     for yol in sorted(klasor.rglob("*.md")):
         metin = yol.read_text(encoding="utf-8", errors="replace")
-        if any(satir.lstrip().startswith("- ✅") for satir in metin.splitlines()):
+        if any(_TAMAM_ISARETI.match(satir) for satir in metin.splitlines()):
             bulunan.append(yol.relative_to(root).as_posix())
     return bulunan
 
