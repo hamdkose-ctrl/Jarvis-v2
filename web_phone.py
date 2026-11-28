@@ -41,6 +41,10 @@ class WebPhone:
         info['users'], info['user'] = (names, user)
         info['connected'] = runtime.phone.connected(user)
         info['qr_ttl'] = 90
+        # Uygulama açılışında sunucu başlatılamadıysa sebebi panelde görünsün.
+        son = runtime.phonemod.last_error()
+        if son and not runtime.phone.running:
+            info['last_error'] = son
         if runtime.phone.running:
             for label, url in runtime.phone.urls(user):
                 info['urls'].append({'label': label, 'url': url, 'qr': runtime.qr_matrix(url)})
