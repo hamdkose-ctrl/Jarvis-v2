@@ -3,6 +3,10 @@ name: Windows testleri
 # Windows self-hosted runner PR doğrulamasını çalıştırır; main'e her push'ta da
 # aynı iş current main SHA'sı üzerinde ayrıca çalışır (Final Stage 0-4 acceptance
 # şartı: current merged main SHA'sında Windows CI kanıtı). Elle başlatma seçeneği korunur.
+#
+# Hızlı yol: yalnız doküman değiştiren PR ve main push'unda ağır adımlar atlanır;
+# kapılar (drift + kanıt) her zaman koşar. Tek runner olduğu için bu, sıranın
+# gereksiz dolmasını engeller.
 on:
   pull_request:
   push:
@@ -41,12 +45,33 @@ jobs:
       - name: Değişiklik sınıfı (hızlı yol)
         # Yalnız markdown değişen PR'da tam test paketi koşmaz: kapılar (drift +
         # kanıt) her zaman çalışır, ağır adımlar yalnız kod değişince çalışır.
+        # main push'unda da aynı sınıflandırma kullanılır: doküman birleşmesi
+        # tam paketi boşuna koşturup tek runner'ı doldurmaz (before..after aralığı).
         id: sinif
-        if: github.event_name == 'pull_request'
         env:
           JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          JARVIS_PUSH_BEFORE: ${{ github.event.before }}
+          JARVIS_PUSH_AFTER: ${{ github.event.after }}
         run: |
-          $changed = @(git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA)
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $aralik = "origin/main...$env:JARVIS_PR_HEAD_SHA"
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $once = $env:JARVIS_PUSH_BEFORE
+            $sonra = $env:JARVIS_PUSH_AFTER
+            # Yeni dal / geçmişi olmayan push: karşılaştırma yapılamaz, güvenli taraf.
+            if ([string]::IsNullOrWhiteSpace($once) -or $once -match '^0+$' -or
+                [string]::IsNullOrWhiteSpace($sonra) -or $sonra -match '^0+$') {
+              "agir=true" >> $env:GITHUB_OUTPUT
+              Write-Host "Push aralığı bilinmiyor; tam paket zorunlu."
+              exit 0
+            }
+            $aralik = "$once..$sonra"
+          } else {
+            "agir=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Bilinmeyen olay ($($env:GITHUB_EVENT_NAME)); tam paket zorunlu."
+            exit 0
+          }
+          $changed = @(git diff --name-only $aralik)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Sınıflandırıcı PR başından koşar; PR kendi sınıflandırıcısını ya da
           # workflow'u değiştiriyorsa hızlı yola güvenilmez, tam paket koşar.
