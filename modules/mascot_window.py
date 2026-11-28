@@ -462,9 +462,8 @@ class MascotWindow:
             pos = reset_position(self.size[0], self.size[1], monitors)
         pos = clamp_position(pos[0], pos[1], self.size[0], self.size[1], monitors)
         self._save(mascot_size=list(self.size), mascot_pos=list(pos))
-        # The mascot itself owns the Tk root. A withdrawn parent plus two
-        # native override-redirect children was not mapping on Windows CI.
-        self.window = self.root
+        self.window = tk.Toplevel(self.root)
+        self.window.withdraw()
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
         self.window.configure(bg=KEY_HEX)
@@ -478,7 +477,7 @@ class MascotWindow:
         self.badge = tk.Label(self.window, bg="#172634", fg="#8fe0e7", padx=8, pady=3,
                               font=("Segoe UI", 9, "bold"))
         self.badge.bind("<Button-1>", lambda _e: self.dock and self.dock.open_badge())
-        self.window.bind("<Map>", self._on_window_map, add="+")
+        set_no_activate(self.window, True)
         self._reduced_motion = reduce_motion()
         for slot, name in EXTRA_CLIPS.items():
             if self._reduced_motion and slot != "breathing":
@@ -693,15 +692,8 @@ class MascotWindow:
         if random.random() < .6:
             self._celebrate_until = time.monotonic() + 6
 
-    def _on_window_map(self, event) -> None:
-        if event.widget is self.window:
-            set_no_activate(self.window, True)
-            self._click_through = None
-            self._apply_click_through()
-
     def _apply_click_through(self) -> None:
-        # Do not mutate the native wrapper until Tk has actually mapped it.
-        if self.window is None or not self.window.winfo_ismapped():
+        if self.window is None:
             return
         want = click_through_wanted(self._click_through_setting, self._state)
         if want == self._click_through:

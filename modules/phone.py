@@ -354,6 +354,23 @@ def https_set(on: bool, port: int, target_host: str = "127.0.0.1") -> tuple[bool
     return ok, out[-500:]
 
 
+def https_setup(port: int = PORT, *, consent: bool, on: bool = True) -> dict:
+    """Telefon sunucusunu Tailscale'in sertifikalı HTTPS adresine bağlar.
+
+    Açık izin ister: komut satırından çağıran, kullanıcının o komutu yazdığını
+    kendisi doğrular. Sessiz kurulum yok. Tailscale kurulu değilse ya da
+    HTTPS hesapta etkin değilse `ok` False döner ve gerekçe metni gelir;
+    Jarvis kullanıcının yapması gerekeni söyler, kendi başına hesap açmaz.
+    """
+    if consent is not True:
+        raise ValueError('Tailscale HTTPS kurulumu için açık izin gerekli.')
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('Bağlantı noktası geçersiz.')
+    ok, out = https_set(bool(on), port)
+    url = https_url(port) if ok and on else ''
+    return {'ok': bool(ok), 'on': bool(on), 'url': url, 'detail': str(out)[-400:]}
+
+
 def reset_token() -> str:
     """Telefon anahtarlarını (sahibinki ve kişiye özel olanlar) yeniler; eski adresler ve kayıtlı telefonlar bir daha giremez."""
     tok = secrets.token_urlsafe(24)

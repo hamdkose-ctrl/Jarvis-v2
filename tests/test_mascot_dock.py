@@ -1,5 +1,6 @@
 import contextvars
 import queue
+import sys
 import threading
 import time
 import unittest
@@ -8,6 +9,32 @@ from unittest.mock import Mock, patch
 
 import web
 from modules import mascot_bubble, mascot_dock, mascot_window
+
+
+def _windows_station_visible():
+    """Return True/False only with a successful Win32 station flags query."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class Flags(ctypes.Structure):
+        _fields_ = [("inherit", wintypes.BOOL), ("reserved", wintypes.BOOL),
+                    ("flags", wintypes.DWORD)]
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetProcessWindowStation.argtypes = []
+    user32.GetProcessWindowStation.restype = wintypes.HANDLE
+    user32.GetUserObjectInformationW.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD)]
+    user32.GetUserObjectInformationW.restype = wintypes.BOOL
+    station = user32.GetProcessWindowStation()
+    info, needed = Flags(), wintypes.DWORD()
+    if not station or not user32.GetUserObjectInformationW(
+            station, 1, ctypes.byref(info), ctypes.sizeof(info), ctypes.byref(needed)):
+        return None
+    return bool(info.flags & 1)  # UOI_FLAGS / WSF_VISIBLE
 
 
 class MascotDockTests(unittest.TestCase):
@@ -90,6 +117,22 @@ class MascotDockTests(unittest.TestCase):
         trail_area = image.crop((0, 0, inset, 90))
         self.assertGreater(len(trail_area.getcolors(inset * 90)), 1)
 
+    def test_caption_dispatch_preserves_owner_and_state(self):
+        dock = mascot_dock.MascotDock(mascot_window.MascotWindow(self.runtime))
+        try:
+            with patch.object(dock, "show_bubble") as show:
+                dock._event({"user": "another-owner", "k": "state", "t": "listening"})
+                show.assert_not_called()
+                dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                show.assert_called_once_with("Dinliyorum…", seconds=5, view=None)
+                dock._event({"user": "hamdi", "k": "state", "t": "listening"})
+                self.assertEqual(show.call_count, 1)
+                dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
+                show.assert_called_with("Sesli yanıt")
+                self.assertEqual(dock.last_reply, "Sesli yanıt")
+        finally:
+            dock.close()
+
     def test_native_card_opens_and_renders_reply(self):
         if not mascot_window.available():
             self.skipTest("Tk/Pillow yok")
@@ -99,6 +142,24 @@ class MascotDockTests(unittest.TestCase):
             root = tk.Tk()
         except tk.TclError as exc:
             self.skipTest(str(exc))
+        # Independent control: a plain Tk window, before any mascot code.
+        # A service window station may not map even a stock Tk window.
+        # Only an independently confirmed non-visible station permits skipping.
+        station_visible = _windows_station_visible()
+        root.geometry("120x80+20+20")
+        root.deiconify()
+        deadline = time.monotonic() + 2.0
+        while not root.winfo_viewable() and time.monotonic() < deadline:
+            root.update()
+            time.sleep(.02)
+        plain_mapped = bool(root.winfo_viewable())
+        if not plain_mapped:
+            evidence = (f"plain Tk mapped={root.winfo_ismapped()}, state={root.state()}, "
+                        f"Win32 station visible={station_visible}")
+            root.destroy()
+            if station_visible is False:
+                self.skipTest("Physical desktop unavailable; " + evidence)
+            self.fail("Independent Tk control did not map; " + evidence)
         root.withdraw()
         mascot = mascot_window.MascotWindow(self.runtime)
         mascot_window._STOP.clear()
@@ -156,7 +217,6 @@ class MascotDockTests(unittest.TestCase):
         def observe():
             dock = mascot.dock
             dock.next_jobs = float("inf")
-            self.assertIs(mascot.window, root)
             after_visibility(mascot.window, True, mascot_visible, "main mascot")
 
         def mascot_visible():
