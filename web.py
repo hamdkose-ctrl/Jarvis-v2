@@ -465,6 +465,8 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             out = self._snapshot_impl()
             out["engine_running"] = _engine_running
             out["working"] = getattr(hub, "state", "idle") == "thinking"
+            from modules import status_line
+            out["status_line"] = status_line.for_snapshot(out, _p().slug)
             return out
         except Exception as exc:  # noqa: BLE001
             _record_failure('web.py:snapshot')

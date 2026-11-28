@@ -1,3 +1,9 @@
+### 2026-11-28 — T16: durum satırı (Faz 1 arayüz parçası)
+
+- **Ne:** Ekran yalnız "Hazır / Düşünüyor" diyordu; hangi sağlayıcı/model, bugün kaç tur döndüğü ve telefon erişiminin açık olup olmadığı görünmüyordu. Faz 1 kapanışı ekranın gerçek bağlantı sonucunu ve yanıt veren modeli göstermesini istiyor.
+- **Yapılan:** Yeni `modules/status_line.py` (saf `build`, 30 sn önbellekli `today`, hataya dayanıklı `for_snapshot`) + `web.snapshot()` içine `status_line` alanı + üst çubukta (`#statusline`) tek satır. Biçim: `Otomatik · gemini-3.5-flash-lite · bugün 1 tur · telefon kapalı`.
+- **Ölçülen:** 8 birim testi OK; mimari denetim OK; canlı gerçek PC kabulü — arayüzden bir mesaj gönderildi, tur ölçümü `ms=3472, src=yazı, r=ok` olarak yazıldı ve üst çubuk "bugün 1 tur" gösterdi.
+- **Dürüst sınır:** Satır **etkin** sağlayıcı/modeli gösterir; yedek modele düşülen turda yanıtı veren modeli göstermez (router izi ayrı ekranda). Tur sayacı yalnız bu makinede ve uygulama açıkken işler; iptal edilen turlar sayılmaz.
 ### 2026-11-28 — T15: yedek kapsamı — kanıt defterleri dışarıda
 
 - **Ne:** Gerçek makinede ilk yedek **87.660 dosya / 26,9 MB** tuttu; %99'u `file-effect-claims` kanıt defteriydi. Yedek hem yavaştı hem de yanlış şeyi koruyordu.
@@ -182,7 +188,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 ## Genel sıra
 
 - Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
-- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
+- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: üst çubuk durum satırı 28 Kasım 2026'da eklendi: etkin sağlayıcı · model · bugünkü tur sayısı · telefon durumu (T16, canlı PC kabulü ile); provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 4 durumu (22 Kasım 2026 ölçümü): yedi salt-okuma modülünün hepsi üretim kodundan çağrılıyor ve her dalın kendi bağlama testi var (`test_phase4_*_wiring`, toplam 55 test OK). Per-letter "akışa bağlı değil" hükümleri geçersiz; kalan kapı exact-head CI + gerçek PC kabulü. Kapsam işleri (SearXNG kendi sunucu, Tavily/Exa/Firecrawl API anahtarı, canlı OHLCV serisi, CDP gerçek profil, 4G UIA pilotu) kullanıcı kararı/hesap bekliyor.
 - Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan: 3-D alarm teslim başlığı canlı kabulü)
