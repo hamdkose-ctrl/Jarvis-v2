@@ -1,3 +1,10 @@
+### 2026-11-28 — T18: uyandırma modelleri kullanıcı klasörüne indi (Faz 1 arızası)
+
+- **Ne:** Canlı PC'de her açılışta `[Uyarı] İnternetsiz uyandırma çalışmıyor` görünüyordu: `hey_jarvis` ONNX modeli okunamıyordu (`PermissionError: [WinError 5]` → `NO_SUCHFILE`). Jarvis sessizce Google yöntemine düşüyordu.
+- **Kök neden:** `wakeword_models.ensure_models` modelleri `openwakeword` paketinin klasörüne indiriyordu; bu makinede paket `C:\Program Files\Python313\...` altında ve kullanıcı oraya yazamıyor.
+- **Yapılan:** İndirme hedefi `~/.jarvis/wake_models` oldu; `wakeword._load` bu yolları `Model(wakeword_models=[...], melspec_model_path=..., embedding_model_path=...)` ile açıkça veriyor. İndirme/doğrulama test için enjekte edilebilir.
+- **Ölçülen:** `tests/test_wakeword_models.py` 5/5 OK, `test_*wake*.py` 23/23 OK. Gerçek indirme 4,6 sn (3 dosya), model yükleme 0,1 sn, sessiz karede 10 tahmin 0,03 sn (skorlar ~0,0000). `wakeword.ready()` artık `ready`, uygulama açılışında uyarı satırı yok.
+- **Dürüst sınır:** Mikrofonla gerçek "Hey Jarvis" tetiklemesi bu kabulde tekrar edilmedi; model yükleme ve tahmin yolu ölçüldü, önceki oturumdaki mikrofon testleri değişmedi.
 ### 2026-11-28 — T17: finans alarmı bildirim başlığı ayrıldı (Faz 3, 3-D)
 
 - **Ne:** Faz 3'ün kalan tek maddesi, finans alarmının telefonda ayrı başlıkla gitmesiydi. Başlık kodu `watcher.loop` içinde gömülü bir closure'daydı: test edilemiyor, canlı kabulü yapılamıyordu.
