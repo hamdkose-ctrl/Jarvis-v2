@@ -1,3 +1,9 @@
+### Masaüstü maskottan günlük kullanım
+
+- Maskot konuşma, yazma, kısa sonuç, dosya bulma ve görev onayı/iptali için ana masaüstü girişidir. Windows’ta kart kurulumu doğrulandıktan sonra konsol isteğe bağlı açılır.
+- `Breathing Idle`, `Happy Idle`, `Talking (1)` ve modelin başını eğdiği yerleşik klip, dokulu GLB’den 160×206 şeffaf WebP olarak üretildi. Boşta bekleme hareketleri art arda aynı klibi seçmez.
+- Uçtan uca kabul Windows’ta fiziksel mikrofon/hoparlör, pencere odağı ve global kısayol ile yapılır. Çoklu monitör ve DPI davranışı aynı kabulde kontrol edilir.
+
 ### 2026-11-28 — T24: sınıflandırma testi ortam durumuna bağlıydı
 
 - **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).

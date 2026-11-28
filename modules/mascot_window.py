@@ -1,43 +1,34 @@
-"""Masaüstü maskot penceresi (T5): her zaman üstte, şeffaf, sürüklenebilir maskot.
+"""Primary Windows desktop mascot, using the existing Tk and WebP surfaces.
 
-Varsayılan KAPALI. `mascot_window` ayarı açıksa `web.main` bu modülü çağırır;
-ayar kapalıyken hiçbir pencere/Tk kökü oluşturulmaz. Yalnız Windows'ta açılır.
-
-- Durum kaynağı webui maskotuyla aynıdır: `web.hub.state` (+ `engine.flags`).
-  İkinci bir durum kaynağı yoktur; `webui/mascot.js` ile aynı olayı okur.
-- Kareler açılışta bir kez ön yüklenir (WebP, 30 fps). Kare yoksa pencere
-  sessizce açılmaz. Oynatıcı yalnız bulunduğu durumun Tk fotoğraflarını tutar;
-  durum değişince önceki küme bırakılır (bellek sınırı).
-- `WS_EX_TRANSPARENT` varsayılan **kapalıdır**; yalnız `mascot_click_through`
-  ayarı açıksa ve maske boştayken tıklama alttaki pencereye geçer. Ayar
-  kapalıyken sürükleme ve sağ tık menüsü her durumda çalışır.
-- Kare anahtarlama `key_flat` ile yapılır: `alpha==0` → `KEY_RGB`, `alpha>0` →
-  kaynak RGB aynen. `alpha_composite` yarı saydam kenarları KEY'e karıştırıp
-  siyah kontur üretirdi; artık karıştırma yok.
-- Konum ve boyut `settings.json` içinde `mascot_pos` / `mascot_size` olarak
-  saklanır; konum her zaman bir monitörün çalışma alanına kelepçelenir.
+The mascot owns only presentation and input. Voice and job state come from
+the current runtime. The tray and console use the same process and bridge.
 """
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
+import queue
+import random
 import sys
 import threading
 import time
 from pathlib import Path
 
-BASE_SIZE = (160, 206)          # mevcut webui kliplerinin kare boyutu
+BASE_SIZE = (160, 206)          # mantıksal pencere boyutu; kaynak kare daha büyük olabilir
 GREETING_SECS = 2.4             # açılışta bir kez selamlama; boştaysa
 MAX_SCALE = 3.0
 FPS = 30
 KEY_HEX = "#010203"             # saydam sayılacak renk
 KEY_RGB = (1, 2, 3)
+KEY_ALPHA_THRESHOLD = 128       # Tk renk anahtarında %50 piksel kapsaması
 ASSET_DIR = Path(__file__).resolve().parent.parent / "webui" / "mascot"
+EXTRA_CLIPS = {"breathing": "nefes.webp", "looking": "bakis.webp",
+               "happy": "memnun.webp", "speaking_alt": "konusma2.webp"}
 CLIPS = {
     "idle": "bosta",
     "listening": "dinleme",
     "thinking": "dusunme",
     "working": "calisma",
-    "speaking": "mutlu",
+    "speaking": "konusma",
     "greeting": "selamlama",
 }
 STATES = tuple(CLIPS)
@@ -46,6 +37,7 @@ _STOP = threading.Event()
 _THREAD: threading.Thread | None = None
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
+WS_EX_NOACTIVATE = 0x08000000
 
 
 def clip_name(state: str) -> str:
@@ -175,9 +167,10 @@ def click_style(style: int, enabled: bool) -> int:
 def key_flat(image, size):
     """RGBA kareyi KEY/RGB düzlemine indirger; alfa eşiği dışında karıştırmaz.
 
-    `alpha==0` tam `KEY_RGB` olur; `alpha>0` pikselin kaynak RGB'si aynen
-    korunur. Böylece yarı saydam kenar KEY rengine karışıp siyah kontur
-    üretmez. Dönen görüntü RGB'dir (Tk renk anahtarı alfayı kullanmaz).
+    Tk renk anahtarı kesirli alfayı gösteremez. Yeniden örnekleme sonrası
+    %50'den az kapsanan pikseller saydam kalır; diğerleri kaynak RGB'sini
+    korur. Lanczos'un düşük alfa saçakları tam opak bir kontura dönüşmez.
+    Gerçek kesirli alfa için ayrı Windows kompozisyon yolu gerekir.
     """
     from PIL import Image
 
@@ -185,51 +178,93 @@ def key_flat(image, size):
     source = image.convert("RGBA")
     if source.size != (width, height):
         source = source.resize((width, height), Image.LANCZOS)
-    mask = source.getchannel("A").point(lambda alpha: 255 if alpha else 0)
+    mask = source.getchannel("A").point(lambda alpha: 255 if alpha >= KEY_ALPHA_THRESHOLD else 0)
     background = Image.new("RGB", (width, height), KEY_RGB)
     return Image.composite(source.convert("RGB"), background, mask)
 
 
-def load_frames(path) -> list:
-    """Bir WebP/GIF klibinin tüm karelerini RGBA olarak okur."""
+def load_frames(path, *, size=None, first_only=False) -> list:
+    """Yalnız istenen klibi, varsa ekran boyutuna indirerek RGBA olarak okur."""
     from PIL import Image, ImageSequence
 
     frames = []
     with Image.open(path) as image:
         for frame in ImageSequence.Iterator(image):
-            frames.append(frame.convert("RGBA").copy())
+            rgba = frame.convert("RGBA")
+            # WebP duration decoder load() sonrasında kullanılabilir.
+            duration = frame.info.get("duration")
+            if size is not None and rgba.size != tuple(size):
+                rgba = rgba.resize(tuple(size), Image.Resampling.LANCZOS)
+            if isinstance(duration, int):
+                rgba.info["duration"] = duration
+            frames.append(rgba)
+            if first_only:
+                break
     return frames
 
 
-def preload(directory=None) -> dict:
-    """Tüm durum kliplerini bir kez okur; aynı dosya paylaşılır (bellek)."""
+class FrameStream:
+    """Decode the current frame on demand, retaining no decoded frame list."""
+    def __init__(self, source, *, size, first_only=False):
+        from PIL import Image
+        self.image = Image.open(source) if isinstance(source, Path) else None
+        self.source = source if self.image is None else None
+        self.size = tuple(size)
+        count = getattr(self.image, "n_frames", 1) if self.image is not None else len(source)
+        self.count = min(count, 1) if first_only else count
+
+    def __len__(self):
+        return self.count
+
+    def __getitem__(self, index):
+        if not 0 <= index < self.count:
+            raise IndexError(index)
+        if self.image is not None:
+            self.image.seek(index)
+            source = self.image
+        else:
+            source = self.source[index]
+        rgba = source.convert("RGBA")
+        duration = source.info.get("duration")
+        if rgba.size != self.size:
+            from PIL import Image
+            rgba = rgba.resize(self.size, Image.Resampling.LANCZOS)
+        if isinstance(duration, int):
+            rgba.info["duration"] = duration
+        return rgba
+
+    def close(self):
+        if self.image is not None:
+            self.image.close()
+            self.image = None
+        self.source = None
+        self.count = 0
+
+
+def frame_delay_ms(frame, fps: int) -> int:
+    """Honor encoded timing, including the longer holds in one-shot clips."""
+    duration = frame.info.get("duration")
+    if isinstance(duration, int) and duration > 0:
+        return max(10, min(1000, duration))
+    return max(10, int(1000 / max(1, fps)))
+
+
+def preload(directory=None, *, lazy=False) -> dict:
+    """Durum kliplerini kataloglar; masaüstü yalnız etkin klibi çözer."""
     root = Path(directory) if directory is not None else ASSET_DIR
     loaded: dict[str, list] = {}
     for name in sorted(set(CLIPS.values())):
         path = root / f"{name}.webp"
         if not path.exists():
             continue
+        if lazy:
+            loaded[name] = path
+            continue
         try:
             loaded[name] = load_frames(path)
         except Exception:       # noqa: BLE001 - bozuk kare maskotu düşürmesin
             _record_failure("modules/mascot_window.py:preload")
     return {state: loaded.get(clip, []) for state, clip in CLIPS.items()}
-
-
-def frame_memory(frames) -> int:
-    """RGBA karelerin yaklaşık baytı (PIL görüntü boyutundan)."""
-    total = 0
-    for frame in frames:
-        try:
-            total += int(frame.width) * int(frame.height) * 4
-        except (AttributeError, TypeError, ValueError):
-            continue
-    return total
-
-
-def photo_memory(count: int, size) -> int:
-    """Bir durumun Tk fotoğrafları için üst sınır tahmini (RGBA)."""
-    return max(0, int(count)) * max(1, int(size[0])) * max(1, int(size[1])) * 4
 
 
 def available() -> bool:
@@ -284,8 +319,7 @@ def windows_monitors(root=None) -> list[tuple[int, int, int, int]]:
     return [(0, 0, 1920, 1080)]
 
 
-def set_click_through(window, enabled: bool) -> bool:
-    """Windows pencere tutamacında tıklama geçişini açar/kapatır."""
+def _set_window_style(window, update) -> bool:
     if not sys.platform.startswith("win"):
         return False
     try:
@@ -302,11 +336,30 @@ def set_click_through(window, enabled: bool) -> bool:
         user32.SetWindowLongW.restype = ctypes.c_long
         hwnd = user32.GetAncestor(wintypes.HWND(window.winfo_id()), 2) or window.winfo_id()  # GA_ROOT
         style = int(user32.GetWindowLongW(hwnd, -20))   # GWL_EXSTYLE
-        user32.SetWindowLongW(hwnd, -20, click_style(style, enabled))
+        user32.SetWindowLongW(hwnd, -20, update(style))
         return True
     except Exception:       # noqa: BLE001
-        _record_failure("modules/mascot_window.py:set_click_through")
+        _record_failure("modules/mascot_window.py:set_window_style")
         return False
+
+
+def set_click_through(window, enabled: bool) -> bool:
+    return _set_window_style(window, lambda style: click_style(style, enabled))
+
+
+def set_no_activate(window, enabled: bool) -> bool:
+    return _set_window_style(window, lambda style: style | WS_EX_NOACTIVATE if enabled
+                             else style & ~WS_EX_NOACTIVATE)
+
+
+def reduce_motion() -> bool:
+    if not sys.platform.startswith("win"):
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    enabled = wintypes.BOOL()
+    return bool(ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(enabled), 0)) and not enabled.value
 
 
 class MascotWindow:
@@ -319,17 +372,33 @@ class MascotWindow:
         self.root = None
         self.window = None
         self.label = None
+        self.badge = None
+        self.dock = None
+        self.commands = queue.SimpleQueue()
+        self.ready = None
         self.scale = 1.0
         self.size = base
         self._frames: dict = {}
-        self._photos: dict = {}
+        self._extra_frames: dict = {}
+        self._current_photo = None
+        self._current_delay = 33
+        self._draw_started = 0.0
         self._state = "idle"
         self._greeting_until = 0.0
         self._frame_index = 0
+        self._frame_timer = None
+        self._active_frames = None
+        self._last_speech_clip = None
         self._drag = None
         self._moved = False
         self._closed = False
         self._hidden = False
+        self._next_idle = float("inf")
+        self._idle_clip = None
+        self._last_idle_clip = None
+        self._celebrate_until = 0.0
+        self._active_clip = "idle"
+        self._reduced_motion = False
         self._click_through = None
         self._click_through_setting = (self._settings().get("mascot_click_through", False) is True)
 
@@ -351,9 +420,15 @@ class MascotWindow:
     def open(self) -> bool:
         import tkinter as tk
 
-        self._frames = preload()
-        if not any(self._frames.values()):
-            return False                        # kare yok: sessizce gizlen
+        self._frames = preload(lazy=True)
+        if not self._frames.get("idle") or _STOP.is_set():
+            return False
+        try:
+            if not load_frames(self._frames["idle"], first_only=True):
+                return False
+        except (OSError, ValueError):
+            _record_failure("modules/mascot_window.py:idle_asset")
+            return False
         self.root = tk.Tk()
         self.root.withdraw()
         try:
@@ -372,6 +447,7 @@ class MascotWindow:
         pos = clamp_position(pos[0], pos[1], self.size[0], self.size[1], monitors)
         self._save(mascot_size=list(self.size), mascot_pos=list(pos))
         self.window = tk.Toplevel(self.root)
+        self.window.withdraw()
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
         self.window.configure(bg=KEY_HEX)
@@ -382,22 +458,56 @@ class MascotWindow:
         self.window.geometry(f"{self.size[0]}x{self.size[1]}+{pos[0]}+{pos[1]}")
         self.label = tk.Label(self.window, bd=0, bg=KEY_HEX, highlightthickness=0)
         self.label.pack()
+        self.badge = tk.Label(self.window, bg="#172634", fg="#8fe0e7", padx=8, pady=3,
+                              font=("Segoe UI", 9, "bold"))
+        self.badge.bind("<Button-1>", lambda _e: self.dock and self.dock.open_badge())
+        set_no_activate(self.window, True)
+        self._reduced_motion = reduce_motion()
+        for slot, name in EXTRA_CLIPS.items():
+            if self._reduced_motion and slot != "breathing":
+                continue
+            path = ASSET_DIR / name
+            if path.is_file():
+                self._extra_frames[slot] = path
+        if self._extra_frames.get("breathing"):
+            self._extra_frames["rest"] = self._extra_frames["breathing"]
+        self._hidden = settings.get("widget_on", True) is False and bool(self.runtime._tray)
         for widget in (self.window, self.label):
             widget.bind("<ButtonPress-1>", self._press)
             widget.bind("<B1-Motion>", self._motion)
             widget.bind("<ButtonRelease-1>", self._release)
             widget.bind("<Button-3>", self._menu)
         wanted = display_state(getattr(self.runtime.hub, "state", "idle"), {})
-        self._greeting_until = time.monotonic() + GREETING_SECS
+        self._greeting_until = 0 if self._reduced_motion else time.monotonic() + GREETING_SECS
         self._state = greeting_state(wanted, self._greeting_until, time.monotonic())
         self._show_clip(self._state)
+        if _STOP.is_set() or self._current_photo is None:
+            return False
+        from modules.mascot_dock import MascotDock
+        from modules import mascot_audio_meter
+
+        self.dock = MascotDock(self)
+        # Keep samples across speaking clip boundaries, not across mascot lifetime.
+        mascot_audio_meter.enable(not self._reduced_motion
+                                  and (ASSET_DIR / "konusma.jclip").is_file())
+        if self._hidden:
+            self.window.withdraw()
         self._apply_click_through()
+        self.runtime._mascot = self
+        if self.ready is not None:
+            self.ready.set()
+        self._next_idle = time.monotonic() + random.uniform(25, 55)
+        if not self._hidden and self._state == "greeting":
+            self.window.after(160, self._welcome)
         self._tick_state()
-        self._tick_frame()
         self.root.mainloop()
         return True
 
     # ------------------------------------------------------------- oynatma
+    def _welcome(self):
+        if self._state == "greeting":
+            self.dock.show_bubble("Merhaba, hoş geldin.", seconds=4, view=None)
+
     def _photo(self, frame):
         from PIL import ImageTk
 
@@ -405,52 +515,166 @@ class MascotWindow:
         return ImageTk.PhotoImage(key_flat(frame, self.size), master=self.window)
 
     def _show_clip(self, state: str) -> None:
-        clip = state_key(state)
-        frames = frames_for(self._frames, state)
-        if not frames:
-            self.window.withdraw()
-            return
-        for key in list(self._photos):     # yalnız bulunulan durumun fotoğrafları
-            if key != clip:
-                self._photos.pop(key, None)
-        if clip not in self._photos:
-            try:
-                self._photos[clip] = [self._photo(frame) for frame in frames]
-            except Exception:       # noqa: BLE001
-                _record_failure("modules/mascot_window.py:_show_clip")
-                self._photos[clip] = []
-        self._frame_index = 0
-        if not self._photos.get(clip):
+        self._cancel_frame()
+        if state == "speaking":
+            primary = ASSET_DIR / "konusma.jclip"
+            alternative = ASSET_DIR / "konusma2.jclip"
+            has_alt = (alternative.is_file() if primary.is_file()
+                       else bool(self._extra_frames.get("speaking_alt")))
+            if has_alt:
+                state = "speaking_alt" if self._last_speech_clip == "speaking" else "speaking"
+                self._last_speech_clip = state
+        elif state == "idle" and self._idle_clip is None and self._extra_frames.get("rest"):
+            state = "rest"
+        clip = state if state in self._extra_frames or state == "speaking_alt" else state_key(state)
+        self._active_clip = clip
+        source = self._extra_frames.get(clip) or frames_for(self._frames, state)
+        self._release_clip()
+        try:
+            first_only = self._reduced_motion or clip == "rest"
+            if clip in ("speaking", "speaking_alt"):
+                name = "konusma2" if clip == "speaking_alt" else "konusma"
+                asset = ASSET_DIR / f"{name}.jclip"
+                if asset.is_file():
+                    try:
+                        from modules.mascot_face_runtime import HybridFrameStream
+                        self._active_frames = HybridFrameStream(asset, size=self.size, first_only=first_only)
+                        self._draw_frame(0)
+                    except Exception:  # noqa: BLE001 - keep existing fallback
+                        _record_failure("modules/mascot_window.py:hybrid_asset")
+                        self._release_clip()
+            if self._active_frames is None:
+                self._active_frames = FrameStream(source, size=self.size, first_only=first_only)
+                if not len(self._active_frames):
+                    raise ValueError("empty mascot clip")
+                self._draw_frame(0)
+        except Exception:  # noqa: BLE001
+            _record_failure("modules/mascot_window.py:_show_clip")
+            self._release_clip()
             self.window.withdraw()
             return
         if not self._hidden and not self.window.winfo_viewable():
             self.window.deiconify()
-        self.label.configure(image=self._photos[clip][0])
+        if len(self._active_frames) > 1 and self._animate_clip():
+            self._schedule_frame()
+
+    def _release_clip(self):
+        if self._active_frames is not None:
+            self._active_frames.close()
+        self._active_frames = None
+        self._current_photo = None
+
+    def _draw_frame(self, index):
+        self._draw_started = time.monotonic()
+        frame = self._active_frames[index]
+        self._current_delay = frame_delay_ms(frame, self.fps)
+        photo = self._photo(frame)
+        self.label.configure(image=photo)
+        self._current_photo = photo
+        self._frame_index = index + 1
 
     def _tick_state(self) -> None:
         if self._closed or _STOP.is_set():
             self.close()
             return
+        for _ in range(8):
+            try:
+                command = self.commands.get_nowait()
+            except queue.Empty:
+                break
+            if command == "card" and self.dock:
+                self.show()
+                self.dock.open(focus=True)
+            elif command == "toggle":
+                self.show() if self._hidden else self.hide()
+            elif command == "show":
+                self.show()
+            elif command == "hide":
+                self.hide()
+
         try:
-            wanted = display_state(self.runtime.hub.state, dict(self.runtime.engine.flags))
-        except Exception:       # noqa: BLE001
-            _record_failure("modules/mascot_window.py:_tick_state")
-            wanted = "idle"
-        state = greeting_state(wanted, self._greeting_until, time.monotonic())
-        if state != self._state:
-            self._state = state
-            self._show_clip(state)
-            self._apply_click_through()
+            flags = dict(self.runtime.engine.flags)
+            wanted = display_state(self.runtime.hub.state, flags)
+            now = time.monotonic()
+            if wanted != "idle":
+                self._greeting_until = 0
+            state = greeting_state(wanted, self._greeting_until, now)
+            if state != self._state:
+                self._state = state
+                self._idle_clip = None
+                self._next_idle = now + random.uniform(25, 55)
+                self._show_clip(state)
+                self._apply_click_through()
+            if state == "idle" and not self._hidden and not self._reduced_motion and not flags.get("sleep"):
+                if (self._idle_clip is None and self._celebrate_until >= now
+                        and self._extra_frames.get("happy") and self._last_idle_clip != "happy"):
+                    self._celebrate_until = 0
+                    self._idle_clip = self._last_idle_clip = "happy"
+                    self._show_clip("happy")
+                elif self._idle_clip is None and now >= self._next_idle:
+                    options = [name for name in ("breathing", "looking")
+                               if self._extra_frames.get(name) and name != self._last_idle_clip]
+                    if options:
+                        self._idle_clip = self._last_idle_clip = random.choice(options)
+                        self._show_clip(self._idle_clip)
+                    self._next_idle = now + random.uniform(25, 55)
+            if self.dock:
+                self.dock.tick()
+            if self.dock and self.dock.bubble_visible():
+                self.set_badge("")
+            elif flags.get("sleep"):
+                self.set_badge("Uykuda")
+            elif state == "listening":
+                self.set_badge("Dinliyor")
+            elif state in {"thinking", "working"}:
+                self.set_badge("İşlem sürüyor")
+            elif state == "speaking":
+                self.set_badge("Konuşuyor")
+            else:
+                badge = self.dock.badge if self.dock else ""
+                self.set_badge(badge or ("Mikrofon kapalı" if not flags.get("mic", True) else ""))
+        except Exception:  # noqa: BLE001 - a stale UI event must not stop the loop
+            _record_failure("modules/mascot_window.py:tick")
         self.window.after(_STATE_POLL_MS, self._tick_state)
 
+    def _animate_clip(self):
+        return (not self._closed and not self._hidden and not self._reduced_motion
+                and (self._state != "idle" or self._idle_clip is not None))
+
+    def _cancel_frame(self):
+        if self._frame_timer is not None:
+            self.window.after_cancel(self._frame_timer)
+            self._frame_timer = None
+
+    def _schedule_frame(self):
+        elapsed = round((time.monotonic() - self._draw_started) * 1000)
+        delay = max(1, self._current_delay - elapsed)
+        self._frame_timer = self.window.after(delay, self._tick_frame)
+
     def _tick_frame(self) -> None:
-        if self._closed:
+        self._frame_timer = None
+        if not self._animate_clip() or self._active_frames is None:
             return
-        photos = self._photos.get(state_key(self._state)) or []
-        if photos and self.window.winfo_viewable():
-            self.label.configure(image=photos[self._frame_index % len(photos)])
-            self._frame_index += 1
-        self.window.after(max(10, int(1000 / self.fps)), self._tick_frame)
+        try:
+            if self._frame_index < len(self._active_frames):
+                self._draw_frame(self._frame_index)
+                self._schedule_frame()
+            elif self._idle_clip is not None:
+                self._idle_clip = None
+                self._show_clip("idle")
+            elif self._state == "speaking":
+                self._show_clip("speaking")
+            elif self._state in {"listening", "thinking", "working"}:
+                self._draw_frame(0)
+                self._schedule_frame()
+        except Exception:  # noqa: BLE001
+            _record_failure("modules/mascot_window.py:_tick_frame")
+            self._release_clip()
+            self.window.withdraw()
+
+    def celebrate(self):
+        if random.random() < .6:
+            self._celebrate_until = time.monotonic() + 6
 
     def _apply_click_through(self) -> None:
         if self.window is None:
@@ -470,8 +694,10 @@ class MascotWindow:
         if not self._drag:
             return
         dx, dy = event.x_root - self._drag[0], event.y_root - self._drag[1]
-        if abs(dx) + abs(dy) > 3:
+        if not self._moved and abs(dx) + abs(dy) > 3:
             self._moved = True
+            if self.dock:
+                self.dock.dismiss_bubble()
         if self._moved:
             x, y = clamp_position(self._drag[2] + dx, self._drag[3] + dy,
                                   self.size[0], self.size[1], windows_monitors(self.root))
@@ -489,19 +715,73 @@ class MascotWindow:
         import tkinter as tk
 
         menu = tk.Menu(self.window, tearoff=0)
+        if self.dock:
+            menu.add_command(label="Yaz", command=lambda: self.dock.open(focus=True))
+            if self.dock.last_reply:
+                menu.add_command(label="Son yanıtı aç", command=self.dock.open_reply)
+            menu.add_command(label="Mikrofonu aç/kapat", command=self.dock.toggle_mic)
+            menu.add_command(label="Sesi kes", command=self.dock.stop_speech)
+            menu.add_command(label="Kısayolu değiştir", command=self.dock.change_shortcut)
+            menu.add_command(label="Komut Merkezi", command=self.dock.open_console)
+            menu.add_separator()
         menu.add_command(label="Gizle", command=self.hide)
         menu.add_command(label="Konum sıfırla", command=self.reset_position)
         menu.add_separator()
-        menu.add_command(label="Çık", command=self.close)
+        menu.add_command(label="Jarvis’i kapat", command=lambda: threading.Thread(
+            target=self.runtime._shutdown, kwargs={"reason": "maskot menüsü"}, daemon=True).start())
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
 
+    def set_badge(self, text):
+        if self.badge is None or self.badge.cget("text") == text:
+            return
+        self.badge.configure(text=text)
+        if text:
+            self.badge.place(relx=.5, rely=1, y=-1, anchor="s")
+        else:
+            self.badge.place_forget()
+
+    def reveal_card(self):
+        self.commands.put("card")
+
+    def toggle(self):
+        self.commands.put("toggle")
+
+    def set_visible(self, visible):
+        self.commands.put("show" if visible else "hide")
+
+    def is_visible(self):
+        return not self._closed and not self._hidden
+
+    def show(self):
+        was_hidden = self._hidden
+        self._hidden = False
+        if self.window is not None:
+            self.window.deiconify()
+            if was_hidden:
+                if self._idle_clip is not None:
+                    self._idle_clip = None
+                    self._show_clip(self._state)
+                elif self._animate_clip() and self._active_frames is not None and len(self._active_frames) > 1:
+                    self._draw_started = time.monotonic()
+                    self._schedule_frame()
+
     def hide(self) -> None:
+        if not self.runtime._tray and not (self.dock and self.dock.hotkey_registered):
+            if self.dock:
+                self.dock.open(focus=True)
+                self.dock._set_notice("Tekrar açmak için tepsi simgesi veya çalışan bir kısayol gerekir.")
+            return
         self._hidden = True
+        self._cancel_frame()
         if self.window is not None:
             self.window.withdraw()
+        if self.dock:
+            self.dock.dismiss_bubble()
+            if self.dock.panel is not None:
+                self.dock.panel.withdraw()
 
     def reset_position(self) -> None:
         pos = reset_position(self.size[0], self.size[1], windows_monitors(self.root))
@@ -509,41 +789,64 @@ class MascotWindow:
         self._save(mascot_pos=list(pos))
 
     def close(self) -> None:
+        if self._closed:
+            return
         self._closed = True
+        from modules import mascot_audio_meter
+
+        mascot_audio_meter.enable(False)
+        self._cancel_frame()
+        self._release_clip()
+        if self.dock:
+            self.dock.close()
         try:
             if self.root is not None:
                 self.root.destroy()
-        except Exception:       # noqa: BLE001
+        except Exception:  # noqa: BLE001
             _record_failure("modules/mascot_window.py:close")
 
 
-def _run(runtime) -> None:
+def _run(runtime, ready) -> None:
+    mascot = MascotWindow(runtime)
+    mascot.ready = ready
     try:
-        MascotWindow(runtime).open()
-    except Exception as exc:       # noqa: BLE001 - masaüstü süsü Jarvis'i düşürmesin
+        mascot.open()
+    except Exception as exc:  # noqa: BLE001
         _record_failure("modules/mascot_window.py:_run")
         print(f"Masaüstü maskot penceresi açılamadı: {type(exc).__name__}")
+    finally:
+        was_active = getattr(runtime, "_mascot", None) is mascot
+        if was_active:
+            runtime._mascot = None
+        mascot.close()
+        ready.set()
+        if was_active and not _STOP.is_set() and not runtime.engine.stop_event.is_set():
+            runtime._show_main()
 
 
-def start(runtime) -> bool:
-    """Ayarlıysa pencereyi ayrı iş parçacığında açar; açmadıysa False."""
+def start(runtime, *, default=False) -> bool:
+    """Wait for the visible surface (or tray access) before replacing the console."""
     global _THREAD
-    if not bool(runtime.config.load_settings().get("mascot_window", False)):
+    if runtime.config.load_settings().get("mascot_window", default) is not True:
         return False
     if not sys.platform.startswith("win"):
-        print("Masaüstü maskot penceresi yalnız Windows'ta açılır.")
+        if not default:
+            print("Masaüstü maskot penceresi yalnız Windows'ta açılır.")
         return False
     if not available():
         print("Masaüstü maskot penceresi açılamadı: tkinter/Pillow yok.")
         return False
     if _THREAD is not None and _THREAD.is_alive():
-        return True
+        return getattr(runtime, "_mascot", None) is not None
     _STOP.clear()
-    _THREAD = threading.Thread(target=_run, args=(runtime,), name="jarvis-mascot", daemon=True)
+    ready = threading.Event()
+    _THREAD = threading.Thread(target=_run, args=(runtime, ready), name="jarvis-mascot", daemon=True)
     _THREAD.start()
-    return True
+    if not ready.wait(4):
+        _STOP.set()
+        return False
+    return getattr(runtime, "_mascot", None) is not None
 
 
 def stop() -> None:
-    """Pencereyi kapatır (ayar değişiminde/çıkışta)."""
     _STOP.set()

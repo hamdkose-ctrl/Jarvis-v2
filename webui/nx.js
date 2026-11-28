@@ -1246,8 +1246,8 @@ async function drawSettings(){
     srow('gear','Arka planda çalış','Pencere kapansa bile sistem tepsisinde çalışmaya devam et',sw('tray',u.tray))+
     srow('bell','Bildirimler','Ekranda kısa bilgi mesajları',sw('nx_notify',u.nx_notify!==false))+
     srow('spark','Proaktif öneriler','İlgili bir risk ya da fırsat görünce “Burada dikkat et” / “Bunu da düşünebilirsin” der',sw('proactive_suggestions',u.proactive_suggestions!==false))+
-    srow('grid','Küçük Jarvis','Pencereyi simge durumuna küçültünce köşede görünür',`<button class="sw ${u.widget_on!==false?'on':''}" data-act="wset" data-v="${u.widget_on!==false?0:1}"></button>`)+
-    srow('eye','Masaüstü maskot','Jarvis durumunu masaüstünde ayrı, her zaman üstte bir pencerede gösterir; varsayılan kapalı, yeniden başlatınca uygulanır',`<button class="sw ${u.mascot_window===true?'on':''}" data-act="sset" data-k="mascot_window" data-v="${u.mascot_window===true?0:1}"></button>`)+
+    srow('grid','Masaüstü görünürlüğü','Maskotu göster veya gizle',`<button class="sw ${u.widget_on!==false?'on':''}" data-act="wset" data-v="${u.widget_on!==false?0:1}"></button>`)+
+    srow('eye','Maskotla başlat','Windows açılışında küçük Jarvis kartını kullanır; yeniden başlatınca uygulanır',`<button class="sw ${u.mascot_window===true?'on':''}" data-act="sset" data-k="mascot_window" data-v="${u.mascot_window===true?0:1}"></button>`)+
     srow('eye','Boşta tıklamayı geçir','Yalnız boşta tıklama alttaki pencereye geçer; sürükleme ve sağ tık menüsü için kapalı bırakın. Varsayılan kapalı, yeniden başlatınca uygulanır',`<button class="sw ${u.mascot_click_through===true?'on':''}" data-act="sset" data-k="mascot_click_through" data-v="${u.mascot_click_through===true?0:1}"></button>`)+
     srow('globe','Şehir','Hava durumu için (boş = konumundan bulur)',`<input class="sel" id="city" style="max-width:200px" value="${esc((sn.prefs||{}).city||'')}" placeholder="İstanbul">`))}
   else if(k==='kullanici'){let keys=[];try{keys=await api('user_keys')}catch(e){}const me=(sn.user||{}).name;
@@ -1566,7 +1566,7 @@ function onEvent(m){
   else if(k==='quit'){window.JarvisHome?.destroy();document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:#7396ae;font-family:sans-serif">Jarvis kapandı. Bu pencereyi kapatabilirsin.</div>';return}
   refreshSoon();
 }
-function navTo(h){const[t,s]=String(h||'home').replace(/^#/,'').split(/[|/]/);if(t==='settings'&&['ai','baglanti'].includes(s)){S.sset=s;S.tool='aihub';go('tools');return}if(t==='settings'&&s)S.sset=s;if(t==='tools'){if(s==='kb')return go('home');S.tool=s||'';if(!s)S.sset='takvim'}go(t)}
+function navTo(h){const[t,s]=String(h||'home').replace(/^#/,'').split(/[|/]/);if(t==='team'&&/^(?:goal|task)-[a-f0-9]{12,32}$/.test(s||'')){ACT.teamNavigate(s);return}if(t==='settings'&&['ai','baglanti'].includes(s)){S.sset=s;S.tool='aihub';go('tools');return}if(t==='settings'&&s)S.sset=s;if(t==='tools'){if(s==='kb')return go('home');S.tool=s||'';if(!s)S.sset='takvim'}go(t)}
 function connect(){
   const es=new EventSource('/events');let loading=true,closed=false,buffer=[];
   es.onopen=async()=>{

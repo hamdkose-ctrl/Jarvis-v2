@@ -1,3 +1,11 @@
+# Masaüstünde Jarvis
+
+- Windows’ta maskot varsayılan başlangıç yüzeyi. İlk pencere hazırsa Komut Merkezi kullanıcının isteğiyle açılır. Ayar kapalıysa ya da pencere kurulamıyorsa önceki açılış akışı kullanılır. Maskotlu akışta eski küçük pencere açılmaz.
+- Açılışta maskot bir kez selam verir. Sesle uyandırmadan gelen dinleme durumu ve kısa yanıt, kapüşonun üstündeki yazıda gösterilir. Yanıta tıklamak ayrıntıyı açar. Son yanıt sağ tık menüsünden geri açılır. `Ctrl+Alt+J` yazı girişini açar. Sağ tık menüsü mikrofon ve görünürlük ayarlarına, tepsi maskota erişim sağlar.
+- Cevaplar ve durumlar mevcut Hub olaylarından gelir. Masaüstü dinleyicileri tarayıcı istemcisi sayılmaz. Kullanıcı değişince açık kart, ek, yanıt ve görev seçimi temizlenir. Bildirimler başka pencerenin odağını almadan gösterilir.
+- Dosya seçiminde mevcut izinli kökler kullanılır. Görevler aynı Core görünümünden okunur ve hedef kimliğiyle yönetilir. Ayrıntı düğmesi Komut Merkezi’nde ilgili işi seçer. Teslim kaydetme doğrulanmış dosya baytlarını kullanır.
+- Durum klipleri aynı model, nötr duruş, kamera ve ışıkla üretilir. Selam, dinleme, düşünme ve çalışma farklı pozlardan okunur. Konuşma jesti hoparlör oynatmasıyla başlar ve sonraki konuşmada diğer klip seçilir. Masaüstü oynatıcısı WebP kare sürelerini izler. Boşta hareketler aralarda bir kez oynar. Windows hareket azaltma ayarı veya maskotu gizleme, kare oynatmayı durdurur.
+
 # Tek konsol görünümü — 23 Kasım 2026
 
 - Ekip İşleri ve hareket düğmesi ofis başlığında. Ekip İşleri, Hafıza, Yetenekler, Karakter ve Ayarlar mevcut sağ bölmede açılır. Telefon ofiste kendi görünümünü kullanır.

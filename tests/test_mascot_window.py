@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from modules import mascot_window
 
@@ -35,12 +35,12 @@ class MascotLogicTests(unittest.TestCase):
         mascot_window._STOP.clear()
 
     def test_each_web_state_maps_to_the_same_clip_as_webui(self):
-        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking dusunme, working calisma, speaking mutlu
+        # webui/mascot.js CLIPS: idle bosta, listening dinleme, thinking dusunme, working calisma, speaking konusma
         self.assertEqual(mascot_window.clip_name("idle"), "bosta")
         self.assertEqual(mascot_window.clip_name("listening"), "dinleme")
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
         self.assertEqual(mascot_window.clip_name("working"), "calisma")
-        self.assertEqual(mascot_window.clip_name("speaking"), "mutlu")
+        self.assertEqual(mascot_window.clip_name("speaking"), "konusma")
         self.assertEqual(mascot_window.clip_name("greeting"), "selamlama")
 
     def test_unknown_state_falls_back_to_idle_case_insensitively(self):
@@ -106,22 +106,23 @@ class MascotLogicTests(unittest.TestCase):
         self.assertFalse(mascot_window.click_style(on, False) & mascot_window.WS_EX_TRANSPARENT)
         self.assertTrue(mascot_window.click_style(on, False) & mascot_window.WS_EX_LAYERED)
 
-    def test_key_flat_keys_only_zero_alpha_and_keeps_source_rgb(self):
+    def test_key_flat_keys_low_coverage_and_keeps_source_rgb(self):
         from PIL import Image
 
-        source = Image.new("RGBA", (4, 1))
+        source = Image.new("RGBA", (5, 1))
         source.putdata([
-            (10, 20, 30, 0),        # tam saydam -> KEY
-            (10, 20, 30, 1),        # yarı saydam kenar -> kaynak RGB aynen
+            (10, 20, 30, 0),
+            (10, 20, 30, 1),
+            (10, 20, 30, 127),
             (200, 100, 50, 128),
             (0, 0, 0, 255),
         ])
-        flat = mascot_window.key_flat(source, (4, 1))
+        flat = mascot_window.key_flat(source, (5, 1))
         self.assertEqual(flat.mode, "RGB")
-        self.assertEqual(flat.getpixel((0, 0)), mascot_window.KEY_RGB)
-        self.assertEqual(flat.getpixel((1, 0)), (10, 20, 30))
-        self.assertEqual(flat.getpixel((2, 0)), (200, 100, 50))
-        self.assertEqual(flat.getpixel((3, 0)), (0, 0, 0))
+        for x in range(3):
+            self.assertEqual(flat.getpixel((x, 0)), mascot_window.KEY_RGB)
+        self.assertEqual(flat.getpixel((3, 0)), (200, 100, 50))
+        self.assertEqual(flat.getpixel((4, 0)), (0, 0, 0))
 
     def test_key_flat_does_not_blend_semi_transparent_pixels_into_key(self):
         from PIL import Image
@@ -138,7 +139,7 @@ class MascotLogicTests(unittest.TestCase):
         for y in range(source.height):
             for x in range(source.width):
                 red, green, blue, alpha = source.getpixel((x, y))
-                expected = mascot_window.KEY_RGB if alpha == 0 else (red, green, blue)
+                expected = mascot_window.KEY_RGB if alpha < 128 else (red, green, blue)
                 self.assertEqual(flat.getpixel((x, y)), expected)
 
     def test_key_flat_resizes_uniform_colors_without_contamination(self):
@@ -148,6 +149,24 @@ class MascotLogicTests(unittest.TestCase):
         transparent = Image.new("RGBA", (2, 2), (123, 45, 67, 0))
         self.assertEqual(mascot_window.key_flat(opaque, (7, 9)).getcolors(100), [(63, (123, 45, 67))])
         self.assertEqual(mascot_window.key_flat(transparent, (7, 9)).getcolors(100), [(63, mascot_window.KEY_RGB)])
+
+    def test_key_flat_does_not_make_lanczos_fringe_opaque_at_high_dpi(self):
+        from PIL import Image, ImageDraw
+
+        source = Image.new("RGBA", (160, 206))
+        ImageDraw.Draw(source).ellipse((35, 40, 125, 166), fill=(240, 240, 240, 255))
+        size = (320, 412)
+        resized = source.resize(size, Image.LANCZOS)
+        flat = mascot_window.key_flat(source, size)
+        fringe = 0
+        for rgba, rgb in zip(resized.getdata(), flat.getdata()):
+            alpha = rgba[3]
+            if 0 < alpha < 128:
+                fringe += 1
+                self.assertEqual(rgb, mascot_window.KEY_RGB)
+            elif alpha >= 128:
+                self.assertEqual(rgb, rgba[:3])
+        self.assertGreater(fringe, 0)
 
     def test_monitor_normalization_drops_invalid_rectangles(self):
         self.assertEqual(mascot_window.normalize_monitors([(0, 0, 10, 10), (5, 5, 5, 9), "x"]),
@@ -160,12 +179,12 @@ class MascotLogicTests(unittest.TestCase):
             self.assertTrue(frames[state], state)
             self.assertGreater(len(frames[state]), 1)
             self.assertEqual(frames[state][0].mode, "RGBA")
-            self.assertEqual(frames[state][0].size, mascot_window.BASE_SIZE)
+            self.assertIn(frames[state][0].size, (mascot_window.BASE_SIZE, (480, 618)))
         # Her durum kendi klibini gösterir; aynı dosyayı paylaşan durum kare çoğaltmaz.
         self.assertEqual(mascot_window.clip_name("thinking"), "dusunme")
         self.assertEqual(mascot_window.clip_name("working"), "calisma")
         self.assertIsNot(frames["thinking"], frames["working"])
-        self.assertEqual(len(frames["working"]), 36)
+        self.assertGreaterEqual(len(frames["working"]), 24)
 
     def test_greeting_shows_only_while_idle_and_until_the_timer_runs_out(self):
         # Açılışta bir kez selamlama; konuşma sürerken selamlama araya girmez.
@@ -181,7 +200,7 @@ class MascotLogicTests(unittest.TestCase):
         # preload() durum adıyla anahtarlar; _show_clip klip adıyla ararsa pencere hep gizli kalır.
         frames = mascot_window.preload()
         self.assertEqual(len(mascot_window.frames_for(frames, "idle")), len(frames["idle"]))
-        self.assertGreaterEqual(len(mascot_window.frames_for(frames, "idle")), 36)
+        self.assertGreaterEqual(len(mascot_window.frames_for(frames, "idle")), 24)
         for state in mascot_window.STATES:
             self.assertTrue(mascot_window.frames_for(frames, state), state)
             self.assertIs(mascot_window.frames_for(frames, state), frames[state], state)
@@ -190,22 +209,110 @@ class MascotLogicTests(unittest.TestCase):
         self.assertEqual(mascot_window.frames_for({}, "idle"), [])
         self.assertEqual(mascot_window.frames_for(None, "idle"), [])
 
-    def test_show_clip_builds_photos_for_the_current_state_not_the_clip_name(self):
-        frames = mascot_window.preload()
+    def test_show_clip_keeps_one_photo_and_releases_previous_decoder(self):
         window = mascot_window.MascotWindow(_Runtime())
-        window._frames = frames
-        window.window = type("W", (), {"winfo_viewable": lambda self: True,
-                                       "withdraw": lambda self: None,
-                                       "deiconify": lambda self: None})()
-        window.label = type("L", (), {"configure": lambda self, **kw: None})()
-        with patch.object(mascot_window.MascotWindow, "_photo", side_effect=lambda frame: object()):
+        window._frames = mascot_window.preload(lazy=True)
+        window.window = Mock()
+        window.label = Mock()
+        with patch.object(window, "_photo", side_effect=lambda frame: object()) as photo:
             window._show_clip("thinking")
-            self.assertEqual(len(window._photos.get("thinking", [])), len(frames["thinking"]))
+            previous = window._active_frames
+            self.assertGreater(len(previous), 1)
+            self.assertEqual(photo.call_count, 1)
             window._show_clip("working")
-            self.assertEqual(len(window._photos.get("working", [])), len(frames["working"]))
-            # Yalnız bulunulan durumun fotoğrafları tutulur (bellek): eski durum atılır.
-            self.assertNotIn("thinking", window._photos)
-            self.assertEqual(len(window._photos["working"]), 36)
+            self.assertEqual(photo.call_count, 2)
+            self.assertEqual(len(previous), 0)
+            self.assertIsNone(previous.image)
+            self.assertIsNotNone(window._current_photo)
+            window._release_clip()
+
+    def test_player_uses_frame_time_and_finishes_greeting(self):
+        from PIL import Image
+
+        frame = Image.new("RGBA", (1, 1))
+        frame.info["duration"] = 83
+        window = mascot_window.MascotWindow(_Runtime(), fps=30)
+        window._active_frames = mascot_window.FrameStream([frame, frame], size=(1, 1))
+        window._active_clip = window._state = "greeting"
+        window._frame_index = 1
+        window.window = Mock()
+        window.label = Mock()
+        with patch.object(window, "_photo", return_value="second"), patch.object(
+                mascot_window.time, "monotonic", return_value=1.0):
+            window._tick_frame()
+            window.window.after.assert_called_once_with(83, window._tick_frame)
+            window.label.configure.assert_called_once_with(image="second")
+            window.window.after.reset_mock()
+            window._tick_frame()
+            window.window.after.assert_not_called()
+
+    def test_persistent_speech_restarts_at_clip_end(self):
+        from PIL import Image
+
+        window = mascot_window.MascotWindow(_Runtime())
+        window._state = "speaking"
+        window._active_frames = mascot_window.FrameStream([Image.new("RGBA", (1, 1))], size=(1, 1))
+        window._frame_index = 1
+        with patch.object(window, "_show_clip") as restart:
+            window._tick_frame()
+            restart.assert_called_once_with("speaking")
+
+    def test_stream_reads_requested_frames_and_retains_timing(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "clip.webp"
+            frames = [Image.new("RGBA", (480, 618), (i * 20, 20, 30, 255)) for i in range(6)]
+            frames[0].save(path, save_all=True, append_images=frames[1:],
+                           duration=[33, 34, 33, 34, 33, 34], loop=0, lossless=True)
+            stream = mascot_window.FrameStream(path, size=(160, 206))
+            try:
+                self.assertEqual(len(stream), 6)
+                self.assertEqual(stream[0].size, (160, 206))
+                self.assertEqual(mascot_window.frame_delay_ms(stream[1], 30), 34)
+                self.assertEqual(mascot_window.frame_delay_ms(stream[0], 30), 33)
+            finally:
+                stream.close()
+            self.assertEqual(len(stream), 0)
+
+    def test_each_new_speech_state_uses_the_other_gesture(self):
+        from PIL import Image
+
+        frame = Image.new("RGBA", (1, 1))
+        window = mascot_window.MascotWindow(_Runtime())
+        window.window = Mock()
+        window.label = Mock()
+        window._frames = {"speaking": [frame]}
+        window._extra_frames = {"speaking_alt": [frame]}
+        with tempfile.TemporaryDirectory() as folder, patch.object(
+                mascot_window, "ASSET_DIR", Path(folder)), patch.object(
+                window, "_photo", side_effect=lambda frame: object()):
+            clips = []
+            for _ in range(3):
+                window._show_clip("speaking")
+                clips.append(window._active_clip)
+        self.assertEqual(clips, ["speaking", "speaking_alt", "speaking"])
+
+    def test_single_hybrid_clip_does_not_alternate_with_legacy_face(self):
+        from PIL import Image
+
+        window = mascot_window.MascotWindow(_Runtime())
+        window.window = Mock()
+        window.label = Mock()
+        window._frames = {"speaking": [Image.new("RGBA", (1, 1))]}
+        window._extra_frames = {"speaking_alt": window._frames["speaking"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "konusma.jclip").touch()
+            with patch.object(mascot_window, "ASSET_DIR", root), patch.object(
+                    window, "_photo", return_value=object()), patch(
+                    "modules.mascot_face_runtime.HybridFrameStream",
+                    side_effect=lambda *args, **kwargs: mascot_window.FrameStream(
+                        window._frames["speaking"], size=window.size)) as hybrid:
+                for _ in range(3):
+                    window._show_clip("speaking")
+                    self.assertEqual(window._active_clip, "speaking")
+                self.assertEqual(hybrid.call_count, 3)
+        window._release_clip()
 
     def test_click_through_wanted_requires_the_setting_and_idle(self):
         self.assertFalse(mascot_window.click_through_wanted(False, "idle"))
@@ -238,12 +345,40 @@ class MascotLogicTests(unittest.TestCase):
             self.assertEqual(fake.call_args.args, (window.window, False))
             self.assertFalse(window._click_through)
 
-    def test_preload_memory_stays_under_the_desktop_budget(self):
-        frames = mascot_window.preload()
-        unique = {id(items): items for items in frames.values()}
-        raw = sum(mascot_window.frame_memory(items) for items in unique.values())
-        photos = mascot_window.photo_memory(len(frames["idle"]), mascot_window.window_size(2.0))
-        self.assertLessEqual(raw + photos, 60 * 1024 * 1024)
+    def test_stream_retains_no_decoded_frame_collection(self):
+        catalogue = mascot_window.preload(lazy=True)
+        stream = mascot_window.FrameStream(catalogue["idle"], size=(320, 412))
+        try:
+            self.assertIsNone(stream.source)
+            self.assertEqual(stream[0].size, (320, 412))
+            self.assertEqual(stream[1].size, (320, 412))
+            self.assertIsNone(stream.source)
+        finally:
+            stream.close()
+
+    def test_lazy_catalogue_decodes_no_frames_at_startup(self):
+        with patch.object(mascot_window, "load_frames") as decode:
+            catalogue = mascot_window.preload(lazy=True)
+        decode.assert_not_called()
+        self.assertEqual(set(catalogue), set(mascot_window.STATES))
+        self.assertTrue(all(isinstance(path, Path) and path.is_file()
+                            for path in catalogue.values()))
+
+    def test_high_resolution_decode_uses_display_size_and_preserves_timing(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "test.webp"
+            first = Image.new("RGBA", (480, 618), (240, 220, 200, 255))
+            second = Image.new("RGBA", (480, 618), (20, 30, 40, 255))
+            first.save(path, save_all=True, append_images=[second],
+                       duration=[40, 90], loop=0, lossless=True)
+            frames = mascot_window.load_frames(path, size=(160, 206))
+            self.assertEqual([frame.size for frame in frames], [(160, 206)] * 2)
+            self.assertEqual([mascot_window.frame_delay_ms(frame, 30)
+                              for frame in frames], [40, 90])
+            self.assertEqual(len(mascot_window.load_frames(path, size=(160, 206),
+                                                           first_only=True)), 1)
 
     def test_missing_asset_directory_returns_empty_frames(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -55,6 +55,7 @@ class Hub:
 
     def __init__(self) -> None:
         self.clients: set[queue.Queue] = set()
+        self.desktop_clients: set[queue.Queue] = set()
         self.lock = threading.Lock()
         self.ever = False
         self.empty_since = time.time()
@@ -63,18 +64,24 @@ class Hub:
         self.activity: deque = deque(maxlen=240)   # kullanıcıya anlaşılır gerçek işlem akışı
         self.activity_seq = 0
 
-    def subscribe(self) -> queue.Queue:
+    def subscribe(self, *, desktop: bool = False) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=512)
         with self.lock:
-            self.clients.add(q)
-            self.ever = True
+            if desktop:
+                self.desktop_clients.add(q)
+            else:
+                self.clients.add(q)
+                self.ever = True
         return q
 
-    def unsubscribe(self, q: queue.Queue) -> None:
+    def unsubscribe(self, q: queue.Queue, *, desktop: bool = False) -> None:
         with self.lock:
-            self.clients.discard(q)
-            if not self.clients:
-                self.empty_since = time.time()
+            if desktop:
+                self.desktop_clients.discard(q)
+            else:
+                self.clients.discard(q)
+                if not self.clients:
+                    self.empty_since = time.time()
 
     def publish(self, kind: str, text: str = "", extra: str = "", metadata=None) -> None:
         owner = engine.pc_profile()
@@ -95,7 +102,7 @@ class Hub:
                 detail = parts[2] if len(parts) > 2 else ""
                 self.activity.append({"id": self.activity_seq, "text": text[:500], "status": status,
                                       "area": area[:80], "detail": detail[:900], "ts": time.time()})
-            for q in list(self.clients):
+            for q in self.clients | self.desktop_clients:
                 try:
                     q.put_nowait(msg)
                 except queue.Full:
@@ -1081,10 +1088,12 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         return True
 
     def widget_set(self, on: bool | None = None) -> bool:
-        """Küçük Jarvis açık/kapalı (kalıcı). Açıkken yalnızca ana pencere küçültülünce görünür."""
+        """Masaüstü girişini göster veya gizle."""
         if on is not None:
             config.save_settings(widget_on=bool(on))
-            if _widget is not None and _widget.is_visible() != bool(on):
+            if _mascot is not None:
+                _mascot.set_visible(bool(on))
+            elif _widget is not None and _widget.is_visible() != bool(on):
                 _widget.toggle()
         return config.load_settings().get("widget_on", True) is not False
 
@@ -1627,6 +1636,7 @@ def _show_main() -> None:
 
 
 _widget = None
+_mascot = None
 
 
 def _set_mic(on: bool) -> bool:
@@ -1645,10 +1655,10 @@ def _start_tray() -> None:
 
 
 def _start_mascot() -> bool:
-    """T5 masaüstü maskotu: yalnız `mascot_window` ayarı açıksa ayrı pencerede."""
+    """Windows'ta birincil masaüstü yüzeyi gerçekten hazır olana kadar bekle."""
     from modules import mascot_window
     try:
-        return bool(mascot_window.start(sys.modules[__name__]))
+        return bool(mascot_window.start(sys.modules[__name__], default=True))
     except Exception:       # noqa: BLE001 - masaüstü süsü açılışı düşürmesin
         _record_failure('web.py:_start_mascot')
         return False
@@ -1728,8 +1738,6 @@ def main() -> None:
             # Sebep yutulmaz: panel ve durum satırı aynı metni okuyabilsin.
             phone.note_error(str(exc) or type(exc).__name__)
             print(f"Telefon erişimi açılamadı: {exc}")
-    _start_tray()
-    _start_mascot()
     print(f"Jarvis Komut Merkezi: {url}")
     for _old in ("index.html", "core.js", "cc.js", "pages.js", "pages2.js", "pages3.js", "reactor.js", "boot.js",
                  "style.css", "ironman.png", "ring.png"):     # eski arayüzün dosyaları (tek arayüz: nx)
@@ -1741,14 +1749,18 @@ def main() -> None:
         config.save_settings(fullscreen=False)
     _close_windows()        # önceki çalışmadan kalan Jarvis penceresi varsa yeni ayarlar uygulanabilsin
     time.sleep(0.5)
-    open_window(url)
+    _start_tray()
+    mascot_ready = '--no-window' not in sys.argv and _start_mascot()
+    if not mascot_ready:
+        open_window(url)
     from modules import startup_metrics
     startup_metrics.ready('window_open')
     import release_guard
     release_guard.ready("web")
     threading.Thread(target=_watchdog, daemon=True).start()
     try:
-        _run_widget()               # masaüstü küçük Jarvis (sağ alt köşe)
+        if not mascot_ready:
+            _run_widget()           # eski tercih veya maskot başlatılamazsa erişim
         while True:
             time.sleep(3600)
     except KeyboardInterrupt:

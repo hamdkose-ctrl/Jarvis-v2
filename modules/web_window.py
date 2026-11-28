@@ -213,7 +213,8 @@ def _watchdog(runtime) -> None:
         runtime.time.sleep(2)
         with runtime.hub.lock:
             gone = runtime.hub.ever and (not runtime.hub.clients) and (runtime.time.time() - runtime.hub.empty_since > 25)
-        if gone and runtime._tray is None and (not runtime.phone.running):
+        if (gone and runtime._tray is None and getattr(runtime, '_mascot', None) is None
+                and not runtime.phone.running):
             runtime._shutdown(reason='pencere kapandı')
 
 def _main_window_open(runtime) -> bool:
@@ -331,11 +332,24 @@ def _start_tray(runtime) -> None:
     if not runtime.config.load_settings().get('tray', True):
         return
     from modules import tray as traymod
-    show = runtime._show_main
+    def surface():
+        return getattr(runtime, '_mascot', None) or runtime._widget
+
+    def show():
+        mascot = getattr(runtime, '_mascot', None)
+        if mascot:
+            mascot.reveal_card()
+        else:
+            runtime._show_main()
+
+    def toggle():
+        widget = surface()
+        if widget:
+            widget.toggle()
 
     def mic() -> None:
         runtime._set_mic(not runtime.engine.flags.get('mic', True))
 
     def sleep() -> None:
         runtime.engine.set_sleep(not runtime.engine.flags.get('sleep'))
-    runtime._tray = traymod.start(show, mic, lambda: runtime.engine.flags['mic'], lambda *a: runtime._shutdown(reason='tepsi menüsü'), name=runtime._aname, on_sleep=sleep, is_sleep=lambda: bool(runtime.engine.flags.get('sleep')), on_widget=lambda: runtime._widget and runtime._widget.toggle(), is_widget=lambda: bool(runtime._widget and runtime._widget.is_visible()))
+    runtime._tray = traymod.start(show, mic, lambda: runtime.engine.flags['mic'], lambda *a: runtime._shutdown(reason='tepsi menüsü'), name=runtime._aname, on_sleep=sleep, is_sleep=lambda: bool(runtime.engine.flags.get('sleep')), on_widget=toggle, is_widget=lambda: bool(surface() and surface().is_visible()), on_console=runtime._show_main)
