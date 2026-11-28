@@ -342,6 +342,7 @@ Finance ve envanter ayrı domain sözleşmelerine bağlanır. Worker'ların okuy
   - ✅ 3-B `watcher._finance_price` → `finance.quote` (`modules/watcher.py:354-356`)
   - ✅ 3-C `watcher.finance_tick` ve yardımcıları → `finance_alert_tick.py` (`modules/watcher.py:359-361`)
   - ✅ 3-D alarm teslimi ayrı başlıkla: `watcher.emitters` klasör izleme ve finans alarmını ayırır (`Jarvis klasör izleme` / `Jarvis finans alarmı`); canlı kabul 28 Kasım 2026'da yerel alıcıya karşı yapıldı (6 test + gerçek tur, T17). `finance_domain.BRANCHES['alarm']` alarm dallarını `notify/outbox` dışında tutmaya devam ediyor.
+    Kanıt: PR=#888; SHA=222f1a5853eae4c78fab83f4e96c6a0357925403; Contract=#888; Migration=n/a; Wiring=#888; Acceptance=watcher-pass@222f1a5853eae4c78fab83f4e96c6a0357925403; Cleanup=verified
   - ✅ 3-E `domain_tools.exchange` → `finance.dated_rate` (`modules/domain_tools.py:100`)
   - ✅ 3-F `domain_tools.csv_analysis` finans kolu → `finance_analysis.csv_summary` (`modules/domain_tools.py:27-31`)
 - ✅ (#360) `[1✓ belge PR'ı]` 705 maddelik envanter repoya Capability Intake ikinci dalga olarak işlenecek ve Hermes sürüm referansı commit SHA'ya sabitlenecek. Şu an ilk dalga 20 aday var. Yalnız belge PR'ı.
