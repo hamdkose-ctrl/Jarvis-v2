@@ -153,5 +153,47 @@ class SonBildirimDogruMu(unittest.TestCase):
         self.assertIn("mail", pc_autonomy_queue.announce_state()["text"])
 
 
+class AcilTakvimGecikmez(unittest.TestCase):
+    """Takvim uyarısı zaman-kritik: herhangi bir hız sınırı onu geciktirmemeli.
+
+    Bu testin varlık sebebi gerçek bir hatadır (28 Kasım): bildirimlere 10 dakikalık
+    bekleme eklenmişti ve "5 dakika sonra toplantı" uyarısı 10 dakika gecikecekti.
+    Bekleme geri alındı; bu test aynı sınıfın geri gelmemesini sabitler."""
+
+    AYAR = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
+
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+        pc_autonomy_queue._LAST_SPOKEN.clear()
+
+    def _tick(self, state):
+        with patch("config.load_settings", return_value=self.AYAR), \
+             patch.object(pc_autonomy_queue, "_inbox_and_calendar", lambda: state), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value=""), \
+             patch("modules.pc_autonomy_queue._announce", return_value=True) as say:
+            items = pc_autonomy_queue.watch_tick(None, hour=12)
+        return items, say
+
+    def test_mail_soylendikten_hemen_sonra_takvim_de_soylenir(self):
+        ilk, _ = self._tick({"unread_mail": 3})
+        self.assertEqual(ilk[0]["kind"], "mail")
+        ikinci, say = self._tick({"next_event_minutes": 5})
+        self.assertEqual(len(ikinci), 1)
+        self.assertEqual(ikinci[0]["kind"], "calendar")
+        self.assertTrue(say.called)
+
+    def test_sessiz_saatte_takvim_de_soylenmez(self):
+        with patch("config.load_settings",
+                   return_value={"watch_enabled": True, "watch_quiet_start": 0,
+                                 "watch_quiet_end": 23}), \
+             patch.object(pc_autonomy_queue, "_inbox_and_calendar",
+                          lambda: {"next_event_minutes": 5}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value=""), \
+             patch("modules.pc_autonomy_queue._announce") as say:
+            items = pc_autonomy_queue.watch_tick(None, hour=12)
+        self.assertEqual(items, [])
+        self.assertFalse(say.called)
+
+
 if __name__ == '__main__':
     unittest.main()
