@@ -96,3 +96,47 @@ class ClockIndependent(unittest.TestCase):
     def test_quiet_hour_produces_nothing(self):
         self.assertEqual(self._tick(23), [])
         self.assertEqual(self._tick(3), [])
+
+class Cooldown(unittest.TestCase):
+    """Belge "10 dakikada en fazla bir bildirim" diyordu; sınır gerçekten uygulanmalı."""
+
+    AYAR = {"watch_enabled": True, "watch_quiet_start": 0, "watch_quiet_end": 1}
+
+    def setUp(self):
+        pc_autonomy_queue._SEEN.clear()
+        pc_autonomy_queue._LAST_ANNOUNCE = 0.0
+
+    def _tick(self, saat, okunmamis, ayar=None):
+        ayar = ayar or self.AYAR
+        with patch("config.load_settings", return_value=ayar), \
+             patch.object(pc_autonomy_queue, "_inbox_and_calendar",
+                          lambda: {"unread_mail": okunmamis}), \
+             patch("modules.pc_autonomy_queue.foreground_window", return_value=""), \
+             patch("modules.pc_autonomy_queue._announce") as say:
+            items = pc_autonomy_queue.watch_tick(_Runtime(ayar), hour=12, now=saat)
+        return items, say
+
+    def test_bekleme_suresi_dolmadan_yeni_bilgi_soylenmez(self):
+        ilk, say = self._tick(1000.0, 3)
+        self.assertEqual(len(ilk), 1)
+        self.assertTrue(say.called)
+        ikinci, say2 = self._tick(1060.0, 4)
+        self.assertEqual(ikinci, [])
+        self.assertFalse(say2.called)
+
+    def test_bekleme_dolunca_yeni_bilgi_soylenir(self):
+        self._tick(1000.0, 3)
+        ucuncu, say = self._tick(1610.0, 5)
+        self.assertEqual(len(ucuncu), 1)
+        self.assertTrue(say.called)
+
+    def test_bekleme_sifirsa_her_tik_soyler(self):
+        ayar = dict(self.AYAR, watch_cooldown_minutes=0)
+        self._tick(1000.0, 3, ayar)
+        items, say = self._tick(1001.0, 4, ayar)
+        self.assertEqual(len(items), 1)
+        self.assertTrue(say.called)
+
+
+if __name__ == '__main__':
+    unittest.main()

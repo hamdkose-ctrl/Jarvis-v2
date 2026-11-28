@@ -138,7 +138,25 @@ def foreground_window() -> str:
         return ""
 
 
-def watch_tick(runtime=None, *, hour=None) -> list[dict]:
+def _cooldown_seconds(settings: dict) -> float:
+    """Aynı anda gelen adaylar kullanıcıyı boğmasın: bildirimler arası en kısa süre.
+
+    Belge "10 dakikada en fazla bir bildirim" diyordu ama kodda böyle bir sınır
+    yoktu; yalnız aynı aday bir daha söylenmiyordu. Sınır artık gerçekten uygulanıyor.
+    """
+    from modules import awareness_watch
+    default_minutes = awareness_watch.COOLDOWN_SECONDS / 60
+    try:
+        minutes = float((settings or {}).get('watch_cooldown_minutes', default_minutes))
+    except (TypeError, ValueError):
+        minutes = default_minutes
+    return max(0.0, min(minutes, 240.0)) * 60.0
+
+
+_LAST_ANNOUNCE = 0.0
+
+
+def watch_tick(runtime=None, *, hour=None, now=None) -> list[dict]:
     """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır.
 
     `hour` yalnız testler içindir: duvar saatine bağlı testler CI'da farklı saatte
@@ -163,12 +181,21 @@ def watch_tick(runtime=None, *, hour=None) -> list[dict]:
     # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
     # gibi zaten gözünün önünde olan şeyler konuşulmaz; yalnız günlüğe yazılır.
     speak_windows = _truthy(settings.get("watch_window_notice"))
+    global _LAST_ANNOUNCE
+    instant = time.time() if now is None else float(now)
+    if items and instant - _LAST_ANNOUNCE < _cooldown_seconds(settings):
+        # Bekleme süresi dolmadı: adaylar bir sonraki uygun tike kalır, kaydedilmez.
+        return []
+    spoken = 0
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
             runtime.log.info("uyanıklık: %s", item["text"])
         if item.get("kind") == "window" and not speak_windows:
             continue
         _announce(item["text"])
+        spoken += 1
+    if spoken:
+        _LAST_ANNOUNCE = instant
     awareness_watch.mark_seen(items, _SEEN)
     return items
 

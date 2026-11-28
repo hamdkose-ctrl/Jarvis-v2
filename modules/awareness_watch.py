@@ -6,7 +6,9 @@ gösterip göstermeme kararı çağıranın (mevcut bildirim sahibi) işidir.
 Kurallar:
 - Varsayılan **kapalı** (`watch_enabled`).
 - Sessiz saatler (22:00–08:00) haber üretmez.
-- Aynı olay tekrar bildirilmez (parmak izi) ve 10 dakikada en fazla 1 bildirim.
+- Aynı olay tekrar bildirilmez (parmak izi) ve 10 dakikada en fazla 1 bildirim;
+  bekleme süresi `COOLDOWN_SECONDS` ve `watch_cooldown_minutes` ile yönetilir,
+  uygulandığı yer `pc_autonomy_queue.watch_tick`.
 - Bilinmeyen/okunamayan durum sessizce atlanır; uydurma haber yok.
 """
 from __future__ import annotations
