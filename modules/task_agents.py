@@ -747,6 +747,16 @@ def handle(owner, command, emit=None, *, summary=False):
         try:task_queue.run_now(owner,queue_run[1])
         finally:llm._key_context.reset(token)
         return 'Kuyruk işini öne aldım; Jarvis açıkken hemen başlayacak.\nDurum: görev kuyruğu'
+    haftalik=re.fullmatch(r'haftal[ıi]k\s+(?:araştırma|arastirma)\s+turu(?: kur)?\s*:?\s*(.+)',command.strip(),re.IGNORECASE)
+    if haftalik:
+        from modules import weekly_research
+        token=llm._key_context.set(owner)
+        try:kayit=weekly_research.schedule(owner,haftalik[1].strip())
+        finally:llm._key_context.reset(token)
+        return ('Haftalık araştırma turu kuruldu: '+kayit['topic']
+                +'\nCron: '+kayit['cron']+' ('+kayit['label']+', Jarvis açıkken çalışır)'
+                +'\nPencere: son '+str(kayit['window_days'])+' gün'
+                +'\nİptal: kuyruk iptal '+str(kayit['id']))
     cron_match=re.fullmatch(r'(görev|betik) cron ((?:\S+\s+){4}\S+)\s*:\s*(.+)',command.strip(),re.I|re.S)
     if cron_match:
         from modules import task_queue

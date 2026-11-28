@@ -156,6 +156,11 @@ class MascotDockTests(unittest.TestCase):
         def observe():
             dock = mascot.dock
             dock.next_jobs = float("inf")
+            self.assertIs(mascot.window, root)
+            after_visibility(mascot.window, True, mascot_visible, "main mascot")
+
+        def mascot_visible():
+            dock = mascot.dock
             mascot._welcome()
             self.assertIsNone(dock.bubble_view)
             after_visibility(dock.bubble, True, welcome_visible, "welcome caption")
