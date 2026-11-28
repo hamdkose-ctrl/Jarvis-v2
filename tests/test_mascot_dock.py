@@ -113,8 +113,13 @@ class MascotDockTests(unittest.TestCase):
             try:
                 dock = mascot.dock
                 dock.next_jobs = float("inf")
-                dock.open(focus=True)
                 dock.listen()
+                dock._event({"user": "hamdi", "k": "assistant", "t": "Sesli yanıt"})
+                root.update_idletasks()
+                self.assertIsNone(dock.panel)
+                self.assertTrue(dock.bubble.winfo_viewable())
+                dock.open(focus=True)
+                self.assertFalse(dock.bubble.winfo_viewable())
                 dock.entry.insert(0, "Bugün ne var?")
                 self.runtime.bridge.send.return_value = True
                 dock.send()

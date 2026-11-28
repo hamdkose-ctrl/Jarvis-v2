@@ -1,7 +1,7 @@
 # Masaüstünde Jarvis
 
 - Windows’ta maskot varsayılan başlangıç yüzeyi. İlk pencere hazırsa Komut Merkezi kullanıcının isteğiyle açılır. Ayar kapalıysa ya da pencere kurulamıyorsa önceki açılış akışı kullanılır. Maskotlu akışta eski küçük pencere açılmaz.
-- Maskota tıkla ve konuş. `Ctrl+Alt+J` ile yazı kartını aç. Sağ tık menüsünden kısayolu değiştir, mikrofonu yönet, maskotu gizle veya Komut Merkezi’ni aç. Tepsi, gizlenen maskotu geri getirir.
+- Maskota tıkla ve konuş. Dinleme ve kısa sesli yanıt maskotun yanında geçici balonda gösterilir. Balona tıklamak yanıtı açar. `Ctrl+Alt+J` ile yazı kartını aç. Sağ tık menüsünden kısayolu değiştir, mikrofonu yönet, maskotu gizle veya Komut Merkezi’ni aç. Tepsi, gizlenen maskotu geri getirir.
 - Cevaplar ve durumlar mevcut Hub olaylarından gelir. Masaüstü dinleyicileri tarayıcı istemcisi sayılmaz. Kullanıcı değişince açık kart, ek, yanıt ve görev seçimi temizlenir. Bildirimler başka pencerenin odağını almadan gösterilir.
 - Dosya seçiminde mevcut izinli kökler kullanılır. Görevler aynı Core görünümünden okunur ve hedef kimliğiyle yönetilir. Ayrıntı düğmesi Komut Merkezi’nde ilgili işi seçer. Teslim kaydetme doğrulanmış dosya baytlarını kullanır.
 - Boşta hareketler aralarda bir kez oynar. Konuşma hareketi mevcut ses oynatma durumuna bağlıdır. Windows hareket azaltma ayarı ve gizli maskot, kare oynatmayı durdurur.

@@ -5,12 +5,13 @@ import queue
 import re
 import sys
 import threading
+import textwrap
 import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from modules.diagnostics import record_failure
+from modules.diagnostics import record_failure as _record_failure
 
 STATUS = {
     "idle": "Hazır", "greeting": "Hazır", "listening": "Dinliyorum",
@@ -25,8 +26,29 @@ JOB_STATUS = {
 TERMINAL = {"done", "partial", "failed", "blocked", "cancelled"}
 LINK = re.compile(r"https?://[^\s<>\])]+")
 MAX_FILE_BYTES = 200_000_000
-BG, CARD, BORDER = "#101a24", "#172634", "#293d4e"
-TEXT, MUTED, ACCENT = "#f3f7fc", "#adc2d4", "#8fe0e7"
+BG, CARD, BORDER = "#0c1521", "#142334", "#304759"
+TEXT, MUTED, ACCENT = "#edf5fa", "#9ab1c3", "#a4e5ed"
+
+
+def rounded_panel(canvas, width, height, radius=16, tail=""):
+    """Draw the native glass-panel silhouette with a single rounded outline."""
+    canvas.delete("panel")
+    x, y = (9 if tail == "left" else 1), 1
+    right, bottom = width - (10 if tail == "right" else 2), height - 2
+    r = max(2, min(radius, (right - x) // 2, (bottom - y) // 2))
+    canvas.create_polygon(x+r, y, right-r, y, right, y, right, y+r,
+                          right, bottom-r, right, bottom, right-r, bottom,
+                          x+r, bottom, x, bottom, x, bottom-r, x, y+r, x, y,
+                          smooth=True, splinesteps=24, fill=BG, outline=BORDER,
+                          width=1, tags="panel")
+    if tail:
+        edge = x if tail == "left" else right
+        tip = 1 if tail == "left" else width - 2
+        mid = height // 2
+        canvas.create_polygon(edge, mid - 5, tip, mid, edge, mid + 5,
+                              fill=BG, outline=BORDER, tags="panel")
+        canvas.create_line(edge, mid - 4, edge, mid + 4, fill=BG, tags="panel")
+    canvas.tag_lower("panel")
 
 
 def parse_hotkey(value: str) -> tuple[int, int] | None:
@@ -122,6 +144,9 @@ class MascotDock:
         self.stop_key = None
         self.key_thread = None
         self.panel = None
+        self.bubble = None
+        self.bubble_close = None
+        self.shown_state = ""
         self.hotkey = str(mascot._settings().get("mascot_hotkey") or "Ctrl+Alt+J")
         self._register_hotkey()
 
@@ -143,79 +168,188 @@ class MascotDock:
             self.stop_key.set()
         self.runtime.hub.unsubscribe(self.messages, desktop=True)
 
+    def _surface(self):
+        import tkinter as tk
+        from modules.mascot_window import KEY_HEX
+
+        window = tk.Toplevel(self.mascot.root)
+        window.withdraw()
+        window.overrideredirect(True)
+        window.attributes("-topmost", True)
+        if sys.platform.startswith("win"):
+            window.attributes("-transparentcolor", KEY_HEX)
+        canvas = tk.Canvas(window, bg=KEY_HEX, bd=0, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        return window, canvas
+
     def _create(self):
         import tkinter as tk
 
-        self.panel = tk.Toplevel(self.mascot.root)
-        self.panel.withdraw()
-        self.panel.overrideredirect(True)
-        self.panel.attributes("-topmost", True)
-        self.panel.configure(bg=BORDER)
+        self.panel, canvas = self._surface()
         self.panel.bind("<Escape>", lambda _e: self.panel.withdraw())
-        self.panel.bind("<Control-Return>", lambda _e: self.send())
-        body = tk.Frame(self.panel, bg=BG, padx=16, pady=13)
-        body.pack(fill="both", expand=True, padx=1, pady=1)
+        body = tk.Frame(canvas, bg=BG)
+        content = canvas.create_window(17, 12, window=body, anchor="nw")
+
+        def resize(event):
+            rounded_panel(canvas, event.width, event.height)
+            canvas.itemconfigure(content, width=event.width - 34, height=event.height - 24)
+
+        canvas.bind("<Configure>", resize)
         head = tk.Frame(body, bg=BG)
-        head.pack(fill="x")
-        tk.Label(head, text="Jarvis", bg=BG, fg=TEXT, font=("Segoe UI", 14, "bold")).pack(side="left")
-        self._button(head, "Kapat", self.panel.withdraw).pack(side="right")
-        self.status = tk.Label(body, bg=BG, fg=ACCENT, anchor="w", font=("Segoe UI", 10))
-        self.status.pack(fill="x", pady=(5, 9))
-        actions = tk.Frame(body, bg=BG)
-        actions.pack(fill="x")
-        for label, command in (("Konuş", self.listen), ("Yanıt", lambda: self.switch("reply")),
-                               ("Son işler", self.show_jobs)):
-            self._button(actions, label, command).pack(side="left", padx=(0, 5))
-        self.speech_button = self._button(actions, "Sesi kes", self.stop_speech)
-        self.cancel_button = self._button(actions, "İsteği durdur", self.stop_turn)
-        self.attachment_label = tk.Label(body, bg=BG, fg=MUTED, anchor="w", font=("Segoe UI", 9))
-        self.attachment_label.pack(fill="x", pady=(5, 1))
-        composer = tk.Frame(body, bg=BG)
-        composer.pack(fill="x")
-        self._button(composer, "Dosya ekle", self.pick_file).pack(side="left", padx=(0, 5))
-        self.entry = tk.Entry(composer, bg=CARD, fg=TEXT, insertbackground=TEXT, relief="flat",
-                              font=("Segoe UI", 11), highlightthickness=1, highlightbackground=BORDER)
-        self.entry.pack(side="left", fill="x", expand=True, ipady=6)
+        head.pack(fill="x", pady=(0, 10))
+        tk.Label(head, text="Jarvis", bg=BG, fg=TEXT, font=("Segoe UI", 15, "bold")).pack(side="left")
+        self.status = tk.Label(head, bg=BG, fg=MUTED, anchor="w", font=("Segoe UI", 9), wraplength=214)
+        self.status.pack(side="left", padx=9)
+        self._button(head, "×", self.panel.withdraw).pack(side="right")
+        self.speech_button = self._button(head, "Sesi kes", self.stop_speech)
+        self.cancel_button = self._button(head, "Durdur", self.stop_turn)
+        self.results = tk.Frame(body, bg=CARD, padx=4, pady=4)
+        self.attachment_label = tk.Label(body, bg=BG, fg=ACCENT, anchor="w", font=("Segoe UI", 9))
+        self.composer = tk.Frame(body, bg=CARD, padx=5, pady=4)
+        self.composer.pack(fill="x")
+        self._button(self.composer, "+ Ekle", self.pick_file).pack(side="left")
+        editor = tk.Frame(self.composer, bg=CARD)
+        editor.pack(side="left", fill="x", expand=True, padx=(4, 6))
+        self.draft = tk.StringVar()
+        self.entry = tk.Entry(editor, textvariable=self.draft, bg=CARD, fg=TEXT,
+                              insertbackground=ACCENT, relief="flat", bd=0,
+                              font=("Segoe UI", 11), highlightthickness=0)
+        self.entry.pack(fill="x", ipady=6)
+        placeholder = tk.Label(editor, text="Bir şey yaz…", bg=CARD, fg=MUTED, font=("Segoe UI", 10))
+
+        def update_placeholder(*_):
+            if self.draft.get() or self.entry.focus_get() == self.entry:
+                placeholder.place_forget()
+            else:
+                placeholder.place(relx=0, rely=.5, anchor="w")
+
+        self.draft.trace_add("write", update_placeholder)
+        self.entry.bind("<FocusIn>", update_placeholder)
+        self.entry.bind("<FocusOut>", update_placeholder)
         self.entry.bind("<Return>", lambda _e: self.send())
         self.entry.bind("<Button-1>", lambda _e: self._focus_entry())
-        self._button(composer, "Gönder", self.send, accent=True).pack(side="right", padx=(5, 0))
-        self.results = tk.Frame(body, bg=CARD, pady=4)
-        self.results.pack(fill="both", expand=True, pady=(12, 9))
-        self.footer = tk.Frame(body, bg=BG)
-        self.footer.pack(fill="x")
-        self._button(self.footer, "Komut Merkezi", self.open_console).pack(side="right")
-        self._button(self.footer, "Dosya bul", self.find_files).pack(side="left")
+        placeholder.bind("<Button-1>", lambda _e: self._focus_entry())
+        update_placeholder()
+        self._button(self.composer, "Gönder", self.send, accent=True).pack(side="right")
+        footer = tk.Frame(body, bg=BG)
+        footer.pack(fill="x", pady=(6, 0))
+        self._button(footer, "Konuş", self.listen, tint=True).pack(side="left", padx=(0, 5))
+        self._button(footer, "Son işler", self.show_jobs).pack(side="left")
+        self._button(footer, "Dosya bul", self.find_files).pack(side="left")
+        self._button(footer, "⋯", self._menu).pack(side="right")
+        self.back = self._button(footer, "Yanıt", lambda: self.switch("reply"))
         self._render()
         self._update_actions()
 
     @staticmethod
-    def _button(parent, label, command, accent=False):
+    def _button(parent, label, command, accent=False, tint=False):
         import tkinter as tk
 
-        return tk.Button(parent, text=label, command=command, bg=ACCENT if accent else CARD,
-                         fg=BG if accent else TEXT, activebackground=BORDER, activeforeground=TEXT,
-                         font=("Segoe UI", 9, "bold"), relief="flat", padx=8, pady=5,
-                         highlightthickness=1, highlightbackground=BORDER, takefocus=True)
+        return tk.Button(parent, text=label, command=command,
+                         bg=ACCENT if accent else (CARD if tint else parent.cget("bg")),
+                         fg=BG if accent else (ACCENT if tint else TEXT),
+                         activebackground=BORDER, activeforeground=TEXT, cursor="hand2",
+                         font=("Segoe UI", 9, "bold"), relief="flat", bd=0, padx=9, pady=5,
+                         highlightthickness=0, takefocus=True)
+
+    def _menu(self):
+        import tkinter as tk
+
+        menu = tk.Menu(self.panel, tearoff=False)
+        menu.add_command(label="Komut Merkezi", command=self.open_console)
+        menu.add_command(label="Mikrofonu aç/kapat", command=self.toggle_mic)
+        menu.add_command(label="Kısayolu değiştir", command=self.change_shortcut)
+        try:
+            menu.tk_popup(self.panel.winfo_pointerx(), self.panel.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _position(self, window, w, h, *, speech=False):
+        from modules.mascot_window import clamp_position, windows_monitors
+
+        x = self.mascot.window.winfo_x()
+        width, height = self.mascot.size
+        inset = width // 6 if speech else 0
+        anchor = int(height * .40) - h // 2 if speech else height - h
+        y = self.mascot.window.winfo_y() + anchor
+        screens = windows_monitors(self.mascot.root)
+        left, y = clamp_position(x + inset - w - 12, y, w, h, screens)
+        if left + w > x + inset:
+            left, y = clamp_position(x + width - inset + 12, y, w, h, screens)
+        window.geometry(f"{w}x{h}+{left}+{y}")
+        return "right" if left < x else "left"
+
+    def _place_card(self):
+        if self.view != "reply":
+            height = 342
+        elif self.last_reply:
+            lines = sum(max(1, len(textwrap.wrap(row, width=47))) for row in self.last_reply.splitlines()[:14])
+            height = min(354, 214 + lines * 17)
+        else:
+            height = 143
+        self._position(self.panel, 396, height + (20 if self.attachment is not None else 0))
+
+    def panel_visible(self):
+        return self.panel is not None and bool(self.panel.winfo_viewable())
+
+    def bubble_visible(self):
+        return self.bubble is not None and bool(self.bubble.winfo_viewable())
 
     def open(self, *, focus=False):
-        from modules.mascot_window import clamp_position, set_no_activate, windows_monitors
+        from modules.mascot_window import set_no_activate
 
         if self.panel is None:
             self._create()
+        self.dismiss_bubble()
         self.badge = ""
-        if self.panel.winfo_viewable() and not focus:
+        self._place_card()
+        if self.panel_visible() and not focus:
             return
         self.panel.update_idletasks()
-        w = min(500, max(418, self.panel.winfo_reqwidth()))
-        h = min(475, max(306, self.panel.winfo_reqheight()))
-        x0, y0 = self.mascot.window.winfo_x(), self.mascot.window.winfo_y()
-        screens = windows_monitors(self.mascot.root)
-        x, y = clamp_position(x0 - w - 12, y0 + self.mascot.size[1] - h, w, h, screens)
-        self.panel.geometry(f"{w}x{h}+{x}+{y}")
         set_no_activate(self.panel, not focus)
         self.panel.deiconify()
         if focus:
             self.entry.focus_force()
+
+    def show_bubble(self, text, *, seconds=None):
+        """Transient, non-activating speech bubble. The main card stays closed."""
+        import tkinter as tk
+        from modules.mascot_window import set_no_activate
+
+        if self.mascot._hidden or self.panel_visible() or self.runtime._main_window_open():
+            return
+        excerpt = textwrap.shorten(" ".join(str(text).split()), width=236, placeholder="…")
+        if not excerpt:
+            return
+        if self.bubble is None:
+            self.bubble, self.bubble_canvas = self._surface()
+            self.bubble_canvas.bind("<Button-1>", lambda _e: self.open_badge())
+        if self.bubble_close is not None:
+            self.bubble.after_cancel(self.bubble_close)
+        canvas = self.bubble_canvas
+        canvas.delete("message")
+        item = canvas.create_text(16, 11, text=excerpt, width=252, anchor="nw", fill=TEXT,
+                                  font=("Segoe UI", 10), tags="message")
+        bbox = canvas.bbox(item)
+        width, height = min(286, max(119, bbox[2] + 16)), bbox[3] + 11
+        tail = self._position(self.bubble, width, height, speech=True)
+        rounded_panel(canvas, width, height, radius=13, tail=tail)
+        self.bubble.update_idletasks()
+        set_no_activate(self.bubble, True)
+        self.bubble.deiconify()
+        timeout = seconds if seconds is not None else min(12, max(5, len(excerpt) / 24))
+        self.bubble_close = self.bubble.after(round(timeout * 1000), self._expire_bubble)
+
+    def _expire_bubble(self):
+        self.bubble_close = None
+        self.bubble.withdraw()
+
+    def dismiss_bubble(self):
+        if self.bubble is not None:
+            if self.bubble_close is not None:
+                self.bubble.after_cancel(self.bubble_close)
+                self.bubble_close = None
+            self.bubble.withdraw()
 
     def _update_actions(self):
         for widget, shown in ((self.speech_button, self.mascot._state == "speaking"),
@@ -279,13 +413,17 @@ class MascotDock:
         try:
             if not self.runtime.engine.flags.get("mic", True):
                 self._set_notice("Mikrofon kapalı.")
+                self.show_bubble("Mikrofon kapalı.", seconds=3)
             else:
                 if self.runtime.engine.flags.get("sleep"):
                     self.runtime.bridge.sleep(False)
                 accepted = self.runtime.bridge.listen_once()
                 self._set_notice("Dinleme başlatılıyor…" if accepted else "Mikrofon kapalı.")
+                if accepted:
+                    self.show_bubble("Dinliyorum…", seconds=4)
         except ValueError as exc:
             self._set_notice(exc)
+            self.show_bubble(str(exc), seconds=5)
 
     def stop_speech(self):
         self.runtime.bridge.stop_speaking()
@@ -304,13 +442,16 @@ class MascotDock:
         path = filedialog.askopenfilename(parent=self.panel, title="Jarvis için dosya seç")
         if path:
             self.attachment = Path(path)
-            self.attachment_label.configure(text=f"Ek · {self.attachment.name}   (Kaldırmak için tıkla)")
+            self.attachment_label.configure(text=f"{self.attachment.name}  ×")
+            self.attachment_label.pack(fill="x", before=self.composer, pady=(0, 4))
             self.attachment_label.bind("<Button-1>", lambda _e: self.clear_file())
+            self._place_card()
 
     def clear_file(self):
         self.attachment = None
         if self.panel is not None:
-            self.attachment_label.configure(text="")
+            self.attachment_label.pack_forget()
+            self._place_card()
 
     def _run(self, tag, function, callback=None):
         profile = self.runtime._p()
@@ -326,7 +467,7 @@ class MascotDock:
                 result = function()
                 self.local.put((tag, profile.slug, generation, callback, result, None))
             except Exception as exc:  # noqa: BLE001 - background UI action stays recoverable
-                record_failure("modules/mascot_dock.py:" + tag)
+                _record_failure("modules/mascot_dock.py:" + tag)
                 error = str(exc) if isinstance(exc, ValueError) else "İşlem tamamlanamadı."
                 self.local.put((tag, profile.slug, generation, callback, None, error))
             finally:
@@ -419,8 +560,11 @@ class MascotDock:
                 was_active = old in {"running", "queued", "paused", "approval", "question"}
                 new_job = old is None and (job.get("created", 0) or 0) >= self.opened_at
                 if (was_active or new_job) and job.get("state") in TERMINAL | {"approval", "question"} and old != job.get("state"):
-                    self._set_notice("İş güncellendi · " + JOB_STATUS.get(job["state"], "Ayrıntı hazır"))
+                    notice = JOB_STATUS.get(job["state"], "Ayrıntı hazır")
+                    self._set_notice("İş · " + notice)
                     self.badge = "İşler"
+                    if self.mascot._state == "idle" and not self.bubble_visible():
+                        self.show_bubble("İş · " + notice, seconds=5)
                     if job.get("state") == "done":
                         self.mascot.celebrate()
                     break
@@ -494,7 +638,16 @@ class MascotDock:
 
         for widget in self.results.winfo_children():
             widget.destroy()
+        self.back.pack_forget()
         self.status.configure(text=(self.notice or self._status_text())[:120])
+        if self.view == "reply" and not self.last_reply:
+            self.results.pack_forget()
+            self._place_card()
+            return
+        self.results.pack(fill="both", expand=True, before=self.composer, pady=(0, 9))
+        if self.view != "reply":
+            self.back.pack(side="right")
+        self._place_card()
         if self.view == "files":
             if not self.files:
                 self._result_text("Eşleşen dosya bulunamadı.")
@@ -531,11 +684,11 @@ class MascotDock:
             for step, name in downloads[:3]:
                 self._button(self.results, f"Kaydet · {name[:46]}", lambda s=step, n=name: self._download(job, s, n)).pack(fill="x", padx=5)
             return
-        self._result_text(self.last_reply or "Konuşabilir, yazabilir veya bir dosya seçebilirsin.")
+        self._result_text(self.last_reply)
         if self.last_reply:
             strip = tk.Frame(self.results, bg=CARD)
             strip.pack(fill="x", padx=5)
-            self._button(strip, "Kopyala", self.copy_reply).pack(side="left")
+            self._button(strip, "Kopyala", self.copy_reply).pack(side="right")
             for i, url in enumerate(reply_links(self.last_reply)[:3], 1):
                 self._button(strip, f"Kaynak {i}", lambda link=url: self._open_link(link)).pack(side="left", padx=3)
 
@@ -561,8 +714,16 @@ class MascotDock:
                       padx=8, pady=6, font=("Segoe UI", 10), cursor="arrow", takefocus=True,
                       highlightthickness=0)
         scroll = tk.Scrollbar(body, orient="vertical", command=box.yview)
-        box.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
+
+        def scrolled(first, last):
+            scroll.set(first, last)
+            needed = float(first) > 0 or float(last) < 1
+            if needed and not scroll.winfo_manager():
+                scroll.pack(side="right", fill="y", before=box)
+            elif not needed and scroll.winfo_manager():
+                scroll.pack_forget()
+
+        box.configure(yscrollcommand=scrolled, spacing3=3)
         box.pack(side="left", fill="both", expand=True)
         box.insert("1.0", value)
         box.configure(state="disabled")
@@ -588,6 +749,7 @@ class MascotDock:
             self.selected_job = self.job_fingerprints = None
             self.jobs_inflight = self.pending = False
             self.clear_file()
+            self.dismiss_bubble()
             if self.panel is not None:
                 self.entry.delete(0, "end")
                 self.switch("reply")
@@ -653,14 +815,16 @@ class MascotDock:
             self.badge = "Yanıt"
             if rid and rid == self.active_rid:
                 self.active_rid = ""
-            if not self.mascot._hidden and not self.runtime._main_window_open() and self.view == "reply":
-                self.open()
+            self.show_bubble(value)
             self._set_notice("")
         elif kind == "state" and value in STATUS:
             if rid == self.active_rid and value == "idle":
                 self.active_rid = ""
             if not self.active_rid or (value != "idle" and (not rid or rid == self.active_rid)):
                 self._set_notice("")
+            if value != self.shown_state and value in {"listening", "thinking"}:
+                self.show_bubble(STATUS[value] + "…", seconds=5)
+            self.shown_state = value
         elif kind == "step" and rid and rid == self.active_rid:
             self._set_notice(value[:100])
         elif kind == "reconcile":

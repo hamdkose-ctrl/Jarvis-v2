@@ -536,8 +536,8 @@ class MascotWindow:
             elif state == "speaking":
                 self.set_badge("Konuşuyor")
             else:
-                self.set_badge((self.dock.badge if self.dock else "") or (
-                    "Mikrofon kapalı" if not flags.get("mic", True) else ""))
+                badge = self.dock.badge if self.dock and not self.dock.bubble_visible() else ""
+                self.set_badge(badge or ("Mikrofon kapalı" if not flags.get("mic", True) else ""))
         except Exception:  # noqa: BLE001 - a stale UI event must not stop the loop
             _record_failure("modules/mascot_window.py:tick")
         self.window.after(_STATE_POLL_MS, self._tick_state)
@@ -596,7 +596,6 @@ class MascotWindow:
             self._save(mascot_pos=list(pos))
         elif self._drag and self.dock:
             self.dock.listen()
-            self.dock.open()
         self._drag = None
 
     def _menu(self, event) -> None:
@@ -656,8 +655,10 @@ class MascotWindow:
         self._hidden = True
         if self.window is not None:
             self.window.withdraw()
-        if self.dock and self.dock.panel is not None:
-            self.dock.panel.withdraw()
+        if self.dock:
+            self.dock.dismiss_bubble()
+            if self.dock.panel is not None:
+                self.dock.panel.withdraw()
 
     def reset_position(self) -> None:
         pos = reset_position(self.size[0], self.size[1], windows_monitors(self.root))
