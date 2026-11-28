@@ -106,7 +106,9 @@ class Handler(BaseHTTPRequestHandler):
             stored=message_inbox.ingest(owner,body,self.headers.get('X-Hub-Signature-256',''))
             notify=getattr(self.server,'notify',None)
             event_notify=getattr(self.server,'event_notify',None)
-            self._gateway_event(owner,'mesaj',{'kind':'message'})
+            if stored['stored']:  # tekrar gelen yuk yeni olay sayilmaz
+                kinds=[ad for ad in ('messages','deliveries','statuses') if stored.get(ad)]
+                self._gateway_event(owner,'mesaj',{'kind':','.join(kinds)[:40]})
             if event_notify and stored['stored']:
                 try:event_notify(owner, {'source':'whatsapp','kind':'incoming_batch','payload':stored})
                 except Exception:

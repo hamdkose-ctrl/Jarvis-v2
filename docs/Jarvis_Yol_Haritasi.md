@@ -4,7 +4,9 @@
 - **Nasıl:** `modules/webhook_server.py::Handler._gateway_event` yalnız `event`, `source`, `kind` alanlarını yayınlıyor; yük, imza ve sır gönderilmiyor. Olay sahibiyle (`owner=`) teslim ediliyor.
 - **Canlı kabul:** Gerçek sunucu 9899'da açıldı, `kabultest21` için imzalı olay gönderildi → **HTTP 200**, hook tam **1 kez** düştü: `{"event": "inbound", "source": "github", "kind": "push"}`, `owner: kabultest21`. Geçici kullanıcı klasörü silindi.
 - **Ölçülen:** `tests/test_gateway_hook.py` 3/3 OK, `test_observer_hooks` 4/4 OK, mimari denetim OK.
-- **Not:** Faz 2 durum satırı hâlâ 🔄; kapanış kanıt satırı biçimi henüz doğrulanmadı, ayrı iş.
+- **Bağımsız inceleme (alt ajan) bulguları uygulandı:** (1) mesaj yolunda olay artık yalnız gerçekten saklanan yükte yayınlanıyor (tekrar gelen yük olay üretmiyor), (2) test yardımcıyı değil **gerçek sunucuyu** ölçüyor (port 0, imzalı istek → tam 1 olay), (3) totolojik gözlemci testi kaldırıldı.
+- **Kalan dürüst boşluk:** mesaj yolunun "tekrar gelen yük olay üretmez" koruması için otomatik test yok (elle/inceleme ile doğrulandı); backlog'a yazıldı.
+- **Faz 2 durumu:** bu PR durum satırını ✅'ye çekiyor; kanıt satırı yerel denetleyiciden geçti.
 ### 2026-11-28 — T20: hook çift teslim hatası düzeltildi; T19'daki "araç emit'i yok" ölçümü yanlıştı
 
 - **Düzeltme (önce dürüstlük):** T19'da "üretimde `tool` emit'i yok" yazmıştım; ölçüm hatasıydı. Aramayı `hooks.emit` üzerinden yapmıştım, üretim ise `hooks.observe` kullanıyor. Araç olayı `task_worker_adapter` içinde `phase: start/end` olarak zaten yayınlanıyor.
