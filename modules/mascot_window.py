@@ -267,22 +267,6 @@ def preload(directory=None, *, lazy=False) -> dict:
     return {state: loaded.get(clip, []) for state, clip in CLIPS.items()}
 
 
-def frame_memory(frames) -> int:
-    """RGBA karelerin yaklaşık baytı (PIL görüntü boyutundan)."""
-    total = 0
-    for frame in frames:
-        try:
-            total += int(frame.width) * int(frame.height) * 4
-        except (AttributeError, TypeError, ValueError):
-            continue
-    return total
-
-
-def photo_memory(count: int, size) -> int:
-    """Bir durumun Tk fotoğrafları için üst sınır tahmini (RGBA)."""
-    return max(0, int(count)) * max(1, int(size[0])) * max(1, int(size[1])) * 4
-
-
 def available() -> bool:
     """Tk ve Pillow var mı (pencere açmadan)."""
     try:
