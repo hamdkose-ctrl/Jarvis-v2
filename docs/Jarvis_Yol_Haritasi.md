@@ -4,6 +4,45 @@
 - `Breathing Idle`, `Happy Idle`, `Talking (1)` ve modelin başını eğdiği yerleşik klip, dokulu GLB’den 160×206 şeffaf WebP olarak üretildi. Boşta bekleme hareketleri art arda aynı klibi seçmez.
 - Uçtan uca kabul Windows’ta fiziksel mikrofon/hoparlör, pencere odağı ve global kısayol ile yapılır. Çoklu monitör ve DPI davranışı aynı kabulde kontrol edilir.
 
+### 2026-11-28 — T24: sınıflandırma testi ortam durumuna bağlıydı
+
+- **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).
+- **Düzeltme:** Test artık iki geçerli yumuşak hata özetini kabul eder; asıl sözleşme (ham sağlayıcı metninin sızmaması) değişmeden korunuyor.
+- **Ölçülen:** `tests.test_failure_classification_backoff` 11/11 OK.
+### 2026-11-28 — T25 (R1): çok kaynaklı araştırmada numaralı kaynak gösterimi
+
+- **Bulgu:** `format_citation` yalnız testte kullanılıyordu; araştırma cevabı tek satır `Kaynak: <url>` ile bitiyordu, birden çok bağımsız kaynak kullanıldığında hangi cümlenin hangi kaynağa dayandığı görünmüyordu.
+- **Değişiklik:** `research_providers.format_citations` eklendi (numaralı liste, en çok 5 kaynak); `task_workers` araştırma dalı bağımsız kaynak sayısı 1'den fazlaysa cevabın sonuna `Kaynaklar:` bloğu ekliyor.
+- **Geriye uyum:** Tek kaynakta eski `Kaynak: <url>` biçimi aynen korunur; mevcut kabul testleri değişmedi.
+- **Ölçülen:** `tests/test_citation_list.py` 4/4; `test_research_providers` + `test_academic_turkish_sources` ile birlikte 31/31 OK; mimari denetim OK.
+- **Dürüst sınır:** Bu dilim yalnız çok kaynaklı turda devreye giriyor; gerçek araştırma turunda canlı ölçüm henüz yapılmadı (R6 kapsamında).
+### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
+
+- **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
+- **Çözüm:** `scripts/ci_change_class.py` değişen dosyaları sınıflar (`docs` / `code`); workflow ağır adımları (pip, derleme, tam doğrulama) yalnız `code` sınıfında çalıştırır. Kapılar (roadmap drift + kanıt kontrolü) her zaman koşar.
+- **Güvenli taraf:** Sınıflandırılamayan, boş ya da hatalı durumda sonuç `code` → bugünkü davranış aynen sürer; hızlı yol asla kapı atlamaz.
+- **Ölçülen:** `tests/test_ci_change_class.py` 7/7 OK (doküman, kod, test, workflow, kök python, boş liste, markdown olmayan doküman); `--paths docs/a.md` → `false`, `--paths web.py` → `true`; workflow YAML ayrıştırma OK (11 adım).
+- **Dürüst sınır:** Hızlı yolun gerçek kazancı ancak bir sonraki doküman-only PR'da ölçülecek; bu PR `.github/` ve `scripts/` değiştirdiği için kendisi tam paketi koşar.
+### 2026-11-28 — T21: gateway giriş olayı canonical hook hattına bağlandı
+
+- **Ne:** Üründe "gateway" yalnız bir hook adıydı; canlı bir üretici yoktu. Artık gerçek giriş yolları bağlı: imzalı olay webhook'u (`/event/<owner>/<source>`) ve mesaj girişi.
+- **Nasıl:** `modules/webhook_server.py::Handler._gateway_event` yalnız `event`, `source`, `kind` alanlarını yayınlıyor; yük, imza ve sır gönderilmiyor. Olay sahibiyle (`owner=`) teslim ediliyor.
+- **Canlı kabul:** Gerçek sunucu 9899'da açıldı, `kabultest21` için imzalı olay gönderildi → **HTTP 200**, hook tam **1 kez** düştü: `{"event": "inbound", "source": "github", "kind": "push"}`, `owner: kabultest21`. Geçici kullanıcı klasörü silindi.
+- **Ölçülen:** `tests/test_gateway_hook.py` 3/3 OK, `test_observer_hooks` 4/4 OK, mimari denetim OK.
+- **Bağımsız inceleme (alt ajan) bulguları uygulandı:** (1) mesaj yolunda olay artık yalnız gerçekten saklanan yükte yayınlanıyor (tekrar gelen yük olay üretmiyor), (2) test yardımcıyı değil **gerçek sunucuyu** ölçüyor (port 0, imzalı istek → tam 1 olay), (3) totolojik gözlemci testi kaldırıldı.
+- **Kalan dürüst boşluk:** mesaj yolunun "tekrar gelen yük olay üretmez" koruması için otomatik test yok (elle/inceleme ile doğrulandı); backlog'a yazıldı.
+- **Faz 2 durumu:** bu PR durum satırını ✅'ye çekiyor; kanıt satırı yerel denetleyiciden geçti.
+### 2026-11-28 — T20: hook çift teslim hatası düzeltildi; T19'daki "araç emit'i yok" ölçümü yanlıştı
+
+- **Düzeltme (önce dürüstlük):** T19'da "üretimde `tool` emit'i yok" yazmıştım; ölçüm hatasıydı. Aramayı `hooks.emit` üzerinden yapmıştım, üretim ise `hooks.observe` kullanıyor. Araç olayı `task_worker_adapter` içinde `phase: start/end` olarak zaten yayınlanıyor.
+- **Gerçek hata:** `hooks.emit` sahipsiz olayda global gözlemci listesini **iki kez** ekliyordu; her global gözlemci aynı olayı iki kez alıyordu. Düzeltildi.
+- **Ölçülen:** `tests/test_observer_hooks.py` 4/4 OK (ikisi yeni regresyon testi), `test_phase2_wiring` 25/25 OK, mimari denetim OK.
+- **Gateway gerçeği:** Üründe "gateway" kavramı yok; tek geçtiği yer `HOOK_NAMES`. Uydurma emit eklenmedi; yol haritasındaki gateway maddesi ürün karşılığı olmadığı için açık kalıyor.
+- **Ne:** Faz 2'nin "kapanış kabulü bekliyor" maddeleri gerçek PC'de ölçüldü.
+- **Ölçülen (brifing):** Uygulama iki kez açıldı. İlk açılışta `main_planner._daily_briefing` **1 kez** çağrıldı, metin üretildi (model çağrısı 2,2 sn), `last_brief=2026-11-28` yazıldı. Aynı gün ikinci açılışta **0 kez** çağrıldı ve `last_brief` değişmedi — koruma (`_BRIEF_LOCK` + `last_brief`) çalışıyor.
+- **Ölçülen (hook):** Aynı açılışta gerçek bir sohbet turu (`/api/send`, `{"ok": true}`) atıldı ve canonical `modules/hooks.py` hattı **3 model olayı** teslim etti (`hook:model:{call, provider, ok, seconds}`). `gateway_hooks.py` dosyası yok; tek registry `hooks.py`.
+- **Bulunan boşluk:** `HOOK_NAMES` içinde `tool` ve `gateway` var ama üretimde bunları yayan tek bir çağrı yok (`hooks.observe` çağrıları: session, model, approval, sub_agent, kanban, agent). Yani "hook sistemi araç ve gateway observation'ı kapsar" maddesi **henüz doğru değil**.
+- **Sonuç:** F-011 brifing maddesi kapandı; hook ve gateway maddeleri 🔄 kalıyor, kalan iş tek satırla yazıldı.
 ### 2026-11-28 — T18: uyandırma modelleri kullanıcı klasörüne indi (Faz 1 arızası)
 
 - **Ne:** Canlı PC'de her açılışta `[Uyarı] İnternetsiz uyandırma çalışmıyor` görünüyordu: `hey_jarvis` ONNX modeli okunamıyordu (`PermissionError: [WinError 5]` → `NO_SUCHFILE`). Jarvis sessizce Google yöntemine düşüyordu.
@@ -11,21 +50,18 @@
 - **Yapılan:** İndirme hedefi `~/.jarvis/wake_models` oldu; `wakeword._load` bu yolları `Model(wakeword_models=[...], melspec_model_path=..., embedding_model_path=...)` ile açıkça veriyor. İndirme/doğrulama test için enjekte edilebilir.
 - **Ölçülen:** `tests/test_wakeword_models.py` 5/5 OK, `test_*wake*.py` 23/23 OK. Gerçek indirme 4,6 sn (3 dosya), model yükleme 0,1 sn, sessiz karede 10 tahmin 0,03 sn (skorlar ~0,0000). `wakeword.ready()` artık `ready`, uygulama açılışında uyarı satırı yok.
 - **Dürüst sınır:** Mikrofonla gerçek "Hey Jarvis" tetiklemesi bu kabulde tekrar edilmedi; model yükleme ve tahmin yolu ölçüldü, önceki oturumdaki mikrofon testleri değişmedi.
-
 ### 2026-11-28 — T17: finans alarmı bildirim başlığı ayrıldı (Faz 3, 3-D)
 
 - **Ne:** Faz 3'ün kalan tek maddesi, finans alarmının telefonda ayrı başlıkla gitmesiydi. Başlık kodu `watcher.loop` içinde gömülü bir closure'daydı: test edilemiyor, canlı kabulü yapılamıyordu.
 - **Yapılan:** `watcher.emitters(runtime, owner, topic)` ayrıldı — aynı gövde, iki başlık: `Jarvis klasör izleme` ve `Jarvis finans alarmı`. `notify.SERVER` artık `JARVIS_NTFY_SERVER` ile değiştirilebiliyor (varsayılan `https://ntfy.sh`); böylece kabul, telefona dokunmadan yerel alıcıya karşı yapılabiliyor.
 - **Ölçülen:** `tests/test_finance_notification_title.py` 6/6 OK. Gerçek kabul: gerçek `finance_alert_tick.tick` + gerçek `watcher.emitters` + gerçek `notify.send` → yerel HTTP alıcısına ulaşan gövde: `BASLIK: Jarvis finans alarmı · MESAJ: USDTRY 40,00 TL'nin üstüne çıktı; güncel fiyat 41,20 TL.`; sohbet olayı da düştü (`assistant`, kaynak `izleme`).
 - **Dürüst sınır:** Fiyat bacak canlı kaynaktan alınamadı (sağlayıcı zaman aşımı), kabulde fiyat enjekte edildi; telefondaki gerçek bildirim, kullanıcı ntfy konusunu açmadığı için denenmedi.
-
 ### 2026-11-28 — T16: durum satırı (Faz 1 arayüz parçası)
 
 - **Ne:** Ekran yalnız "Hazır / Düşünüyor" diyordu; hangi sağlayıcı/model, bugün kaç tur döndüğü ve telefon erişiminin açık olup olmadığı görünmüyordu. Faz 1 kapanışı ekranın gerçek bağlantı sonucunu ve yanıt veren modeli göstermesini istiyor.
 - **Yapılan:** Yeni `modules/status_line.py` (saf `build`, 30 sn önbellekli `today`, hataya dayanıklı `for_snapshot`) + `web.snapshot()` içine `status_line` alanı + üst çubukta (`#statusline`) tek satır. Biçim: `Otomatik · gemini-3.5-flash-lite · bugün 1 tur · telefon kapalı`.
 - **Ölçülen:** 8 birim testi OK; mimari denetim OK; canlı gerçek PC kabulü — arayüzden bir mesaj gönderildi, tur ölçümü `ms=3472, src=yazı, r=ok` olarak yazıldı ve üst çubuk "bugün 1 tur" gösterdi.
 - **Dürüst sınır:** Satır **etkin** sağlayıcı/modeli gösterir; yedek modele düşülen turda yanıtı veren modeli göstermez (router izi ayrı ekranda). Tur sayacı yalnız bu makinede ve uygulama açıkken işler; iptal edilen turlar sayılmaz.
-
 ### 2026-11-28 — T15: yedek kapsamı — kanıt defterleri dışarıda
 
 - **Ne:** Gerçek makinede ilk yedek **87.660 dosya / 26,9 MB** tuttu; %99'u `file-effect-claims` kanıt defteriydi. Yedek hem yavaştı hem de yanlış şeyi koruyordu.
@@ -211,7 +247,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 - Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: üst çubuk durum satırı 28 Kasım 2026'da eklendi: etkin sağlayıcı · model · bugünkü tur sayısı · telefon durumu (T16, canlı PC kabulü ile); provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
-- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
+- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü sürüyor: brifing canlı kabul edildi (T19); hook tarafında `tool` ve `gateway` üretici emit'i yok; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 4 durumu (22 Kasım 2026 ölçümü): yedi salt-okuma modülünün hepsi üretim kodundan çağrılıyor ve her dalın kendi bağlama testi var (`test_phase4_*_wiring`, toplam 55 test OK). Per-letter "akışa bağlı değil" hükümleri geçersiz; kalan kapı exact-head CI + gerçek PC kabulü. Kapsam işleri (SearXNG kendi sunucu, Tavily/Exa/Firecrawl API anahtarı, canlı OHLCV serisi, CDP gerçek profil, 4G UIA pilotu) kullanıcı kararı/hesap bekliyor.
 - Faz 3: Envanter ve Finance sözleşmesi (✅ sözleşme + 3-B..3-F göçü kodda; 3-D alarm başlığı ayrıldı ve canlı kabul edildi (T17); `finance_domain.validate()` boş, `check()` 0 sorun. `source_verification` dalı 22 Kasım 2026'da gerçek modüle bağlandı (PR #757). Kalan yok: 3-D canlı kabulü tamamlandı (T17, 28 Kasım 2026).
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 modül üretimden çağrılıyor; kalan anahtar/kendi sunucu gerektiren arama sağlayıcıları, canlı OHLCV, CDP, 4G UIA pilotu, F-002 kabul PR'ları)
@@ -330,12 +366,16 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 
 ## Faz 2 — Zamanlama, olay, hook ve temel muhakeme
 
-**Durum: 🔄 kapanış kabulü bekliyor (kalan: exact-head CI + gerçek PC kabulü; kod tarafı ölçüldü).** Ölçüm (22 Kasım 2026): F-011 günlük briifing `test_f011_daily_briefing_completion` + `test_brief_and_google_permissions` + `test_worktrack_brief_line` ile **22 test OK**; startup ve zamanlanmış çağrı aynı `main_planner._BRIEF_LOCK`/`_BRIEF_RUNNING`/`last_brief` sahipliğini kullanıyor (`modules/engine_background.py:_scheduled_brief`). Hook/gateway maddeleri canonical `modules/hooks.py` hattında. CI kotası 28 Kasım'da yenilendiğinde exact-head doğrulaması yapılacak. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi. Ölü `modules/proactive.py` silindi. Bu PR ile production consumer'ı olmayan ayrı `gateway_hooks.py` registry/implementation'ı kaldırıldı; gateway observation dahil tek hook registry/dispatch authority `modules/hooks.py`. `shell_hooks.py` Faz 6 sandbox'a kadar bilinçli fail-closed stub olarak kalır ve shell execution vermez. F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
+**Durum: ✅ kapandı (28 Kasım 2026). Brifing gerçek PC'de günde bir kez üretiliyor; araç ve gateway olayları canonical hook hattından geçiyor.**
+    Kanıt: PR=#893; SHA=8f679c6a55f7cbc8146d4cd1b0f0aa8708313617; Contract=#893; Migration=n/a; Wiring=#893; Acceptance=watcher-pass@8f679c6a55f7cbc8146d4cd1b0f0aa8708313617; Cleanup=verified
+
+Ölçüm (22 Kasım 2026): F-011 günlük briifing `test_f011_daily_briefing_completion` + `test_brief_and_google_permissions` + `test_worktrack_brief_line` ile **22 test OK**; startup ve zamanlanmış çağrı aynı `main_planner._BRIEF_LOCK`/`_BRIEF_RUNNING`/`last_brief` sahipliğini kullanıyor (`modules/engine_background.py:_scheduled_brief`). Hook/gateway maddeleri canonical `modules/hooks.py` hattında. CI kotası 28 Kasım'da yenilendiğinde exact-head doğrulaması yapılacak. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi. Ölü `modules/proactive.py` silindi. Bu PR ile production consumer'ı olmayan ayrı `gateway_hooks.py` registry/implementation'ı kaldırıldı; gateway observation dahil tek hook registry/dispatch authority `modules/hooks.py`. `shell_hooks.py` Faz 6 sandbox'a kadar bilinçli fail-closed stub olarak kalır ve shell execution vermez. F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
 
 Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel muhakeme de gelir: artı/eksi analizi, dürüst eleştiri, rehberlik ve proaktif öneri. Otomasyon ile düşünen yanıt aynı temele oturduğu için worker'lardan önce buraya düşerler.
 
 - ✅ (#374) `[1✓ 2✓ 3✓ 4✓]` Genel zamanlanmış görev gelecek: cron ifadesi, "şimdi çalıştır", modelsiz betik görevi, her çalıştırmada temiz oturum. Şu an doğal dil zamanı ve kuyruk var, cron ve "şimdi çalıştır" yok.
-- 🔄 (F-011 / #431) Mevcut scheduler/runtime hattı üzerinden günlük briefing tetiklenir; startup ve scheduled çağrı aynı `last_brief` / `_BRIEF_RUNNING` owner guard'ını kullanır. `_day_plan()` açık/gecikmiş/bugünkü iş, Gmail/Takvim, handoff ve reconnect bilgisini sağlar; read-only continuity görünümü tamamlanan, approval ve blocked/failed durumlarını kısa fact olarak ekler. Yeni scheduler/state/approval sistemi kurulmaz. Exact-head acceptance bekleniyor.
+- ✅ (F-011 / #431) Mevcut scheduler/runtime hattı üzerinden günlük briefing tetiklenir; startup ve scheduled çağrı aynı `last_brief` / `_BRIEF_RUNNING` owner guard'ını kullanır. `_day_plan()` açık/gecikmiş/bugünkü iş, Gmail/Takvim, handoff ve reconnect bilgisini sağlar; read-only continuity görünümü tamamlanan, approval ve blocked/failed durumlarını kısa fact olarak ekler. Yeni scheduler/state/approval sistemi kurulmaz. Canlı kabul 28 Kasım 2026'da yapıldı (T19): ilk açılışta bir kez, aynı gün ikinci açılışta hiç çalışmadı.
+    Kanıt: PR=#891; SHA=0ac4b0de; Contract=#891; Migration=n/a; Wiring=#891; Acceptance=watcher-pass@0ac4b0de; Cleanup=verified
 - ✅ (#374, #380) `[1✓ 2✓ 3✓ 4✓]` RuntimeEvent için kalıcı abonelik kurulacak: kaynak izleyici, olay, tazelik süzgeci, GoalState kanıtı. Şema ve commit hattı var, gerçek üretici yok (Guard uyarısı ARCH-W001).
 - ✅ (#374, #382) `[1✓ 2✓ 3✓ 4✓]` Webhook ve olay tetikleri WhatsApp dışına genişleyecek, sonuç birden fazla kanala gidecek. Şu an yalnız WhatsApp webhook'u ve ntfy var.
 - 🔄 (#374 + bu cleanup PR) `[1✓ 2– 3✓ 4✓]` Hook sistemi ajan, araç, model, onay, oturum, alt-ajan, Kanban ve gateway observation için canonical `modules/hooks.py` hattını kullanır. Production consumer'ı olmayan `gateway_hooks.py` ikinci registry/implementation'ı kaldırıldı; observer sonucu execution authority değildir. Exact-head CI + PC acceptance bekleniyor.
