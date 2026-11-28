@@ -6,7 +6,11 @@ gösterip göstermeme kararı çağıranın (mevcut bildirim sahibi) işidir.
 Kurallar:
 - Varsayılan **kapalı** (`watch_enabled`).
 - Sessiz saatler (22:00–08:00) haber üretmez.
-- Aynı olay tekrar bildirilmez (parmak izi) ve 10 dakikada en fazla 1 bildirim.
+- Aynı olay tekrar bildirilmez (parmak izi). Bir tikte en fazla `MAX_PER_TICK` (1)
+  aday döner; bu bir **hız sınırı değildir**. Farklı olaylar farklı tiklerde hemen
+  bildirilir: zaman-kritik takvim uyarısı ("5 dakika sonra toplantı") bekleme
+  süresi yüzünden gecikmemeli. (Önceki belge "10 dakikada 1" diyordu; kod bunu
+  hiç uygulamıyordu, uygulamak da takvim uyarısını geciktirirdi.)
 - Bilinmeyen/okunamayan durum sessizce atlanır; uydurma haber yok.
 """
 from __future__ import annotations

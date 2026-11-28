@@ -47,6 +47,22 @@ def dispatch(context, command, normalized):
     from modules import brain_entry, brain_precedence
     owner, session = context.profile.slug, context.session
 
+    sohbet_gecmisi = re.fullmatch(
+        r"\s*(?:sohbet\s+)?geçmişi(?:ni)?\s+(?:temizle|sıfırla|sil)[\s.!]*", normalized)
+    if sohbet_gecmisi:
+        from modules import llm
+        # `llm.reset_history` şimdiye kadar hiçbir yerden çağrılmıyordu: kullanıcının
+        # konuşma hafızasını sıfırlama yolu yoktu.
+        llm.reset_history(owner)
+        return 'Sohbet geçmişini temizledim; bundan sonra konuşma sıfırdan başlıyor.'
+    gozlem = re.fullmatch(
+        r"\s*(?:ne\s+görüyorsun|ne\s+goruyorsun|gözlemin\s+ne|gozlemin\s+ne|"
+        r"gözlem\s+raporu|gozlem\s+raporu|durum\s+raporu)[\s.!?]*", normalized)
+    if gozlem:
+        from modules import pc_autonomy_queue
+        # "Ne görüyorsun?" sorusunun cevabı gözlem katmanının gerçekten bildiği
+        # şeylerdir; rapor sormak gelecekteki bildirimleri yutmaz.
+        return pc_autonomy_queue.observation_report()
     if brain_precedence.explicit_desktop_owner_protocol(command):
         from modules import canonical_desktop_frontdoor, desktop_agent
         # Karar 2 Aşama C: a new physical task or a physical effect approval

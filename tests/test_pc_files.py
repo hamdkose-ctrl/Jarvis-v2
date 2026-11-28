@@ -43,6 +43,22 @@ class Confirmation(unittest.TestCase):
         self.assertEqual(hotkey.call_args[0], ("ctrl", "s"))
         self.assertIn(result["status"], ("no_change", "done"))
 
+    def test_onaylayinca_bekleyen_kayit_gercekten_yapilir(self):
+        with patch.object(pc_files.pc_hands.pc_awareness, "find_window",
+                          lambda q: {"match": {"title": "Not Defteri", "hwnd": 1}, "reason": ""}), \
+             patch.object(pc_files.pc_hands, "_focus", return_value=True), \
+             patch.object(pc_files.pc_hands, "_paste", return_value=True), \
+             patch("pyautogui.hotkey") as hotkey, patch("pyautogui.press"):
+            pc_files.save_as("not defteri", "onay.txt")
+            sonuc = pc_files.pc_hands.confirm_pending()
+        self.assertEqual(hotkey.call_args[0], ("ctrl", "s"))
+        self.assertIn(sonuc["status"], ("no_change", "done"))
+
+    def test_bekleyen_yoksa_kaydetme_onayi_da_yok(self):
+        pc_files.pc_hands._pending.clear()
+        sonuc = pc_files.pc_hands.confirm_pending()
+        self.assertEqual(sonuc["status"], "none")
+
 
 class Verification(unittest.TestCase):
     def test_existing_file_is_confirmed_from_disk(self):

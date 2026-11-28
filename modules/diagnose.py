@@ -151,6 +151,34 @@ def check_phone() -> dict | None:
     return _item("Telefon bağlantısı", "warn", "Tailscale kapalı", "Sağ alttaki Tailscale simgesinden bağlan.")
 
 
+def check_watch() -> dict | None:
+    """Uyanıklık (gözlem) gerçekten açık mı, sessiz saat ne, kaç olay hatırlanıyor?
+
+    Teşhis panelinde bu satır yoktu: kullanıcı "neden hiç haber vermiyor?"
+    sorusunun cevabını göremiyordu (varsayılan kapalı).
+    """
+    try:
+        from config import load_settings
+        from modules import awareness_watch, pc_autonomy_queue
+        settings = load_settings() or {}
+    except Exception:       # noqa: BLE001
+        _record_failure('modules/diagnose.py:check_watch')
+        return None
+    if not awareness_watch.enabled(settings):
+        return _item("Uyanıklık", "warn", "kapalı",
+                     "Bir şey olduğunda haber vermesini istersen uyanıklığı aç")
+    start, end = awareness_watch.quiet_bounds(settings)
+    seen = len(pc_autonomy_queue._SEEN)
+    detail = f"açık · sessiz saat {start:02d}:00–{end:02d}:00 · {seen} olay hatırlanıyor"
+    last = pc_autonomy_queue.announce_state()
+    if last.get("at"):
+        stamp = time.strftime("%d.%m %H:%M", time.localtime(float(last["at"])))
+        detail += f" · son bildirim {stamp}"
+    else:
+        detail += " · henüz bildirim yok"
+    return _item("Uyanıklık", "ok", detail)
+
+
 def check_wake() -> dict | None:
     try:
         import config
@@ -189,10 +217,10 @@ def check_resources() -> list[dict]:
 def run(speak_flag: bool | None = None, user_slug: str | None = None) -> list[dict]:
     """Bütün kontrolleri aynı anda çalıştırır (en fazla ~15 sn)."""
     jobs = [check_internet, lambda: check_ai(user_slug), check_microphone, lambda: check_speaker(speak_flag), check_google,
-            check_outlook, check_phone, check_wake]
+            check_outlook, check_phone, check_wake, check_watch]
     results: list[dict | None] = [None] * len(jobs)
     names = ["İnternet", "Yapay zeka", "Mikrofon", "Hoparlör / konuşma", "Gmail ve Takvim", "İş maili (Outlook)",
-             "Telefon bağlantısı", "İnternetsiz uyandırma"]
+             "Telefon bağlantısı", "İnternetsiz uyandırma", "Uyanıklık"]
     # 'with' kullanılmıyor: with bloğu çıkarken takılan kontrolü sonuna kadar bekliyordu ve tarama donuyordu.
     ex = cf.ThreadPoolExecutor(max_workers=len(jobs))
     futs = {ex.submit(f): i for i, f in enumerate(jobs)}

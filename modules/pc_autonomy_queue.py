@@ -138,7 +138,52 @@ def foreground_window() -> str:
         return ""
 
 
-def watch_tick(runtime=None, *, hour=None) -> list[dict]:
+def observation_report(settings=None, *, hour=None) -> str:
+    """"Şu an ne görüyorsun?" sorusunun tek satırlık cevabı.
+
+    Gözlem katmanının gerçekten bildiği şeyleri yazar; bilmediğini uydurmaz.
+    Bildirim üretmez, `_SEEN` durumuna dokunmaz: rapor sormak gelecekteki
+    bildirimleri yutmaz.
+    """
+    if settings is None:
+        try:
+            from config import load_settings
+            settings = load_settings() or {}
+        except Exception:       # noqa: BLE001
+            _record_failure('modules/pc_autonomy_queue.py:observation_report')
+            settings = {}
+    from modules import awareness_watch
+    parts: list[str] = []
+    if awareness_watch.enabled(settings):
+        start, end = awareness_watch.quiet_bounds(settings)
+        parts.append(f"uyanıklık açık (sessiz {start:02d}:00–{end:02d}:00)")
+    else:
+        parts.append("uyanıklık kapalı")
+    state: dict = {}
+    try:
+        state.update(_inbox_and_calendar())
+    except Exception:       # noqa: BLE001
+        _record_failure('modules/pc_autonomy_queue.py:observation_report:mail')
+    unread = state.get("unread_mail")
+    if isinstance(unread, int) and unread > 0:
+        parts.append(f"{unread} okunmamış mail")
+    minutes = state.get("next_event_minutes")
+    if isinstance(minutes, (int, float)):
+        parts.append(f"sıradaki iş {int(minutes)} dakika sonra")
+    last = _LAST_SPOKEN
+    if last.get("at"):
+        parts.append("son bildirim " + time.strftime("%H:%M", time.localtime(float(last["at"]))))
+    else:
+        parts.append("henüz bildirim yok")
+    return " · ".join(parts)
+
+
+def announce_state() -> dict:
+    """Son gerçekten söylenen uyanıklık bildirimi (teşhis için); yoksa boş sözlük."""
+    return dict(_LAST_SPOKEN)
+
+
+def watch_tick(runtime=None, *, hour=None, now=None) -> list[dict]:
     """Uyanıklık (A8): kapalıysa hiç aday üretmez; adaylar yalnız günlüğe yazılır.
 
     `hour` yalnız testler içindir: duvar saatine bağlı testler CI'da farklı saatte
@@ -163,17 +208,21 @@ def watch_tick(runtime=None, *, hour=None) -> list[dict]:
     # Ses açık, ama **gereksiz bilgi yok** (kullanıcı isteği 26 Kasım): pencere değişimi
     # gibi zaten gözünün önünde olan şeyler konuşulmaz; yalnız günlüğe yazılır.
     speak_windows = _truthy(settings.get("watch_window_notice"))
+    global _LAST_SPOKEN
     for item in items:
         if runtime is not None and hasattr(runtime, "log"):
             runtime.log.info("uyanıklık: %s", item["text"])
         if item.get("kind") == "window" and not speak_windows:
             continue
         _announce(item["text"])
+        _LAST_SPOKEN = {"text": str(item["text"])[:160],
+                        "at": time.time() if now is None else float(now)}
     awareness_watch.mark_seen(items, _SEEN)
     return items
 
 
 _SEEN: set[str] = set()
+_LAST_SPOKEN: dict = {}
 
 
 def _truthy(value) -> bool:
