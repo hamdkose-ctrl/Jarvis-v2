@@ -19,6 +19,9 @@ class CheckpointTests(unittest.TestCase):
         heavy = self.data / "models"
         heavy.mkdir()
         (heavy / "buyuk.bin").write_bytes(b"x" * 2048)
+        claims = self.data / "file-effect-claims"
+        claims.mkdir()
+        (claims / "kanit.json").write_text("{}", encoding="utf-8")
         p = patch.object(checkpoint, "_data", return_value=self.data)
         p.start(); self.addCleanup(p.stop)
         p = patch.object(checkpoint, "_git_sha", return_value="abc1234")
@@ -34,6 +37,7 @@ class CheckpointTests(unittest.TestCase):
         self.assertIn("users/hamdi.json", names)
         self.assertIn("settings.json", names)
         self.assertNotIn("models/buyuk.bin", names)
+        self.assertNotIn("file-effect-claims/kanit.json", names)
         self.assertEqual(manifest["commit"], "abc1234")
 
     def test_restore_extracts_to_a_side_folder_and_leaves_live_data_alone(self):

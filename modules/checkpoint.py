@@ -30,10 +30,11 @@ from modules.diagnostics import record_failure as _record_failure
 ROOT = Path(__file__).resolve().parents[1]
 KEEP = 5
 MAX_FILE = 25 * 1024 * 1024          # tek dosya üst sınırı: 25 MB
-_FOLDERS = ('users', 'goals', 'router', 'permission_audit', 'file-effect-claims', 'kb', 'uploads', 'sandbox')
+_FOLDERS = ('users', 'goals', 'router', 'permission_audit', 'kb', 'uploads')
 _FILES = ('settings.json', 'config.json', 'prefs.json', 'phone_token.txt')
 _SKIP_DIRS = {'webprofile', 'models', 'voice_models', 'turn_models', 'checkpoint', 'checkpoint_geri',
-              'kota', 'tur', 'validation-cache', 'update_backup', 'yerel_yedek', '__pycache__'}
+              'kota', 'tur', 'validation-cache', 'update_backup', 'yerel_yedek', '__pycache__',
+              'file-effect-claims', 'browser-session-claims', 'interactive-claims', 'sandbox'}
 
 
 def _data() -> Path:
