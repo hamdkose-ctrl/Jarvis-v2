@@ -145,6 +145,38 @@ def apply_patch(
     }
 
 
+def create_pptx_with_consent(
+    destination: str | Path,
+    slides: list[dict],
+    *,
+    consent: bool,
+    allowed_root: str | Path | None = None,
+    writer=None,
+) -> dict:
+    """PPTX üretimini açık izinle ve izinli klasörde yapar.
+
+    `consent` tam olarak True değilse dosya oluşturulmaz; hedef
+    `allowed_root` (varsayılan: kullanıcı ev dizini) altında olmalı.
+    """
+    if consent is not True:
+        raise FileWorkerExtensionError("PPTX üretimi için açık yazma izni gerekli.")
+    hedef = Path(destination)
+    kok = Path(allowed_root) if allowed_root is not None else Path.home()
+    try:
+        izinli = kok.resolve(strict=True)
+        cozulen = hedef.parent.resolve(strict=True) / hedef.name
+    except OSError as exc:
+        raise FileWorkerExtensionError("PPTX hedefi çözümlenemedi.") from exc
+    if izinli not in cozulen.parents:
+        raise FileWorkerExtensionError("Yazma izni verilen klasörün dışında.")
+    sonuc = create_pptx(str(cozulen), slides, writer=writer)
+    try:
+        ozet = hashlib.sha256(cozulen.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise FileWorkerExtensionError("Oluşan dosya okunamadı.") from exc
+    return {**sonuc, "path": str(cozulen), "digest": ozet}
+
+
 def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
     if not isinstance(destination, str) or not destination.strip() or not isinstance(slides, list) or not slides:
         raise ValueError("PPTX hedefi ve en az bir slayt gerekli.")
