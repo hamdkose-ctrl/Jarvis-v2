@@ -500,8 +500,12 @@ class MascotWindow:
         if _STOP.is_set() or self._current_photo is None:
             return False
         from modules.mascot_dock import MascotDock
+        from modules import mascot_audio_meter
 
         self.dock = MascotDock(self)
+        # Keep samples across speaking clip boundaries, not across mascot lifetime.
+        mascot_audio_meter.enable(not self._reduced_motion
+                                  and (ASSET_DIR / "konusma.jclip").is_file())
         if self._hidden:
             self.window.withdraw()
         self._apply_click_through()
@@ -804,6 +808,9 @@ class MascotWindow:
         if self._closed:
             return
         self._closed = True
+        from modules import mascot_audio_meter
+
+        mascot_audio_meter.enable(False)
         self._cancel_frame()
         self._release_clip()
         if self.dock:

@@ -41,4 +41,4 @@ class HybridFaceTests(unittest.TestCase):
                 self.assertFalse(changed.any())
             finally:
                 stream.close()
-            self.assertEqual(mascot_audio_meter.aperture(), 0.0)
+            self.assertEqual(len(stream), 0)

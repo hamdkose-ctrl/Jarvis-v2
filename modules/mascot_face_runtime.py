@@ -62,7 +62,6 @@ class HybridFrameStream:
         self.size = tuple(size)
         self.first_only = first_only
         self.started = time.monotonic()
-        mascot_audio_meter.enable(not first_only)
 
     def __len__(self):
         return self.count
@@ -98,6 +97,5 @@ class HybridFrameStream:
         return body
 
     def close(self):
-        mascot_audio_meter.enable(False)
         self.archive.close()
         self.count = 0
