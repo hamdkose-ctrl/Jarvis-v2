@@ -295,6 +295,15 @@ def confirm_pending(*, abort=None) -> dict:
     _pending.clear()
     if time.time() - asked_at > PENDING_SECS:
         return {"status": "expired", "text": EXPIRED}
+    if isinstance(action, dict) and action.get("kind") == "save":
+        # Kaydetme onayı buraya düşüyordu ama sahipsizdi: "onaylıyorum" sonrası
+        # hiçbir şey olmuyordu. Bekleyen sandbox kaydını gerçekten yürütüyoruz.
+        from modules import pc_files
+        # _pending burada zaten temizlendi; confirm_save tekrar bekleyen aramasın
+        # diye kaydı doğrudan yürütüyoruz.
+        return pc_files.save_as(str(action.get('window') or ''),
+                                 str(action.get('path') or '').rsplit(chr(92), 1)[-1],
+                                 confirm=True, abort=abort)
     if isinstance(action, dict) and action.get("kind") == "point":
         return click_point(action["x"], action["y"], confirm=True, abort=abort)
     return _run(action, confirm=True, abort=abort)
