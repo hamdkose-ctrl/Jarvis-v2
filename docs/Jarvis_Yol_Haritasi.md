@@ -1,4 +1,9 @@
-### 2026-11-28 — T13: tur ölçümü (süre + sonuç, metin yok)
+### 2026-11-28 — T14: geri dönüş noktası (veri yedeği + kuru prova ile geri alma)
+
+- **Ne:** Jarvis'in verisi (kullanıcılar, notlar, ayarlar, hedefler, bilgi tabanı) bozulduğunda geri dönülecek bir nokta yoktu; git yalnız kodu koruyordu.
+- **Yapılan:** `modules/checkpoint.py`: `~/.jarvis` verisini tek zip'e alır (tarayıcı profili ve modeller bilerek dışarıda). `restore()` canlı veriye dokunmadan ayrı klasöre açar; `--uygula` ile üzerine yazar. Açılışta `maybe_daily()` günde bir yedek alır (arka plan, en yeni 5 yedek). Komut satırı: `python -X utf8 -m modules.checkpoint`.
+- **Ölçülen:** `tests.test_checkpoint` **8 OK**; gerçek makine smoke'unda 1 dosyalık yedek 350 bayt, commit bilgisi manifestte. Canlı veride 543 MB tarayıcı profili ve 464 MB model yedeğe **girmiyor**. Architecture Guard OK.
+- **Dürüst sınır:** Yedek yalnız açılışta denenir (Jarvis kapalıyken alınmaz). Geri yüklemenin ekranda düğmesi yok; şimdilik komut satırı. Kod geri alma git'te ve güncelleme yedeğinde.### 2026-11-28 — T13: tur ölçümü (süre + sonuç, metin yok)
 
 - **Ne:** "Jarvis ne kadar sürdü, kaç tur, kaçı hata" sorusunun yazılı cevabı yoktu; süreler yalnız dağınık `runtime.log.info` satırlarında duruyordu. Artık her tur kayıtlı: isteğin alındığı an ile yanıtın yazıldığı an arasındaki süre, kaynak (yazı/ses/fotoğraf) ve sonuç.
 - **Yapılan:** `modules/turn_metrics.py` (kullanıcıya özel `~/.jarvis/tur/<kullanıcı>.jsonl`, 2 MB'ta arşiv, 14 gün saklama, ölçüm hatası turu etkilemez, **mesaj metni yazılmaz**). Bağlantı: `modules/engine_output.py` içindeki tek olay noktası (`user` → başlat, `assistant` → bitir) ve `modules/command_manager.py` admin zinciri. `bugün kaç tur` / `tur ölçümü` komutu modele gitmeden özet verir.
