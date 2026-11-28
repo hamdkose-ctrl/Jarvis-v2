@@ -72,8 +72,6 @@ def _set(state: str, err: str = "") -> None:
 def _load() -> None:
     global _model
     try:
-        import openwakeword
-        import openwakeword.utils
         from openwakeword.model import Model
     except Exception as e:      # noqa: BLE001
         _record_failure('modules/wakeword.py:_load')
@@ -81,10 +79,15 @@ def _load() -> None:
                        f"({type(e).__name__}: {e})")
         return
     prepared = ""
+    options = {}
+    target = "hey_jarvis"
     try:
         try:
             from modules.wakeword_models import ensure_models
-            ensure_models()
+            paths = ensure_models()
+            target = paths["hey_jarvis"]
+            options = {"melspec_model_path": paths["melspectrogram"],
+                       "embedding_model_path": paths["embedding"]}
         except Exception as e:       # noqa: BLE001
             _record_failure('modules/wakeword.py:_load')
             # Yok sayılan bu neden daha önce yalnız "dinleyici başlatılamadı" olarak
@@ -93,7 +96,7 @@ def _load() -> None:
             # yüzden neden ancak Model de kurulamazsa gösterilir. Anahtar, token ya
             # da kullanıcı metni bu metnin parçası değildir.
             prepared = f"Model hazırlanamadı ({type(e).__name__}: {str(e)[:120]}). "
-        _model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+        _model = Model(wakeword_models=[target], inference_framework="onnx", **options)
         _set("ready")
     except Exception as e:      # noqa: BLE001
         _record_failure('modules/wakeword.py:_load')
