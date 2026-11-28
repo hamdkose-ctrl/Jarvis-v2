@@ -3,12 +3,19 @@
 - **Bulgu:** `test_ask_image_soft_failure_does_not_leak_raw_provider_text` yalnız "kota" metnini kabul ediyordu; CI runner'ında ollama meşgulken üretilen geçerli "kapasite dolu" özeti testi kırdı (#895 kırmızısı, değişiklikle ilgisiz).
 - **Düzeltme:** Test artık iki geçerli yumuşak hata özetini kabul eder; asıl sözleşme (ham sağlayıcı metninin sızmaması) değişmeden korunuyor.
 - **Ölçülen:** `tests.test_failure_classification_backoff` 11/11 OK.
+### 2026-11-28 — T25 (R1): çok kaynaklı araştırmada numaralı kaynak gösterimi
+
+- **Bulgu:** `format_citation` yalnız testte kullanılıyordu; araştırma cevabı tek satır `Kaynak: <url>` ile bitiyordu, birden çok bağımsız kaynak kullanıldığında hangi cümlenin hangi kaynağa dayandığı görünmüyordu.
+- **Değişiklik:** `research_providers.format_citations` eklendi (numaralı liste, en çok 5 kaynak); `task_workers` araştırma dalı bağımsız kaynak sayısı 1'den fazlaysa cevabın sonuna `Kaynaklar:` bloğu ekliyor.
+- **Geriye uyum:** Tek kaynakta eski `Kaynak: <url>` biçimi aynen korunur; mevcut kabul testleri değişmedi.
+- **Ölçülen:** `tests/test_citation_list.py` 4/4; `test_research_providers` + `test_academic_turkish_sources` ile birlikte 31/31 OK; mimari denetim OK.
+- **Dürüst sınır:** Bu dilim yalnız çok kaynaklı turda devreye giriyor; gerçek araştırma turunda canlı ölçüm henüz yapılmadı (R6 kapsamında).
 ### 2026-11-28 — T26 (R8): telefon açılış hatası artık sessiz değil
 
 - **Bulgu:** `web.py` uygulama açılışında `phone.start()` hatasını yalnız `type(exc).__name__` olarak basıyordu; kullanıcı panelde "telefon kapalı" görüyor, sebebi (Tailscale HTTPS doğrulanmadı) hiç görünmüyordu.
-- **Değişiklik:** `modules/phone.py` içine `note_error`/`last_error` eklendi (son hata, 300 karakter, boşlukları sadeleştirilmiş); `web.py` hatayı kaydedip tam mesajı basıyor; `web_phone.phone_info` sunucu çalışmıyorken kayıtlı sebebi `last_error` olarak panele veriyor.
+- **Değişiklik:** `modules/phone.py` içine `note_error`/`last_error` eklendi (son hata, 300 karakter); `web.py` hatayı kaydedip tam mesajı basıyor; `web_phone.phone_info` sunucu çalışmıyorken kayıtlı sebebi `last_error` olarak panele veriyor.
 - **Ölçülen:** `tests/test_phone_error_visibility.py` 3/3 OK; mimari denetim OK.
-- **Dürüst sınır:** Panelin `last_error` alanını gösteren arayüz etiketi henüz eklenmedi (webui tarafı ayrı dilim); şimdilik API alanı ve konsol mesajı var.
+- **Dürüst sınır:** Panelin `last_error` alanını gösteren arayüz etiketi henüz eklenmedi (webui ayrı dilim).
 ### 2026-11-28 — T22: CI'da hızlı yol (yalnız doküman PR'ı tam paketi koşmaz)
 
 - **Sorun:** Doküman-only PR bile 19 dakikalık tam test paketini koşuyordu; bugün üç kez boşa beklendi.
